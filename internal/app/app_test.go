@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,6 @@ func TestRunHelp(t *testing.T) {
 			assertContains(t, stdout, "version")
 
 			for _, deferred := range []string{
-				"study",
 				"runtime",
 				"summary",
 				"validation",
@@ -80,6 +80,25 @@ func TestRunUnknownCommand(t *testing.T) {
 	}
 	assertContains(t, stderr, `unknown command "definitely-unknown"`)
 	assertContains(t, stderr, "ultraplan --help")
+}
+
+func TestClassifiedErrorPreservesCauseAndCode(t *testing.T) {
+	cause := errors.New("original failure")
+	err := classified(ExitWorkspace, "workspace.discover: %w", cause)
+
+	if !errors.Is(err, cause) {
+		t.Fatalf("classified error did not preserve cause")
+	}
+	var classifiedErr classedError
+	if !errors.As(err, &classifiedErr) {
+		t.Fatalf("classified error type not found")
+	}
+	if classifiedErr.class != ExitWorkspace {
+		t.Fatalf("class = %d, want %d", classifiedErr.class, ExitWorkspace)
+	}
+	if classifiedErr.Code() != "validation.workspace" {
+		t.Fatalf("code = %q, want validation.workspace", classifiedErr.Code())
+	}
 }
 
 func TestInitWorkspaceDryRunAndCreate(t *testing.T) {
@@ -150,6 +169,29 @@ func TestHealthValidAndInvalidWorkspace(t *testing.T) {
 	assertContains(t, stderr, "missing required file: templates/report.md")
 }
 
+func TestHealthEnvironmentSummaryCountsAllKnownOverrides(t *testing.T) {
+	dir := initializedWorkspace(t)
+	stdout, stderr, status := runForTestWithEnv([]string{"--workspace", dir, "health"}, map[string]string{
+		"ULTRAPLAN_WORKSPACE":            dir,
+		"ULTRAPLAN_RUNTIME_DEFAULT":      "opencode",
+		"ULTRAPLAN_MODEL_DEFAULT":        "provider/default",
+		"ULTRAPLAN_MODEL_PRIMARY":        "provider/primary",
+		"ULTRAPLAN_MODEL_BACKUP":         "provider/backup",
+		"ULTRAPLAN_DEFAULT_VARIANT":      "high",
+		"ULTRAPLAN_DEFAULT_PARALLEL":     "4",
+		"ULTRAPLAN_DEFAULT_TIMEOUT":      "45m",
+		"ULTRAPLAN_DEFAULT_RETRIES":      "2",
+		"ULTRAPLAN_LOG_FORMAT":           "json",
+		"ULTRAPLAN_LOG_LEVEL":            "debug",
+		"ULTRAPLAN_AGENTWRAP_EXECUTABLE": "opencode",
+		"ULTRAPLAN_UNKNOWN_NOT_COUNTED":  "ignored",
+	})
+	if status != ExitOK {
+		t.Fatalf("status = %d, stderr = %q", status, stderr)
+	}
+	assertContains(t, stdout, "environment.overrides: ok - 12 ULTRAPLAN_ override(s) present")
+}
+
 func initializedWorkspace(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -161,6 +203,10 @@ func initializedWorkspace(t *testing.T) string {
 }
 
 func runForTest(args []string) (string, string, int) {
+	return runForTestWithEnv(args, nil)
+}
+
+func runForTestWithEnv(args []string, env map[string]string) (string, string, int) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -174,6 +220,7 @@ func runForTest(args []string) (string, string, int) {
 			BuildDate: "2026-05-30",
 			GoVersion: "go-test",
 		},
+		Env: env,
 	})
 
 	return stdout.String(), stderr.String(), status

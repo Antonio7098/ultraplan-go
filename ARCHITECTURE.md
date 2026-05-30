@@ -316,6 +316,31 @@ External process execution
 
 Avoid introducing interfaces for every internal helper. If a function is purely internal to a module and not volatile, keep it concrete.
 
+## Contract Interpretation For Go Sprints
+
+The shared contracts are production standards. Apply them through this Go module architecture rather than literal Python-style package shapes such as `use_cases/ports.py` or `bootstrap.py`.
+
+Current CLI foundation and study-discovery sprints may use concrete local filesystem collaborators when:
+
+```text
+The side effect is local and narrow.
+The package boundary is explicit.
+The behavior is tested through the public CLI or module surface.
+The design does not block later introduction of runtime, persistence, or process-execution ports.
+```
+
+Do not reject current-sprint code only because it lacks a port or registrar. Reject it when a concrete dependency crosses a volatile boundary, hides side effects, makes tests require private mutation, or couples product modules in a way this document does not allow.
+
+The following become mandatory when their capability enters scope:
+
+```text
+Runtime/provider execution: context propagation, cancellation, runtime ports, correlation IDs, retry ownership, bounded provider calls, and cost metadata.
+Batch/run-loop execution: bounded concurrency, durable task state, diagnostics, terminal failure state, and resumability.
+Stable public JSON/release: canonical structured error payloads, stable machine-readable error codes, scenario tests, documented compatibility, and migration/rejection behavior for durable formats.
+```
+
+`study -> workspace` is an allowed dependency for workspace path resolution and safety helpers. It is not a cross-module violation unless `study` starts depending on workspace-owned behavior that knows study semantics or reaches around the exported workspace package API.
+
 ## Final Principle
 
 ```text
