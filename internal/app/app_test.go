@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +80,25 @@ func TestRunUnknownCommand(t *testing.T) {
 	}
 	assertContains(t, stderr, `unknown command "definitely-unknown"`)
 	assertContains(t, stderr, "ultraplan --help")
+}
+
+func TestClassifiedErrorPreservesCauseAndCode(t *testing.T) {
+	cause := errors.New("original failure")
+	err := classified(ExitWorkspace, "workspace.discover: %w", cause)
+
+	if !errors.Is(err, cause) {
+		t.Fatalf("classified error did not preserve cause")
+	}
+	var classifiedErr classedError
+	if !errors.As(err, &classifiedErr) {
+		t.Fatalf("classified error type not found")
+	}
+	if classifiedErr.class != ExitWorkspace {
+		t.Fatalf("class = %d, want %d", classifiedErr.class, ExitWorkspace)
+	}
+	if classifiedErr.Code() != "validation.workspace" {
+		t.Fatalf("code = %q, want validation.workspace", classifiedErr.Code())
+	}
 }
 
 func TestInitWorkspaceDryRunAndCreate(t *testing.T) {

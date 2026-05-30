@@ -38,7 +38,7 @@ func runInitWorkspace(deps dependencies, args []string) error {
 		plan, err = workspace.Init(path)
 	}
 	if err != nil {
-		return classified(ExitWorkspace, "%s", err.Error())
+		return classified(ExitWorkspace, "workspace.init: %w", err)
 	}
 	action := "created"
 	if dryRun {

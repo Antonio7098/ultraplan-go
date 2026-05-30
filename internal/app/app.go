@@ -35,14 +35,37 @@ type Config struct {
 
 type classedError struct {
 	class int
+	code  string
 	err   error
 }
 
 func (e classedError) Error() string { return e.err.Error() }
 func (e classedError) Unwrap() error { return e.err }
+func (e classedError) Code() string  { return e.code }
 
 func classified(class int, format string, args ...any) error {
-	return classedError{class: class, err: fmt.Errorf(format, args...)}
+	return classedError{class: class, code: errorCode(class), err: fmt.Errorf(format, args...)}
+}
+
+func errorCode(class int) string {
+	switch class {
+	case ExitUsage:
+		return "validation.usage"
+	case ExitConfig:
+		return "config.invalid"
+	case ExitWorkspace:
+		return "validation.workspace"
+	case ExitValidation:
+		return "validation.reference"
+	case ExitRuntime:
+		return "provider.runtime"
+	case ExitCancel:
+		return "workflow.cancelled"
+	case ExitPartial:
+		return "workflow.partial"
+	default:
+		return "internal.error"
+	}
 }
 
 func Run(cfg Config) int {
@@ -75,7 +98,7 @@ func Run(cfg Config) int {
 
 	args, global, err := parseGlobalFlags(cfg.Args)
 	if err != nil {
-		return fail(stderr, classified(ExitUsage, "%s", err.Error()))
+		return fail(stderr, classified(ExitUsage, "parse global flags: %w", err))
 	}
 	deps.workspaceFlag = global.workspace
 
@@ -218,7 +241,7 @@ func discoverWorkspace(deps dependencies) (workspace.Root, error) {
 		StartDir:     deps.workDir,
 	})
 	if err != nil {
-		return workspace.Root{}, classified(ExitWorkspace, "%s", err.Error())
+		return workspace.Root{}, classified(ExitWorkspace, "workspace.discover: %w", err)
 	}
 	return root, nil
 }
@@ -239,7 +262,7 @@ func loadEffectiveConfig(root workspace.Root, deps dependencies, cli config.CLIO
 		CLI:           cli,
 	})
 	if err != nil {
-		return config.Effective{}, classified(ExitConfig, "%s", err.Error())
+		return config.Effective{}, classified(ExitConfig, "config.load: %w", err)
 	}
 	return effective, nil
 }

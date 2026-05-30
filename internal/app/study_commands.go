@@ -69,9 +69,9 @@ func runStudy(deps dependencies, args []string) error {
 func mapStudyError(err error) error {
 	var refErr study.RefError
 	if errors.As(err, &refErr) {
-		return classified(ExitValidation, "%s", refErr.Error())
+		return classified(ExitValidation, "study.resolve: %w", err)
 	}
-	return classified(ExitWorkspace, "%s", err.Error())
+	return classified(ExitWorkspace, "study.list: %w", err)
 }
 
 func studyHelp() string {

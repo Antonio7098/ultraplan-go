@@ -79,7 +79,7 @@ func runHealth(deps dependencies, args []string) error {
 		return cfgErr
 	}
 	if !validation.Valid {
-		return classified(ExitValidation, "%s", validation.Issues[0])
+		return classified(ExitValidation, "workspace.validate: %s", validation.Issues[0])
 	}
 	return nil
 }
