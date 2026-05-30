@@ -59,6 +59,27 @@ type LoadOptions struct {
 	CLI           CLIOverrides
 }
 
+type EnvOverride struct {
+	Key   string
+	Field string
+}
+
+func EnvOverrides() []EnvOverride {
+	return []EnvOverride{
+		{Key: "ULTRAPLAN_RUNTIME_DEFAULT", Field: "runtime.default"},
+		{Key: "ULTRAPLAN_MODEL_DEFAULT", Field: "models.default"},
+		{Key: "ULTRAPLAN_MODEL_PRIMARY", Field: "models.primary"},
+		{Key: "ULTRAPLAN_MODEL_BACKUP", Field: "models.backup"},
+		{Key: "ULTRAPLAN_DEFAULT_VARIANT", Field: "execution.default_variant"},
+		{Key: "ULTRAPLAN_DEFAULT_PARALLEL", Field: "execution.default_parallel"},
+		{Key: "ULTRAPLAN_DEFAULT_TIMEOUT", Field: "execution.default_timeout"},
+		{Key: "ULTRAPLAN_DEFAULT_RETRIES", Field: "execution.default_retries"},
+		{Key: "ULTRAPLAN_LOG_FORMAT", Field: "logging.format"},
+		{Key: "ULTRAPLAN_LOG_LEVEL", Field: "logging.level"},
+		{Key: "ULTRAPLAN_AGENTWRAP_EXECUTABLE", Field: "agentwrap.executable"},
+	}
+}
+
 func Load(opts LoadOptions) (Effective, error) {
 	e := Effective{Config: Defaults(), Sources: map[string]string{}}
 	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.required_health"} {
@@ -150,22 +171,10 @@ func applyEnv(e *Effective, env func(string) string) {
 	if env == nil {
 		return
 	}
-	for key, field := range map[string]string{
-		"ULTRAPLAN_RUNTIME_DEFAULT":      "runtime.default",
-		"ULTRAPLAN_MODEL_DEFAULT":        "models.default",
-		"ULTRAPLAN_MODEL_PRIMARY":        "models.primary",
-		"ULTRAPLAN_MODEL_BACKUP":         "models.backup",
-		"ULTRAPLAN_DEFAULT_VARIANT":      "execution.default_variant",
-		"ULTRAPLAN_DEFAULT_PARALLEL":     "execution.default_parallel",
-		"ULTRAPLAN_DEFAULT_TIMEOUT":      "execution.default_timeout",
-		"ULTRAPLAN_DEFAULT_RETRIES":      "execution.default_retries",
-		"ULTRAPLAN_LOG_FORMAT":           "logging.format",
-		"ULTRAPLAN_LOG_LEVEL":            "logging.level",
-		"ULTRAPLAN_AGENTWRAP_EXECUTABLE": "agentwrap.executable",
-	} {
-		if value := env(key); value != "" {
-			_ = setField(&e.Config, field, value)
-			e.Sources[field] = "env"
+	for _, override := range EnvOverrides() {
+		if value := env(override.Key); value != "" {
+			_ = setField(&e.Config, override.Field, value)
+			e.Sources[override.Field] = "env"
 		}
 	}
 }

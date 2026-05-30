@@ -87,7 +87,11 @@ func runHealth(deps dependencies, args []string) error {
 func envSummary(deps dependencies) string {
 	env := envLookup(deps.env)
 	count := 0
-	for _, key := range []string{"ULTRAPLAN_WORKSPACE", "ULTRAPLAN_RUNTIME_DEFAULT", "ULTRAPLAN_MODEL_DEFAULT", "ULTRAPLAN_LOG_FORMAT", "ULTRAPLAN_LOG_LEVEL"} {
+	keys := []string{"ULTRAPLAN_WORKSPACE"}
+	for _, override := range config.EnvOverrides() {
+		keys = append(keys, override.Key)
+	}
+	for _, key := range keys {
 		if env(key) != "" {
 			count++
 		}
