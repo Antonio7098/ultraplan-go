@@ -35,7 +35,6 @@ func TestRunHelp(t *testing.T) {
 			assertContains(t, stdout, "version")
 
 			for _, deferred := range []string{
-				"study",
 				"runtime",
 				"summary",
 				"validation",

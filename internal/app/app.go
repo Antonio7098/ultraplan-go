@@ -94,6 +94,8 @@ func Run(cfg Config) int {
 		return failOrOK(stderr, runConfig(deps, args[1:]))
 	case "health":
 		return failOrOK(stderr, runHealth(deps, args[1:]))
+	case "study":
+		return failOrOK(stderr, runStudy(deps, args[1:]))
 	default:
 		return fail(stderr, classified(ExitUsage, "unknown command %q\n\nRun 'ultraplan --help' to see available commands.", args[0]))
 	}
@@ -173,6 +175,7 @@ Commands:
   init-workspace   Initialize an UltraPlan workspace.
   config           Inspect effective configuration.
   health           Check workspace, config, filesystem, and environment basics.
+  study            Inspect studies, sources, and dimensions.
   version          Print build metadata.
 
 Flags:
