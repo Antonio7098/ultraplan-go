@@ -149,6 +149,16 @@ func TestConfigShowJSONRedactsAndUsesWorkspace(t *testing.T) {
 	}
 }
 
+func TestConfigShowTextIncludesRequiredHealth(t *testing.T) {
+	dir := initializedWorkspace(t)
+	stdout, stderr, status := runForTest([]string{"--workspace", dir, "config", "show"})
+	if status != ExitOK {
+		t.Fatalf("status = %d, stderr = %q", status, stderr)
+	}
+	assertContains(t, stdout, "agentwrap.executable: opencode")
+	assertContains(t, stdout, "agentwrap.required_health: runtime_available, structured_output, workdir")
+}
+
 func TestHealthValidAndInvalidWorkspace(t *testing.T) {
 	dir := initializedWorkspace(t)
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "health"})

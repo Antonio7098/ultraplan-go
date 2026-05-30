@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
 	"ultraplan-go/internal/platform/config"
 )
@@ -54,6 +55,7 @@ func runConfig(deps dependencies, args []string) error {
 	fmt.Fprintf(deps.stdout, "logging.format: %s\n", redacted.Logging.Format)
 	fmt.Fprintf(deps.stdout, "logging.level: %s\n", redacted.Logging.Level)
 	fmt.Fprintf(deps.stdout, "agentwrap.executable: %s\n", redacted.Agentwrap.Executable)
+	fmt.Fprintf(deps.stdout, "agentwrap.required_health: %s\n", strings.Join(redacted.Agentwrap.RequiredHealth, ", "))
 	return nil
 }
 
