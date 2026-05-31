@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,4 +72,37 @@ func TestStudyStatusMissingAndMalformedStateAreDistinct(t *testing.T) {
 	}
 	assertContains(t, stderr, "run state malformed")
 	assertContains(t, stderr, path)
+}
+
+func TestStudyStatusUnsupportedStateIsDistinct(t *testing.T) {
+	dir := initializedWorkspace(t)
+	studyRoot := filepath.Join(dir, "studies", "platform")
+	mkdirAll(t, studyRoot, "sources", "repo")
+	writeFixtureFile(t, studyRoot, "dimensions", "01-structure.md")
+	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
+	path := filepath.Join(studyRoot, ".ultraplan", "run-state.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"schema_version": 999,
+		"run_id":         "run-fixed",
+		"study":          "platform",
+		"created_at":     now,
+		"updated_at":     now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, stderr, status := runForTest([]string{"--workspace", dir, "study", "platform", "status"})
+	if status != ExitValidation {
+		t.Fatalf("status = %d stderr = %q", status, stderr)
+	}
+	assertContains(t, stderr, "run state unsupported")
+	assertContains(t, stderr, path)
+	assertContains(t, stderr, "schema_version 999")
 }

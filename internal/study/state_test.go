@@ -108,9 +108,9 @@ func TestSaveRunStateRenameFailurePreservesPriorState(t *testing.T) {
 		t.Fatal(err)
 	}
 	state.RunID = "second"
-	runStateWriteHooks.BeforeRename = func(path string) error { return errors.New("injected failure") }
-	err = SaveRunState(sample, state)
-	runStateWriteHooks.BeforeRename = nil
+	err = saveRunStateWithHooks(sample, state, atomicWriteHooks{
+		BeforeRename: func(path string) error { return errors.New("injected failure") },
+	})
 	if err == nil {
 		t.Fatal("expected injected failure")
 	}
@@ -143,6 +143,36 @@ func TestResumeValidateRunStateResetsAndRevalidates(t *testing.T) {
 	}
 	if state.Tasks[1].Status != TaskStatusFailed || state.Tasks[1].Validation == nil {
 		t.Fatalf("synthesis completed task should fail missing final report validation: %#v", state.Tasks[1])
+	}
+}
+
+func TestResumeValidateRunStateKeepsValidCompletedOutputs(t *testing.T) {
+	root, sample := testStudyRoot(t)
+	source := Source{Name: "repo", Kind: SourceKindDirectory, Path: filepath.Join(sample.Path, "sources", "repo")}
+	dimension := Dimension{Number: "01", Slug: "structure"}
+	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
+	state, err := NewRunState(NewRunStateRequest{WorkspaceRoot: root, Study: sample, Sources: []Source{source}, Dimensions: []Dimension{dimension}, RunID: "fixed", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range state.Tasks {
+		state.Tasks[i].Status = TaskStatusCompleted
+	}
+	writeStateTestReport(t, SourceReportPath(sample, source, dimension), true)
+	writeStateTestReport(t, FinalReportPath(sample), false)
+
+	ResumeValidateRunState(&state, sample, []Source{source}, []Dimension{dimension}, now.Add(time.Hour))
+
+	for _, task := range state.Tasks {
+		if task.Status != TaskStatusCompleted {
+			t.Fatalf("task %s status = %s, want completed", task.ID, task.Status)
+		}
+		if task.Validation == nil || task.Validation.Status != ValidationStatusPassed {
+			t.Fatalf("task %s validation = %#v, want passed", task.ID, task.Validation)
+		}
+	}
+	if !state.Complete {
+		t.Fatal("state complete = false, want true")
 	}
 }
 

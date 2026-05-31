@@ -20,8 +20,6 @@ type atomicWriteHooks struct {
 	BeforeRename func(path string) error
 }
 
-var runStateWriteHooks atomicWriteHooks
-
 func LoadRunState(study Study) (RunState, error) {
 	path := RunStatePath(study)
 	content, err := os.ReadFile(path)
@@ -42,6 +40,10 @@ func LoadRunState(study Study) (RunState, error) {
 }
 
 func SaveRunState(study Study, state RunState) error {
+	return saveRunStateWithHooks(study, state, atomicWriteHooks{})
+}
+
+func saveRunStateWithHooks(study Study, state RunState, hooks atomicWriteHooks) error {
 	path := RunStatePath(study)
 	state.UpdatedAt = time.Now().UTC()
 	if err := ValidateRunState(state, path); err != nil {
@@ -77,8 +79,8 @@ func SaveRunState(study Study, state RunState) error {
 	if err := temp.Close(); err != nil {
 		return fmt.Errorf("close temporary run state %s: %w", tempPath, err)
 	}
-	if runStateWriteHooks.BeforeRename != nil {
-		if err := runStateWriteHooks.BeforeRename(path); err != nil {
+	if hooks.BeforeRename != nil {
+		if err := hooks.BeforeRename(path); err != nil {
 			return fmt.Errorf("prepare run state rename %s: %w", path, err)
 		}
 	}
