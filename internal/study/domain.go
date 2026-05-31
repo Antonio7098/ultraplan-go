@@ -6,6 +6,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+)
+
+const (
+	RunStateSchemaVersion = 1
+	RunStateDirName       = ".ultraplan"
+	RunStateFileName      = "run-state.json"
 )
 
 type Study struct {
@@ -41,6 +48,46 @@ type Dimension struct {
 	File                 string
 	Path                 string
 	DisableCodeCitations bool
+}
+
+type PromptKind string
+
+const (
+	PromptKindDirectoryAnalysis PromptKind = "directory_analysis"
+	PromptKindMarkdownAnalysis  PromptKind = "markdown_analysis"
+	PromptKindSynthesis         PromptKind = "synthesis"
+)
+
+type PromptRequest struct {
+	WorkspaceRoot string
+	Study         Study
+	Dimension     Dimension
+	Source        Source
+}
+
+type PromptManifest struct {
+	Kind               PromptKind          `json:"kind"`
+	Study              string              `json:"study"`
+	Dimension          string              `json:"dimension"`
+	Source             string              `json:"source,omitempty"`
+	SourceKind         SourceKind          `json:"source_kind,omitempty"`
+	Templates          []string            `json:"templates"`
+	DimensionPath      string              `json:"dimension_path"`
+	InputDocumentPath  string              `json:"input_document_path,omitempty"`
+	InputReportPaths   []string            `json:"input_report_paths,omitempty"`
+	SourceReports      []SourceReportInput `json:"source_reports,omitempty"`
+	ExpectedOutputPath string              `json:"expected_output_path"`
+}
+
+type SourceReportInput struct {
+	Source     string     `json:"source"`
+	SourceKind SourceKind `json:"source_kind"`
+	Path       string     `json:"path"`
+}
+
+type PromptResult struct {
+	Text     string
+	Manifest PromptManifest
 }
 
 type ValidationStatus string
@@ -93,6 +140,123 @@ type RatingResult struct {
 	Score  int         `json:"score,omitempty"`
 	Raw    string      `json:"raw,omitempty"`
 	Reason string      `json:"reason,omitempty"`
+}
+
+type TaskKind string
+
+const (
+	TaskKindAnalysis  TaskKind = "analysis"
+	TaskKindSynthesis TaskKind = "synthesis"
+)
+
+type TaskStatus string
+
+const (
+	TaskStatusPending    TaskStatus = "pending"
+	TaskStatusRunning    TaskStatus = "running"
+	TaskStatusValidating TaskStatus = "validating"
+	TaskStatusCompleted  TaskStatus = "completed"
+	TaskStatusFailed     TaskStatus = "failed"
+	TaskStatusCancelled  TaskStatus = "cancelled"
+	TaskStatusSkipped    TaskStatus = "skipped"
+	TaskStatusWaiting    TaskStatus = "waiting"
+	TaskStatusRetrying   TaskStatus = "retrying"
+)
+
+type RunState struct {
+	SchemaVersion int           `json:"schema_version"`
+	RunID         string        `json:"run_id"`
+	Study         string        `json:"study"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
+	Filters       RunFilters    `json:"filters"`
+	Config        ConfigSummary `json:"config_summary"`
+	Tasks         []TaskState   `json:"tasks"`
+	Complete      bool          `json:"complete"`
+}
+
+type RunFilters struct {
+	Dimensions []string `json:"dimensions,omitempty"`
+	Sources    []string `json:"sources,omitempty"`
+}
+
+type ConfigSummary struct {
+	Runtime          string `json:"runtime,omitempty"`
+	Model            string `json:"model,omitempty"`
+	Variant          string `json:"variant,omitempty"`
+	DefaultParallel  int    `json:"default_parallel,omitempty"`
+	DefaultTimeout   string `json:"default_timeout,omitempty"`
+	DefaultRetries   int    `json:"default_retries,omitempty"`
+	WorkspaceVersion string `json:"workspace_version,omitempty"`
+}
+
+type TaskState struct {
+	ID           string                `json:"id"`
+	Kind         TaskKind              `json:"kind"`
+	Status       TaskStatus            `json:"status"`
+	Study        string                `json:"study"`
+	Dimension    string                `json:"dimension,omitempty"`
+	DimensionRef string                `json:"dimension_ref,omitempty"`
+	Source       string                `json:"source,omitempty"`
+	SourceKind   SourceKind            `json:"source_kind,omitempty"`
+	OutputPath   string                `json:"output_path"`
+	Attempts     int                   `json:"attempts"`
+	CreatedAt    time.Time             `json:"created_at"`
+	UpdatedAt    time.Time             `json:"updated_at"`
+	StartedAt    *time.Time            `json:"started_at,omitempty"`
+	CompletedAt  *time.Time            `json:"completed_at,omitempty"`
+	RetryAfter   *time.Time            `json:"retry_after,omitempty"`
+	LastError    *TaskError            `json:"last_error,omitempty"`
+	Validation   *ValidationSummary    `json:"validation,omitempty"`
+	Agent        AgentMetadata         `json:"agent,omitempty"`
+	Dependencies []SynthesisDependency `json:"dependencies,omitempty"`
+}
+
+type TaskError struct {
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message"`
+	Path    string `json:"path,omitempty"`
+}
+
+type ValidationSummary struct {
+	Status       ValidationStatus `json:"status"`
+	CheckedAt    time.Time        `json:"checked_at"`
+	Path         string           `json:"path"`
+	PassedChecks int              `json:"passed_checks"`
+	FailedChecks int              `json:"failed_checks"`
+	Message      string           `json:"message,omitempty"`
+}
+
+type AgentMetadata struct {
+	Runtime string `json:"runtime,omitempty"`
+	RunID   string `json:"run_id,omitempty"`
+	Model   string `json:"model,omitempty"`
+}
+
+type SynthesisDependency struct {
+	TaskID     string     `json:"task_id"`
+	Source     string     `json:"source"`
+	SourceKind SourceKind `json:"source_kind"`
+	ReportPath string     `json:"report_path"`
+}
+
+type StatusSummary struct {
+	Total       int
+	Pending     int
+	Running     int
+	Validating  int
+	Completed   int
+	Failed      int
+	Cancelled   int
+	Skipped     int
+	Waiting     int
+	Retrying    int
+	Active      int
+	RetryCount  int
+	NextRetryAt *time.Time
+	Complete    bool
+	StatePath   string
+	RunID       string
 }
 
 func (d Dimension) Ref() string {
