@@ -37,7 +37,9 @@ func TestStudyDetailListsSourcesDimensionsAndKind(t *testing.T) {
 	studyRoot := filepath.Join(dir, "studies", "platform")
 	mkdirAll(t, studyRoot, "sources", "zeta", "nested")
 	mkdirAll(t, studyRoot, "sources", "alpha")
-	writeFixtureFile(t, studyRoot, "sources", "document.md")
+	writeFixtureFileContent(t, studyRoot, "# Body\n", "sources", "document.md")
+	writeFixtureFileContent(t, studyRoot, "---\napplicable_dimensions: [2, \"01\"]\n---\n# Body\n", "sources", "filtered.md")
+	writeFixtureFileContent(t, studyRoot, "# Nested\n", "sources", "zeta", "nested", "ignored.md")
 	writeFixtureFile(t, studyRoot, "sources", "zeta", "nested", "ignored.txt")
 	writeFixtureFile(t, studyRoot, "dimensions", "02-runtime.md")
 	writeFixtureFile(t, studyRoot, "dimensions", "01-structure.md")
@@ -48,10 +50,26 @@ func TestStudyDetailListsSourcesDimensionsAndKind(t *testing.T) {
 		t.Fatalf("status = %d, stderr = %q stdout = %q", status, stderr, stdout)
 	}
 	assertContains(t, stdout, "Study: platform")
-	assertInOrder(t, stdout, "  alpha directory\n", "  zeta directory\n")
+	assertInOrder(t, stdout, "  alpha directory\n", "  document.md markdown all\n")
+	assertInOrder(t, stdout, "  document.md markdown all\n", "  filtered.md markdown 01,02\n")
+	assertInOrder(t, stdout, "  filtered.md markdown 01,02\n", "  zeta directory\n")
 	assertInOrder(t, stdout, "  01 structure 01-structure.md\n", "  02 runtime 02-runtime.md\n")
-	assertNotContains(t, stdout, "document.md")
+	assertNotContains(t, stdout, "ignored.md")
 	assertNotContains(t, stdout, "ignored.txt")
+}
+
+func TestStudyDetailInvalidMarkdownApplicabilityFailsWithContext(t *testing.T) {
+	dir := initializedWorkspace(t)
+	studyRoot := filepath.Join(dir, "studies", "platform")
+	writeFixtureFileContent(t, studyRoot, "---\napplicable_dimensions: [later]\n---\n# Body\n", "sources", "bad.md")
+
+	stdout, stderr, status := runForTest([]string{"--workspace", dir, "study", "platform", "list"})
+	if status != ExitWorkspace {
+		t.Fatalf("status = %d, stdout = %q stderr = %q", status, stdout, stderr)
+	}
+	assertContains(t, stderr, filepath.Join(studyRoot, "sources", "bad.md"))
+	assertContains(t, stderr, `"later"`)
+	assertContains(t, stderr, "invalid applicable dimension")
 }
 
 func TestStudyDetailMissingAndAmbiguousStudyRefsAreActionable(t *testing.T) {
@@ -83,11 +101,16 @@ func mkdirAll(t *testing.T, base string, rel ...string) {
 
 func writeFixtureFile(t *testing.T, base string, rel ...string) {
 	t.Helper()
+	writeFixtureFileContent(t, base, "test", rel...)
+}
+
+func writeFixtureFileContent(t *testing.T, base, content string, rel ...string) {
+	t.Helper()
 	path := filepath.Join(append([]string{base}, rel...)...)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("test"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

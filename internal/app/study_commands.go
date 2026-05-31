@@ -58,6 +58,14 @@ func runStudy(deps dependencies, args []string) error {
 			fmt.Fprintln(deps.stdout, "  (none)")
 		}
 		for _, source := range listing.Sources {
+			if source.Kind == study.SourceKindMarkdown {
+				applicability := "all"
+				if len(source.ApplicableDimensions) > 0 {
+					applicability = strings.Join(source.ApplicableDimensions, ",")
+				}
+				fmt.Fprintf(deps.stdout, "  %s %s %s\n", source.Name, source.Kind, applicability)
+				continue
+			}
 			fmt.Fprintf(deps.stdout, "  %s %s\n", source.Name, source.Kind)
 		}
 		fmt.Fprintln(deps.stdout, "Dimensions:")
@@ -130,7 +138,7 @@ func runStudyInit(deps dependencies, root string, args []string) error {
 	switch {
 	case errors.As(err, &partial):
 		for _, failure := range partial.Failures {
-			fmt.Fprintf(deps.stderr, "clone failed for %s: %v\n", failure.Action.Name, failure.Err)
+			fmt.Fprintf(deps.stderr, "clone failed for %s [%s]: %v\n", failure.Action.Name, failure.Code, failure.Err)
 		}
 		return classified(ExitPartial, "study.init: %w", err)
 	case errors.Is(err, study.ErrInitValidation):

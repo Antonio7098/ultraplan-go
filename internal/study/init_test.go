@@ -99,6 +99,44 @@ func TestInitValidationFailuresAreActionable(t *testing.T) {
 	}
 }
 
+func TestInitValidationFailuresRemainStructured(t *testing.T) {
+	root := t.TempDir()
+	input := writeInitYAML(t, root, "name: bad name\n")
+
+	_, err := Init(InitRequest{WorkspaceRoot: root, InputPath: input, DryRun: true})
+	if !errors.Is(err, ErrInitValidation) {
+		t.Fatalf("err = %v, want ErrInitValidation", err)
+	}
+	var validationErr InitValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("err = %T, want InitValidationError", err)
+	}
+	if len(validationErr.Problems) < 2 {
+		t.Fatalf("Problems = %+v, want multiple distinct problems", validationErr.Problems)
+	}
+	for _, problem := range validationErr.Problems {
+		if problem.Code == "" || problem.Message == "" {
+			t.Fatalf("problem missing code or message: %+v", problem)
+		}
+	}
+}
+
+func TestRedactGitOutputRemovesCredentialsAndBoundsOutput(t *testing.T) {
+	secret := "https://user:token@example.com/repo.git"
+	output := secret + "\n" + string(make([]byte, 5000))
+
+	redacted := redactGitOutput(output)
+	if contains(redacted, "user:token") {
+		t.Fatalf("redacted output leaked credentials: %q", redacted)
+	}
+	if !contains(redacted, "[redacted]@example.com") {
+		t.Fatalf("redacted output = %q, want redacted URL", redacted)
+	}
+	if len(redacted) > 4120 {
+		t.Fatalf("redacted output length = %d, want bounded output", len(redacted))
+	}
+}
+
 func TestInitOutputPathSafetyOverwriteAndForce(t *testing.T) {
 	root := t.TempDir()
 	input := writeInitYAML(t, root, validInitYAML())

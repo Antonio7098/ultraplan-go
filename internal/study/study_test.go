@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -43,13 +44,15 @@ func TestDiscoverStudiesIsSortedAndIgnoresHiddenAndFiles(t *testing.T) {
 	assertStrings(t, got, want)
 }
 
-func TestDiscoverSourcesIsSortedShallowAndDirectoryOnly(t *testing.T) {
+func TestDiscoverSourcesIsSortedShallowAndIncludesMarkdown(t *testing.T) {
 	root := t.TempDir()
 	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
 	mkdir(t, study.Path, "sources", "zeta", "nested-repo")
 	mkdir(t, study.Path, "sources", "alpha")
 	mkdir(t, study.Path, "sources", ".hidden")
-	writeFile(t, study.Path, "sources", "document.md")
+	writeFileContent(t, study.Path, "---\napplicable_dimensions: [3, \"01\", 3]\ntitle: Example\n---\n# Body\n", "sources", "document.md")
+	writeFileContent(t, study.Path, "# Applies to all\n", "sources", "all.md")
+	writeFile(t, study.Path, "sources", "notes.txt")
 	writeFile(t, study.Path, "sources", "zeta", "nested-repo", "README.md")
 
 	sources, err := DiscoverSources(study)
@@ -57,13 +60,81 @@ func TestDiscoverSourcesIsSortedShallowAndDirectoryOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sourceNames(sources)
-	want := []string{"alpha", "zeta"}
+	want := []string{"all.md", "alpha", "document.md", "zeta"}
 	assertStrings(t, got, want)
-	for _, source := range sources {
-		if source.Kind != SourceKindDirectory {
-			t.Fatalf("source kind = %q, want %q", source.Kind, SourceKindDirectory)
-		}
+	if sources[0].Kind != SourceKindMarkdown || len(sources[0].ApplicableDimensions) != 0 {
+		t.Fatalf("all.md = %+v, want unfiltered markdown", sources[0])
 	}
+	if sources[1].Kind != SourceKindDirectory {
+		t.Fatalf("alpha kind = %q, want %q", sources[1].Kind, SourceKindDirectory)
+	}
+	if sources[2].Kind != SourceKindMarkdown {
+		t.Fatalf("document.md kind = %q, want %q", sources[2].Kind, SourceKindMarkdown)
+	}
+	assertStrings(t, sources[2].ApplicableDimensions, []string{"01", "03"})
+	if sources[2].Frontmatter["title"] != "Example" {
+		t.Fatalf("frontmatter title = %#v", sources[2].Frontmatter["title"])
+	}
+}
+
+func TestMarkdownFrontmatterParsingAndStripping(t *testing.T) {
+	content := "---\napplicable_dimensions:\n  - 2\n  - \"01\"\n  - 02\nname: docs\n---\n# Body\n---\nnot metadata\n"
+	frontmatter, applicable, err := parseFrontmatter(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frontmatter["name"] != "docs" {
+		t.Fatalf("frontmatter name = %#v", frontmatter["name"])
+	}
+	assertStrings(t, applicable, []string{"01", "02"})
+	if got := stripFrontmatter(content); got != "# Body\n---\nnot metadata\n" {
+		t.Fatalf("stripFrontmatter = %q", got)
+	}
+
+	noFrontmatter := "# Body\n---\nexample\n"
+	frontmatter, applicable, err = parseFrontmatter(noFrontmatter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frontmatter != nil || applicable != nil {
+		t.Fatalf("parseFrontmatter without leading block = %#v %#v", frontmatter, applicable)
+	}
+	if got := stripFrontmatter(noFrontmatter); got != noFrontmatter {
+		t.Fatalf("stripFrontmatter changed non-frontmatter content: %q", got)
+	}
+
+	if _, _, err := parseFrontmatter("---\napplicable_dimensions: [1]\n"); err == nil {
+		t.Fatal("parseFrontmatter returned nil error for unterminated frontmatter")
+	}
+}
+
+func TestDiscoverSourcesReportsInvalidApplicabilityWithPathAndValue(t *testing.T) {
+	root := t.TempDir()
+	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
+	sourcePath := filepath.Join(study.Path, "sources", "bad.md")
+	writeFileContent(t, study.Path, "---\napplicable_dimensions: [bad]\n---\n# Body\n", "sources", "bad.md")
+
+	_, err := DiscoverSources(study)
+	if err == nil {
+		t.Fatal("DiscoverSources returned nil error")
+	}
+	if !errors.Is(err, errInvalidApplicableDimension) {
+		t.Fatalf("err = %v, want invalid applicable dimension cause", err)
+	}
+	if !strings.Contains(err.Error(), sourcePath) || !strings.Contains(err.Error(), `"bad"`) {
+		t.Fatalf("err = %v, want path and offending value", err)
+	}
+}
+
+func TestGetApplicableSourcesPreservesOrderAndFiltersMarkdown(t *testing.T) {
+	sources := []Source{
+		{Name: "repo", Kind: SourceKindDirectory},
+		{Name: "all.md", Kind: SourceKindMarkdown},
+		{Name: "only-two.md", Kind: SourceKindMarkdown, ApplicableDimensions: []string{"02"}},
+		{Name: "only-one.md", Kind: SourceKindMarkdown, ApplicableDimensions: []string{"01"}},
+	}
+	got := GetApplicableSources(sources, Dimension{Number: "02"})
+	assertStrings(t, sourceNames(got), []string{"repo", "all.md", "only-two.md"})
 }
 
 func TestDiscoverDimensionsIsSortedAndFilenameDerived(t *testing.T) {
@@ -201,11 +272,16 @@ func mkdir(t *testing.T, base string, rel ...string) {
 
 func writeFile(t *testing.T, base string, rel ...string) {
 	t.Helper()
+	writeFileContent(t, base, "test", rel...)
+}
+
+func writeFileContent(t *testing.T, base, content string, rel ...string) {
+	t.Helper()
 	path := filepath.Join(append([]string{base}, rel...)...)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("test"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

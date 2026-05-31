@@ -103,10 +103,31 @@ func TestStudyInitClonePartialFailureExitMapping(t *testing.T) {
 	}
 	assertContains(t, stdout, "Initialized study: cli-study")
 	assertContains(t, stderr, "clone failed for repo")
+	assertContains(t, stderr, "provider.git.clone_failed")
 	assertContains(t, stderr, "study init partial")
 	if _, err := os.Stat(filepath.Join(dir, "studies", "cli-study", "README.md")); err != nil {
 		t.Fatalf("README missing after partial clone: %v", err)
 	}
+}
+
+func TestStudyInitClonePartialFailureRedactsGitOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable script is POSIX-specific")
+	}
+	dir := initializedWorkspace(t)
+	input := writeAppInitYAML(t, dir)
+	bin := filepath.Join(t.TempDir(), "git")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf 'fatal: could not read https://user:token@example.com/repo.git' >&2\nexit 42\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, stderr, status := runForTest([]string{"--workspace", dir, "study", "init", input})
+	if status != ExitPartial {
+		t.Fatalf("status = %d stderr = %q", status, stderr)
+	}
+	assertContains(t, stderr, "[redacted]@example.com")
+	assertNotContains(t, stderr, "user:token")
 }
 
 func writeAppInitYAML(t *testing.T, dir string) string {

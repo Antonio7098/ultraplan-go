@@ -36,22 +36,51 @@ func DiscoverStudies(root string) ([]Study, error) {
 }
 
 func DiscoverSources(study Study) ([]Source, error) {
-	entries, err := readOptionalDir(filepath.Join(study.Path, "sources"))
+	sourcesDir := filepath.Join(study.Path, "sources")
+	entries, err := readOptionalDir(sourcesDir)
 	if err != nil {
 		return nil, fmt.Errorf("read sources for study %q: %w", study.Name, err)
 	}
 	var sources []Source
 	for _, entry := range entries {
-		if isHidden(entry.Name()) || !entry.IsDir() {
+		if isHidden(entry.Name()) {
 			continue
 		}
+		sourcePath := filepath.Join(sourcesDir, entry.Name())
+		if entry.IsDir() {
+			sources = append(sources, Source{
+				Name: entry.Name(),
+				Kind: SourceKindDirectory,
+				Path: sourcePath,
+			})
+			continue
+		}
+		if strings.ToLower(filepath.Ext(entry.Name())) != ".md" {
+			continue
+		}
+		content, err := os.ReadFile(sourcePath)
+		if err != nil {
+			return nil, fmt.Errorf("read source %s: %w", sourcePath, err)
+		}
+		frontmatter, applicable, err := parseFrontmatter(string(content))
+		if err != nil {
+			return nil, fmt.Errorf("parse source %s metadata: %w", sourcePath, err)
+		}
 		sources = append(sources, Source{
-			Name: entry.Name(),
-			Kind: SourceKindDirectory,
-			Path: filepath.Join(study.Path, "sources", entry.Name()),
+			Name:                 entry.Name(),
+			Kind:                 SourceKindMarkdown,
+			Path:                 sourcePath,
+			ApplicableDimensions: applicable,
+			Frontmatter:          frontmatter,
 		})
 	}
 	sort.Slice(sources, func(i, j int) bool {
+		if sources[i].Name == sources[j].Name {
+			if sources[i].Kind == sources[j].Kind {
+				return sources[i].Path < sources[j].Path
+			}
+			return sources[i].Kind < sources[j].Kind
+		}
 		return sources[i].Name < sources[j].Name
 	})
 	return sources, nil

@@ -48,6 +48,30 @@ type initDefinition struct {
 	Dimensions  []InitDimension
 }
 
+type InitValidationProblem struct {
+	Code    string
+	Field   string
+	Message string
+}
+
+type InitValidationError struct {
+	Problems []InitValidationProblem
+}
+
+func (e InitValidationError) Error() string {
+	messages := make([]string, 0, len(e.Problems))
+	for _, problem := range e.Problems {
+		if problem.Field == "" {
+			messages = append(messages, problem.Message)
+			continue
+		}
+		messages = append(messages, problem.Field+" "+problem.Message)
+	}
+	return fmt.Sprintf("%v: %s", ErrInitValidation, strings.Join(messages, "; "))
+}
+
+func (e InitValidationError) Unwrap() error { return ErrInitValidation }
+
 type InitSource struct {
 	Name        string
 	URL         string
@@ -86,23 +110,23 @@ func parseInitYAML(path string) (initDefinition, error) {
 }
 
 func normalizeInit(raw initYAML) (initDefinition, error) {
-	var problems []string
+	var problems []InitValidationProblem
 	requireField(&problems, "name", raw.Name)
 	requireField(&problems, "description", raw.Description)
 	if raw.Name != "" && !isSafeName(raw.Name) {
-		problems = append(problems, "name must be filesystem-safe")
+		addProblem(&problems, "validation.name", "name", "must be filesystem-safe")
 	}
 	if raw.Repos.Count < len(raw.Repos.Items) {
-		problems = append(problems, "repos.count cannot be less than explicit repos.items")
+		addProblem(&problems, "validation.count", "repos.count", "cannot be less than explicit repos.items")
 	}
 	if raw.Repos.Count > len(raw.Repos.Items) {
-		problems = append(problems, "repos.count is greater than repos.items; assisted completion is deferred, provide explicit repo items")
+		addProblem(&problems, "validation.count", "repos.count", "is greater than repos.items; assisted completion is deferred, provide explicit repo items")
 	}
 	if raw.Dimensions.Count < len(raw.Dimensions.Items) {
-		problems = append(problems, "dimensions.count cannot be less than explicit dimensions.items")
+		addProblem(&problems, "validation.count", "dimensions.count", "cannot be less than explicit dimensions.items")
 	}
 	if raw.Dimensions.Count > len(raw.Dimensions.Items) {
-		problems = append(problems, "dimensions.count is greater than dimensions.items; assisted completion is deferred, provide explicit dimension items")
+		addProblem(&problems, "validation.count", "dimensions.count", "is greater than dimensions.items; assisted completion is deferred, provide explicit dimension items")
 	}
 
 	sources := make([]InitSource, 0, len(raw.Repos.Items))
@@ -112,16 +136,16 @@ func normalizeInit(raw initYAML) (initDefinition, error) {
 		requireField(&problems, prefix+".name", item.Name)
 		requireField(&problems, prefix+".description", item.Description)
 		if item.URL == "" && item.Path == "" {
-			problems = append(problems, prefix+".url or "+prefix+".path is required")
+			addProblem(&problems, "validation.required", prefix+".url", "or "+prefix+".path is required")
 		}
 		if item.Path != "" && !isSafeRelativePath(item.Path) {
-			problems = append(problems, prefix+".path must be a safe relative path")
+			addProblem(&problems, "validation.path", prefix+".path", "must be a safe relative path")
 		}
 		if item.Name != "" && !isSafeName(item.Name) {
-			problems = append(problems, prefix+".name must be filesystem-safe")
+			addProblem(&problems, "validation.name", prefix+".name", "must be filesystem-safe")
 		}
 		if item.Name != "" && sourceNames[item.Name] {
-			problems = append(problems, prefix+".name duplicates source "+item.Name)
+			addProblem(&problems, "validation.duplicate", prefix+".name", "duplicates source "+item.Name)
 		}
 		sourceNames[item.Name] = true
 		sources = append(sources, InitSource{Name: item.Name, URL: item.URL, Path: item.Path, Description: item.Description})
@@ -142,17 +166,17 @@ func normalizeInit(raw initYAML) (initDefinition, error) {
 		requireList(&problems, prefix+".questions", item.Questions)
 		number, ok := normalizeDimensionNumber(item.Number)
 		if item.Number != "" && !ok {
-			problems = append(problems, prefix+".number must be a positive number")
+			addProblem(&problems, "validation.number", prefix+".number", "must be a positive number")
 		}
 		slug := normalizeSlug(item.Name)
 		if item.Name != "" && slug == "" {
-			problems = append(problems, prefix+".name must produce a filesystem-safe slug")
+			addProblem(&problems, "validation.name", prefix+".name", "must produce a filesystem-safe slug")
 		}
 		if number != "" && dimensionNumbers[number] {
-			problems = append(problems, prefix+".number duplicates dimension "+number)
+			addProblem(&problems, "validation.duplicate", prefix+".number", "duplicates dimension "+number)
 		}
 		if slug != "" && dimensionSlugs[slug] {
-			problems = append(problems, prefix+".name duplicates dimension slug "+slug)
+			addProblem(&problems, "validation.duplicate", prefix+".name", "duplicates dimension slug "+slug)
 		}
 		dimensionNumbers[number] = true
 		dimensionSlugs[slug] = true
@@ -163,21 +187,25 @@ func normalizeInit(raw initYAML) (initDefinition, error) {
 		})
 	}
 	if len(problems) > 0 {
-		return initDefinition{}, fmt.Errorf("%w: %s", ErrInitValidation, strings.Join(problems, "; "))
+		return initDefinition{}, InitValidationError{Problems: problems}
 	}
 	return initDefinition{Name: raw.Name, Description: raw.Description, Sources: sources, Dimensions: dimensions}, nil
 }
 
-func requireField(problems *[]string, field, value string) {
+func requireField(problems *[]InitValidationProblem, field, value string) {
 	if strings.TrimSpace(value) == "" {
-		*problems = append(*problems, field+" is required")
+		addProblem(problems, "validation.required", field, "is required")
 	}
 }
 
-func requireList(problems *[]string, field string, value []string) {
+func requireList(problems *[]InitValidationProblem, field string, value []string) {
 	if len(value) == 0 {
-		*problems = append(*problems, field+" is required")
+		addProblem(problems, "validation.required", field, "is required")
 	}
+}
+
+func addProblem(problems *[]InitValidationProblem, code, field, message string) {
+	*problems = append(*problems, InitValidationProblem{Code: code, Field: field, Message: message})
 }
 
 func isSafeName(name string) bool {

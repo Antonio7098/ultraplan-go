@@ -21,9 +21,11 @@ const (
 )
 
 type Source struct {
-	Name string
-	Kind SourceKind
-	Path string
+	Name                 string
+	Kind                 SourceKind
+	Path                 string
+	ApplicableDimensions []string
+	Frontmatter          map[string]any
 }
 
 type Dimension struct {
