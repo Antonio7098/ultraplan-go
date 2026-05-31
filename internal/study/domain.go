@@ -13,6 +13,13 @@ type Study struct {
 	Path string
 }
 
+type ReportKind string
+
+const (
+	ReportKindSource ReportKind = "source"
+	ReportKindFinal  ReportKind = "final"
+)
+
 type SourceKind string
 
 const (
@@ -29,10 +36,63 @@ type Source struct {
 }
 
 type Dimension struct {
-	Number string
-	Slug   string
-	File   string
-	Path   string
+	Number               string
+	Slug                 string
+	File                 string
+	Path                 string
+	DisableCodeCitations bool
+}
+
+type ValidationStatus string
+
+const (
+	ValidationStatusPassed  ValidationStatus = "passed"
+	ValidationStatusFailed  ValidationStatus = "failed"
+	ValidationStatusSkipped ValidationStatus = "skipped"
+)
+
+type ValidationSeverity string
+
+const (
+	ValidationSeverityInfo  ValidationSeverity = "info"
+	ValidationSeverityWarn  ValidationSeverity = "warn"
+	ValidationSeverityError ValidationSeverity = "error"
+)
+
+type ValidationCheck struct {
+	Name       string             `json:"name"`
+	Status     ValidationStatus   `json:"status"`
+	Severity   ValidationSeverity `json:"severity"`
+	Path       string             `json:"path,omitempty"`
+	Expected   string             `json:"expected,omitempty"`
+	Observed   string             `json:"observed,omitempty"`
+	SourceKind SourceKind         `json:"source_kind,omitempty"`
+	Guidance   string             `json:"guidance,omitempty"`
+	Err        error              `json:"-"`
+}
+
+type ValidationResult struct {
+	Kind   ReportKind        `json:"kind"`
+	Path   string            `json:"path"`
+	Status ValidationStatus  `json:"status"`
+	Checks []ValidationCheck `json:"checks"`
+	Err    error             `json:"-"`
+}
+
+type RatingState string
+
+const (
+	RatingStateValid     RatingState = "valid"
+	RatingStateMissing   RatingState = "missing"
+	RatingStateInvalid   RatingState = "invalid"
+	RatingStateAmbiguous RatingState = "ambiguous"
+)
+
+type RatingResult struct {
+	State  RatingState `json:"state"`
+	Score  int         `json:"score,omitempty"`
+	Raw    string      `json:"raw,omitempty"`
+	Reason string      `json:"reason,omitempty"`
 }
 
 func (d Dimension) Ref() string {
