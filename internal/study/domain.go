@@ -259,6 +259,46 @@ type StatusSummary struct {
 	RunID       string
 }
 
+type ExecutionStatus string
+
+const (
+	ExecutionStatusCompleted        ExecutionStatus = "completed"
+	ExecutionStatusSkipped          ExecutionStatus = "skipped"
+	ExecutionStatusRuntimeFailed    ExecutionStatus = "runtime_failed"
+	ExecutionStatusValidationFailed ExecutionStatus = "validation_failed"
+	ExecutionStatusPreflightBlocked ExecutionStatus = "preflight_blocked"
+	ExecutionStatusCancelled        ExecutionStatus = "cancelled"
+)
+
+type ExecutionRequest struct {
+	StudyRef     string
+	DimensionRef string
+	SourceRef    string
+}
+
+type ExecutionResult struct {
+	Status           ExecutionStatus
+	TaskKind         TaskKind
+	Study            Study
+	Dimension        Dimension
+	Source           Source
+	OutputPath       string
+	SkippedReason    string
+	RuntimeRunID     string
+	RuntimeStatus    string
+	RuntimeError     string
+	RuntimeErr       error
+	RuntimeCategory  string
+	Validation       ValidationResult
+	PreflightResults []ValidationResult
+	Blockers         []string
+}
+
+type SynthesisRequest struct {
+	StudyRef     string
+	DimensionRef string
+}
+
 func (d Dimension) Ref() string {
 	if d.Slug == "" {
 		return d.Number

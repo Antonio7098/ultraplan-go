@@ -10,9 +10,15 @@ import (
 	"strings"
 	"time"
 
+	"ultraplan-go/internal/platform/config"
+	runtimepkg "ultraplan-go/internal/platform/runtime"
 	"ultraplan-go/internal/study"
 	"ultraplan-go/internal/workspace"
 )
+
+var studyRuntimeFactory = func(c config.Config) (study.Runtime, error) {
+	return runtimepkg.NewOpenCode(c)
+}
 
 func runStudy(deps dependencies, args []string) error {
 	if len(args) == 0 {
@@ -36,6 +42,10 @@ func runStudy(deps dependencies, args []string) error {
 	switch {
 	case len(args) >= 1 && args[0] == "init":
 		return runStudyInit(deps, root.Path, args[1:])
+	case len(args) >= 3 && args[1] == "run":
+		return runStudyRun(deps, root, args[0], args[2:])
+	case len(args) >= 3 && args[1] == "synthesize":
+		return runStudySynthesize(deps, root, args[0], args[2:])
 	case len(args) >= 3 && args[1] == "prompt":
 		return runStudyPrompt(deps, root.Path, service, args[0], args[2:])
 	case len(args) == 2 && args[1] == "status":
@@ -87,7 +97,7 @@ func runStudy(deps dependencies, args []string) error {
 	case args[0] == "list":
 		return classified(ExitUsage, "study list: unknown argument %q", args[1])
 	default:
-		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> prompt', or '<study> status'")
+		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> run', '<study> synthesize', '<study> prompt', or '<study> status'")
 	}
 }
 
@@ -110,6 +120,8 @@ Usage:
   ultraplan study list
   ultraplan study <study> list
   ultraplan study <study> status
+  ultraplan study <study> run <dimension> <source>
+  ultraplan study <study> synthesize <dimension>
   ultraplan study <study> prompt analysis <dimension> <source> [--output <file>]
   ultraplan study <study> prompt synthesis <dimension> [--output <file>]
 
@@ -118,7 +130,152 @@ Commands:
   list              List discovered studies.
   <study> list      List sources and dimensions for one study.
   <study> status    Show persisted run-state status without runtime execution.
+  <study> run       Execute one analysis task through the configured runtime.
+  <study> synthesize Execute one synthesis task through the configured runtime.
   <study> prompt    Render prompt previews without runtime execution.
+`
+}
+
+func runStudyRun(deps dependencies, root workspace.Root, studyRef string, args []string) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		_, err := deps.stdout.Write([]byte(studyRunHelp()))
+		return err
+	}
+	if len(args) != 2 {
+		return classified(ExitUsage, "study run: requires <dimension> <source>")
+	}
+	service, err := executionService(deps, root)
+	if err != nil {
+		return err
+	}
+	result, err := service.RunAnalysis(deps.ctx, study.ExecutionRequest{StudyRef: studyRef, DimensionRef: args[0], SourceRef: args[1]})
+	if err != nil {
+		return mapStudyExecutionError("study.run", err)
+	}
+	renderExecutionResult(deps, result)
+	return classifyExecutionResult("study.run", result)
+}
+
+func runStudySynthesize(deps dependencies, root workspace.Root, studyRef string, args []string) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		_, err := deps.stdout.Write([]byte(studySynthesizeHelp()))
+		return err
+	}
+	if len(args) != 1 {
+		return classified(ExitUsage, "study synthesize: requires <dimension>")
+	}
+	service, err := executionService(deps, root)
+	if err != nil {
+		return err
+	}
+	result, err := service.Synthesize(deps.ctx, study.SynthesisRequest{StudyRef: studyRef, DimensionRef: args[0]})
+	if err != nil {
+		return mapStudyExecutionError("study.synthesize", err)
+	}
+	renderExecutionResult(deps, result)
+	return classifyExecutionResult("study.synthesize", result)
+}
+
+func executionService(deps dependencies, root workspace.Root) (study.Service, error) {
+	effective, err := loadEffectiveConfig(root, deps, config.CLIOverrides{})
+	if err != nil {
+		return study.Service{}, err
+	}
+	req, err := runtimepkg.RequestFromConfig(effective.Config, root.Path)
+	if err != nil {
+		return study.Service{}, classified(ExitConfig, "runtime.config: %w", err)
+	}
+	rt, err := studyRuntimeFactory(effective.Config)
+	if err != nil {
+		return study.Service{}, classified(ExitRuntime, "runtime.init: %w", err)
+	}
+	return study.NewService(root.Path, study.WithRuntime(rt, req)), nil
+}
+
+func renderExecutionResult(deps dependencies, result study.ExecutionResult) {
+	relOutput := workspace.Rel(result.Study.Path, result.OutputPath)
+	switch result.Status {
+	case study.ExecutionStatusCompleted:
+		if result.TaskKind == study.TaskKindSynthesis {
+			fmt.Fprintf(deps.stdout, "Completed synthesis: %s %s -> %s\n", result.Study.Name, result.Dimension.Ref(), relOutput)
+			return
+		}
+		fmt.Fprintf(deps.stdout, "Completed analysis: %s %s %s -> %s\n", result.Study.Name, result.Dimension.Ref(), result.Source.Name, relOutput)
+	case study.ExecutionStatusSkipped:
+		fmt.Fprintf(deps.stdout, "Skipped analysis: %s\n", result.SkippedReason)
+	case study.ExecutionStatusRuntimeFailed, study.ExecutionStatusCancelled:
+		fmt.Fprintf(deps.stderr, "Runtime failed for %s %s", result.TaskKind, result.Dimension.Ref())
+		if result.Source.Name != "" {
+			fmt.Fprintf(deps.stderr, " %s", result.Source.Name)
+		}
+		if result.RuntimeCategory != "" {
+			fmt.Fprintf(deps.stderr, ": %s", result.RuntimeCategory)
+		}
+		if result.RuntimeError != "" {
+			fmt.Fprintf(deps.stderr, ": %s", config.RedactValue("runtime.error", result.RuntimeError))
+		}
+		fmt.Fprintln(deps.stderr)
+	case study.ExecutionStatusValidationFailed:
+		fmt.Fprintf(deps.stderr, "Validation failed: %s\n", result.Validation.Path)
+		for _, check := range result.Validation.Checks {
+			if check.Status == study.ValidationStatusFailed {
+				fmt.Fprintf(deps.stderr, "  %s: %s\n", check.Name, check.Observed)
+			}
+		}
+	case study.ExecutionStatusPreflightBlocked:
+		fmt.Fprintln(deps.stderr, "Synthesis blocked by invalid or missing source reports:")
+		for _, validation := range result.PreflightResults {
+			if validation.Status == study.ValidationStatusPassed {
+				continue
+			}
+			fmt.Fprintf(deps.stderr, "  %s\n", validation.Path)
+			for _, check := range validation.Checks {
+				if check.Status == study.ValidationStatusFailed {
+					fmt.Fprintf(deps.stderr, "    %s: %s\n", check.Name, check.Observed)
+				}
+			}
+		}
+	}
+}
+
+func classifyExecutionResult(prefix string, result study.ExecutionResult) error {
+	switch result.Status {
+	case study.ExecutionStatusCompleted, study.ExecutionStatusSkipped:
+		return nil
+	case study.ExecutionStatusRuntimeFailed:
+		return classedError{class: ExitRuntime, code: errorCode(ExitRuntime), err: fmt.Errorf("%s: runtime failed", prefix)}
+	case study.ExecutionStatusCancelled:
+		return classedError{class: ExitCancel, code: errorCode(ExitCancel), err: fmt.Errorf("%s: cancelled", prefix)}
+	case study.ExecutionStatusValidationFailed:
+		return classedError{class: ExitValidation, code: errorCode(ExitValidation), err: fmt.Errorf("%s: validation failed", prefix)}
+	case study.ExecutionStatusPreflightBlocked:
+		return classedError{class: ExitValidation, code: errorCode(ExitValidation), err: fmt.Errorf("%s: preflight blocked", prefix)}
+	default:
+		return classedError{class: ExitError, code: errorCode(ExitError), err: fmt.Errorf("%s: unknown result status %q", prefix, result.Status)}
+	}
+}
+
+func mapStudyExecutionError(prefix string, err error) error {
+	var refErr study.RefError
+	if errors.As(err, &refErr) {
+		return classified(ExitValidation, "%s: %w", prefix, err)
+	}
+	return classified(ExitWorkspace, "%s: %w", prefix, err)
+}
+
+func studyRunHelp() string {
+	return `ultraplan study <study> run
+
+Usage:
+  ultraplan study <study> run <dimension> <source>
+`
+}
+
+func studySynthesizeHelp() string {
+	return `ultraplan study <study> synthesize
+
+Usage:
+  ultraplan study <study> synthesize <dimension>
 `
 }
 

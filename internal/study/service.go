@@ -1,7 +1,15 @@
 package study
 
+import (
+	"context"
+
+	runtimepkg "ultraplan-go/internal/platform/runtime"
+)
+
 type Service struct {
 	workspaceRoot string
+	runtime       Runtime
+	runtimeConfig runtimepkg.Request
 }
 
 type StudyListing struct {
@@ -10,8 +18,25 @@ type StudyListing struct {
 	Dimensions []Dimension
 }
 
-func NewService(workspaceRoot string) Service {
-	return Service{workspaceRoot: workspaceRoot}
+type Option func(*Service)
+
+type Runtime interface {
+	StartRun(ctx context.Context, req runtimepkg.Request) (runtimepkg.Result, error)
+}
+
+func WithRuntime(rt Runtime, req runtimepkg.Request) Option {
+	return func(s *Service) {
+		s.runtime = rt
+		s.runtimeConfig = req
+	}
+}
+
+func NewService(workspaceRoot string, opts ...Option) Service {
+	s := Service{workspaceRoot: workspaceRoot}
+	for _, opt := range opts {
+		opt(&s)
+	}
+	return s
 }
 
 func (s Service) ListStudies() ([]Study, error) {
