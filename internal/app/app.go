@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ type Config struct {
 	Args    []string
 	Stdout  io.Writer
 	Stderr  io.Writer
+	Context context.Context
 	Version Version
 	WorkDir string
 	Env     map[string]string
@@ -87,8 +89,12 @@ func Run(cfg Config) int {
 	deps := dependencies{
 		stdout:  stdout,
 		stderr:  stderr,
+		ctx:     cfg.Context,
 		workDir: cfg.WorkDir,
 		env:     cfg.Env,
+	}
+	if deps.ctx == nil {
+		deps.ctx = context.Background()
 	}
 	if deps.workDir == "" {
 		if wd, err := os.Getwd(); err == nil {
@@ -127,6 +133,7 @@ func Run(cfg Config) int {
 type dependencies struct {
 	stdout        io.Writer
 	stderr        io.Writer
+	ctx           context.Context
 	workDir       string
 	workspaceFlag string
 	env           map[string]string

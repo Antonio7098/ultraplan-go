@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"ultraplan-go/internal/platform/config"
+	runtimepkg "ultraplan-go/internal/platform/runtime"
 	"ultraplan-go/internal/workspace"
 )
 
@@ -16,6 +18,8 @@ type healthCheck struct {
 type healthResult struct {
 	Checks []healthCheck `json:"checks"`
 }
+
+var runtimeHealthChecks = runRuntimeHealth
 
 func runHealth(deps dependencies, args []string) error {
 	jsonOut := false
@@ -48,17 +52,23 @@ func runHealth(deps dependencies, args []string) error {
 	}
 	effective, cfgErr := loadEffectiveConfig(root, deps, config.CLIOverrides{JSON: jsonOut})
 	if cfgErr == nil {
-		_ = effective
 		checks = append(checks, healthCheck{Name: "config.validation", Status: "ok"})
 	} else {
 		checks = append(checks, healthCheck{Name: "config.validation", Status: "fail", Message: cfgErr.Error()})
 	}
 	checks = append(checks, healthCheck{Name: "filesystem.read", Status: "ok", Message: workspace.MarkerFile})
 	checks = append(checks, healthCheck{Name: "environment.overrides", Status: "ok", Message: envSummary(deps)})
-	checks = append(checks, healthCheck{Name: "runtime.opencode", Status: "skipped", Message: "out of scope for this sprint"})
+	runtimeFailed := false
+	if cfgErr == nil {
+		runtimeChecks, err := runtimeHealthChecks(deps.ctx, root.Path, effective.Config)
+		checks = append(checks, runtimeChecks...)
+		if err != nil {
+			runtimeFailed = true
+		}
+	}
 	result := healthResult{Checks: checks}
 	status := "ok"
-	if !validation.Valid || cfgErr != nil {
+	if !validation.Valid || cfgErr != nil || runtimeFailed {
 		status = "fail"
 	}
 	if jsonOut {
@@ -78,10 +88,50 @@ func runHealth(deps dependencies, args []string) error {
 	if cfgErr != nil {
 		return cfgErr
 	}
+	if runtimeFailed {
+		return classified(ExitRuntime, "runtime.health: one or more runtime checks failed")
+	}
 	if !validation.Valid {
 		return classified(ExitValidation, "workspace.validate: %s", validation.Issues[0])
 	}
 	return nil
+}
+
+func runRuntimeHealth(ctx context.Context, workDir string, c config.Config) ([]healthCheck, error) {
+	adapter, err := runtimepkg.NewOpenCode(c)
+	if err != nil {
+		return []healthCheck{{Name: "runtime.opencode", Status: "fail", Message: config.RedactValue("runtime.error", err.Error())}}, err
+	}
+	req, err := runtimepkg.RequestFromConfig(c, workDir)
+	if err != nil {
+		return []healthCheck{{Name: "runtime.opencode", Status: "fail", Message: config.RedactValue("runtime.error", err.Error())}}, err
+	}
+	report, err := adapter.Health(ctx, runtimepkg.HealthRequest{
+		WorkDir:        workDir,
+		Provider:       req.Provider,
+		Model:          req.Model,
+		Checks:         req.RequireHealth,
+		RequiredChecks: req.RequireHealth,
+		Capabilities:   req.RequireCaps,
+	})
+	checks := make([]healthCheck, 0, len(report.Checks)+len(report.Capabilities))
+	for _, check := range report.Checks {
+		checks = append(checks, healthCheck{Name: "runtime." + check.Name, Status: check.Status, Message: config.RedactValue("runtime."+check.Name, check.Message)})
+	}
+	for _, cap := range report.Capabilities {
+		status := "ok"
+		if !cap.Supported {
+			status = "fail"
+		}
+		checks = append(checks, healthCheck{Name: "runtime.capability." + cap.Name, Status: status, Message: config.RedactValue("runtime.capability."+cap.Name, cap.Message)})
+	}
+	if err != nil {
+		if len(checks) == 0 {
+			checks = append(checks, healthCheck{Name: "runtime.opencode", Status: "fail", Message: config.RedactValue("runtime.error", err.Error())})
+		}
+		return checks, err
+	}
+	return checks, nil
 }
 
 func envSummary(deps dependencies) string {

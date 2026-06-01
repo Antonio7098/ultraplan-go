@@ -58,9 +58,13 @@ agentwrap:
 func TestRedactSensitiveValues(t *testing.T) {
 	e := Effective{Config: Defaults()}
 	e.Config.Models.Default = "secret/model-token"
+	e.Config.Agentwrap.Env = []string{"OPENAI_API_KEY=secret"}
 	redacted := Redact(e)
 	if redacted.Models.Default != "[REDACTED]" {
 		t.Fatalf("secret was not redacted: %q", redacted.Models.Default)
+	}
+	if redacted.Agentwrap.Env[0] != "[REDACTED]" {
+		t.Fatalf("env secret was not redacted: %q", redacted.Agentwrap.Env[0])
 	}
 }
 
@@ -69,5 +73,22 @@ func TestValidateRejectsBadConfig(t *testing.T) {
 	c.Execution.DefaultTimeout = "nope"
 	if err := Validate(c); err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestValidateRejectsRuntimeMappingValues(t *testing.T) {
+	for name, mutate := range map[string]func(*Config){
+		"health":     func(c *Config) { c.Agentwrap.RequiredHealth = []string{"bad"} },
+		"cap":        func(c *Config) { c.Agentwrap.RequiredCapabilities = []string{"bad"} },
+		"stderr":     func(c *Config) { c.Agentwrap.StderrLimit = 0 },
+		"permission": func(c *Config) { c.Agentwrap.PermissionDefault = "sometimes" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := Defaults()
+			mutate(&c)
+			if err := Validate(c); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
 	}
 }

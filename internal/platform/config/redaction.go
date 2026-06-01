@@ -41,5 +41,8 @@ func redactModels(m Models) Models {
 
 func redactAgentwrap(a Agentwrap) Agentwrap {
 	a.Executable = RedactValue("agentwrap.executable", a.Executable)
+	for i, value := range a.Env {
+		a.Env[i] = RedactValue("agentwrap.env", value)
+	}
 	return a
 }

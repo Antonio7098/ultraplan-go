@@ -56,6 +56,10 @@ func runConfig(deps dependencies, args []string) error {
 	fmt.Fprintf(deps.stdout, "logging.level: %s\n", redacted.Logging.Level)
 	fmt.Fprintf(deps.stdout, "agentwrap.executable: %s\n", redacted.Agentwrap.Executable)
 	fmt.Fprintf(deps.stdout, "agentwrap.required_health: %s\n", strings.Join(redacted.Agentwrap.RequiredHealth, ", "))
+	fmt.Fprintf(deps.stdout, "agentwrap.required_capabilities: %s\n", strings.Join(redacted.Agentwrap.RequiredCapabilities, ", "))
+	fmt.Fprintf(deps.stdout, "agentwrap.stderr_limit: %d\n", redacted.Agentwrap.StderrLimit)
+	fmt.Fprintf(deps.stdout, "agentwrap.sandbox: %s\n", redacted.Agentwrap.Sandbox)
+	fmt.Fprintf(deps.stdout, "agentwrap.permission_mode: %s\n", redacted.Agentwrap.PermissionMode)
 	return nil
 }
 

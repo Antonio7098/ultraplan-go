@@ -38,8 +38,16 @@ type Logging struct {
 	Level  string `json:"level"`
 }
 type Agentwrap struct {
-	Executable     string   `json:"executable"`
-	RequiredHealth []string `json:"required_health"`
+	Executable                    string   `json:"executable"`
+	ExtraArgs                     []string `json:"extra_args"`
+	Env                           []string `json:"env"`
+	StderrLimit                   int      `json:"stderr_limit"`
+	RequiredHealth                []string `json:"required_health"`
+	RequiredCapabilities          []string `json:"required_capabilities"`
+	Sandbox                       string   `json:"sandbox"`
+	PermissionMode                string   `json:"permission_mode"`
+	PermissionDefault             string   `json:"permission_default"`
+	PermissionUnsupportedBehavior string   `json:"permission_unsupported_behavior"`
 }
 
 type Effective struct {
@@ -77,12 +85,15 @@ func EnvOverrides() []EnvOverride {
 		{Key: "ULTRAPLAN_LOG_FORMAT", Field: "logging.format"},
 		{Key: "ULTRAPLAN_LOG_LEVEL", Field: "logging.level"},
 		{Key: "ULTRAPLAN_AGENTWRAP_EXECUTABLE", Field: "agentwrap.executable"},
+		{Key: "ULTRAPLAN_AGENTWRAP_STDERR_LIMIT", Field: "agentwrap.stderr_limit"},
+		{Key: "ULTRAPLAN_AGENTWRAP_SANDBOX", Field: "agentwrap.sandbox"},
+		{Key: "ULTRAPLAN_AGENTWRAP_PERMISSION_MODE", Field: "agentwrap.permission_mode"},
 	}
 }
 
 func Load(opts LoadOptions) (Effective, error) {
 	e := Effective{Config: Defaults(), Sources: map[string]string{}}
-	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.required_health"} {
+	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
 		e.Sources[field] = "default"
 	}
 	if opts.WorkspaceRoot != "" {
@@ -112,7 +123,7 @@ func Defaults() Config {
 		Models:    Models{Default: "provider/model", Primary: "provider/model", Backup: "provider/model"},
 		Execution: Execution{DefaultVariant: "high", DefaultParallel: 3, DefaultTimeout: "30m", DefaultRetries: 3},
 		Logging:   Logging{Format: "text", Level: "info"},
-		Agentwrap: Agentwrap{Executable: "opencode", RequiredHealth: []string{"runtime_available", "structured_output", "workdir"}},
+		Agentwrap: Agentwrap{Executable: "opencode", StderrLimit: 16 * 1024, RequiredHealth: []string{"runtime_available", "structured_output", "workdir"}, RequiredCapabilities: []string{"structured_events", "cancellation"}, Sandbox: "workspace_write", PermissionMode: "restricted", PermissionDefault: "ask"},
 	}
 }
 
@@ -136,8 +147,19 @@ func loadFile(path string, e *Effective) error {
 			continue
 		}
 		if strings.HasPrefix(line, "- ") {
-			if listField == "agentwrap.required_health" {
-				e.Config.Agentwrap.RequiredHealth = append(e.Config.Agentwrap.RequiredHealth, strings.Trim(strings.TrimPrefix(line, "- "), `"`))
+			item := strings.Trim(strings.TrimPrefix(line, "- "), `"`)
+			switch listField {
+			case "agentwrap.required_health":
+				e.Config.Agentwrap.RequiredHealth = append(e.Config.Agentwrap.RequiredHealth, item)
+				e.Sources[listField] = "workspace"
+			case "agentwrap.required_capabilities":
+				e.Config.Agentwrap.RequiredCapabilities = append(e.Config.Agentwrap.RequiredCapabilities, item)
+				e.Sources[listField] = "workspace"
+			case "agentwrap.extra_args":
+				e.Config.Agentwrap.ExtraArgs = append(e.Config.Agentwrap.ExtraArgs, item)
+				e.Sources[listField] = "workspace"
+			case "agentwrap.env":
+				e.Config.Agentwrap.Env = append(e.Config.Agentwrap.Env, item)
 				e.Sources[listField] = "workspace"
 			}
 			continue
@@ -151,8 +173,8 @@ func loadFile(path string, e *Effective) error {
 		if section != "" {
 			field = section + "." + key
 		}
-		if value == "" && field == "agentwrap.required_health" {
-			e.Config.Agentwrap.RequiredHealth = nil
+		if value == "" && listConfigField(field) {
+			clearListField(&e.Config, field)
 			listField = field
 			continue
 		}
@@ -217,6 +239,20 @@ func setField(c *Config, field, value string) error {
 		c.Logging.Level = value
 	case "agentwrap.executable":
 		c.Agentwrap.Executable = value
+	case "agentwrap.stderr_limit":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("agentwrap.stderr_limit: must be an integer")
+		}
+		c.Agentwrap.StderrLimit = n
+	case "agentwrap.sandbox":
+		c.Agentwrap.Sandbox = value
+	case "agentwrap.permission_mode":
+		c.Agentwrap.PermissionMode = value
+	case "agentwrap.permission_default":
+		c.Agentwrap.PermissionDefault = value
+	case "agentwrap.permission_unsupported_behavior":
+		c.Agentwrap.PermissionUnsupportedBehavior = value
 	default:
 		return fmt.Errorf("unknown config field %q", field)
 	}
@@ -256,12 +292,68 @@ func Validate(c Config) error {
 	default:
 		return fmt.Errorf("logging.level: must be debug, info, warn, or error")
 	}
+	if c.Agentwrap.StderrLimit <= 0 {
+		return fmt.Errorf("agentwrap.stderr_limit: must be positive")
+	}
 	for _, h := range c.Agentwrap.RequiredHealth {
-		switch h {
-		case "runtime_available", "structured_output", "workdir":
-		default:
+		if !knownHealth(h) {
 			return fmt.Errorf("agentwrap.required_health: unsupported health check %q", h)
 		}
 	}
+	for _, cap := range c.Agentwrap.RequiredCapabilities {
+		if !knownCapability(cap) {
+			return fmt.Errorf("agentwrap.required_capabilities: unsupported capability %q", cap)
+		}
+	}
+	switch c.Agentwrap.PermissionDefault {
+	case "", "allow", "deny", "ask":
+	default:
+		return fmt.Errorf("agentwrap.permission_default: must be allow, deny, or ask")
+	}
+	switch c.Agentwrap.PermissionUnsupportedBehavior {
+	case "", "best_effort":
+	default:
+		return fmt.Errorf("agentwrap.permission_unsupported_behavior: must be best_effort or empty")
+	}
 	return nil
+}
+
+func listConfigField(field string) bool {
+	switch field {
+	case "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.extra_args", "agentwrap.env":
+		return true
+	default:
+		return false
+	}
+}
+
+func clearListField(c *Config, field string) {
+	switch field {
+	case "agentwrap.required_health":
+		c.Agentwrap.RequiredHealth = nil
+	case "agentwrap.required_capabilities":
+		c.Agentwrap.RequiredCapabilities = nil
+	case "agentwrap.extra_args":
+		c.Agentwrap.ExtraArgs = nil
+	case "agentwrap.env":
+		c.Agentwrap.Env = nil
+	}
+}
+
+func knownHealth(value string) bool {
+	switch value {
+	case "runtime_available", "structured_output", "workdir", "config", "provider", "model", "authentication", "runtime_paths":
+		return true
+	default:
+		return false
+	}
+}
+
+func knownCapability(value string) bool {
+	switch value {
+	case "sessions", "session_continue", "session_fork", "session_replace", "session_release", "structured_events", "raw_payloads", "cancellation", "artifacts", "permissions", "usage", "validation_events":
+		return true
+	default:
+		return false
+	}
 }
