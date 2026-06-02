@@ -242,6 +242,24 @@ func TestHealthAndCapabilityNameValidation(t *testing.T) {
 	}
 }
 
+func TestStartRunCancelsUnderlyingRunWhenContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	run := &fakeRun{id: "run-cancel", waitForCancel: true}
+	adapter := NewAdapter(fakeRuntime{run: run})
+	cancel()
+
+	result, err := adapter.StartRun(ctx, Request{Prompt: "hello"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if !run.cancelled {
+		t.Fatal("underlying run was not cancelled")
+	}
+	if result.Status != "cancelled" || result.Error == nil || result.Error.Category != "cancellation" {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 type fakeRuntime struct {
 	run *fakeRun
 }
@@ -257,10 +275,12 @@ func (f fakeRuntime) Capabilities(context.Context) (agentwrap.Capabilities, erro
 }
 
 type fakeRun struct {
-	id     agentwrap.RunID
-	events []agentwrap.Event
-	result agentwrap.RunResult
-	err    error
+	id            agentwrap.RunID
+	events        []agentwrap.Event
+	result        agentwrap.RunResult
+	err           error
+	waitForCancel bool
+	cancelled     bool
 }
 
 func (f *fakeRun) ID() agentwrap.RunID { return f.id }
@@ -274,8 +294,15 @@ func (f *fakeRun) Events() <-chan agentwrap.Event {
 	return ch
 }
 
-func (f *fakeRun) Wait(context.Context) (agentwrap.RunResult, error) {
+func (f *fakeRun) Wait(ctx context.Context) (agentwrap.RunResult, error) {
+	if f.waitForCancel {
+		<-ctx.Done()
+		return agentwrap.RunResult{Status: agentwrap.StatusCancelled}, ctx.Err()
+	}
 	return f.result, f.err
 }
 
-func (f *fakeRun) Cancel(context.Context) error { return nil }
+func (f *fakeRun) Cancel(context.Context) error {
+	f.cancelled = true
+	return nil
+}

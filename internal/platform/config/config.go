@@ -142,7 +142,16 @@ func loadFile(path string, e *Effective) error {
 			continue
 		}
 		if strings.HasSuffix(line, ":") && !strings.HasPrefix(line, "-") {
-			section = strings.TrimSuffix(line, ":")
+			key := strings.TrimSuffix(line, ":")
+			if leadingWhitespace(raw) > 0 && section != "" {
+				field := section + "." + key
+				if listConfigField(field) {
+					clearListField(&e.Config, field)
+					listField = field
+					continue
+				}
+			}
+			section = key
 			listField = ""
 			continue
 		}
@@ -187,6 +196,10 @@ func loadFile(path string, e *Effective) error {
 		return fmt.Errorf("read workspace config: %w", err)
 	}
 	return nil
+}
+
+func leadingWhitespace(raw string) int {
+	return len(raw) - len(strings.TrimLeft(raw, " \t"))
 }
 
 func applyEnv(e *Effective, env func(string) string) {

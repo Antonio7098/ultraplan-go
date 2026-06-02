@@ -68,6 +68,39 @@ func TestRedactSensitiveValues(t *testing.T) {
 	}
 }
 
+func TestLoadAgentwrapListThenScalarFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ultraplan.yml"), []byte(`version: 1
+agentwrap:
+  executable: opencode
+  required_health:
+    - runtime_available
+    - structured_output
+    - workdir
+  sandbox: workspace_write
+  permission_mode: restricted
+  permission_default: allow
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	effective, err := Load(LoadOptions{WorkspaceRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := effective.Config.Agentwrap.RequiredHealth; len(got) != 3 || got[0] != "runtime_available" || got[2] != "workdir" {
+		t.Fatalf("RequiredHealth = %+v", got)
+	}
+	if effective.Config.Agentwrap.Sandbox != "workspace_write" {
+		t.Fatalf("Sandbox = %q", effective.Config.Agentwrap.Sandbox)
+	}
+	if effective.Config.Agentwrap.PermissionMode != "restricted" {
+		t.Fatalf("PermissionMode = %q", effective.Config.Agentwrap.PermissionMode)
+	}
+	if effective.Config.Agentwrap.PermissionDefault != "allow" {
+		t.Fatalf("PermissionDefault = %q", effective.Config.Agentwrap.PermissionDefault)
+	}
+}
+
 func TestValidateRejectsBadConfig(t *testing.T) {
 	c := Defaults()
 	c.Execution.DefaultTimeout = "nope"

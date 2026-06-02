@@ -165,14 +165,65 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, mapError(err)
 	}
-	events := []Event{}
-	for event := range run.Events() {
-		events = append(events, mapEvent(event))
+
+	eventsCh := make(chan []Event, 1)
+	go func() {
+		events := []Event{}
+		for event := range run.Events() {
+			events = append(events, mapEvent(event))
+		}
+		eventsCh <- events
+	}()
+
+	type waitResult struct {
+		result agentwrap.RunResult
+		err    error
 	}
-	result, waitErr := run.Wait(ctx)
+	waitCh := make(chan waitResult, 1)
+	go func() {
+		result, err := run.Wait(ctx)
+		waitCh <- waitResult{result: result, err: err}
+	}()
+
+	var result agentwrap.RunResult
+	var waitErr error
+	select {
+	case waited := <-waitCh:
+		result = waited.result
+		waitErr = waited.err
+	case <-ctx.Done():
+		_ = run.Cancel(context.Background())
+		select {
+		case waited := <-waitCh:
+			result = waited.result
+			waitErr = waited.err
+		case <-time.After(5 * time.Second):
+			mapped := Result{
+				Status:     "cancelled",
+				FinishedAt: time.Now(),
+				Error:      &Error{Category: "cancellation", Operation: "run", UserDetail: ctx.Err().Error()},
+			}
+			return mapped, ctx.Err()
+		}
+		if waitErr == nil {
+			waitErr = ctx.Err()
+		}
+	}
+
 	mapped := mapResult(result)
-	mapped.Events = events
+	select {
+	case events := <-eventsCh:
+		mapped.Events = events
+	case <-time.After(time.Second):
+	}
 	if waitErr != nil {
+		if errors.Is(waitErr, context.Canceled) {
+			mapped.Status = "cancelled"
+			mapped.Error = &Error{Category: "cancellation", Operation: "run", UserDetail: waitErr.Error()}
+		} else if errors.Is(waitErr, context.DeadlineExceeded) {
+			mapped.Status = "failed"
+			mapped.Error = &Error{Category: "timeout", Operation: "run", UserDetail: waitErr.Error()}
+		}
 		return mapped, mapError(waitErr)
 	}
 	if result.Err != nil {
