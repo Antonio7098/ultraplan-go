@@ -2,6 +2,7 @@ package study
 
 import (
 	"context"
+	"fmt"
 )
 
 func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (ExecutionResult, error) {
@@ -36,7 +37,15 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 	if err != nil {
 		return ExecutionResult{}, err
 	}
+	beforeFiles, snapshotErr := snapshotFiles(listing.Study.Path)
 	runtimeResult, runErr := s.startRuntime(ctx, prompt, TaskKindSynthesis, listing.Study, dimension, Source{}, listing.Study.Path, result.OutputPath)
+	if snapshotErr != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("edit monitoring skipped before runtime: %v", snapshotErr))
+	} else if afterFiles, err := snapshotFilesSettled(listing.Study.Path); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("edit monitoring skipped after runtime: %v", err))
+	} else {
+		result.Warnings = append(result.Warnings, unexpectedEditWarnings(listing.Study.Path, beforeFiles, afterFiles, []string{result.OutputPath})...)
+	}
 	result.RuntimeRunID = runtimeResult.RunID
 	result.RuntimeStatus = runtimeResult.Status
 	if runErr != nil {

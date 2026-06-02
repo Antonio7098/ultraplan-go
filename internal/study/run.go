@@ -45,7 +45,15 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 	if source.Kind == SourceKindMarkdown {
 		workDir = listing.Study.Path
 	}
+	beforeFiles, snapshotErr := snapshotFiles(listing.Study.Path)
 	runtimeResult, runErr := s.startRuntime(ctx, prompt, TaskKindAnalysis, listing.Study, dimension, source, workDir, result.OutputPath)
+	if snapshotErr != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("edit monitoring skipped before runtime: %v", snapshotErr))
+	} else if afterFiles, err := snapshotFilesSettled(listing.Study.Path); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("edit monitoring skipped after runtime: %v", err))
+	} else {
+		result.Warnings = append(result.Warnings, unexpectedEditWarnings(listing.Study.Path, beforeFiles, afterFiles, []string{result.OutputPath})...)
+	}
 	result.RuntimeRunID = runtimeResult.RunID
 	result.RuntimeStatus = runtimeResult.Status
 	if runErr != nil {

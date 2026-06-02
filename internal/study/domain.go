@@ -289,6 +289,7 @@ type ExecutionResult struct {
 	RuntimeError     string
 	RuntimeErr       error
 	RuntimeCategory  string
+	Warnings         []string
 	Validation       ValidationResult
 	PreflightResults []ValidationResult
 	Blockers         []string

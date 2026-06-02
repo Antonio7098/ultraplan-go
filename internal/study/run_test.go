@@ -17,6 +17,7 @@ type fakeRuntime struct {
 	result   runtimepkg.Result
 	err      error
 	write    string
+	mutate   map[string]string
 }
 
 func (f *fakeRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
@@ -30,6 +31,11 @@ func (f *fakeRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (run
 			panic(err)
 		}
 		if err := os.WriteFile(path, []byte(f.write), 0o644); err != nil {
+			panic(err)
+		}
+	}
+	for path, content := range f.mutate {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			panic(err)
 		}
 	}
@@ -118,6 +124,29 @@ func TestRunAnalysisRecoversCleanRuntimeExitWhenReportValidates(t *testing.T) {
 	}
 	if result.Status != ExecutionStatusCompleted || !errors.Is(result.RuntimeErr, cause) || result.Validation.Status != ValidationStatusPassed {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestRunAnalysisWarnsWhenRuntimeEditsSourceFiles(t *testing.T) {
+	root, st := executionFixture(t)
+	sourcePath := filepath.Join(st.Path, "sources", "repo", "main.go")
+	writeReport(t, sourcePath, "package main\n")
+	rt := &fakeRuntime{
+		result: runtimepkg.Result{RunID: "run-edit", Status: "completed"},
+		write:  validSourceReport,
+		mutate: map[string]string{sourcePath: "package main\n\n// changed by runtime\n"},
+	}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+
+	result, err := service.RunAnalysis(context.Background(), ExecutionRequest{StudyRef: "demo", DimensionRef: "01", SourceRef: "repo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != ExecutionStatusCompleted {
+		t.Fatalf("Status = %q, want completed", result.Status)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "modified sources/repo/main.go") {
+		t.Fatalf("Warnings = %+v", result.Warnings)
 	}
 }
 

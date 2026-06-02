@@ -194,10 +194,16 @@ func executionService(deps dependencies, root workspace.Root) (study.Service, er
 
 func renderExecutionResult(deps dependencies, result study.ExecutionResult) {
 	relOutput := workspace.Rel(result.Study.Path, result.OutputPath)
+	writeWarnings := func() {
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(deps.stderr, "Warning: %s\n", warning)
+		}
+	}
 	switch result.Status {
 	case study.ExecutionStatusCompleted:
 		if result.TaskKind == study.TaskKindSynthesis {
 			fmt.Fprintf(deps.stdout, "Completed synthesis: %s %s -> %s\n", result.Study.Name, result.Dimension.Ref(), relOutput)
+			writeWarnings()
 			return
 		}
 		fmt.Fprintf(deps.stdout, "Completed analysis: %s %s %s -> %s\n", result.Study.Name, result.Dimension.Ref(), result.Source.Name, relOutput)
@@ -236,6 +242,7 @@ func renderExecutionResult(deps dependencies, result study.ExecutionResult) {
 			}
 		}
 	}
+	writeWarnings()
 }
 
 func classifyExecutionResult(prefix string, result study.ExecutionResult) error {

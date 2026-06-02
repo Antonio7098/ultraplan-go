@@ -13,9 +13,10 @@ import (
 )
 
 type commandFakeRuntime struct {
-	err   error
-	write string
-	calls int
+	err    error
+	write  string
+	calls  int
+	mutate map[string]string
 }
 
 func (f *commandFakeRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
@@ -26,6 +27,11 @@ func (f *commandFakeRuntime) StartRun(ctx context.Context, req runtimepkg.Reques
 			panic(err)
 		}
 		if err := os.WriteFile(path, []byte(f.write), 0o644); err != nil {
+			panic(err)
+		}
+	}
+	for path, content := range f.mutate {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			panic(err)
 		}
 	}
@@ -80,6 +86,25 @@ func TestStudyRunCommandSuccessSkipAndDiagnostics(t *testing.T) {
 	assertContains(t, stderr, "Runtime failed")
 	assertNotContains(t, stdout, "Base Prompt")
 	assertNotContains(t, stderr, "Embedded Document")
+}
+
+func TestStudyRunCommandWarnsForUnexpectedRuntimeEdits(t *testing.T) {
+	dir, studyRoot := promptCommandFixture(t)
+	sourcePath := filepath.Join(studyRoot, "sources", "repo", "main.go")
+	writeFixtureFileContent(t, studyRoot, "package main\n", "sources", "repo", "main.go")
+	fake := &commandFakeRuntime{
+		write:  validCommandSourceReport,
+		mutate: map[string]string{sourcePath: "package main\n\n// unexpected edit\n"},
+	}
+	restore := stubStudyRuntime(t, fake)
+	defer restore()
+
+	stdout, stderr, status := runForTest([]string{"--workspace", dir, "study", "demo", "run", "01", "repo"})
+	if status != ExitOK {
+		t.Fatalf("status = %d stdout = %q stderr = %q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Completed analysis: demo 01-structure repo")
+	assertContains(t, stderr, "Warning: unexpected edit outside allowed paths: modified sources/repo/main.go")
 }
 
 func TestStudySynthesizeCommandPreflightAndValidationExit(t *testing.T) {
