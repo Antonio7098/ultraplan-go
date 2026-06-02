@@ -40,12 +40,21 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 	result.RuntimeRunID = runtimeResult.RunID
 	result.RuntimeStatus = runtimeResult.Status
 	if runErr != nil {
-		result.Status = statusForRuntimeFailure(runtimeResult)
 		result.RuntimeError = runErr.Error()
 		result.RuntimeErr = runErr
 		if runtimeResult.Error != nil {
 			result.RuntimeCategory = runtimeResult.Error.Category
 		}
+		result.Validation = ValidateFinalReport(listing.Study)
+		if result.Validation.Status == ValidationStatusPassed {
+			result.Status = ExecutionStatusCompleted
+			return result, nil
+		}
+		if recoverableRuntimeOutputFailure(runtimeResult) {
+			result.Status = ExecutionStatusValidationFailed
+			return result, nil
+		}
+		result.Status = statusForRuntimeFailure(runtimeResult)
 		return result, nil
 	}
 	result.Validation = ValidateFinalReport(listing.Study)

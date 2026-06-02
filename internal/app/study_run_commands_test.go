@@ -69,6 +69,10 @@ func TestStudyRunCommandSuccessSkipAndDiagnostics(t *testing.T) {
 	}
 
 	fake.err = errors.New("provider secret should be redacted")
+	fake.write = ""
+	if err := os.Remove(filepath.Join(studyRoot, "reports", "source", "repo-01-structure.md")); err != nil {
+		t.Fatal(err)
+	}
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "study", "demo", "run", "01", "repo"})
 	if status != ExitRuntime {
 		t.Fatalf("runtime status = %d stdout = %q stderr = %q", status, stdout, stderr)

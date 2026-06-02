@@ -49,12 +49,21 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 	result.RuntimeRunID = runtimeResult.RunID
 	result.RuntimeStatus = runtimeResult.Status
 	if runErr != nil {
-		result.Status = statusForRuntimeFailure(runtimeResult)
 		result.RuntimeError = runErr.Error()
 		result.RuntimeErr = runErr
 		if runtimeResult.Error != nil {
 			result.RuntimeCategory = runtimeResult.Error.Category
 		}
+		result.Validation = ValidateSourceReport(listing.Study, source, dimension)
+		if result.Validation.Status == ValidationStatusPassed {
+			result.Status = ExecutionStatusCompleted
+			return result, nil
+		}
+		if recoverableRuntimeOutputFailure(runtimeResult) {
+			result.Status = ExecutionStatusValidationFailed
+			return result, nil
+		}
+		result.Status = statusForRuntimeFailure(runtimeResult)
 		return result, nil
 	}
 	result.Validation = ValidateSourceReport(listing.Study, source, dimension)
@@ -110,4 +119,8 @@ func statusForRuntimeFailure(result runtimepkg.Result) ExecutionStatus {
 		return ExecutionStatusCancelled
 	}
 	return ExecutionStatusRuntimeFailed
+}
+
+func recoverableRuntimeOutputFailure(result runtimepkg.Result) bool {
+	return result.Error != nil && result.Error.Category == "runtime_exit"
 }

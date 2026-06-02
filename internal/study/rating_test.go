@@ -12,6 +12,7 @@ func TestParseRating(t *testing.T) {
 		{name: "fraction bold", raw: "**8 / 10**", state: RatingStateValid, score: 8},
 		{name: "fraction plain", raw: "8/10", state: RatingStateValid, score: 8},
 		{name: "label", raw: "Rating: 8", state: RatingStateValid, score: 8},
+		{name: "label fraction", raw: "Rating: 8/10", state: RatingStateValid, score: 8},
 		{name: "missing", raw: "", state: RatingStateMissing},
 		{name: "invalid", raw: "Rating: eleven", state: RatingStateInvalid},
 		{name: "ambiguous", raw: "Rating: 8 and 7/10", state: RatingStateAmbiguous},

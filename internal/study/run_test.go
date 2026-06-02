@@ -102,6 +102,25 @@ func TestRunAnalysisRuntimeFailureAndValidationFailures(t *testing.T) {
 	}
 }
 
+func TestRunAnalysisRecoversCleanRuntimeExitWhenReportValidates(t *testing.T) {
+	root, _ := executionFixture(t)
+	cause := errors.New("missing final event")
+	rt := &fakeRuntime{
+		result: runtimepkg.Result{RunID: "run-exit", Status: "failed", Error: &runtimepkg.Error{Category: "runtime_exit"}},
+		err:    cause,
+		write:  validSourceReport,
+	}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+
+	result, err := service.RunAnalysis(context.Background(), ExecutionRequest{StudyRef: "demo", DimensionRef: "01", SourceRef: "repo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != ExecutionStatusCompleted || !errors.Is(result.RuntimeErr, cause) || result.Validation.Status != ValidationStatusPassed {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 func TestRunAnalysisSkipsInapplicableMarkdownWithoutRuntime(t *testing.T) {
 	root, _ := executionFixture(t)
 	rt := &fakeRuntime{}
@@ -168,6 +187,27 @@ func TestSynthesizePreservesRuntimeFailureCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Status != ExecutionStatusRuntimeFailed || !errors.Is(result.RuntimeErr, cause) {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestSynthesizeRecoversCleanRuntimeExitWhenFinalReportValidates(t *testing.T) {
+	root, st := executionFixture(t)
+	writeReport(t, SourceReportPath(st, Source{Name: "repo", Kind: SourceKindDirectory}, Dimension{Number: "01", Slug: "structure"}), validSourceReport)
+	writeReport(t, SourceReportPath(st, Source{Name: "doc.md", Kind: SourceKindMarkdown}, Dimension{Number: "01", Slug: "structure"}), validMarkdownReport)
+	cause := errors.New("missing final event")
+	rt := &fakeRuntime{
+		result: runtimepkg.Result{RunID: "run-s", Status: "failed", Error: &runtimepkg.Error{Category: "runtime_exit"}},
+		err:    cause,
+		write:  validFinalReport,
+	}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+
+	result, err := service.Synthesize(context.Background(), SynthesisRequest{StudyRef: "demo", DimensionRef: "01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != ExecutionStatusCompleted || !errors.Is(result.RuntimeErr, cause) || result.Validation.Status != ValidationStatusPassed {
 		t.Fatalf("result = %+v", result)
 	}
 }

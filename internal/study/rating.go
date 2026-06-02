@@ -18,22 +18,29 @@ func ParseRating(raw string) RatingResult {
 	}
 	fractions := ratingFractionPattern.FindAllStringSubmatch(trimmed, -1)
 	labels := ratingLabelPattern.FindAllStringSubmatch(trimmed, -1)
-	if len(fractions) > 1 || len(labels) > 1 || (len(fractions) > 0 && len(labels) > 0) {
+
+	scores := make(map[int]struct{})
+	for _, match := range fractions {
+		score, ok := parseScore(match[1])
+		if !ok {
+			return RatingResult{State: RatingStateInvalid, Reason: "rating score must be between 0 and 10"}
+		}
+		scores[score] = struct{}{}
+	}
+	for _, match := range labels {
+		score, ok := parseScore(match[1])
+		if !ok {
+			return RatingResult{State: RatingStateInvalid, Reason: "rating score must be between 0 and 10"}
+		}
+		scores[score] = struct{}{}
+	}
+	if len(scores) > 1 {
 		return RatingResult{State: RatingStateAmbiguous, Reason: "multiple rating values found"}
 	}
-	if len(fractions) == 1 {
-		score, ok := parseScore(fractions[0][1])
-		if !ok {
-			return RatingResult{State: RatingStateInvalid, Reason: "rating score must be between 0 and 10"}
+	if len(scores) == 1 {
+		for score := range scores {
+			return RatingResult{State: RatingStateValid, Score: score, Raw: raw}
 		}
-		return RatingResult{State: RatingStateValid, Score: score, Raw: raw}
-	}
-	if len(labels) == 1 {
-		score, ok := parseScore(labels[0][1])
-		if !ok {
-			return RatingResult{State: RatingStateInvalid, Reason: "rating score must be between 0 and 10"}
-		}
-		return RatingResult{State: RatingStateValid, Score: score, Raw: raw}
 	}
 	if strings.Count(strings.ToLower(trimmed), "rating") > 1 {
 		return RatingResult{State: RatingStateAmbiguous, Reason: "multiple rating labels found"}
