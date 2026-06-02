@@ -21,7 +21,14 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 		Dimension:  dimension,
 		OutputPath: FinalReportPath(listing.Study),
 	}
-	applicable := GetApplicableSources(listing.Sources, dimension)
+	selectedSources := listing.Sources
+	if len(req.SourceRefs) > 0 {
+		selectedSources, err = resolveSources(listing.Sources, req.SourceRefs)
+		if err != nil {
+			return ExecutionResult{}, err
+		}
+	}
+	applicable := GetApplicableSources(selectedSources, dimension)
 	for _, source := range applicable {
 		validation := ValidateSourceReport(listing.Study, source, dimension)
 		result.PreflightResults = append(result.PreflightResults, validation)
@@ -33,7 +40,7 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 		result.Status = ExecutionStatusPreflightBlocked
 		return result, nil
 	}
-	prompt, err := BuildSynthesisPrompt(PromptRequest{WorkspaceRoot: s.workspaceRoot, Study: listing.Study, Dimension: dimension})
+	prompt, err := BuildSynthesisPrompt(PromptRequest{WorkspaceRoot: s.workspaceRoot, Study: listing.Study, Dimension: dimension, Sources: selectedSources})
 	if err != nil {
 		return ExecutionResult{}, err
 	}

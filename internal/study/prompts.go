@@ -51,9 +51,13 @@ func BuildSynthesisPrompt(req PromptRequest) (PromptResult, error) {
 	if err != nil {
 		return PromptResult{}, err
 	}
-	sources, err := DiscoverSources(req.Study)
-	if err != nil {
-		return PromptResult{}, err
+	sources := req.Sources
+	if len(sources) == 0 {
+		discovered, err := DiscoverSources(req.Study)
+		if err != nil {
+			return PromptResult{}, err
+		}
+		sources = discovered
 	}
 	applicable := GetApplicableSources(sources, req.Dimension)
 	sort.SliceStable(applicable, func(i, j int) bool {

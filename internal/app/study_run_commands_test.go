@@ -26,7 +26,11 @@ func (f *commandFakeRuntime) StartRun(ctx context.Context, req runtimepkg.Reques
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			panic(err)
 		}
-		if err := os.WriteFile(path, []byte(f.write), 0o644); err != nil {
+		content := f.write
+		if req.Metadata["task.kind"] == string(study.TaskKindSynthesis) && content == validCommandSourceReport {
+			content = validCommandFinalReport
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			panic(err)
 		}
 	}

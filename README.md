@@ -2,7 +2,7 @@
 
 UltraPlan Go is a local-first Go CLI for durable architecture studies over source repositories. The product direction is to make agent-assisted research reproducible, resumable, inspectable, and backed by concrete code references.
 
-This repository is currently in an early implementation stage. The implemented CLI surface covers workspace setup, configuration inspection, health checks, version metadata, and study/source/dimension discovery. Study execution, synthesis, resumable run loops, and code-reference extraction are described in the product and technical docs but are not fully implemented yet.
+This repository is currently in an active implementation stage. The implemented CLI surface covers workspace setup, configuration inspection, health checks, version metadata, study/source/dimension discovery, study initialization, prompt previews, single analysis execution, synthesis, run-all batch execution, run-state status inspection, and deterministic summary generation. Durable resumable run loops and code-reference extraction are described in the product and technical docs but are not fully implemented yet.
 
 ## What It Does Today
 
@@ -14,6 +14,13 @@ This repository is currently in an early implementation stage. The implemented C
 - Runs basic health checks for workspace, config, filesystem, and environment state.
 - Lists discovered studies.
 - Lists a study's source directories and Markdown dimensions.
+- Initializes studies from YAML.
+- Renders analysis and synthesis prompt previews.
+- Runs one analysis task through the configured runtime.
+- Synthesizes final reports from valid per-source reports.
+- Runs selected applicable study tasks with bounded parallelism using `study <study> run-all`.
+- Writes deterministic `studies/<study>/summary.csv`.
+- Shows persisted run-state status where run-state exists.
 
 ## Repository Layout
 
@@ -21,7 +28,7 @@ This repository is currently in an early implementation stage. The implemented C
 cmd/ultraplan/                 CLI entrypoint
 internal/app/                  command parsing and application wiring
 internal/workspace/            workspace discovery, initialization, validation, paths
-internal/study/                study, source, and dimension discovery
+internal/study/                study workflows, prompts, validation, execution, summary, state
 internal/platform/config/      config defaults, file loading, env overrides, validation
 internal/platform/logging/     logging primitives
 internal/platform/runtime/     runtime integration placeholder

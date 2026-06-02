@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +43,8 @@ func runStudy(deps dependencies, args []string) error {
 	switch {
 	case len(args) >= 1 && args[0] == "init":
 		return runStudyInit(deps, root.Path, args[1:])
+	case len(args) >= 2 && args[1] == "run-all":
+		return runStudyRunAll(deps, root, args[0], args[2:])
 	case len(args) >= 3 && args[1] == "run":
 		return runStudyRun(deps, root, args[0], args[2:])
 	case len(args) >= 3 && args[1] == "synthesize":
@@ -97,7 +100,7 @@ func runStudy(deps dependencies, args []string) error {
 	case args[0] == "list":
 		return classified(ExitUsage, "study list: unknown argument %q", args[1])
 	default:
-		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> run', '<study> synthesize', '<study> prompt', or '<study> status'")
+		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> run-all', '<study> run', '<study> synthesize', '<study> prompt', or '<study> status'")
 	}
 }
 
@@ -120,6 +123,7 @@ Usage:
   ultraplan study list
   ultraplan study <study> list
   ultraplan study <study> status
+  ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>]
   ultraplan study <study> run <dimension> <source>
   ultraplan study <study> synthesize <dimension>
   ultraplan study <study> prompt analysis <dimension> <source> [--output <file>]
@@ -130,9 +134,185 @@ Commands:
   list              List discovered studies.
   <study> list      List sources and dimensions for one study.
   <study> status    Show persisted run-state status without runtime execution.
+  <study> run-all   Execute selected applicable study analysis tasks, synthesize, and write summary.csv.
   <study> run       Execute one analysis task through the configured runtime.
   <study> synthesize Execute one synthesis task through the configured runtime.
   <study> prompt    Render prompt previews without runtime execution.
+`
+}
+
+type runAllFlags struct {
+	dimensions  []string
+	sources     []string
+	parallelism *int
+}
+
+func runStudyRunAll(deps dependencies, root workspace.Root, studyRef string, args []string) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		_, err := deps.stdout.Write([]byte(studyRunAllHelp()))
+		return err
+	}
+	flags, err := parseRunAllArgs(args)
+	if err != nil {
+		return classified(ExitUsage, "study run-all: %w", err)
+	}
+	service, parallelism, err := runAllService(deps, root, flags)
+	if err != nil {
+		return err
+	}
+	result, err := service.RunAll(deps.ctx, study.RunAllRequest{
+		StudyRef:      studyRef,
+		DimensionRefs: flags.dimensions,
+		SourceRefs:    flags.sources,
+		Parallelism:   parallelism,
+	})
+	if err != nil {
+		return mapStudyExecutionError("study.run-all", err)
+	}
+	renderRunAllResult(deps, result)
+	return classifyRunAllResult(result)
+}
+
+func parseRunAllArgs(args []string) (runAllFlags, error) {
+	var flags runAllFlags
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		next := func(name string) (string, error) {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return "", fmt.Errorf("%s requires a value", name)
+			}
+			i++
+			return args[i], nil
+		}
+		switch {
+		case arg == "--dimension":
+			value, err := next(arg)
+			if err != nil {
+				return flags, err
+			}
+			flags.dimensions = append(flags.dimensions, value)
+		case strings.HasPrefix(arg, "--dimension="):
+			flags.dimensions = append(flags.dimensions, strings.TrimPrefix(arg, "--dimension="))
+		case arg == "--source":
+			value, err := next(arg)
+			if err != nil {
+				return flags, err
+			}
+			flags.sources = append(flags.sources, value)
+		case strings.HasPrefix(arg, "--source="):
+			flags.sources = append(flags.sources, strings.TrimPrefix(arg, "--source="))
+		case arg == "--parallel":
+			value, err := next(arg)
+			if err != nil {
+				return flags, err
+			}
+			n, err := parsePositiveIntFlag("--parallel", value)
+			if err != nil {
+				return flags, err
+			}
+			flags.parallelism = &n
+		case strings.HasPrefix(arg, "--parallel="):
+			n, err := parsePositiveIntFlag("--parallel", strings.TrimPrefix(arg, "--parallel="))
+			if err != nil {
+				return flags, err
+			}
+			flags.parallelism = &n
+		default:
+			return flags, fmt.Errorf("unknown argument %q", arg)
+		}
+	}
+	return flags, nil
+}
+
+func parsePositiveIntFlag(name, value string) (int, error) {
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	if n < 1 {
+		return 0, fmt.Errorf("%s must be at least 1", name)
+	}
+	return n, nil
+}
+
+func runAllService(deps dependencies, root workspace.Root, flags runAllFlags) (study.Service, int, error) {
+	effective, err := loadEffectiveConfig(root, deps, config.CLIOverrides{})
+	if err != nil {
+		return study.Service{}, 0, err
+	}
+	parallelism := effective.Config.Execution.DefaultParallel
+	if flags.parallelism != nil {
+		parallelism = *flags.parallelism
+	}
+	if parallelism < 1 {
+		return study.Service{}, 0, classified(ExitConfig, "study run-all: parallelism must be at least 1")
+	}
+	req, err := runtimepkg.RequestFromConfig(effective.Config, root.Path)
+	if err != nil {
+		return study.Service{}, 0, classified(ExitConfig, "runtime.config: %w", err)
+	}
+	rt, err := studyRuntimeFactory(effective.Config)
+	if err != nil {
+		return study.Service{}, 0, classified(ExitRuntime, "runtime.init: %w", err)
+	}
+	return study.NewService(root.Path, study.WithRuntime(rt, req)), parallelism, nil
+}
+
+func renderRunAllResult(deps dependencies, result study.RunAllResult) {
+	fmt.Fprintf(deps.stdout, "Run-all: %s\n", result.Status)
+	fmt.Fprintf(deps.stdout, "Study: %s\n", result.Study.Name)
+	fmt.Fprintf(deps.stdout, "Parallelism: %d\n", result.Parallelism)
+	fmt.Fprintf(deps.stdout, "Completed: %d\n", result.Counts.Completed)
+	fmt.Fprintf(deps.stdout, "Failed: %d\n", result.Counts.Failed)
+	fmt.Fprintf(deps.stdout, "Skipped: %d\n", result.Counts.Skipped)
+	fmt.Fprintf(deps.stdout, "Pending: %d\n", result.Counts.Pending)
+	fmt.Fprintf(deps.stdout, "Summary: %s\n", workspace.Rel(result.Study.Path, result.SummaryPath))
+	for _, item := range append(append([]study.ExecutionResult{}, result.Analysis...), result.Synthesis...) {
+		if item.Status == study.ExecutionStatusCompleted {
+			continue
+		}
+		fmt.Fprintf(deps.stderr, "%s %s", item.TaskKind, item.Status)
+		if item.Dimension.Ref() != "" {
+			fmt.Fprintf(deps.stderr, " %s", item.Dimension.Ref())
+		}
+		if item.Source.Name != "" {
+			fmt.Fprintf(deps.stderr, " %s", item.Source.Name)
+		}
+		if item.RuntimeCategory != "" {
+			fmt.Fprintf(deps.stderr, ": %s", item.RuntimeCategory)
+		}
+		fmt.Fprintln(deps.stderr)
+	}
+	for _, warning := range result.Warnings {
+		fmt.Fprintf(deps.stderr, "Warning: %s: %s\n", workspace.Rel(result.Study.Path, warning.Path), warning.Message)
+	}
+}
+
+func classifyRunAllResult(result study.RunAllResult) error {
+	switch result.Status {
+	case study.RunAllStatusCompleted:
+		return nil
+	case study.RunAllStatusCancelled:
+		return classedError{class: ExitCancel, code: errorCode(ExitCancel), err: fmt.Errorf("study.run-all: cancelled")}
+	case study.RunAllStatusPartial:
+		return classedError{class: ExitPartial, code: errorCode(ExitPartial), err: fmt.Errorf("study.run-all: partial completion")}
+	case study.RunAllStatusRuntimeFailed:
+		return classedError{class: ExitRuntime, code: errorCode(ExitRuntime), err: fmt.Errorf("study.run-all: runtime failed")}
+	default:
+		return classedError{class: ExitValidation, code: errorCode(ExitValidation), err: fmt.Errorf("study.run-all: validation failed")}
+	}
+}
+
+func studyRunAllHelp() string {
+	return `ultraplan study <study> run-all
+
+Usage:
+  ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>]
+
+Flags:
+  --dimension <ref>   Limit execution to one dimension. Repeatable.
+  --source <ref>      Limit execution to one source. Repeatable.
+  --parallel <n>      Override configured default parallelism. Must be at least 1.
 `
 }
 

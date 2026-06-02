@@ -63,6 +63,7 @@ type PromptRequest struct {
 	Study         Study
 	Dimension     Dimension
 	Source        Source
+	Sources       []Source
 }
 
 type PromptManifest struct {
@@ -298,6 +299,48 @@ type ExecutionResult struct {
 type SynthesisRequest struct {
 	StudyRef     string
 	DimensionRef string
+	SourceRefs   []string
+}
+
+type RunAllRequest struct {
+	StudyRef      string
+	DimensionRefs []string
+	SourceRefs    []string
+	Parallelism   int
+}
+
+type RunAllStatus string
+
+const (
+	RunAllStatusCompleted        RunAllStatus = "completed"
+	RunAllStatusPartial          RunAllStatus = "partial"
+	RunAllStatusValidationFailed RunAllStatus = "validation_failed"
+	RunAllStatusRuntimeFailed    RunAllStatus = "runtime_failed"
+	RunAllStatusCancelled        RunAllStatus = "cancelled"
+)
+
+type RunAllCounts struct {
+	Completed int
+	Failed    int
+	Skipped   int
+	Pending   int
+}
+
+type RunAllWarning struct {
+	Path    string
+	Message string
+}
+
+type RunAllResult struct {
+	Status        RunAllStatus
+	Study         Study
+	Parallelism   int
+	Analysis      []ExecutionResult
+	Synthesis     []ExecutionResult
+	Counts        RunAllCounts
+	Warnings      []RunAllWarning
+	SummaryPath   string
+	SummaryResult SummaryResult
 }
 
 func (d Dimension) Ref() string {
