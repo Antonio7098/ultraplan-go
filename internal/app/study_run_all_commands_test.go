@@ -62,6 +62,31 @@ func TestStudyRunAllCommandPreflightAndFlagErrorsStartNoRuntime(t *testing.T) {
 	}
 }
 
+func TestStudyRunAllCommandInapplicableSourceCompletesWithoutRuntime(t *testing.T) {
+	dir, studyRoot := promptCommandFixture(t)
+	fake := &commandFakeRuntime{write: validCommandSourceReport}
+	restore := stubStudyRuntime(t, fake)
+	defer restore()
+
+	stdout, stderr, status := runForTest([]string{"--workspace", dir, "study", "demo", "run-all", "--dimension", "01", "--source", "other.md", "--parallel", "1"})
+	if status != ExitOK {
+		t.Fatalf("status = %d stdout = %q stderr = %q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Run-all: completed")
+	assertContains(t, stdout, "Completed: 0")
+	assertContains(t, stdout, "Failed: 0")
+	assertContains(t, stdout, "Skipped: 0")
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("runtime calls = %d", fake.calls)
+	}
+	if _, err := os.Stat(filepath.Join(studyRoot, "summary.csv")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStudyRunAllCommandPartialRuntimeFailureRedactsOutput(t *testing.T) {
 	dir, _ := promptCommandFixture(t)
 	fake := &commandFakeRuntime{err: os.ErrPermission}

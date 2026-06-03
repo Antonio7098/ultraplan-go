@@ -98,6 +98,37 @@ func TestRunAllPreflightFailuresStartNoRuntime(t *testing.T) {
 	}
 }
 
+func TestRunAllEmptyApplicableMatrixSkipsSynthesisAndRuntime(t *testing.T) {
+	root, st := executionFixture(t)
+	rt := &runAllRuntime{write: validSourceReport}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+
+	result, err := service.RunAll(context.Background(), RunAllRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, SourceRefs: []string{"other.md"}, Parallelism: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunAllStatusCompleted {
+		t.Fatalf("Status = %q result = %+v", result.Status, result)
+	}
+	if len(result.Analysis) != 0 || len(result.Synthesis) != 0 {
+		t.Fatalf("analysis = %d synthesis = %d", len(result.Analysis), len(result.Synthesis))
+	}
+	if result.Counts != (RunAllCounts{}) {
+		t.Fatalf("Counts = %+v", result.Counts)
+	}
+	if rt.calls != 0 {
+		t.Fatalf("runtime calls = %d", rt.calls)
+	}
+	content, err := os.ReadFile(SummaryPath(st))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "source,01-structure,total\nother.md,N/A,0\n"
+	if string(content) != want {
+		t.Fatalf("summary:\n%s\nwant:\n%s", content, want)
+	}
+}
+
 func TestRunAllBoundsParallelismAndReportsCancellation(t *testing.T) {
 	root, _ := executionFixture(t)
 	block := make(chan struct{})

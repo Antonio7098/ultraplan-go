@@ -66,6 +66,9 @@ func (s Service) RunAll(ctx context.Context, req RunAllRequest) (RunAllResult, e
 			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusCancelled, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study)})
 			continue
 		}
+		if !hasAnalysisForDimension(result.Analysis, dimension) {
+			continue
+		}
 		if blockers := synthesisBlockers(result.Analysis, dimension); len(blockers) > 0 {
 			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusPreflightBlocked, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study), Blockers: blockers})
 			continue
@@ -97,6 +100,15 @@ func selectedSourceNames(sources []Source) []string {
 		names = append(names, source.Name)
 	}
 	return names
+}
+
+func hasAnalysisForDimension(results []ExecutionResult, dimension Dimension) bool {
+	for _, result := range results {
+		if result.Dimension.Ref() == dimension.Ref() {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveDimensions(all []Dimension, refs []string) ([]Dimension, error) {
