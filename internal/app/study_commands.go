@@ -43,6 +43,8 @@ func runStudy(deps dependencies, args []string) error {
 	switch {
 	case len(args) >= 1 && args[0] == "init":
 		return runStudyInit(deps, root.Path, args[1:])
+	case len(args) >= 2 && args[1] == "run-loop":
+		return runStudyRunLoop(deps, root, args[0], args[2:])
 	case len(args) >= 2 && args[1] == "run-all":
 		return runStudyRunAll(deps, root, args[0], args[2:])
 	case len(args) >= 3 && args[1] == "run":
@@ -100,7 +102,7 @@ func runStudy(deps dependencies, args []string) error {
 	case args[0] == "list":
 		return classified(ExitUsage, "study list: unknown argument %q", args[1])
 	default:
-		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> run-all', '<study> run', '<study> synthesize', '<study> prompt', or '<study> status'")
+		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> run-loop', '<study> run-all', '<study> run', '<study> synthesize', '<study> prompt', or '<study> status'")
 	}
 }
 
@@ -123,6 +125,7 @@ Usage:
   ultraplan study list
   ultraplan study <study> list
   ultraplan study <study> status
+  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock]
   ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>]
   ultraplan study <study> run <dimension> <source>
   ultraplan study <study> synthesize <dimension>
@@ -134,6 +137,7 @@ Commands:
   list              List discovered studies.
   <study> list      List sources and dimensions for one study.
   <study> status    Show persisted run-state status without runtime execution.
+  <study> run-loop  Resume durable study execution with per-study locking and persisted task state.
   <study> run-all   Execute selected applicable study analysis tasks, synthesize, and write summary.csv.
   <study> run       Execute one analysis task through the configured runtime.
   <study> synthesize Execute one synthesis task through the configured runtime.
@@ -145,6 +149,123 @@ type runAllFlags struct {
 	dimensions  []string
 	sources     []string
 	parallelism *int
+	forceUnlock bool
+}
+
+func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, args []string) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		_, err := deps.stdout.Write([]byte(studyRunLoopHelp()))
+		return err
+	}
+	flags, err := parseRunLoopArgs(args)
+	if err != nil {
+		return classified(ExitUsage, "study run-loop: %w", err)
+	}
+	service, parallelism, summary, err := runLoopService(deps, root, flags)
+	if err != nil {
+		return err
+	}
+	command := append([]string{"ultraplan", "study", studyRef, "run-loop"}, args...)
+	result, err := service.RunLoop(deps.ctx, study.RunLoopRequest{
+		StudyRef:      studyRef,
+		DimensionRefs: flags.dimensions,
+		SourceRefs:    flags.sources,
+		Parallelism:   parallelism,
+		Config:        summary,
+		Command:       command,
+		ForceUnlock:   flags.forceUnlock,
+	})
+	if err != nil {
+		return mapStudyRunLoopError(err)
+	}
+	renderRunLoopResult(deps, result)
+	return classifyRunAllResult(study.RunAllResult{Status: result.Status})
+}
+
+func parseRunLoopArgs(args []string) (runAllFlags, error) {
+	var filtered []string
+	forceUnlock := false
+	for _, arg := range args {
+		if arg == "--force-unlock" {
+			forceUnlock = true
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	flags, err := parseRunAllArgs(filtered)
+	if err != nil {
+		return flags, err
+	}
+	flags.forceUnlock = forceUnlock
+	return flags, nil
+}
+
+func runLoopService(deps dependencies, root workspace.Root, flags runAllFlags) (study.Service, int, study.ConfigSummary, error) {
+	effective, err := loadEffectiveConfig(root, deps, config.CLIOverrides{})
+	if err != nil {
+		return study.Service{}, 0, study.ConfigSummary{}, err
+	}
+	parallelism := effective.Config.Execution.DefaultParallel
+	if flags.parallelism != nil {
+		parallelism = *flags.parallelism
+	}
+	if parallelism < 1 {
+		return study.Service{}, 0, study.ConfigSummary{}, classified(ExitConfig, "study run-loop: parallelism must be at least 1")
+	}
+	req, err := runtimepkg.RequestFromConfig(effective.Config, root.Path)
+	if err != nil {
+		return study.Service{}, 0, study.ConfigSummary{}, classified(ExitConfig, "runtime.config: %w", err)
+	}
+	rt, err := studyRuntimeFactory(effective.Config)
+	if err != nil {
+		return study.Service{}, 0, study.ConfigSummary{}, classified(ExitRuntime, "runtime.init: %w", err)
+	}
+	summary := study.ConfigSummary{
+		Runtime:          effective.Config.Runtime.Default,
+		Model:            effective.Config.Models.Default,
+		Variant:          effective.Config.Execution.DefaultVariant,
+		DefaultParallel:  effective.Config.Execution.DefaultParallel,
+		DefaultTimeout:   effective.Config.Execution.DefaultTimeout,
+		DefaultRetries:   effective.Config.Execution.DefaultRetries,
+		WorkspaceVersion: strconv.Itoa(effective.Config.Version),
+	}
+	return study.NewService(root.Path, study.WithRuntime(rt, req)), parallelism, summary, nil
+}
+
+func mapStudyRunLoopError(err error) error {
+	switch {
+	case errors.Is(err, study.ErrStudyLocked):
+		return classified(ExitPartial, "study.run-loop: %w", err)
+	case errors.Is(err, study.ErrRunStateMalformed), errors.Is(err, study.ErrRunStateUnsupported):
+		return classified(ExitValidation, "study.run-loop: %w", err)
+	default:
+		return mapStudyExecutionError("study.run-loop", err)
+	}
+}
+
+func renderRunLoopResult(deps dependencies, result study.RunLoopResult) {
+	fmt.Fprintf(deps.stdout, "Run-loop: %s\n", result.Status)
+	fmt.Fprintf(deps.stdout, "Study: %s\n", result.Study.Name)
+	fmt.Fprintf(deps.stdout, "Parallelism: %d\n", result.Parallelism)
+	fmt.Fprintf(deps.stdout, "Run state: %s\n", result.StatePath)
+	fmt.Fprintf(deps.stdout, "Lock: %s\n", result.LockPath)
+	fmt.Fprintf(deps.stdout, "Completed: %d\n", result.Counts.Completed)
+	fmt.Fprintf(deps.stdout, "Failed: %d\n", result.Counts.Failed)
+	fmt.Fprintf(deps.stdout, "Skipped: %d\n", result.Counts.Skipped)
+	fmt.Fprintf(deps.stdout, "Pending: %d\n", result.Counts.Pending)
+	for _, task := range result.State.Tasks {
+		if task.Status == study.TaskStatusCompleted {
+			continue
+		}
+		fmt.Fprintf(deps.stderr, "%s %s %s", task.Kind, task.Status, task.DimensionRef)
+		if task.Source != "" {
+			fmt.Fprintf(deps.stderr, " %s", task.Source)
+		}
+		if task.LastError != nil {
+			fmt.Fprintf(deps.stderr, ": %s", config.RedactValue("task.error", task.LastError.Message))
+		}
+		fmt.Fprintln(deps.stderr)
+	}
 }
 
 func runStudyRunAll(deps dependencies, root workspace.Root, studyRef string, args []string) error {
@@ -222,6 +343,22 @@ func parseRunAllArgs(args []string) (runAllFlags, error) {
 		}
 	}
 	return flags, nil
+}
+
+func studyRunLoopHelp() string {
+	return `ultraplan study <study> run-loop
+
+Usage:
+  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock]
+
+Flags:
+  --dimension <ref>   Limit execution to one dimension. Repeatable. Preserved in new durable state.
+  --source <ref>      Limit execution to one source. Repeatable. Preserved in new durable state.
+  --parallel <n>      Override configured default parallelism. Must be at least 1.
+  --force-unlock      Remove this study's existing run-loop lock before starting.
+
+The run-loop persists studies/<study>/.ultraplan/run-state.json after each meaningful task transition, resumes existing state, revalidates completed reports before trusting them, cancels through the runtime boundary on interrupt, and refuses concurrent runs unless --force-unlock is used.
+`
 }
 
 func parsePositiveIntFlag(name, value string) (int, error) {
@@ -475,8 +612,12 @@ func runStudyStatus(deps dependencies, service study.Service, studyRef string) e
 	if err != nil {
 		return mapStudyStatusError(err)
 	}
-	study.ResumeValidateRunState(&state, listing.Study, listing.Sources, listing.Dimensions, timeNow())
 	summary := study.SummarizeRunState(state, study.RunStatePath(listing.Study))
+	lock, err := study.LockInfoForStatus(listing.Study)
+	if err != nil {
+		return classified(ExitWorkspace, "study.status lock: %w", err)
+	}
+	summary.Lock = lock
 	renderStudyStatus(deps.stdout, summary)
 	return nil
 }
@@ -505,6 +646,89 @@ func renderStudyStatus(w io.Writer, summary study.StatusSummary) {
 	fmt.Fprintf(w, "Retries: %d\n", summary.RetryCount)
 	if summary.NextRetryAt != nil {
 		fmt.Fprintf(w, "Next retry: %s\n", summary.NextRetryAt.UTC().Format(time.RFC3339))
+	}
+	if summary.Lock != nil {
+		fmt.Fprintf(w, "Lock: %s\n", summary.Lock.Path)
+		fmt.Fprintf(w, "Lock PID: %d\n", summary.Lock.PID)
+		fmt.Fprintf(w, "Lock command: %s\n", config.RedactValue("lock.command", summary.Lock.Command))
+		fmt.Fprintf(w, "Lock acquired: %s\n", summary.Lock.AcquiredAt.UTC().Format(time.RFC3339))
+	}
+	renderStatusTaskSection(w, "Active", summary.Tasks, func(task study.TaskState) bool {
+		return task.Status == study.TaskStatusRunning || task.Status == study.TaskStatusValidating || task.Status == study.TaskStatusWaiting || task.Status == study.TaskStatusRetrying
+	})
+	renderStatusTaskSection(w, "Failed", summary.Tasks, func(task study.TaskState) bool {
+		return task.Status == study.TaskStatusFailed
+	})
+	renderStatusTaskSection(w, "Cancelled", summary.Tasks, func(task study.TaskState) bool {
+		return task.Status == study.TaskStatusCancelled
+	})
+	renderStatusTaskSection(w, "Recent", summary.Tasks, func(task study.TaskState) bool {
+		return task.Status == study.TaskStatusCompleted || task.Status == study.TaskStatusSkipped
+	})
+}
+
+func renderStatusTaskSection(w io.Writer, title string, tasks []study.TaskState, include func(study.TaskState) bool) {
+	wrote := false
+	count := 0
+	for _, task := range tasks {
+		if !include(task) {
+			continue
+		}
+		if !wrote {
+			fmt.Fprintf(w, "%s tasks:\n", title)
+			wrote = true
+		}
+		count++
+		if count > 5 && title == "Recent" {
+			fmt.Fprintln(w, "  ...")
+			return
+		}
+		fmt.Fprintf(w, "  %s %s", task.Status, task.Kind)
+		if task.DimensionRef != "" {
+			fmt.Fprintf(w, " %s", task.DimensionRef)
+		}
+		if task.Source != "" {
+			fmt.Fprintf(w, " %s", task.Source)
+		}
+		if task.OutputPath != "" {
+			fmt.Fprintf(w, " -> %s", task.OutputPath)
+		}
+		fmt.Fprintln(w)
+		if task.RetryAfter != nil {
+			fmt.Fprintf(w, "    retry: %s\n", task.RetryAfter.UTC().Format(time.RFC3339))
+		}
+		if task.LastError != nil {
+			fmt.Fprintf(w, "    error: %s\n", config.RedactValue("task.error", task.LastError.Message))
+		}
+		if task.Agent.Provider != "" || task.Agent.Model != "" || task.Agent.Status != "" {
+			fmt.Fprintf(w, "    runtime: provider=%s model=%s status=%s run=%s\n", task.Agent.Provider, task.Agent.Model, task.Agent.Status, task.Agent.RunID)
+		}
+		if task.Agent.Usage.TotalTokensKnown {
+			fmt.Fprintf(w, "    usage: total_tokens=%d\n", task.Agent.Usage.TotalTokens)
+		} else if task.Agent.Usage.InputTokensKnown || task.Agent.Usage.OutputTokensKnown {
+			fmt.Fprintf(w, "    usage: input_known=%t output_known=%t\n", task.Agent.Usage.InputTokensKnown, task.Agent.Usage.OutputTokensKnown)
+		} else if task.Agent.RunID != "" {
+			fmt.Fprintln(w, "    usage: unknown")
+		}
+		if task.Agent.Cost != nil {
+			fmt.Fprintf(w, "    cost: %.6f %s estimate=%t\n", task.Agent.Cost.Amount, task.Agent.Cost.Currency, task.Agent.Cost.Estimate)
+		}
+		if len(task.Agent.Policy.Decisions) > 0 {
+			last := task.Agent.Policy.Decisions[len(task.Agent.Policy.Decisions)-1]
+			fmt.Fprintf(w, "    policy: final_attempt=%d last_decision=%s reason=%s\n", task.Agent.Policy.FinalAttempt, last.Kind, config.RedactValue("policy.reason", last.Reason))
+		}
+		if task.Agent.Permissions.Mode != "" || task.Agent.Permissions.PolicyID != "" {
+			fmt.Fprintf(w, "    permissions: mode=%s policy=%s unsupported=%d\n", task.Agent.Permissions.Mode, task.Agent.Permissions.PolicyID, task.Agent.Permissions.UnsupportedCount)
+		}
+		if task.Agent.Cleanup.Attempted {
+			fmt.Fprintf(w, "    cleanup: completed=%t failed=%t\n", task.Agent.Cleanup.Completed, task.Agent.Cleanup.Failed)
+		}
+		if task.Agent.Repair.Attempted || task.Agent.Repair.Configured {
+			fmt.Fprintf(w, "    repair: attempts=%d exhausted=%t permission_denied=%t\n", task.Agent.Repair.AttemptCount, task.Agent.Repair.Exhausted, task.Agent.Repair.PermissionDenied)
+		}
+		for _, omission := range task.Agent.Omissions {
+			fmt.Fprintf(w, "    omitted: %s (%s)\n", omission.Field, omission.Reason)
+		}
 	}
 }
 

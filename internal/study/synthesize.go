@@ -55,6 +55,7 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 	}
 	result.RuntimeRunID = runtimeResult.RunID
 	result.RuntimeStatus = runtimeResult.Status
+	result.Agent = agentMetadata(runtimeResult, s.runtimeConfig)
 	if runErr != nil {
 		result.RuntimeError = runErr.Error()
 		result.RuntimeErr = runErr

@@ -2,7 +2,7 @@
 
 UltraPlan Go is a local-first Go CLI for durable architecture studies over source repositories. The product direction is to make agent-assisted research reproducible, resumable, inspectable, and backed by concrete code references.
 
-This repository is currently in an active implementation stage. The implemented CLI surface covers workspace setup, configuration inspection, health checks, version metadata, study/source/dimension discovery, study initialization, prompt previews, single analysis execution, synthesis, run-all batch execution, run-state status inspection, and deterministic summary generation. Durable resumable run loops and code-reference extraction are described in the product and technical docs but are not fully implemented yet.
+This repository is currently in an active implementation stage. The implemented CLI surface covers workspace setup, configuration inspection, health checks, version metadata, study/source/dimension discovery, study initialization, prompt previews, single analysis execution, synthesis, run-all batch execution, durable resumable run-loop execution, run-state status inspection, and deterministic summary generation. Code-reference extraction is described in the product and technical docs but is not fully implemented yet.
 
 ## What It Does Today
 
@@ -19,8 +19,10 @@ This repository is currently in an active implementation stage. The implemented 
 - Runs one analysis task through the configured runtime.
 - Synthesizes final reports from valid per-source reports.
 - Runs selected applicable study tasks with bounded parallelism using `study <study> run-all`.
+- Resumes durable study execution with `study <study> run-loop`, backed by per-study locks and atomic run-state persistence.
+- Supports explicit selected-study `--force-unlock` for operator-confirmed stale lock recovery.
 - Writes deterministic `studies/<study>/summary.csv`.
-- Shows persisted run-state status where run-state exists.
+- Shows persisted run-state status, lock diagnostics, retry state, task sections, and safe runtime metadata where run-state exists.
 
 ## Repository Layout
 

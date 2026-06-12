@@ -166,12 +166,24 @@ func TestAdapterMapsMalformedEventFailureSafely(t *testing.T) {
 }
 
 func TestAdapterMapsPolicyRetryFallbackAndValidationMetadata(t *testing.T) {
+	total := int64(99)
 	adapter := NewAdapter(fakeRuntime{run: &fakeRun{
 		id: "run-1",
 		result: agentwrap.RunResult{
 			RunID:  "run-1",
 			Status: agentwrap.StatusFailed,
+			Usage:  agentwrap.Usage{TotalTokens: &total},
 			Metadata: agentwrap.RunMetadata{
+				Attempts: []agentwrap.AttemptSummary{{
+					Attempt:         1,
+					AttemptOnTarget: 1,
+					TargetIndex:     0,
+					RunID:           "attempt-1",
+					Status:          agentwrap.StatusFailed,
+					Context:         agentwrap.RuntimeContext{Provider: "anthropic", Model: "claude"},
+					ErrorCategory:   agentwrap.ErrorRateLimit,
+					RateLimit:       &agentwrap.RateLimitInfo{RetryAfter: time.Minute},
+				}},
 				Policy: agentwrap.PolicyMetadata{
 					FinalAttempt:     2,
 					FinalTargetIndex: 1,
@@ -182,6 +194,16 @@ func TestAdapterMapsPolicyRetryFallbackAndValidationMetadata(t *testing.T) {
 						{Attempt: 2, TargetIndex: 0, Kind: agentwrap.PolicyDecisionFallback, Reason: "runtime exit"},
 					},
 				},
+				Permissions: agentwrap.PermissionMetadata{
+					Mode:     "restricted",
+					PolicyID: "policy-1",
+					Policy:   agentwrap.PermissionPolicySummary{Default: agentwrap.PermissionActionAsk},
+					Unsupported: []agentwrap.PermissionFeatureSupport{{
+						Feature: "path:/tmp/outside",
+						Reason:  "unsupported path rule",
+					}},
+				},
+				Cleanup: agentwrap.CleanupMetadata{Attempted: true, Completed: true},
 				Validation: agentwrap.ValidationMetadata{
 					Configured: true,
 					Final: agentwrap.ValidationResult{
@@ -190,6 +212,8 @@ func TestAdapterMapsPolicyRetryFallbackAndValidationMetadata(t *testing.T) {
 						Errors:      []agentwrap.SDKError{*agentwrap.NewError(agentwrap.ErrorValidation, "validation", "failed", nil)},
 					},
 				},
+				Repair:        agentwrap.RepairMetadata{Configured: true, Attempted: true, MaxAttempts: 2, Attempts: []agentwrap.RepairAttemptSummary{{Attempt: 1}}, Exhausted: true, PermissionDenied: true},
+				EstimatedCost: &agentwrap.CostEstimate{Amount: 0.25, Currency: "USD", Estimate: true},
 			},
 		},
 	}})
@@ -200,6 +224,21 @@ func TestAdapterMapsPolicyRetryFallbackAndValidationMetadata(t *testing.T) {
 	}
 	if !result.Policy.Exhausted || len(result.Policy.Decisions) != 2 || result.Policy.Decisions[0].Kind != "retry" || result.Policy.Decisions[1].Kind != "fallback" {
 		t.Fatalf("policy metadata not mapped: %+v", result.Policy)
+	}
+	if len(result.Attempts) != 1 || !result.Attempts[0].RateLimited || result.Attempts[0].RetryAfter != time.Minute || result.Attempts[0].Provider != "anthropic" {
+		t.Fatalf("attempt metadata not mapped: %+v", result.Attempts)
+	}
+	if result.Permissions.PolicyID != "policy-1" || result.Permissions.Default != "ask" || result.Permissions.UnsupportedCount != 1 {
+		t.Fatalf("permission metadata not mapped: %+v", result.Permissions)
+	}
+	if !result.Cleanup.Attempted || !result.Cleanup.Completed {
+		t.Fatalf("cleanup metadata not mapped: %+v", result.Cleanup)
+	}
+	if !result.Repair.Attempted || result.Repair.AttemptCount != 1 || !result.Repair.PermissionDenied {
+		t.Fatalf("repair metadata not mapped: %+v", result.Repair)
+	}
+	if !result.Usage.TotalTokensKnown || result.Usage.TotalTokens != 99 || result.EstimatedCost == nil || result.EstimatedCost.Amount != 0.25 {
+		t.Fatalf("usage/cost metadata not mapped: usage=%+v cost=%+v", result.Usage, result.EstimatedCost)
 	}
 	if !result.Validation.Configured || result.Validation.Passed || result.Validation.Failures != 1 || result.Validation.Errors != 1 {
 		t.Fatalf("validation metadata not mapped: %+v", result.Validation)

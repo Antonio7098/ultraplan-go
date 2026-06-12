@@ -118,6 +118,7 @@ func RunStatePath(study Study) string {
 
 func SummarizeRunState(state RunState, statePath string) StatusSummary {
 	summary := StatusSummary{Total: len(state.Tasks), Complete: state.Complete, StatePath: statePath, RunID: state.RunID}
+	summary.Tasks = append([]TaskState(nil), state.Tasks...)
 	for _, task := range state.Tasks {
 		switch task.Status {
 		case TaskStatusPending:

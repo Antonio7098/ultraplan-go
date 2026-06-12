@@ -41,7 +41,7 @@ func TestStudyStatusShowsPersistedRunState(t *testing.T) {
 	assertContains(t, stdout, "Complete: false")
 	assertContains(t, stdout, "Tasks: 2")
 	assertContains(t, stdout, "Failed: 1")
-	assertContains(t, stdout, "Active: 0")
+	assertContains(t, stdout, "Active: 1")
 	assertContains(t, stdout, "Retries: 1")
 	assertContains(t, stdout, "Next retry: 2026-05-31T13:00:00Z")
 }

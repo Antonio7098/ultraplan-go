@@ -17,6 +17,7 @@ type commandFakeRuntime struct {
 	write  string
 	calls  int
 	mutate map[string]string
+	result runtimepkg.Result
 }
 
 func (f *commandFakeRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
@@ -39,10 +40,17 @@ func (f *commandFakeRuntime) StartRun(ctx context.Context, req runtimepkg.Reques
 			panic(err)
 		}
 	}
-	result := runtimepkg.Result{RunID: "fake-run", Status: "completed"}
+	result := f.result
+	if result.RunID == "" {
+		result = runtimepkg.Result{RunID: "fake-run", Status: "completed"}
+	}
 	if f.err != nil {
-		result.Status = "failed"
-		result.Error = &runtimepkg.Error{Category: "runtime"}
+		if result.Status == "" || result.Status == "completed" {
+			result.Status = "failed"
+		}
+		if result.Error == nil {
+			result.Error = &runtimepkg.Error{Category: "runtime"}
+		}
 	}
 	return result, f.err
 }

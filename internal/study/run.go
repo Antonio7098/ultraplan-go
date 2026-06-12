@@ -56,6 +56,7 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 	}
 	result.RuntimeRunID = runtimeResult.RunID
 	result.RuntimeStatus = runtimeResult.Status
+	result.Agent = agentMetadata(runtimeResult, s.runtimeConfig)
 	if runErr != nil {
 		result.RuntimeError = runErr.Error()
 		result.RuntimeErr = runErr

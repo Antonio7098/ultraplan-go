@@ -48,10 +48,14 @@ type Result struct {
 	Events        []Event
 	Artifacts     []Artifact
 	Warnings      []string
+	Attempts      []AttemptSummary
 	Usage         Usage
 	EstimatedCost *CostEstimate
 	Policy        PolicySummary
+	Permissions   PermissionSummary
+	Cleanup       CleanupSummary
 	Validation    ValidationSummary
+	Repair        RepairSummary
 	Error         *Error
 	StartedAt     time.Time
 	FinishedAt    time.Time
@@ -97,6 +101,19 @@ type CostEstimate struct {
 	Estimate bool
 }
 
+type AttemptSummary struct {
+	Attempt         int
+	AttemptOnTarget int
+	TargetIndex     int
+	RunID           string
+	Status          string
+	Provider        string
+	Model           string
+	ErrorCategory   string
+	RateLimited     bool
+	RetryAfter      time.Duration
+}
+
 type PolicySummary struct {
 	FinalAttempt     int
 	FinalTargetIndex int
@@ -119,6 +136,33 @@ type ValidationSummary struct {
 	Passed     bool
 	Failures   int
 	Errors     int
+}
+
+type PermissionSummary struct {
+	Mode               string
+	PolicyID           string
+	Default            string
+	UnsupportedCount   int
+	AuditCount         int
+	UnsupportedReasons []string
+}
+
+type CleanupSummary struct {
+	Attempted bool
+	Completed bool
+	Failed    bool
+	Error     *Error
+}
+
+type RepairSummary struct {
+	Configured             bool
+	Attempted              bool
+	MaxAttempts            int
+	AttemptCount           int
+	Exhausted              bool
+	ExhaustedReason        string
+	PermissionDenied       bool
+	UnsupportedSameSession bool
 }
 
 type Error struct {
@@ -305,10 +349,14 @@ func mapResult(result agentwrap.RunResult) Result {
 		Status:        string(result.Status),
 		Artifacts:     mapArtifacts(result.Artifacts),
 		Warnings:      append([]string(nil), result.Warnings...),
+		Attempts:      mapAttempts(result.Metadata.Attempts),
 		Usage:         mapUsage(result.Usage),
 		EstimatedCost: mapCost(result.Metadata.EstimatedCost),
 		Policy:        mapPolicy(result.Metadata.Policy),
+		Permissions:   mapPermissions(result.Metadata.Permissions),
+		Cleanup:       mapCleanup(result.Metadata.Cleanup),
 		Validation:    mapValidation(result.Metadata.Validation),
+		Repair:        mapRepair(result.Metadata.Repair),
 		Error:         mapSDKError(result.Err),
 		StartedAt:     result.StartedAt,
 		FinishedAt:    result.FinishedAt,

@@ -1,0 +1,375 @@
+package study
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"sync"
+	"time"
+)
+
+// RunLoop resumes or creates durable study execution for the selected study.
+//
+// The workflow is intentionally resumable rather than exactly-once: safety comes
+// from one per-study mutator lock, atomic transition persistence, completed
+// artifact revalidation before trust, and attempt/history preservation across
+// process restarts. If a process exits mid-task, the next run reconciles active
+// states before scheduling more work.
+func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopResult, err error) {
+	if req.Parallelism < 1 {
+		return RunLoopResult{}, fmt.Errorf("parallelism must be at least 1")
+	}
+	listing, err := s.ListStudy(req.StudyRef)
+	if err != nil {
+		return RunLoopResult{}, err
+	}
+	lock, err := AcquireRunLoopLock(listing.Study, req.Command, req.ForceUnlock, time.Now().UTC())
+	if err != nil {
+		return RunLoopResult{}, err
+	}
+	defer func() {
+		if releaseErr := lock.Release(); err == nil && releaseErr != nil {
+			err = releaseErr
+		}
+	}()
+
+	dimensions, err := resolveDimensions(listing.Dimensions, req.DimensionRefs)
+	if err != nil {
+		return RunLoopResult{}, err
+	}
+	sources, err := resolveSources(listing.Sources, req.SourceRefs)
+	if err != nil {
+		return RunLoopResult{}, err
+	}
+
+	state, err := LoadRunState(listing.Study)
+	if err != nil {
+		if !errors.Is(err, ErrRunStateMissing) {
+			return RunLoopResult{}, err
+		}
+		state, err = NewRunState(NewRunStateRequest{
+			WorkspaceRoot: s.workspaceRoot,
+			Study:         listing.Study,
+			Sources:       sources,
+			Dimensions:    dimensions,
+			Filters:       RunFilters{Dimensions: append([]string(nil), req.DimensionRefs...), Sources: append([]string(nil), req.SourceRefs...)},
+			Config:        req.Config,
+		})
+		if err != nil {
+			return RunLoopResult{}, err
+		}
+	} else {
+		ResumeValidateRunState(&state, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
+	}
+	if err := SaveRunState(listing.Study, state); err != nil {
+		return RunLoopResult{}, err
+	}
+
+	result := RunLoopResult{
+		Study:       listing.Study,
+		Parallelism: req.Parallelism,
+		StatePath:   RunStatePath(listing.Study),
+		LockPath:    RunLoopLockPath(listing.Study),
+	}
+	taskIndex := map[string]int{}
+	for i, task := range state.Tasks {
+		taskIndex[task.ID] = i
+	}
+
+	var mu sync.Mutex
+	save := func() error {
+		mu.Lock()
+		stateCopy := cloneRunState(state)
+		mu.Unlock()
+		return SaveRunState(listing.Study, stateCopy)
+	}
+	update := func(id string, fn func(*TaskState)) error {
+		mu.Lock()
+		idx, ok := taskIndex[id]
+		if !ok {
+			mu.Unlock()
+			return fmt.Errorf("task %q not found", id)
+		}
+		fn(&state.Tasks[idx])
+		state.UpdatedAt = time.Now().UTC()
+		stateCopy := cloneRunState(state)
+		mu.Unlock()
+		return SaveRunState(listing.Study, stateCopy)
+	}
+	taskSnapshot := func(id string) (TaskState, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		idx, ok := taskIndex[id]
+		if !ok {
+			return TaskState{}, fmt.Errorf("task %q not found", id)
+		}
+		return state.Tasks[idx], nil
+	}
+
+	analysisIDs := runnableAnalysisTaskIDs(state)
+	taskCh := make(chan string)
+	var wg sync.WaitGroup
+	var firstErr error
+	var errMu sync.Mutex
+	recordErr := func(err error) {
+		if err == nil {
+			return
+		}
+		errMu.Lock()
+		defer errMu.Unlock()
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	for i := 0; i < req.Parallelism; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for id := range taskCh {
+				if ctx.Err() != nil {
+					recordErr(markTaskCancelled(update, id, ctx.Err()))
+					continue
+				}
+				task, err := taskSnapshot(id)
+				if err != nil {
+					recordErr(err)
+					continue
+				}
+				recordErr(update(id, func(t *TaskState) {
+					now := time.Now().UTC()
+					t.Status = TaskStatusRunning
+					t.Attempts++
+					t.StartedAt = &now
+					t.UpdatedAt = now
+					t.LastError = nil
+				}))
+				res, err := s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source})
+				if err != nil {
+					res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
+				}
+				recordErr(applyExecutionResult(update, id, res))
+			}
+		}()
+	}
+	for _, id := range analysisIDs {
+		if ctx.Err() != nil {
+			recordErr(markTaskCancelled(update, id, ctx.Err()))
+			continue
+		}
+		taskCh <- id
+	}
+	close(taskCh)
+	wg.Wait()
+	if firstErr != nil {
+		return result, firstErr
+	}
+
+	for _, id := range runnableSynthesisTaskIDs(state) {
+		if ctx.Err() != nil {
+			if err := markTaskCancelled(update, id, ctx.Err()); err != nil {
+				return result, err
+			}
+			continue
+		}
+		task, err := taskSnapshot(id)
+		if err != nil {
+			return result, err
+		}
+		if !dependenciesComplete(state, task) {
+			if err := update(id, func(t *TaskState) {
+				t.Status = TaskStatusWaiting
+				t.UpdatedAt = time.Now().UTC()
+			}); err != nil {
+				return result, err
+			}
+			continue
+		}
+		if err := update(id, func(t *TaskState) {
+			now := time.Now().UTC()
+			t.Status = TaskStatusRunning
+			t.Attempts++
+			t.StartedAt = &now
+			t.UpdatedAt = now
+		}); err != nil {
+			return result, err
+		}
+		res, err := s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(sources)})
+		if err != nil {
+			res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
+		}
+		if err := applyExecutionResult(update, id, res); err != nil {
+			return result, err
+		}
+	}
+
+	state.Complete = allTasksComplete(state)
+	if err := save(); err != nil {
+		return result, err
+	}
+	result.State = state
+	result.Counts = runLoopCounts(state)
+	result.Status = runLoopStatus(state, result.Counts, ctx.Err() != nil)
+	return result, nil
+}
+
+func runnableAnalysisTaskIDs(state RunState) []string {
+	var ids []string
+	for _, task := range state.Tasks {
+		if task.Kind == TaskKindAnalysis && (task.Status == TaskStatusPending || task.Status == TaskStatusFailed || task.Status == TaskStatusCancelled) {
+			ids = append(ids, task.ID)
+		}
+	}
+	return ids
+}
+
+func runnableSynthesisTaskIDs(state RunState) []string {
+	var ids []string
+	for _, task := range state.Tasks {
+		if task.Kind == TaskKindSynthesis && task.Status != TaskStatusCompleted && task.Status != TaskStatusSkipped {
+			ids = append(ids, task.ID)
+		}
+	}
+	return ids
+}
+
+func dependenciesComplete(state RunState, task TaskState) bool {
+	byID := map[string]TaskState{}
+	for _, item := range state.Tasks {
+		byID[item.ID] = item
+	}
+	for _, dep := range task.Dependencies {
+		if byID[dep.TaskID].Status != TaskStatusCompleted {
+			return false
+		}
+	}
+	return true
+}
+
+func applyExecutionResult(update func(string, func(*TaskState)) error, id string, res ExecutionResult) error {
+	return update(id, func(t *TaskState) {
+		now := time.Now().UTC()
+		t.UpdatedAt = now
+		t.CompletedAt = &now
+		t.Agent = res.Agent
+		if t.Agent.RunID == "" {
+			t.Agent.RunID = res.RuntimeRunID
+		}
+		if t.Agent.Status == "" {
+			t.Agent.Status = res.RuntimeStatus
+		}
+		if retryAfter := retryAfterFromAgent(t.Agent); retryAfter != nil {
+			t.RetryAfter = retryAfter
+		}
+		if res.Validation.Path != "" {
+			summary := validationSummary(res.Validation, now)
+			t.Validation = &summary
+		}
+		switch res.Status {
+		case ExecutionStatusCompleted, ExecutionStatusSkipped:
+			t.Status = TaskStatusCompleted
+		case ExecutionStatusCancelled:
+			t.Status = TaskStatusCancelled
+			t.LastError = &TaskError{Code: "runtime.cancelled", Message: safeExecutionMessage(res)}
+		case ExecutionStatusValidationFailed, ExecutionStatusPreflightBlocked:
+			t.Status = TaskStatusFailed
+			t.LastError = &TaskError{Code: "validation.failed", Message: safeExecutionMessage(res), Path: res.OutputPath}
+		default:
+			t.Status = TaskStatusFailed
+			t.LastError = &TaskError{Code: "runtime.failed", Message: safeExecutionMessage(res)}
+		}
+	})
+}
+
+func markTaskCancelled(update func(string, func(*TaskState)) error, id string, err error) error {
+	return update(id, func(t *TaskState) {
+		now := time.Now().UTC()
+		t.Status = TaskStatusCancelled
+		t.UpdatedAt = now
+		t.CompletedAt = &now
+		t.LastError = &TaskError{Code: "workflow.cancelled", Message: err.Error()}
+	})
+}
+
+func safeExecutionMessage(res ExecutionResult) string {
+	if res.RuntimeError != "" {
+		return res.RuntimeError
+	}
+	if len(res.Blockers) > 0 {
+		return "blocked by invalid or missing reports"
+	}
+	if res.SkippedReason != "" {
+		return res.SkippedReason
+	}
+	return string(res.Status)
+}
+
+func allTasksComplete(state RunState) bool {
+	for _, task := range state.Tasks {
+		if task.Status != TaskStatusCompleted && task.Status != TaskStatusSkipped {
+			return false
+		}
+	}
+	return true
+}
+
+func runLoopCounts(state RunState) RunAllCounts {
+	var counts RunAllCounts
+	for _, task := range state.Tasks {
+		switch task.Status {
+		case TaskStatusCompleted:
+			counts.Completed++
+		case TaskStatusSkipped, TaskStatusWaiting:
+			counts.Skipped++
+		case TaskStatusPending, TaskStatusRetrying, TaskStatusRunning, TaskStatusValidating:
+			counts.Pending++
+		default:
+			counts.Failed++
+		}
+	}
+	return counts
+}
+
+func runLoopStatus(state RunState, counts RunAllCounts, cancelled bool) RunAllStatus {
+	if cancelled || hasCancelledTask(state) {
+		return RunAllStatusCancelled
+	}
+	if counts.Failed == 0 && counts.Pending == 0 && counts.Skipped == 0 {
+		return RunAllStatusCompleted
+	}
+	if counts.Completed > 0 {
+		return RunAllStatusPartial
+	}
+	return RunAllStatusValidationFailed
+}
+
+func hasCancelledTask(state RunState) bool {
+	for _, task := range state.Tasks {
+		if task.Status == TaskStatusCancelled {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneRunState(state RunState) RunState {
+	out := state
+	out.Filters.Dimensions = append([]string(nil), state.Filters.Dimensions...)
+	out.Filters.Sources = append([]string(nil), state.Filters.Sources...)
+	out.Tasks = append([]TaskState(nil), state.Tasks...)
+	for i := range out.Tasks {
+		out.Tasks[i].Dependencies = append([]SynthesisDependency(nil), state.Tasks[i].Dependencies...)
+	}
+	return out
+}
+
+func LockInfoForStatus(study Study) (*LockInfo, error) {
+	info, err := ReadRunLoopLock(study)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &info, nil
+}
