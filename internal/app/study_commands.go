@@ -54,7 +54,7 @@ func runStudy(deps dependencies, args []string) error {
 	case len(args) >= 3 && args[1] == "prompt":
 		return runStudyPrompt(deps, root.Path, service, args[0], args[2:])
 	case len(args) == 2 && args[1] == "status":
-		return runStudyStatus(deps, service, args[0])
+		return runStudyStatus(deps, root.Path, service, args[0])
 	case len(args) == 1 && args[0] == "list":
 		studies, err := service.ListStudies()
 		if err != nil {
@@ -178,7 +178,7 @@ func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, ar
 	if err != nil {
 		return mapStudyRunLoopError(err)
 	}
-	renderRunLoopResult(deps, result)
+	renderRunLoopResult(deps, root.Path, result)
 	return classifyRunAllResult(study.RunAllResult{Status: result.Status})
 }
 
@@ -243,12 +243,12 @@ func mapStudyRunLoopError(err error) error {
 	}
 }
 
-func renderRunLoopResult(deps dependencies, result study.RunLoopResult) {
+func renderRunLoopResult(deps dependencies, root string, result study.RunLoopResult) {
 	fmt.Fprintf(deps.stdout, "Run-loop: %s\n", result.Status)
 	fmt.Fprintf(deps.stdout, "Study: %s\n", result.Study.Name)
 	fmt.Fprintf(deps.stdout, "Parallelism: %d\n", result.Parallelism)
-	fmt.Fprintf(deps.stdout, "Run state: %s\n", result.StatePath)
-	fmt.Fprintf(deps.stdout, "Lock: %s\n", result.LockPath)
+	fmt.Fprintf(deps.stdout, "Run state: %s\n", workspace.Rel(root, result.StatePath))
+	fmt.Fprintf(deps.stdout, "Lock: %s\n", workspace.Rel(root, result.LockPath))
 	fmt.Fprintf(deps.stdout, "Completed: %d\n", result.Counts.Completed)
 	fmt.Fprintf(deps.stdout, "Failed: %d\n", result.Counts.Failed)
 	fmt.Fprintf(deps.stdout, "Skipped: %d\n", result.Counts.Skipped)
@@ -603,7 +603,7 @@ Usage:
 `
 }
 
-func runStudyStatus(deps dependencies, service study.Service, studyRef string) error {
+func runStudyStatus(deps dependencies, root string, service study.Service, studyRef string) error {
 	listing, err := service.ListStudy(studyRef)
 	if err != nil {
 		return mapStudyError(err)
@@ -618,7 +618,7 @@ func runStudyStatus(deps dependencies, service study.Service, studyRef string) e
 		return classified(ExitWorkspace, "study.status lock: %w", err)
 	}
 	summary.Lock = lock
-	renderStudyStatus(deps.stdout, summary)
+	renderStudyStatus(deps.stdout, root, summary)
 	return nil
 }
 
@@ -635,8 +635,8 @@ func mapStudyStatusError(err error) error {
 	}
 }
 
-func renderStudyStatus(w io.Writer, summary study.StatusSummary) {
-	fmt.Fprintf(w, "Run state: %s\n", summary.StatePath)
+func renderStudyStatus(w io.Writer, root string, summary study.StatusSummary) {
+	fmt.Fprintf(w, "Run state: %s\n", workspace.Rel(root, summary.StatePath))
 	fmt.Fprintf(w, "Run ID: %s\n", summary.RunID)
 	fmt.Fprintf(w, "Complete: %t\n", summary.Complete)
 	fmt.Fprintf(w, "Tasks: %d\n", summary.Total)
@@ -648,7 +648,7 @@ func renderStudyStatus(w io.Writer, summary study.StatusSummary) {
 		fmt.Fprintf(w, "Next retry: %s\n", summary.NextRetryAt.UTC().Format(time.RFC3339))
 	}
 	if summary.Lock != nil {
-		fmt.Fprintf(w, "Lock: %s\n", summary.Lock.Path)
+		fmt.Fprintf(w, "Lock: %s\n", workspace.Rel(root, summary.Lock.Path))
 		fmt.Fprintf(w, "Lock PID: %d\n", summary.Lock.PID)
 		fmt.Fprintf(w, "Lock command: %s\n", config.RedactValue("lock.command", summary.Lock.Command))
 		fmt.Fprintf(w, "Lock acquired: %s\n", summary.Lock.AcquiredAt.UTC().Format(time.RFC3339))

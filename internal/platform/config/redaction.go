@@ -20,7 +20,7 @@ func Redact(e Effective) Redacted {
 
 func Sensitive(key, value string) bool {
 	s := strings.ToLower(key + " " + value)
-	for _, marker := range []string{"secret", "token", "password", "apikey", "api_key", "credential"} {
+	for _, marker := range []string{"secret", "token", "password", "apikey", "api_key", "api-key", "credential", "--key", "-key", " key="} {
 		if strings.Contains(s, marker) {
 			return true
 		}

@@ -36,7 +36,8 @@ func TestStudyStatusShowsPersistedRunState(t *testing.T) {
 	if status != ExitOK {
 		t.Fatalf("status = %d, stdout = %q stderr = %q", status, stdout, stderr)
 	}
-	assertContains(t, stdout, "Run state: "+filepath.Join(studyRoot, ".ultraplan", "run-state.json"))
+	assertContains(t, stdout, "Run state: "+filepath.Join("studies", "platform", ".ultraplan", "run-state.json"))
+	assertNotContains(t, stdout, studyRoot)
 	assertContains(t, stdout, "Run ID: run-fixed")
 	assertContains(t, stdout, "Complete: false")
 	assertContains(t, stdout, "Tasks: 2")

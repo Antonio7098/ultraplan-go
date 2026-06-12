@@ -66,6 +66,9 @@ func TestRedactSensitiveValues(t *testing.T) {
 	if redacted.Agentwrap.Env[0] != "[REDACTED]" {
 		t.Fatalf("env secret was not redacted: %q", redacted.Agentwrap.Env[0])
 	}
+	if got := RedactValue("lock.command", "ultraplan study demo run-loop --api-key=secret-value"); got != "[REDACTED]" {
+		t.Fatalf("dash-form api key was not redacted: %q", got)
+	}
 }
 
 func TestLoadAgentwrapListThenScalarFields(t *testing.T) {

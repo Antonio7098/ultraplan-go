@@ -52,6 +52,9 @@ func TestStudyRunLoopCommandHelpInvalidFlagsAndSuccess(t *testing.T) {
 		t.Fatalf("status = %d stdout = %q stderr = %q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Run-loop: completed")
+	assertContains(t, stdout, "Run state: "+filepath.Join("studies", "demo", ".ultraplan", "run-state.json"))
+	assertContains(t, stdout, "Lock: "+filepath.Join("studies", "demo", ".ultraplan", "run-loop.lock"))
+	assertNotContains(t, stdout, studyRoot)
 	assertContains(t, stdout, "Completed: 2")
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
@@ -108,10 +111,18 @@ func TestStudyRunLoopCommandLockConflictForceUnlockAndStatusMetadata(t *testing.
 	if err := study.SaveRunState(study.Study{Name: "demo", Path: studyRoot}, state); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(lockPath, []byte(`{"study":"demo","pid":456,"command":"ultraplan study demo run-loop --api-key=secret-value","acquired_at":"2026-06-03T12:30:00Z"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "study", "demo", "status"})
 	if status != ExitOK {
 		t.Fatalf("status = %d stdout = %q stderr = %q", status, stdout, stderr)
 	}
+	assertContains(t, stdout, "Run state: "+filepath.Join("studies", "demo", ".ultraplan", "run-state.json"))
+	assertContains(t, stdout, "Lock: "+filepath.Join("studies", "demo", ".ultraplan", "run-loop.lock"))
+	assertContains(t, stdout, "Lock command: [REDACTED]")
+	assertNotContains(t, stdout, "secret-value")
+	assertNotContains(t, stdout, studyRoot)
 	assertContains(t, stdout, "Active tasks:")
 	assertContains(t, stdout, "policy: final_attempt")
 	assertContains(t, stdout, "omitted: events.event-1.raw")
