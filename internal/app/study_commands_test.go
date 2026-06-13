@@ -23,6 +23,19 @@ func TestStudyListUsesWorkspaceAndSortsStudies(t *testing.T) {
 	assertNotContains(t, stdout, "not-a-study")
 }
 
+func TestStudyTopLevelHelpMentionsValidateAndJSONStatus(t *testing.T) {
+	stdout, stderr, status := runForTest([]string{"study", "--help"})
+	if status != ExitOK {
+		t.Fatalf("status = %d stdout = %q stderr = %q", status, stdout, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	assertContains(t, stdout, "ultraplan study <study> validate [--json]")
+	assertContains(t, stdout, "ultraplan study <study> status [--json]")
+	assertContains(t, stdout, "<study> validate")
+}
+
 func TestStudyListEmpty(t *testing.T) {
 	dir := initializedWorkspace(t)
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "study", "list"})

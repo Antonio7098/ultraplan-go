@@ -25,6 +25,11 @@ func Sensitive(key, value string) bool {
 			return true
 		}
 	}
+	for _, marker := range []string{"bearer ", "sk-", "ghp_", "github_pat_", "xoxb-", "aws_secret_access_key"} {
+		if strings.Contains(s, marker) {
+			return true
+		}
+	}
 	return false
 }
 

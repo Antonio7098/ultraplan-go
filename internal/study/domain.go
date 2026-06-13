@@ -94,9 +94,11 @@ type PromptResult struct {
 type ValidationStatus string
 
 const (
-	ValidationStatusPassed  ValidationStatus = "passed"
-	ValidationStatusFailed  ValidationStatus = "failed"
-	ValidationStatusSkipped ValidationStatus = "skipped"
+	ValidationStatusPassed       ValidationStatus = "passed"
+	ValidationStatusFailed       ValidationStatus = "failed"
+	ValidationStatusWarning      ValidationStatus = "warning"
+	ValidationStatusSkipped      ValidationStatus = "skipped"
+	ValidationStatusInapplicable ValidationStatus = "inapplicable"
 )
 
 type ValidationSeverity string
@@ -108,6 +110,7 @@ const (
 )
 
 type ValidationCheck struct {
+	ID         string             `json:"id,omitempty"`
 	Name       string             `json:"name"`
 	Status     ValidationStatus   `json:"status"`
 	Severity   ValidationSeverity `json:"severity"`
@@ -120,11 +123,30 @@ type ValidationCheck struct {
 }
 
 type ValidationResult struct {
-	Kind   ReportKind        `json:"kind"`
-	Path   string            `json:"path"`
-	Status ValidationStatus  `json:"status"`
-	Checks []ValidationCheck `json:"checks"`
-	Err    error             `json:"-"`
+	SchemaVersion int               `json:"schema_version,omitempty"`
+	Kind          ReportKind        `json:"kind"`
+	Path          string            `json:"path"`
+	Status        ValidationStatus  `json:"status"`
+	Checks        []ValidationCheck `json:"checks"`
+	Err           error             `json:"-"`
+}
+
+type StudyValidationResult struct {
+	SchemaVersion int                `json:"schema_version"`
+	Study         string             `json:"study"`
+	Status        ValidationStatus   `json:"status"`
+	Summary       ValidationCounts   `json:"summary"`
+	Checks        []ValidationCheck  `json:"checks"`
+	Reports       []ValidationResult `json:"reports"`
+}
+
+type ValidationCounts struct {
+	Passed       int `json:"passed"`
+	Failed       int `json:"failed"`
+	Warnings     int `json:"warnings"`
+	Skipped      int `json:"skipped"`
+	Inapplicable int `json:"inapplicable"`
+	Total        int `json:"total"`
 }
 
 type RatingState string

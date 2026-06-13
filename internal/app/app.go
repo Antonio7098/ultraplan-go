@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -44,6 +43,14 @@ type classedError struct {
 func (e classedError) Error() string { return e.err.Error() }
 func (e classedError) Unwrap() error { return e.err }
 func (e classedError) Code() string  { return e.code }
+
+type displayError struct {
+	display string
+	cause   error
+}
+
+func (e displayError) Error() string { return e.display }
+func (e displayError) Unwrap() error { return e.cause }
 
 func classified(class int, format string, args ...any) error {
 	return classedError{class: class, code: errorCode(class), err: fmt.Errorf(format, args...)}
@@ -224,23 +231,6 @@ func renderVersion(version Version) string {
 		version.BuildDate,
 		version.GoVersion,
 	)
-}
-
-func writeJSON(w io.Writer, command, workspacePath, status string, result any) error {
-	payload := struct {
-		Command   string `json:"command"`
-		Workspace string `json:"workspace,omitempty"`
-		Status    string `json:"status"`
-		Result    any    `json:"result"`
-	}{
-		Command:   command,
-		Workspace: workspacePath,
-		Status:    status,
-		Result:    result,
-	}
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(payload)
 }
 
 func discoverWorkspace(deps dependencies) (workspace.Root, error) {

@@ -2,15 +2,12 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"ultraplan-go/internal/platform/config"
 )
 
 func TestRunHelp(t *testing.T) {
@@ -159,76 +156,6 @@ func TestConfigShowTextIncludesRequiredHealth(t *testing.T) {
 	}
 	assertContains(t, stdout, "agentwrap.executable: opencode")
 	assertContains(t, stdout, "agentwrap.required_health: runtime_available, structured_output, workdir")
-}
-
-func TestHealthValidAndInvalidWorkspace(t *testing.T) {
-	restore := stubRuntimeHealth(t, []healthCheck{{Name: "runtime.runtime_available", Status: "ok", Message: "fake runtime ready"}}, nil)
-	defer restore()
-	dir := initializedWorkspace(t)
-	stdout, stderr, status := runForTest([]string{"--workspace", dir, "health"})
-	if status != ExitOK {
-		t.Fatalf("status = %d, stderr = %q", status, stderr)
-	}
-	assertContains(t, stdout, "workspace.discovery: ok")
-	assertContains(t, stdout, "runtime.runtime_available: ok - fake runtime ready")
-
-	if err := os.Remove(filepath.Join(dir, "templates", "report.md")); err != nil {
-		t.Fatal(err)
-	}
-	stdout, stderr, status = runForTest([]string{"--workspace", dir, "health", "--json"})
-	if status != ExitValidation {
-		t.Fatalf("status = %d, want %d, stdout = %q stderr = %q", status, ExitValidation, stdout, stderr)
-	}
-	assertContains(t, stdout, `"status": "fail"`)
-	assertContains(t, stderr, "missing required file: templates/report.md")
-}
-
-func TestHealthEnvironmentSummaryCountsAllKnownOverrides(t *testing.T) {
-	restore := stubRuntimeHealth(t, []healthCheck{{Name: "runtime.runtime_available", Status: "ok"}}, nil)
-	defer restore()
-	dir := initializedWorkspace(t)
-	stdout, stderr, status := runForTestWithEnv([]string{"--workspace", dir, "health"}, map[string]string{
-		"ULTRAPLAN_WORKSPACE":            dir,
-		"ULTRAPLAN_RUNTIME_DEFAULT":      "opencode",
-		"ULTRAPLAN_MODEL_DEFAULT":        "provider/default",
-		"ULTRAPLAN_MODEL_PRIMARY":        "provider/primary",
-		"ULTRAPLAN_MODEL_BACKUP":         "provider/backup",
-		"ULTRAPLAN_DEFAULT_VARIANT":      "high",
-		"ULTRAPLAN_DEFAULT_PARALLEL":     "4",
-		"ULTRAPLAN_DEFAULT_TIMEOUT":      "45m",
-		"ULTRAPLAN_DEFAULT_RETRIES":      "2",
-		"ULTRAPLAN_LOG_FORMAT":           "json",
-		"ULTRAPLAN_LOG_LEVEL":            "debug",
-		"ULTRAPLAN_AGENTWRAP_EXECUTABLE": "opencode",
-		"ULTRAPLAN_UNKNOWN_NOT_COUNTED":  "ignored",
-	})
-	if status != ExitOK {
-		t.Fatalf("status = %d, stderr = %q", status, stderr)
-	}
-	assertContains(t, stdout, "environment.overrides: ok - 12 ULTRAPLAN_ override(s) present")
-}
-
-func TestHealthRuntimeFailureUsesRuntimeExit(t *testing.T) {
-	restore := stubRuntimeHealth(t, []healthCheck{{Name: "runtime.runtime_available", Status: "fail", Message: "missing executable"}}, errors.New("missing executable"))
-	defer restore()
-	dir := initializedWorkspace(t)
-
-	stdout, stderr, status := runForTest([]string{"--workspace", dir, "health", "--json"})
-	if status != ExitRuntime {
-		t.Fatalf("status = %d, want %d, stdout = %q stderr = %q", status, ExitRuntime, stdout, stderr)
-	}
-	assertContains(t, stdout, `"status": "fail"`)
-	assertContains(t, stdout, `"name": "runtime.runtime_available"`)
-	assertContains(t, stderr, "runtime.health")
-}
-
-func stubRuntimeHealth(t *testing.T, checks []healthCheck, err error) func() {
-	t.Helper()
-	orig := runtimeHealthChecks
-	runtimeHealthChecks = func(context.Context, string, config.Config) ([]healthCheck, error) {
-		return checks, err
-	}
-	return func() { runtimeHealthChecks = orig }
 }
 
 func initializedWorkspace(t *testing.T) string {

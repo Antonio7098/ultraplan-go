@@ -55,6 +55,8 @@ func runStudy(deps dependencies, args []string) error {
 		return runStudyPrompt(deps, root.Path, service, args[0], args[2:])
 	case len(args) >= 2 && args[1] == "summary":
 		return runStudySummary(deps, root.Path, service, args[0], args[2:])
+	case len(args) >= 2 && args[1] == "validate":
+		return runStudyValidate(deps, root.Path, service, args[0], args[2:])
 	case len(args) >= 2 && args[1] == "status":
 		return runStudyStatus(deps, root.Path, service, args[0], args[2:])
 	case len(args) == 1 && args[0] == "list":
@@ -104,7 +106,7 @@ func runStudy(deps dependencies, args []string) error {
 	case args[0] == "list":
 		return classified(ExitUsage, "study list: unknown argument %q", args[1])
 	default:
-		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> summary', '<study> run-loop', '<study> run-all', '<study> run', '<study> synthesize', '<study> prompt', or '<study> status'")
+		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> summary', '<study> validate', '<study> status', '<study> run-loop', '<study> run-all', '<study> run', '<study> synthesize', or '<study> prompt'")
 	}
 }
 
@@ -127,7 +129,8 @@ Usage:
   ultraplan study list
   ultraplan study <study> list
   ultraplan study <study> summary
-  ultraplan study <study> status
+  ultraplan study <study> validate [--json]
+  ultraplan study <study> status [--json]
   ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock]
   ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>]
   ultraplan study <study> run <dimension> <source>
@@ -140,6 +143,7 @@ Commands:
   list              List discovered studies.
   <study> list      List sources and dimensions for one study.
   <study> summary   Regenerate deterministic studies/<study>/summary.csv without runtime execution.
+  <study> validate  Validate study artifacts without runtime execution.
   <study> status    Show persisted run-state status without runtime execution.
   <study> run-loop  Resume durable study execution with per-study locking and persisted task state.
   <study> run-all   Execute selected applicable study analysis tasks, synthesize, and write summary.csv.
@@ -648,13 +652,118 @@ Usage:
 `
 }
 
-func runStudyStatus(deps dependencies, root string, service study.Service, studyRef string, args []string) error {
-	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		_, err := deps.stdout.Write([]byte(studyStatusHelp()))
-		return err
+func runStudyValidate(deps dependencies, root string, service study.Service, studyRef string, args []string) error {
+	jsonOut := false
+	for _, arg := range args {
+		switch arg {
+		case "--help", "-h":
+			_, err := deps.stdout.Write([]byte(studyValidateHelp()))
+			return err
+		case "--json":
+			jsonOut = true
+		default:
+			return classified(ExitUsage, "study validate: unknown argument %q", arg)
+		}
 	}
-	if len(args) != 0 {
-		return classified(ExitUsage, "study status: unknown argument %q", args[0])
+	result, err := service.ValidateStudy(studyRef)
+	if err != nil {
+		return mapStudyError(err)
+	}
+	status := "ok"
+	if result.Status == study.ValidationStatusFailed {
+		status = "fail"
+	}
+	if jsonOut {
+		if err := writeJSON(deps.stdout, "study.validate", root, status, redactedStudyValidationResult(root, result)); err != nil {
+			return err
+		}
+	} else {
+		renderStudyValidate(deps.stdout, root, result)
+	}
+	if result.Status == study.ValidationStatusFailed {
+		return classedError{class: ExitValidation, code: errorCode(ExitValidation), err: errors.New("study.validate: validation failed")}
+	}
+	return nil
+}
+
+func studyValidateHelp() string {
+	return `ultraplan study <study> validate
+
+Usage:
+  ultraplan study <study> validate [--json]
+
+Validates study artifacts without runtime execution.
+`
+}
+
+func renderStudyValidate(w io.Writer, root string, result study.StudyValidationResult) {
+	fmt.Fprintf(w, "Validation: %s\n", result.Status)
+	fmt.Fprintf(w, "Study: %s\n", result.Study)
+	fmt.Fprintf(w, "Checks: %d passed, %d failed, %d skipped, %d inapplicable\n", result.Summary.Passed, result.Summary.Failed, result.Summary.Skipped, result.Summary.Inapplicable)
+	for _, check := range result.Checks {
+		if check.Status != study.ValidationStatusFailed {
+			continue
+		}
+		fmt.Fprintf(w, "  %s: %s", check.Name, config.RedactValue(check.Name, check.Observed))
+		if check.Path != "" {
+			fmt.Fprintf(w, " (%s)", workspace.Rel(root, check.Path))
+		}
+		if check.Guidance != "" {
+			fmt.Fprintf(w, " - %s", config.RedactValue(check.Name+".guidance", check.Guidance))
+		}
+		fmt.Fprintln(w)
+	}
+	for _, report := range result.Reports {
+		if report.Status != study.ValidationStatusFailed {
+			continue
+		}
+		fmt.Fprintf(w, "  report: %s\n", workspace.Rel(root, report.Path))
+		for _, check := range report.Checks {
+			if check.Status == study.ValidationStatusFailed {
+				fmt.Fprintf(w, "    %s: %s\n", check.Name, config.RedactValue(check.Name, check.Observed))
+			}
+		}
+	}
+}
+
+func redactedStudyValidationResult(root string, result study.StudyValidationResult) study.StudyValidationResult {
+	result.Checks = append([]study.ValidationCheck(nil), result.Checks...)
+	for i := range result.Checks {
+		result.Checks[i] = redactedValidationCheck(root, result.Checks[i])
+	}
+	result.Reports = append([]study.ValidationResult(nil), result.Reports...)
+	for i := range result.Reports {
+		result.Reports[i].Path = workspace.Rel(root, result.Reports[i].Path)
+		result.Reports[i].Checks = append([]study.ValidationCheck(nil), result.Reports[i].Checks...)
+		for j := range result.Reports[i].Checks {
+			result.Reports[i].Checks[j] = redactedValidationCheck(root, result.Reports[i].Checks[j])
+		}
+	}
+	return result
+}
+
+func redactedValidationCheck(root string, check study.ValidationCheck) study.ValidationCheck {
+	if check.Path != "" {
+		check.Path = workspace.Rel(root, check.Path)
+	}
+	check.Expected = config.RedactValue(check.Name+".expected", check.Expected)
+	check.Observed = config.RedactValue(check.Name+".observed", check.Observed)
+	check.Guidance = config.RedactValue(check.Name+".guidance", check.Guidance)
+	return check
+}
+
+func runStudyStatus(deps dependencies, root string, service study.Service, studyRef string, args []string) error {
+	jsonOut := false
+	for _, arg := range args {
+		switch arg {
+		case "--help", "-h":
+			_, err := deps.stdout.Write([]byte(studyStatusHelp()))
+			return err
+		case "--json":
+			jsonOut = true
+		default:
+			return classified(ExitUsage, "study status: unknown argument %q", arg)
+		}
 	}
 	listing, err := service.ListStudy(studyRef)
 	if err != nil {
@@ -662,7 +771,7 @@ func runStudyStatus(deps dependencies, root string, service study.Service, study
 	}
 	state, err := study.LoadRunState(listing.Study)
 	if err != nil {
-		return mapStudyStatusError(err)
+		return mapStudyStatusError(root, listing.Study, err)
 	}
 	summary := study.SummarizeRunState(state, study.RunStatePath(listing.Study))
 	lock, err := study.LockInfoForStatus(listing.Study)
@@ -670,7 +779,13 @@ func runStudyStatus(deps dependencies, root string, service study.Service, study
 		return classified(ExitWorkspace, "study.status lock: %w", err)
 	}
 	summary.Lock = lock
-	renderStudyStatus(deps.stdout, root, summary)
+	if jsonOut {
+		if err := writeJSON(deps.stdout, "study.status", root, "ok", statusJSONResult(root, state, summary)); err != nil {
+			return err
+		}
+	} else {
+		renderStudyStatus(deps.stdout, root, summary)
+	}
 	return nil
 }
 
@@ -678,7 +793,7 @@ func studyStatusHelp() string {
 	return `ultraplan study <study> status
 
 Usage:
-  ultraplan study <study> status
+  ultraplan study <study> status [--json]
 
 Shows persisted run-state status without runtime execution.
 `
@@ -686,15 +801,22 @@ Shows persisted run-state status without runtime execution.
 
 var timeNow = func() time.Time { return time.Now().UTC() }
 
-func mapStudyStatusError(err error) error {
+func mapStudyStatusError(root string, st study.Study, err error) error {
+	display := statusRunStateErrorDisplay(root, st, err)
 	switch {
 	case errors.Is(err, study.ErrRunStateMissing):
-		return classified(ExitValidation, "study.status: %w", err)
+		return classedError{class: ExitValidation, code: errorCode(ExitValidation), err: displayError{display: "study.status: " + display, cause: err}}
 	case errors.Is(err, study.ErrRunStateMalformed), errors.Is(err, study.ErrRunStateUnsupported):
-		return classified(ExitValidation, "study.status: %w", err)
+		return classedError{class: ExitValidation, code: errorCode(ExitValidation), err: displayError{display: "study.status: " + display, cause: err}}
 	default:
-		return classified(ExitWorkspace, "study.status: %w", err)
+		return classedError{class: ExitWorkspace, code: errorCode(ExitWorkspace), err: displayError{display: "study.status: " + display, cause: err}}
 	}
+}
+
+func statusRunStateErrorDisplay(root string, st study.Study, err error) string {
+	abs := study.RunStatePath(st)
+	rel := workspace.Rel(root, abs)
+	return strings.ReplaceAll(err.Error(), abs, rel)
 }
 
 func renderStudyStatus(w io.Writer, root string, summary study.StatusSummary) {
