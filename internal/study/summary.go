@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 )
 
 type SummaryWarning struct {
-	Path    string
-	Message string
+	Source    string
+	Dimension string
+	Path      string
+	Message   string
 }
 
 type SummaryResult struct {
@@ -36,6 +39,12 @@ func WriteSummary(study Study, dimensions []Dimension, sources []Source) (Summar
 		return SummaryResult{}, err
 	}
 	result := SummaryResult{Path: path}
+	type summaryRow struct {
+		source string
+		total  int
+		values []string
+	}
+	rows := make([]summaryRow, 0, len(sources))
 	for _, source := range sources {
 		row := []string{source.Name}
 		total := 0
@@ -56,7 +65,16 @@ func WriteSummary(study Study, dimensions []Dimension, sources []Source) (Summar
 			}
 		}
 		row = append(row, strconv.Itoa(total))
-		if err := writer.Write(row); err != nil {
+		rows = append(rows, summaryRow{source: source.Name, total: total, values: row})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].total == rows[j].total {
+			return rows[i].source < rows[j].source
+		}
+		return rows[i].total > rows[j].total
+	})
+	for _, row := range rows {
+		if err := writer.Write(row.values); err != nil {
 			return SummaryResult{}, err
 		}
 	}
@@ -108,17 +126,17 @@ func summaryScore(study Study, source Source, dimension Dimension) (int, Summary
 	path := SourceReportPath(study, source, dimension)
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return -1, SummaryWarning{Path: path, Message: "missing report"}
+		return -1, SummaryWarning{Source: source.Name, Dimension: dimension.Ref(), Path: path, Message: "missing report"}
 	}
 	rating := findRating(string(content))
 	switch rating.State {
 	case RatingStateValid:
 		return rating.Score, SummaryWarning{}
 	case RatingStateMissing:
-		return -1, SummaryWarning{Path: path, Message: "missing rating"}
+		return -1, SummaryWarning{Source: source.Name, Dimension: dimension.Ref(), Path: path, Message: "missing rating"}
 	case RatingStateAmbiguous:
-		return -1, SummaryWarning{Path: path, Message: "ambiguous rating"}
+		return -1, SummaryWarning{Source: source.Name, Dimension: dimension.Ref(), Path: path, Message: "ambiguous rating"}
 	default:
-		return -1, SummaryWarning{Path: path, Message: fmt.Sprintf("invalid rating: %s", rating.Reason)}
+		return -1, SummaryWarning{Source: source.Name, Dimension: dimension.Ref(), Path: path, Message: fmt.Sprintf("invalid rating: %s", rating.Reason)}
 	}
 }

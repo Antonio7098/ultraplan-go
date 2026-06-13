@@ -47,6 +47,25 @@ func TestStudyStatusShowsPersistedRunState(t *testing.T) {
 	assertContains(t, stdout, "Next retry: 2026-05-31T13:00:00Z")
 }
 
+func TestStudyStatusHelp(t *testing.T) {
+	dir := initializedWorkspace(t)
+	mkdirAll(t, dir, "studies", "platform")
+
+	for _, flag := range []string{"--help", "-h"} {
+		t.Run(flag, func(t *testing.T) {
+			stdout, stderr, status := runForTest([]string{"--workspace", dir, "study", "platform", "status", flag})
+			if status != ExitOK {
+				t.Fatalf("status = %d stdout = %q stderr = %q", status, stdout, stderr)
+			}
+			assertContains(t, stdout, "ultraplan study <study> status")
+			assertContains(t, stdout, "Shows persisted run-state status")
+			if stderr != "" {
+				t.Fatalf("stderr = %q, want empty", stderr)
+			}
+		})
+	}
+}
+
 func TestStudyStatusMissingAndMalformedStateAreDistinct(t *testing.T) {
 	dir := initializedWorkspace(t)
 	studyRoot := filepath.Join(dir, "studies", "platform")

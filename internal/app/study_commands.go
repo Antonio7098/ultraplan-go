@@ -53,8 +53,10 @@ func runStudy(deps dependencies, args []string) error {
 		return runStudySynthesize(deps, root, args[0], args[2:])
 	case len(args) >= 3 && args[1] == "prompt":
 		return runStudyPrompt(deps, root.Path, service, args[0], args[2:])
-	case len(args) == 2 && args[1] == "status":
-		return runStudyStatus(deps, root.Path, service, args[0])
+	case len(args) >= 2 && args[1] == "summary":
+		return runStudySummary(deps, root.Path, service, args[0], args[2:])
+	case len(args) >= 2 && args[1] == "status":
+		return runStudyStatus(deps, root.Path, service, args[0], args[2:])
 	case len(args) == 1 && args[0] == "list":
 		studies, err := service.ListStudies()
 		if err != nil {
@@ -102,7 +104,7 @@ func runStudy(deps dependencies, args []string) error {
 	case args[0] == "list":
 		return classified(ExitUsage, "study list: unknown argument %q", args[1])
 	default:
-		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> run-loop', '<study> run-all', '<study> run', '<study> synthesize', '<study> prompt', or '<study> status'")
+		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> summary', '<study> run-loop', '<study> run-all', '<study> run', '<study> synthesize', '<study> prompt', or '<study> status'")
 	}
 }
 
@@ -124,6 +126,7 @@ Usage:
   ultraplan study init <study-init.yml> [--dry-run] [--force] [--no-clone] [--output <dir>]
   ultraplan study list
   ultraplan study <study> list
+  ultraplan study <study> summary
   ultraplan study <study> status
   ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock]
   ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>]
@@ -136,6 +139,7 @@ Commands:
   init              Initialize a study from YAML.
   list              List discovered studies.
   <study> list      List sources and dimensions for one study.
+  <study> summary   Regenerate deterministic studies/<study>/summary.csv without runtime execution.
   <study> status    Show persisted run-state status without runtime execution.
   <study> run-loop  Resume durable study execution with per-study locking and persisted task state.
   <study> run-all   Execute selected applicable study analysis tasks, synthesize, and write summary.csv.
@@ -453,6 +457,47 @@ Flags:
 `
 }
 
+func runStudySummary(deps dependencies, root string, service study.Service, studyRef string, args []string) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		_, err := deps.stdout.Write([]byte(studySummaryHelp()))
+		return err
+	}
+	if len(args) != 0 {
+		return classified(ExitUsage, "study summary: unknown argument %q", args[0])
+	}
+	result, err := service.WriteSummary(studyRef)
+	if err != nil {
+		return mapStudySummaryError(err)
+	}
+	fmt.Fprintf(deps.stdout, "Summary: %s\n", workspace.Rel(root, result.Path))
+	for _, warning := range result.Warnings {
+		fmt.Fprintf(deps.stderr, "Warning: source=%s dimension=%s", warning.Source, warning.Dimension)
+		if warning.Path != "" {
+			fmt.Fprintf(deps.stderr, " path=%s", workspace.Rel(root, warning.Path))
+		}
+		fmt.Fprintf(deps.stderr, ": %s\n", warning.Message)
+	}
+	return nil
+}
+
+func mapStudySummaryError(err error) error {
+	var refErr study.RefError
+	if errors.As(err, &refErr) {
+		return classified(ExitValidation, "study.summary: %w", err)
+	}
+	return classified(ExitWorkspace, "study.summary: %w", err)
+}
+
+func studySummaryHelp() string {
+	return `ultraplan study <study> summary
+
+Usage:
+  ultraplan study <study> summary
+
+Regenerates studies/<study>/summary.csv from existing reports without runtime execution.
+`
+}
+
 func runStudyRun(deps dependencies, root workspace.Root, studyRef string, args []string) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		_, err := deps.stdout.Write([]byte(studyRunHelp()))
@@ -603,7 +648,14 @@ Usage:
 `
 }
 
-func runStudyStatus(deps dependencies, root string, service study.Service, studyRef string) error {
+func runStudyStatus(deps dependencies, root string, service study.Service, studyRef string, args []string) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		_, err := deps.stdout.Write([]byte(studyStatusHelp()))
+		return err
+	}
+	if len(args) != 0 {
+		return classified(ExitUsage, "study status: unknown argument %q", args[0])
+	}
 	listing, err := service.ListStudy(studyRef)
 	if err != nil {
 		return mapStudyError(err)
@@ -620,6 +672,16 @@ func runStudyStatus(deps dependencies, root string, service study.Service, study
 	summary.Lock = lock
 	renderStudyStatus(deps.stdout, root, summary)
 	return nil
+}
+
+func studyStatusHelp() string {
+	return `ultraplan study <study> status
+
+Usage:
+  ultraplan study <study> status
+
+Shows persisted run-state status without runtime execution.
+`
 }
 
 var timeNow = func() time.Time { return time.Now().UTC() }

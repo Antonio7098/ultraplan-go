@@ -159,10 +159,14 @@ func failedCheck(name, path, expected, observed string, kind SourceKind, guidanc
 
 func findRating(content string) RatingResult {
 	lines := strings.Split(content, "\n")
+	var ratingLines []string
 	for _, line := range lines {
 		if ratingFractionPattern.MatchString(line) || ratingLabelPattern.MatchString(line) {
-			return ParseRating(line)
+			ratingLines = append(ratingLines, line)
 		}
+	}
+	if len(ratingLines) > 0 {
+		return ParseRating(strings.Join(ratingLines, "\n"))
 	}
 	return RatingResult{State: RatingStateMissing}
 }

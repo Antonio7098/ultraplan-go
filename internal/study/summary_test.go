@@ -29,8 +29,8 @@ func TestWriteSummaryDeterministicRatingsAndInapplicableCells(t *testing.T) {
 	}
 	want := "source,01-structure,total\n" +
 		"doc.md,8,8\n" +
-		"other.md,N/A,0\n" +
-		"repo,8,8\n"
+		"repo,8,8\n" +
+		"other.md,N/A,0\n"
 	if string(content) != want {
 		t.Fatalf("summary:\n%s\nwant:\n%s", content, want)
 	}
@@ -62,6 +62,32 @@ func TestWriteSummaryWarnsForMissingAndAmbiguousRatings(t *testing.T) {
 	want := "source,01-structure,total\n" +
 		"a,,0\n" +
 		"b,,0\n"
+	if string(content) != want {
+		t.Fatalf("summary:\n%s\nwant:\n%s", content, want)
+	}
+}
+
+func TestWriteSummaryWarnsForRatingsOnSeparateLines(t *testing.T) {
+	_, st := executionFixture(t)
+	dimension := Dimension{Number: "01", Slug: "structure"}
+	source := Source{Name: "repo", Kind: SourceKindDirectory}
+	writeReport(t, SourceReportPath(st, source, dimension), "# Report\n\n## Rating\nRating: 7\nRating: 9\n")
+
+	result, err := WriteSummary(st, []Dimension{dimension}, []Source{source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Warnings) != 1 {
+		t.Fatalf("Warnings = %+v", result.Warnings)
+	}
+	if result.Warnings[0].Message != "ambiguous rating" {
+		t.Fatalf("warning = %+v", result.Warnings[0])
+	}
+	content, err := os.ReadFile(result.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "source,01-structure,total\nrepo,,0\n"
 	if string(content) != want {
 		t.Fatalf("summary:\n%s\nwant:\n%s", content, want)
 	}

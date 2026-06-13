@@ -93,6 +93,21 @@ Rating: 8 and 7/10
 
 ## Rating
 
+Rating: 7
+Rating: 9
+`)
+	res = ValidateSourceReport(study, source, dim)
+	if !hasCheck(res.Checks, "rating.parse", ValidationStatusFailed) {
+		t.Fatalf("missing failed rating check for separate rating lines: %+v", res.Checks)
+	}
+	writeReport(t, reportPath, `# Report
+
+## Source Info
+
+## Summary
+
+## Rating
+
 Rating: 8
 
 ## Questions and Answers

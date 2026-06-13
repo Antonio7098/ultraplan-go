@@ -66,3 +66,11 @@ func (s Service) ListStudy(ref string) (StudyListing, error) {
 		Dimensions: dimensions,
 	}, nil
 }
+
+func (s Service) WriteSummary(studyRef string) (SummaryResult, error) {
+	listing, err := s.ListStudy(studyRef)
+	if err != nil {
+		return SummaryResult{}, err
+	}
+	return WriteSummary(listing.Study, listing.Dimensions, listing.Sources)
+}

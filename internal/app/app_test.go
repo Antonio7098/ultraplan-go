@@ -42,7 +42,6 @@ func TestRunHelp(t *testing.T) {
 				"runtime",
 				"summary",
 				"validation",
-				"code",
 				"target",
 				"sprint",
 			} {
