@@ -1,0 +1,100 @@
+# Recovery Runbook
+
+Runtime success is not product success. Treat a run as complete only when required artifacts exist and validation passes.
+
+## First Checks
+
+Run:
+
+```bash
+ultraplan health
+ultraplan study <study> status
+ultraplan study <study> validate
+```
+
+Use `--json` for automation:
+
+```bash
+ultraplan health --json
+ultraplan study <study> status --json
+ultraplan study <study> validate --json
+```
+
+## Validation Failures
+
+If validation fails:
+
+1. Read the failed check, observed value, path, and guidance.
+2. Inspect the named artifact.
+3. Repair the source artifact or rerun the affected task.
+4. Run validation again.
+
+Do not treat a runtime-completed task as complete when the expected report is missing or invalid.
+
+## Missing Artifacts
+
+Common missing artifacts include per-source reports, final reports, `summary.csv`, and `.ultraplan/run-state.json`.
+
+- Missing per-source report: rerun `study <study> run <dimension> <source>` or resume with `run-loop`.
+- Missing final report: rerun `study <study> synthesize <dimension>` after source reports validate.
+- Missing summary: run `study <study> summary`.
+- Missing run state: start `study <study> run-loop` to create durable state, or use `run-all` for a non-resumable batch.
+
+## Stale Running Tasks
+
+`study status` shows active, retrying, waiting, failed, cancelled, and recent tasks from persisted run state. If tasks appear stuck:
+
+1. Check whether an UltraPlan process is still running.
+2. Check lock diagnostics in `study status`.
+3. Confirm runtime/provider state outside UltraPlan if a task is still active.
+4. Resume with `study <study> run-loop` only after deciding the previous process is gone or safe to abandon.
+
+## Locks And `--force-unlock`
+
+`run-loop` uses a per-study lock to refuse concurrent runs. Use:
+
+```bash
+ultraplan study <study> status
+```
+
+to inspect lock path, PID, command, and acquisition time.
+
+Use `--force-unlock` only when an operator has confirmed the existing lock is stale:
+
+```bash
+ultraplan study <study> run-loop --force-unlock
+```
+
+Forcing an active lock can corrupt operator expectations, duplicate runtime work, and race report writes.
+
+## Cancellation
+
+On interrupt or context cancellation, the runtime boundary is asked to cancel and run state is preserved where possible. Recovery path:
+
+1. Run `study status`.
+2. Inspect cancelled or active tasks.
+3. Run `study validate`.
+4. Resume with `study run-loop` or rerun specific failed tasks.
+
+## Retry And Fallback Metadata
+
+Status output can include retry time, policy decisions, final attempt count, fallback decisions, repair metadata, cleanup metadata, usage, cost, and omitted raw payload notes. Use it to decide whether to wait for `retry_after`, fix runtime/provider config, or rerun after a provider issue clears.
+
+Unknown usage or cost means the runtime did not provide safe metadata; it is not a validation failure by itself.
+
+## Partial Completion
+
+`run-all`, `run-loop`, and `code` can return partial completion when some work succeeded and some work failed or remained unresolved. Treat partial completion as release-blocking for production evidence unless the unresolved scope is explicitly documented.
+
+## Atomic Write Failures
+
+UltraPlan writes durable state and generated artifacts loudly. If a write fails:
+
+1. Preserve stderr and the failing path.
+2. Check disk, permissions, parent directories, and workspace path safety.
+3. Avoid manually editing run-state files unless directed by a focused remediation.
+4. Re-run validation after filesystem issues are fixed.
+
+## Unsafe Data Handling
+
+Do not paste provider tokens, full environment dumps, full prompts, full generated report bodies, or raw unsafe runtime payloads into issue reports or release evidence. Use redacted command summaries and artifact paths.

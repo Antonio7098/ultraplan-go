@@ -1,0 +1,4 @@
+8fefdde7dd9f1b52bca37aba6e497329be781ca4de1627e5522574c7ba9c9ef7  dist/ultraplan-linux-amd64
+bb20f626e15a7c9cb8b65d813df7918eace77c284aae75d935662727f6be335d  dist/ultraplan-linux-arm64
+fa2b6e5e8abd364affab995e53e87ba261af5e3ec89374387322d26245d0fe40  dist/ultraplan-darwin-amd64
+4ae57a93bbc433e8250d1fb0848278bf15995e61e796e29b2b08979e59fee287  dist/ultraplan-darwin-arm64

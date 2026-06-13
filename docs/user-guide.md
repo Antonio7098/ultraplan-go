@@ -1,0 +1,176 @@
+# UltraPlan User Guide
+
+This guide covers the current study-side release. Target scaffolding, sprint planning, sprint execution, hosted services, browser UI, multi-user collaboration, and automatic Git mutation are not part of this release.
+
+## 1. Build Or Install
+
+From the repository root:
+
+```bash
+go build -o bin/ultraplan ./cmd/ultraplan
+```
+
+Use `bin/ultraplan` directly or put it on `PATH`.
+
+## 2. Create A Workspace
+
+Initialize the current directory:
+
+```bash
+ultraplan init-workspace --path .
+```
+
+Preview without writing:
+
+```bash
+ultraplan init-workspace --path . --dry-run
+```
+
+Workspace discovery uses this order:
+
+1. `--workspace <path>`
+2. `ULTRAPLAN_WORKSPACE`
+3. current directory ancestry containing `ultraplan.yml`
+
+## 3. Configure Runtime Defaults
+
+Edit `ultraplan.yml`, then inspect the effective config:
+
+```bash
+ultraplan config show
+ultraplan config show --json
+```
+
+The default runtime is `opencode` through agentwrap. Runtime/provider secrets should stay in runtime-native environment or provider config, not in `ultraplan.yml`.
+
+## 4. Check Health
+
+Run:
+
+```bash
+ultraplan health
+ultraplan health --json
+```
+
+Health checks workspace discovery, required workspace files, config validation, environment override presence, and configured runtime health/capabilities when config is valid.
+
+## 5. Initialize A Study
+
+Create a `study-init.yml`, then run:
+
+```bash
+ultraplan study init study-init.yml --no-clone
+```
+
+Useful flags:
+
+- `--dry-run`: print planned directories, files, and clone actions.
+- `--force`: allow overwriting an existing study output.
+- `--no-clone`: create source directories without cloning repositories.
+- `--output <dir>`: choose a workspace-relative output directory.
+
+Generated study artifacts are human-editable Markdown and YAML.
+
+## 6. List Studies, Sources, And Dimensions
+
+```bash
+ultraplan study list
+ultraplan study <study> list
+```
+
+Source listing reports directory sources and Markdown document sources. Markdown document sources can declare `applicable_dimensions` frontmatter; if present, UltraPlan skips non-matching dimensions instead of invoking the runtime.
+
+## 7. Preview Prompts
+
+Preview analysis:
+
+```bash
+ultraplan study <study> prompt analysis <dimension> <source>
+```
+
+Preview synthesis:
+
+```bash
+ultraplan study <study> prompt synthesis <dimension> --output previews/synthesis.txt
+```
+
+Prompt preview renders a deterministic manifest plus prompt text. It does not execute agentwrap, OpenCode, providers, subprocesses, or network calls.
+
+## 8. Run One Analysis
+
+```bash
+ultraplan study <study> run <dimension> <source>
+```
+
+The command composes the prompt, invokes the configured runtime, expects the per-source report to be written, validates the report, and exits non-zero if runtime execution or validation fails. Inapplicable Markdown source/dimension pairs are skipped with a clear message.
+
+## 9. Synthesize A Final Report
+
+```bash
+ultraplan study <study> synthesize <dimension>
+```
+
+Synthesis checks required per-source reports first. Missing or invalid inputs block synthesis instead of producing a misleading final report.
+
+## 10. Run A Batch
+
+```bash
+ultraplan study <study> run-all --parallel 3
+```
+
+Optional filters:
+
+```bash
+ultraplan study <study> run-all --dimension 01 --source <source>
+```
+
+`run-all` executes applicable analysis tasks with bounded parallelism, runs synthesis where possible, and writes `studies/<study>/summary.csv`.
+
+## 11. Resume With Run Loop
+
+```bash
+ultraplan study <study> run-loop --parallel 3
+```
+
+`run-loop` persists `studies/<study>/.ultraplan/run-state.json` after meaningful task transitions, resumes existing state, revalidates completed reports before trusting them, and refuses concurrent runs through a per-study lock.
+
+Use `--force-unlock` only after confirming no active process owns the lock:
+
+```bash
+ultraplan study <study> run-loop --force-unlock
+```
+
+## 12. Inspect Status
+
+```bash
+ultraplan study <study> status
+ultraplan study <study> status --json
+```
+
+Status shows run-state path, task counts, active/failed/cancelled/recent tasks, retry timing, lock diagnostics, safe runtime metadata, usage/cost when known, policy decisions, cleanup, repair, and omitted unsafe payload notes.
+
+## 13. Validate Artifacts
+
+```bash
+ultraplan study <study> validate
+ultraplan study <study> validate --json
+```
+
+Validation checks study artifacts without runtime execution. Treat a validation failure as a product failure even if the runtime reported success.
+
+## 14. Regenerate Summary
+
+```bash
+ultraplan study <study> summary
+```
+
+This regenerates `studies/<study>/summary.csv` from existing reports without runtime execution.
+
+## 15. Extract Code References
+
+```bash
+ultraplan code studies/<study>/reports/final/01-topic.md
+ultraplan code studies/<study>/reports/final/01-topic.md --json --output evidence/code-refs.json
+```
+
+Code extraction resolves cited file and line references from reports back to source snippets. Unresolved citations are reported and return a partial/validation exit class depending on the failure.
