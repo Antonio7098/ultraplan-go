@@ -24,8 +24,9 @@ func TestStudyStatusShowsPersistedRunState(t *testing.T) {
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		Tasks: []study.TaskState{
-			{ID: "a", Kind: study.TaskKindAnalysis, Status: study.TaskStatusFailed, Study: "platform", Dimension: "01", Source: "repo", SourceKind: study.SourceKindDirectory, OutputPath: "out-a", CreatedAt: now, UpdatedAt: now},
+			{ID: "a", Kind: study.TaskKindAnalysis, Status: study.TaskStatusFailed, Study: "platform", Dimension: "01", Source: "repo", SourceKind: study.SourceKindDirectory, OutputPath: "out-a", LastError: &study.TaskError{Code: "runtime.failed", Message: "opencode subprocess exited with code 1"}, CreatedAt: now, UpdatedAt: now},
 			{ID: "b", Kind: study.TaskKindSynthesis, Status: study.TaskStatusRetrying, Study: "platform", OutputPath: "out-b", RetryAfter: &retry, CreatedAt: now, UpdatedAt: now},
+			{ID: "c", Kind: study.TaskKindAnalysis, Status: study.TaskStatusCancelled, Study: "platform", Dimension: "01", Source: "repo", SourceKind: study.SourceKindDirectory, OutputPath: "out-c", LastError: &study.TaskError{Code: "runtime.cancelled", Message: "context cancelled"}, CreatedAt: now, UpdatedAt: now},
 		},
 	}
 	if err := study.SaveRunState(study.Study{Name: "platform", Path: studyRoot}, state); err != nil {
@@ -40,11 +41,14 @@ func TestStudyStatusShowsPersistedRunState(t *testing.T) {
 	assertNotContains(t, stdout, studyRoot)
 	assertContains(t, stdout, "Run ID: run-fixed")
 	assertContains(t, stdout, "Complete: false")
-	assertContains(t, stdout, "Tasks: 2")
+	assertContains(t, stdout, "Tasks: 3")
 	assertContains(t, stdout, "Failed: 1")
+	assertContains(t, stdout, "Cancelled: 1")
 	assertContains(t, stdout, "Active: 1")
 	assertContains(t, stdout, "Retries: 1")
 	assertContains(t, stdout, "Next retry: 2026-05-31T13:00:00Z")
+	assertContains(t, stdout, "error: runtime.failed: opencode subprocess exited with code 1")
+	assertContains(t, stdout, "error: runtime.cancelled: context cancelled")
 }
 
 func TestStudyStatusHelp(t *testing.T) {

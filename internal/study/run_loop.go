@@ -177,6 +177,12 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			return result, err
 		}
 		if !dependenciesComplete(state, task) {
+			if dependenciesTerminal(state, task) {
+				if err := markSynthesisDependenciesFailed(update, id); err != nil {
+					return result, err
+				}
+				continue
+			}
 			if err := update(id, func(t *TaskState) {
 				t.Status = TaskStatusWaiting
 				t.UpdatedAt = time.Now().UTC()
@@ -246,6 +252,26 @@ func dependenciesComplete(state RunState, task TaskState) bool {
 	return true
 }
 
+func dependenciesTerminal(state RunState, task TaskState) bool {
+	byID := map[string]TaskState{}
+	for _, item := range state.Tasks {
+		byID[item.ID] = item
+	}
+	for _, dep := range task.Dependencies {
+		depTask, ok := byID[dep.TaskID]
+		if !ok {
+			return true
+		}
+		switch depTask.Status {
+		case TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled, TaskStatusSkipped:
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func applyExecutionResult(update func(string, func(*TaskState)) error, id string, res ExecutionResult) error {
 	return update(id, func(t *TaskState) {
 		now := time.Now().UTC()
@@ -278,6 +304,16 @@ func applyExecutionResult(update func(string, func(*TaskState)) error, id string
 			t.Status = TaskStatusFailed
 			t.LastError = &TaskError{Code: "runtime.failed", Message: safeExecutionMessage(res)}
 		}
+	})
+}
+
+func markSynthesisDependenciesFailed(update func(string, func(*TaskState)) error, id string) error {
+	return update(id, func(t *TaskState) {
+		now := time.Now().UTC()
+		t.Status = TaskStatusFailed
+		t.UpdatedAt = now
+		t.CompletedAt = &now
+		t.LastError = &TaskError{Code: "synthesis.dependencies_failed", Message: "synthesis dependencies failed or were cancelled"}
 	})
 }
 

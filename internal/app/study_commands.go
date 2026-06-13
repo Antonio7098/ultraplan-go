@@ -266,7 +266,7 @@ func renderRunLoopResult(deps dependencies, root string, result study.RunLoopRes
 			fmt.Fprintf(deps.stderr, " %s", task.Source)
 		}
 		if task.LastError != nil {
-			fmt.Fprintf(deps.stderr, ": %s", config.RedactValue("task.error", task.LastError.Message))
+			fmt.Fprintf(deps.stderr, ": %s", formatTaskError(*task.LastError))
 		}
 		fmt.Fprintln(deps.stderr)
 	}
@@ -704,6 +704,7 @@ func renderStudyStatus(w io.Writer, root string, summary study.StatusSummary) {
 	fmt.Fprintf(w, "Tasks: %d\n", summary.Total)
 	fmt.Fprintf(w, "Completed: %d\n", summary.Completed)
 	fmt.Fprintf(w, "Failed: %d\n", summary.Failed)
+	fmt.Fprintf(w, "Cancelled: %d\n", summary.Cancelled)
 	fmt.Fprintf(w, "Active: %d\n", summary.Active)
 	fmt.Fprintf(w, "Retries: %d\n", summary.RetryCount)
 	if summary.NextRetryAt != nil {
@@ -760,7 +761,7 @@ func renderStatusTaskSection(w io.Writer, title string, tasks []study.TaskState,
 			fmt.Fprintf(w, "    retry: %s\n", task.RetryAfter.UTC().Format(time.RFC3339))
 		}
 		if task.LastError != nil {
-			fmt.Fprintf(w, "    error: %s\n", config.RedactValue("task.error", task.LastError.Message))
+			fmt.Fprintf(w, "    error: %s\n", formatTaskError(*task.LastError))
 		}
 		if task.Agent.Provider != "" || task.Agent.Model != "" || task.Agent.Status != "" {
 			fmt.Fprintf(w, "    runtime: provider=%s model=%s status=%s run=%s\n", task.Agent.Provider, task.Agent.Model, task.Agent.Status, task.Agent.RunID)
@@ -792,6 +793,14 @@ func renderStatusTaskSection(w io.Writer, title string, tasks []study.TaskState,
 			fmt.Fprintf(w, "    omitted: %s (%s)\n", omission.Field, omission.Reason)
 		}
 	}
+}
+
+func formatTaskError(taskErr study.TaskError) string {
+	message := config.RedactValue("task.error", taskErr.Message)
+	if taskErr.Code == "" {
+		return message
+	}
+	return taskErr.Code + ": " + message
 }
 
 type studyPromptFlags struct {
