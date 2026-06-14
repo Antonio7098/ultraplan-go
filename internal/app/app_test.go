@@ -33,6 +33,7 @@ func TestRunHelp(t *testing.T) {
 			assertContains(t, stdout, "init-workspace")
 			assertContains(t, stdout, "config")
 			assertContains(t, stdout, "health")
+			assertContains(t, stdout, "sprint")
 			assertContains(t, stdout, "version")
 
 			for _, deferred := range []string{
@@ -40,7 +41,6 @@ func TestRunHelp(t *testing.T) {
 				"summary",
 				"validation",
 				"target",
-				"sprint",
 			} {
 				assertNotContains(t, stdout, deferred)
 			}
