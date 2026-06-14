@@ -130,6 +130,8 @@ func Run(cfg Config) int {
 		return failOrOK(stderr, runConfig(deps, args[1:]))
 	case "health":
 		return failOrOK(stderr, runHealth(deps, args[1:]))
+	case "project":
+		return failOrOK(stderr, runProject(deps, args[1:]))
 	case "study":
 		return failOrOK(stderr, runStudy(deps, args[1:]))
 	case "code":
@@ -215,6 +217,7 @@ Commands:
   config           Inspect effective configuration.
   code             Extract cited code snippets from reports.
   health           Check workspace, config, filesystem, and environment basics.
+  project          Inspect projects and validate project indexes.
   study            Inspect studies, sources, and dimensions.
   version          Print build metadata.
 
