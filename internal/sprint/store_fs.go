@@ -115,6 +115,18 @@ func (s FSStore) ReadPlanningInputs(sp Sprint) (PlanningInputs, error) {
 	return inputs, nil
 }
 
+func (s FSStore) ReadArtifact(sp Sprint, stage PlanningStage) (string, error) {
+	path, err := ArtifactPath(s.Root, sp, stage)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 func nonEmptyFile(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {

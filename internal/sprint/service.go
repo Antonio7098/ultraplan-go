@@ -93,12 +93,46 @@ func (s Service) ValidateSprintIndex(projectRef, sprintRef string) (ValidationRe
 	}, nil
 }
 
+func (s Service) ValidateTechnicalHandbook(projectRef, sprintRef string) (ValidationResult, error) {
+	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	manifest, findings := BuildHandbookManifest(s.root, sp, inputs, catalog)
+	path := mustArtifactPath(s.root, sp, StageTechnicalHandbook)
+	data, err := s.store.ReadArtifact(sp, StageTechnicalHandbook)
+	if err != nil {
+		findings = append(findings, finding("technical-handbook.md", "", workspace.Rel(s.root, path), "missing technical handbook", err.Error(), "Generate technical-handbook.md before validation."))
+	} else {
+		findings = append(findings, ValidateTechnicalHandbookContent(data, manifest)...)
+	}
+	sortSprintFindings(findings)
+	return ValidationResult{
+		Project:  sp.Project,
+		Sprint:   sp.Slug,
+		Artifact: workspace.Rel(s.root, path),
+		Findings: findings,
+	}, nil
+}
+
 func (s Service) PromptSprintIndex(projectRef, sprintRef string) (PromptPreview, error) {
 	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
 	if err != nil {
 		return PromptPreview{}, err
 	}
 	return RenderSprintIndexPrompt(s.root, sp, catalog, inputs.Docs), nil
+}
+
+func (s Service) PromptTechnicalHandbook(projectRef, sprintRef string) (PromptPreview, error) {
+	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	manifest, findings := BuildHandbookManifest(s.root, sp, inputs, catalog)
+	if len(findings) > 0 {
+		return PromptPreview{}, fmt.Errorf("selected evidence validation failed")
+	}
+	return RenderTechnicalHandbookPrompt(s.root, manifest), nil
 }
 
 func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef string, req FlowRequest) (FlowResult, error) {
@@ -112,7 +146,7 @@ func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef stri
 	now := s.now().UTC()
 	if stringsTrim(inputs.Requirements) == "" || containsPlaceholder(inputs.Requirements) {
 		err := fmt.Errorf("requirements.md is empty or contains placeholder content")
-		stages := flowFailedStages(sp, err, now)
+		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, err
 	}
@@ -122,7 +156,7 @@ func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef stri
 	}
 	if s.runtime == nil {
 		err := fmt.Errorf("runtime is required for sprint-index flow")
-		stages := flowFailedStages(sp, err, now)
+		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
 	}
@@ -132,28 +166,95 @@ func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef stri
 		Metadata: map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageSprintIndex)},
 	})
 	if err != nil {
-		stages := flowFailedStages(sp, err, now)
+		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
 	inputs, err = s.store.ReadPlanningInputs(sp)
 	if err != nil {
-		stages := flowFailedStages(sp, err, now)
+		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
 	index, findings := ValidateSprintIndexContent(inputs.SprintIndex, catalog)
 	if len(findings) > 0 {
 		err := fmt.Errorf("generated sprint-index.md failed validation")
-		stages := flowFailedStages(sp, err, now)
+		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Findings: findings}, err
 	}
-	stages := flowSuccessStages(sp, index.NoTemplates, now)
+	stages := flowSprintIndexSuccessStages(sp, index.NoTemplates, now)
 	if err := SaveFlowState(s.root, sp, NewFlowState(sp, stages, now)); err != nil {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "sprint-index complete"}, nil
+}
+
+func (s Service) FlowTechnicalHandbook(ctx context.Context, projectRef, sprintRef string, req FlowRequest) (FlowResult, error) {
+	if err := validateFlowTarget(req.To); err != nil {
+		return FlowResult{}, err
+	}
+	if req.To != StageTechnicalHandbook {
+		return FlowResult{}, fmt.Errorf("unsupported technical-handbook flow target %q", req.To)
+	}
+	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return FlowResult{}, err
+	}
+	now := s.now().UTC()
+	if stringsTrim(inputs.Requirements) == "" || containsPlaceholder(inputs.Requirements) {
+		err := fmt.Errorf("requirements.md is empty or contains placeholder content")
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, err
+	}
+	index, _ := ValidateSprintIndexContent(inputs.SprintIndex, catalog)
+	manifest, findings := BuildHandbookManifest(s.root, sp, inputs, catalog)
+	sortSprintFindings(findings)
+	if len(findings) > 0 {
+		err := fmt.Errorf("selected evidence validation failed")
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages, Findings: findings}, err
+	}
+	prompt := RenderTechnicalHandbookPrompt(s.root, manifest)
+	if req.DryRun {
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: true, Message: prompt.Prompt}, nil
+	}
+	if s.runtime == nil {
+		err := fmt.Errorf("runtime is required for technical-handbook flow")
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
+	}
+	runtimeResult, err := s.runtime.StartRun(ctx, pruntime.Request{
+		Prompt:   prompt.Prompt,
+		WorkDir:  s.root,
+		Metadata: map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageTechnicalHandbook)},
+	})
+	if err != nil {
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+	}
+	data, err := s.store.ReadArtifact(sp, StageTechnicalHandbook)
+	if err != nil {
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+	}
+	findings = ValidateTechnicalHandbookContent(data, manifest)
+	if len(findings) > 0 {
+		err := fmt.Errorf("generated technical-handbook.md failed validation")
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Findings: findings}, err
+	}
+	stages := flowTechnicalHandbookSuccessStages(sp, index.NoTemplates, now)
+	if err := SaveFlowState(s.root, sp, NewFlowState(sp, stages, now)); err != nil {
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+	}
+	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "technical-handbook complete"}, nil
 }
 
 func (s Service) resolveSprintInputs(projectRef, sprintRef string) (Sprint, PlanningInputs, project.ProjectIndex, error) {

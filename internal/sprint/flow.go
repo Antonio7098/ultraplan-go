@@ -29,7 +29,7 @@ type FlowResult struct {
 	Findings []ValidationFinding
 }
 
-func flowSuccessStages(sp Sprint, noTemplates bool, now time.Time) []StageState {
+func flowSprintIndexSuccessStages(sp Sprint, noTemplates bool, now time.Time) []StageState {
 	stages := []StageState{
 		{Stage: StageRequirements, Status: StatusComplete, Path: ArtifactRelPath(sp, StageRequirements), LastRunAt: &now},
 		{Stage: StageSprintIndex, Status: StatusComplete, Path: ArtifactRelPath(sp, StageSprintIndex), LastRunAt: &now},
@@ -45,9 +45,25 @@ func flowSuccessStages(sp Sprint, noTemplates bool, now time.Time) []StageState 
 	return stages
 }
 
-func flowFailedStages(sp Sprint, err error, now time.Time) []StageState {
+func flowTechnicalHandbookSuccessStages(sp Sprint, noTemplates bool, now time.Time) []StageState {
+	stages := []StageState{
+		{Stage: StageRequirements, Status: StatusComplete, Path: ArtifactRelPath(sp, StageRequirements), LastRunAt: &now},
+		{Stage: StageSprintIndex, Status: StatusComplete, Path: ArtifactRelPath(sp, StageSprintIndex), LastRunAt: &now},
+		{Stage: StageTechnicalHandbook, Status: StatusComplete, Path: ArtifactRelPath(sp, StageTechnicalHandbook), LastRunAt: &now},
+		{Stage: StageAreaReasoning, Status: StatusReady, Path: ArtifactRelPath(sp, StageAreaReasoning)},
+		{Stage: StageReasoning, Status: StatusMissing, Path: ArtifactRelPath(sp, StageReasoning)},
+		{Stage: StagePlan, Status: StatusMissing, Path: ArtifactRelPath(sp, StagePlan)},
+	}
+	if noTemplates {
+		stages[3].Status = StatusSkipped
+		stages[4].Status = StatusReady
+	}
+	return stages
+}
+
+func flowFailedStages(sp Sprint, target PlanningStage, err error, now time.Time) []StageState {
 	msg := safeError(err)
-	return []StageState{
+	stages := []StageState{
 		{Stage: StageRequirements, Status: StatusComplete, Path: ArtifactRelPath(sp, StageRequirements)},
 		{Stage: StageSprintIndex, Status: StatusFailed, Path: ArtifactRelPath(sp, StageSprintIndex), LastRunAt: &now, Error: msg},
 		{Stage: StageTechnicalHandbook, Status: StatusMissing, Path: ArtifactRelPath(sp, StageTechnicalHandbook)},
@@ -55,6 +71,11 @@ func flowFailedStages(sp Sprint, err error, now time.Time) []StageState {
 		{Stage: StageReasoning, Status: StatusMissing, Path: ArtifactRelPath(sp, StageReasoning)},
 		{Stage: StagePlan, Status: StatusMissing, Path: ArtifactRelPath(sp, StagePlan)},
 	}
+	if target == StageTechnicalHandbook {
+		stages[1] = StageState{Stage: StageSprintIndex, Status: StatusComplete, Path: ArtifactRelPath(sp, StageSprintIndex)}
+		stages[2] = StageState{Stage: StageTechnicalHandbook, Status: StatusFailed, Path: ArtifactRelPath(sp, StageTechnicalHandbook), LastRunAt: &now, Error: msg}
+	}
+	return stages
 }
 
 func safeError(err error) string {
@@ -72,8 +93,8 @@ func safeError(err error) string {
 }
 
 func validateFlowTarget(stage PlanningStage) error {
-	if stage != StageSprintIndex {
-		return fmt.Errorf("unsupported sprint flow target %q; Sprint 18 supports only sprint-index", stage)
+	if stage != StageSprintIndex && stage != StageTechnicalHandbook {
+		return fmt.Errorf("unsupported sprint flow target %q; supports sprint-index and technical-handbook", stage)
 	}
 	return nil
 }

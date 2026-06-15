@@ -100,12 +100,21 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	base := filepath.Join(dir, "projects", "proj", "sprints", "01-alpha")
 	writeFixtureFileContent(t, base, "# Requirements\n\nSelect stage.\n", "requirements.md")
 	writeFixtureFileContent(t, base, commandValidSprintIndex(), "sprint-index.md")
+	writeFixtureFileContent(t, base, commandValidTechnicalHandbook(), "technical-handbook.md")
 	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(), "project-index.md")
+	writeFixtureFileContent(t, dir, "# Evidence\n", "studies", "go-cli-study", "reports", "final", "01-project-structure.md")
 
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "sprint-index"})
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("validate status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
+	assertContains(t, stdout, "Validation: ok")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "technical-handbook"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("handbook validate status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "technical-handbook.md")
 	assertContains(t, stdout, "Validation: ok")
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "sprint-index"})
@@ -118,6 +127,16 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 		t.Fatalf("unsafe prompt output stdout=%q stderr=%q", stdout, stderr)
 	}
 
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "technical-handbook"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("handbook prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Generate technical-handbook.md")
+	assertContains(t, stdout, "Selected evidence:")
+	if strings.Contains(stdout+stderr, "\x1b[") || strings.Contains(stdout, dir) {
+		t.Fatalf("unsafe handbook prompt output stdout=%q stderr=%q", stdout, stderr)
+	}
+
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "sprint-index", "--dry-run"})
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("flow dry-run status=%d stdout=%q stderr=%q", status, stdout, stderr)
@@ -126,6 +145,13 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(base, "flow-state.json")); !os.IsNotExist(err) {
 		t.Fatalf("dry run wrote state: %v", err)
 	}
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "technical-handbook", "--dry-run"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("handbook flow dry-run status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Flow target: technical-handbook")
+	assertContains(t, stdout, "Dry run: true")
 }
 
 func TestSprintValidateFailuresAndUnsupportedStages(t *testing.T) {
@@ -225,5 +251,38 @@ func commandValidSprintIndex() string {
 | Automated review | deferred | future |
 | Issue tracking | deferred | future |
 | Git mutation | deferred | future |
+`
+}
+
+func commandValidTechnicalHandbook() string {
+	return `# Sprint Technical Handbook
+
+## Selected Studies And Reports
+
+| Study / Report | Path | Relevant Finding |
+| --- | --- | --- |
+| 01-project-structure | .ultra/studies/go-cli-study/reports/final/01-project-structure.md | Thin entrypoints. |
+
+## Relevant Patterns
+
+- Module-owned behavior.
+
+## Trade-Offs
+
+| Trade-Off | Benefit | Cost |
+| --- | --- | --- |
+| Local validation | Clear ownership | Focused parser |
+
+## Anti-Patterns And Warnings
+
+- Do not read unselected evidence.
+
+## Open Questions For Reasoning
+
+- How strict should validation be?
+
+## Evidence Pointers
+
+- .ultra/studies/go-cli-study/reports/final/01-project-structure.md
 `
 }

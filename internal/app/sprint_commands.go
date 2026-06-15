@@ -57,23 +57,41 @@ func runSprint(deps dependencies, args []string) error {
 		renderSprintStatus(deps, status)
 		return nil
 	case "validate":
-		if len(args) != 4 || args[3] != string(sprint.StageSprintIndex) {
-			return classified(ExitUsage, "sprint.validate: expected 'validate sprint-index'")
+		if len(args) != 4 {
+			return classified(ExitUsage, "sprint.validate: expected 'validate <sprint-index|technical-handbook>'")
 		}
-		result, err := service.ValidateSprintIndex(args[0], args[1])
+		var result sprint.ValidationResult
+		var err error
+		switch sprint.PlanningStage(args[3]) {
+		case sprint.StageSprintIndex:
+			result, err = service.ValidateSprintIndex(args[0], args[1])
+		case sprint.StageTechnicalHandbook:
+			result, err = service.ValidateTechnicalHandbook(args[0], args[1])
+		default:
+			return classified(ExitUsage, "sprint.validate: unsupported stage %q", args[3])
+		}
 		if err != nil {
 			return mapSprintError("sprint.validate", err)
 		}
 		renderSprintValidation(deps, result)
 		if !result.Valid() {
-			return classified(ExitValidation, "sprint.validate: sprint-index validation failed")
+			return classified(ExitValidation, "sprint.validate: %s validation failed", args[3])
 		}
 		return nil
 	case "prompt":
-		if len(args) != 4 || args[3] != string(sprint.StageSprintIndex) {
-			return classified(ExitUsage, "sprint.prompt: expected 'prompt sprint-index'")
+		if len(args) != 4 {
+			return classified(ExitUsage, "sprint.prompt: expected 'prompt <sprint-index|technical-handbook>'")
 		}
-		preview, err := service.PromptSprintIndex(args[0], args[1])
+		var preview sprint.PromptPreview
+		var err error
+		switch sprint.PlanningStage(args[3]) {
+		case sprint.StageSprintIndex:
+			preview, err = service.PromptSprintIndex(args[0], args[1])
+		case sprint.StageTechnicalHandbook:
+			preview, err = service.PromptTechnicalHandbook(args[0], args[1])
+		default:
+			return classified(ExitUsage, "sprint.prompt: unsupported stage %q", args[3])
+		}
 		if err != nil {
 			return mapSprintError("sprint.prompt", err)
 		}
@@ -84,7 +102,15 @@ func runSprint(deps dependencies, args []string) error {
 		if err != nil {
 			return classified(ExitUsage, "sprint.flow: %w", err)
 		}
-		result, err := service.FlowSprintIndex(deps.ctx, args[0], args[1], req)
+		var result sprint.FlowResult
+		switch req.To {
+		case sprint.StageSprintIndex:
+			result, err = service.FlowSprintIndex(deps.ctx, args[0], args[1], req)
+		case sprint.StageTechnicalHandbook:
+			result, err = service.FlowTechnicalHandbook(deps.ctx, args[0], args[1], req)
+		default:
+			err = fmt.Errorf("unsupported flow target %q", req.To)
+		}
 		if result.DryRun && err == nil {
 			renderSprintFlow(deps, result)
 			return nil
@@ -112,6 +138,8 @@ func mapSprintError(prefix string, err error) error {
 	switch {
 	case errors.Is(err, sprint.ErrFlowStateMalformed), errors.Is(err, sprint.ErrFlowStateUnsupported):
 		return classified(ExitValidation, "%s: %w", prefix, err)
+	case strings.Contains(err.Error(), "validation failed"):
+		return classified(ExitValidation, "%s: %w", prefix, err)
 	case errors.As(err, &projectRef), errors.As(err, &sprintRef):
 		return classified(ExitValidation, "%s: %w", prefix, err)
 	default:
@@ -136,9 +164,9 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 		}
 	}
 	if req.To == "" {
-		return req, fmt.Errorf("--to sprint-index is required")
+		return req, fmt.Errorf("--to sprint-index or --to technical-handbook is required")
 	}
-	if req.To != sprint.StageSprintIndex {
+	if req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook {
 		return req, fmt.Errorf("unsupported flow target %q", req.To)
 	}
 	return req, nil
@@ -219,14 +247,17 @@ func sprintHelp() string {
 Usage:
   ultraplan sprint <project> <sprint> status
   ultraplan sprint <project> <sprint> validate sprint-index
+  ultraplan sprint <project> <sprint> validate technical-handbook
   ultraplan sprint <project> <sprint> prompt sprint-index
+  ultraplan sprint <project> <sprint> prompt technical-handbook
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
 
 Commands:
   <project> <sprint> status  Inspect planning artifacts and refresh flow-state.json.
-  <project> <sprint> validate sprint-index  Validate selected context against project-index.md.
-  <project> <sprint> prompt sprint-index    Print a runtime-free sprint-index prompt preview.
-  <project> <sprint> flow --to sprint-index Run or preview the select-stage flow.
+  <project> <sprint> validate <stage>  Validate sprint-index.md or technical-handbook.md.
+  <project> <sprint> prompt <stage>    Print a runtime-free stage prompt preview.
+  <project> <sprint> flow --to <stage> Run or preview sprint-index or technical-handbook flow.
 
 Scope:
   Supports planning stages through plan.md only. It does not execute implementation, smoke, review, issue, Git, prompt-generation, or runtime workflows.
@@ -244,20 +275,22 @@ Shows deterministic planning-stage status for requirements.md, sprint-index.md, 
 }
 
 func sprintValidateHelp() string {
-	return `ultraplan sprint <project> <sprint> validate sprint-index
+	return `ultraplan sprint <project> <sprint> validate
 
 Usage:
   ultraplan sprint <project> <sprint> validate sprint-index
+  ultraplan sprint <project> <sprint> validate technical-handbook
 
-Validates sprint-index.md as editable Markdown and checks selected catalog entries against project-index.md. Validation failures exit with code 5.
+Validates sprint-index.md selected context or technical-handbook.md selected evidence distillation. Validation failures exit with code 5.
 `
 }
 
 func sprintPromptHelp() string {
-	return `ultraplan sprint <project> <sprint> prompt sprint-index
+	return `ultraplan sprint <project> <sprint> prompt
 
 Usage:
   ultraplan sprint <project> <sprint> prompt sprint-index
+  ultraplan sprint <project> <sprint> prompt technical-handbook
 
 Prints a deterministic runtime-free prompt preview. It does not invoke the runtime and does not write artifacts.
 `
@@ -268,7 +301,8 @@ func sprintFlowHelp() string {
 
 Usage:
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
 
-Dry-run prints planned prompt inputs without mutation. Non-dry-run validates requirements.md, invokes the generic runtime boundary, validates sprint-index.md, and updates flow-state.json after all gates pass.
+Dry-run prints planned prompt inputs without mutation. Non-dry-run validates prerequisites, invokes the generic runtime boundary, validates the generated artifact, and updates flow-state.json after all gates pass.
 `
 }

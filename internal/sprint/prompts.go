@@ -41,6 +41,30 @@ func RenderSprintIndexPrompt(root string, sp Sprint, catalog project.ProjectInde
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
+func RenderTechnicalHandbookPrompt(root string, manifest HandbookManifest) PromptPreview {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Generate technical-handbook.md for project %s sprint %s.\n\n", manifest.ProjectSlug, manifest.SprintSlug)
+	fmt.Fprintln(&b, "Input manifest:")
+	fmt.Fprint(&b, formatManifest(manifest))
+	fmt.Fprintln(&b, "\nRequired sections:")
+	fmt.Fprintln(&b, "- Selected Studies And Reports")
+	fmt.Fprintln(&b, "- Relevant Patterns")
+	fmt.Fprintln(&b, "- Trade-Offs")
+	fmt.Fprintln(&b, "- Anti-Patterns And Warnings")
+	fmt.Fprintln(&b, "- Open Questions For Reasoning")
+	fmt.Fprintln(&b, "- Evidence Pointers")
+	fmt.Fprintln(&b, "\nRules:")
+	fmt.Fprintln(&b, "- Read and cite only the selected evidence reports in the manifest.")
+	fmt.Fprintln(&b, "- Use workspace-relative paths in handbook citations.")
+	fmt.Fprintln(&b, "- Distill observed patterns, trade-offs, warnings, examples, design pressures, and open questions.")
+	fmt.Fprintln(&b, "- Do not make final architecture decisions, implementation decisions, task plans, or sprint plan sections.")
+	fmt.Fprintln(&b, "- Write editable Markdown only to the output path.")
+	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, selected evidence reports, source repositories, config, Git state, implementation files, sprint-index.md, reasoning artifacts, or plan.md.")
+	fmt.Fprintln(&b, "- This prompt preview is runtime-free and must not itself write artifacts.")
+	prompt := strings.ReplaceAll(b.String(), root, workspace.Rel(root, root))
+	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
+}
+
 func writeCatalog(b *strings.Builder, catalog project.ProjectIndex) {
 	entries := append([]project.CatalogEntry(nil), catalog.Entries...)
 	sort.SliceStable(entries, func(i, j int) bool {
