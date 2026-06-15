@@ -13,18 +13,22 @@ import (
 )
 
 type Service struct {
-	root    string
-	store   FSStore
-	now     func() time.Time
-	runtime Runtime
+	root          string
+	store         FSStore
+	now           func() time.Time
+	runtime       Runtime
+	runtimeConfig pruntime.Request
 }
 
 func NewService(root string) Service {
 	return Service{root: root, store: NewFSStore(root), now: func() time.Time { return time.Now().UTC() }}
 }
 
-func (s Service) WithRuntime(rt Runtime) Service {
+func (s Service) WithRuntime(rt Runtime, reqs ...pruntime.Request) Service {
 	s.runtime = rt
+	if len(reqs) > 0 {
+		s.runtimeConfig = reqs[0]
+	}
 	return s
 }
 
@@ -160,11 +164,7 @@ func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef stri
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
 	}
-	runtimeResult, err := s.runtime.StartRun(ctx, pruntime.Request{
-		Prompt:   prompt.Prompt,
-		WorkDir:  s.root,
-		Metadata: map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageSprintIndex)},
-	})
+	runtimeResult, err := s.runtime.StartRun(ctx, s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageSprintIndex)}))
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
@@ -227,11 +227,7 @@ func (s Service) FlowTechnicalHandbook(ctx context.Context, projectRef, sprintRe
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
 	}
-	runtimeResult, err := s.runtime.StartRun(ctx, pruntime.Request{
-		Prompt:   prompt.Prompt,
-		WorkDir:  s.root,
-		Metadata: map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageTechnicalHandbook)},
-	})
+	runtimeResult, err := s.runtime.StartRun(ctx, s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageTechnicalHandbook)}))
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
@@ -286,6 +282,25 @@ func (s Service) resolveSprintInputs(projectRef, sprintRef string) (Sprint, Plan
 		return Sprint{}, PlanningInputs{}, project.ProjectIndex{}, fmt.Errorf("project-index.md has malformed catalog rows")
 	}
 	return sp, inputs, catalog, nil
+}
+
+func (s Service) runtimeRequest(prompt string, metadata map[string]string) pruntime.Request {
+	req := s.runtimeConfig
+	req.Prompt = prompt
+	req.WorkDir = s.root
+	req.Metadata = cloneMetadata(req.Metadata, metadata)
+	return req
+}
+
+func cloneMetadata(base, overlay map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overlay {
+		out[k] = v
+	}
+	return out
 }
 
 func mustArtifactPath(root string, sp Sprint, stage PlanningStage) string {

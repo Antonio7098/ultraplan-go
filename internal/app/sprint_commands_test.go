@@ -1,10 +1,15 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"ultraplan-go/internal/platform/config"
+	runtimepkg "ultraplan-go/internal/platform/runtime"
+	"ultraplan-go/internal/sprint"
 )
 
 func TestSprintHelpIsRegistered(t *testing.T) {
@@ -154,6 +159,36 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	assertContains(t, stdout, "Dry run: true")
 }
 
+func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
+	dir := initializedWorkspace(t)
+	writeCommandSprintProject(t, dir, "proj", "01-alpha")
+	base := filepath.Join(dir, "projects", "proj", "sprints", "01-alpha")
+	writeFixtureFileContent(t, base, "# Requirements\n\nSelect stage.\n", "requirements.md")
+	writeFixtureFileContent(t, base, commandValidSprintIndex(), "sprint-index.md")
+	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(), "project-index.md")
+	writeFixtureFileContent(t, dir, "# Evidence\n", "studies", "go-cli-study", "reports", "final", "01-project-structure.md")
+
+	fake := &sprintCommandRuntime{}
+	restore := stubSprintRuntimeFactory(fake)
+	defer restore()
+
+	stdout, stderr, status := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "sprint-index"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Result: sprint-index complete")
+	if fake.calls != 1 {
+		t.Fatalf("runtime calls = %d", fake.calls)
+	}
+	if fake.request.Provider == "" || fake.request.Model == "" {
+		t.Fatalf("runtime request did not include config: %+v", fake.request)
+	}
+	if fake.request.Metadata["stage"] != "sprint-index" {
+		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
+	}
+	assertContains(t, fake.request.Prompt, "Generate sprint-index.md")
+}
+
 func TestSprintValidateFailuresAndUnsupportedStages(t *testing.T) {
 	dir := initializedWorkspace(t)
 	writeCommandSprintProject(t, dir, "proj", "01-alpha")
@@ -234,7 +269,7 @@ func commandValidSprintIndex() string {
 
 | Template | Output Path | Why Selected |
 |---|---|---|
-| Architecture | .ultra/system/reasoning/architecture_reasoning_template.md | Boundaries |
+| Architecture | projects/proj/sprints/01-alpha/reasoning/architecture.md | Boundaries |
 
 ## Required Review Protocols
 
@@ -252,6 +287,25 @@ func commandValidSprintIndex() string {
 | Issue tracking | deferred | future |
 | Git mutation | deferred | future |
 `
+}
+
+type sprintCommandRuntime struct {
+	calls   int
+	request runtimepkg.Request
+}
+
+func (f *sprintCommandRuntime) StartRun(_ context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
+	f.calls++
+	f.request = req
+	return runtimepkg.Result{RunID: "sprint-run", Status: "completed"}, nil
+}
+
+func stubSprintRuntimeFactory(rt *sprintCommandRuntime) func() {
+	orig := sprintRuntimeFactory
+	sprintRuntimeFactory = func(config.Config) (sprint.Runtime, error) {
+		return rt, nil
+	}
+	return func() { sprintRuntimeFactory = orig }
 }
 
 func commandValidTechnicalHandbook() string {

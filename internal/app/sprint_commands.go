@@ -5,9 +5,16 @@ import (
 	"fmt"
 	"strings"
 
+	"ultraplan-go/internal/platform/config"
+	runtimepkg "ultraplan-go/internal/platform/runtime"
 	"ultraplan-go/internal/project"
 	"ultraplan-go/internal/sprint"
+	"ultraplan-go/internal/workspace"
 )
+
+var sprintRuntimeFactory = func(c config.Config) (sprint.Runtime, error) {
+	return runtimepkg.NewOpenCode(c)
+}
 
 func runSprint(deps dependencies, args []string) error {
 	if len(args) == 0 {
@@ -102,12 +109,19 @@ func runSprint(deps dependencies, args []string) error {
 		if err != nil {
 			return classified(ExitUsage, "sprint.flow: %w", err)
 		}
+		flowService := service
+		if !req.DryRun {
+			flowService, err = sprintRuntimeService(deps, root)
+			if err != nil {
+				return err
+			}
+		}
 		var result sprint.FlowResult
 		switch req.To {
 		case sprint.StageSprintIndex:
-			result, err = service.FlowSprintIndex(deps.ctx, args[0], args[1], req)
+			result, err = flowService.FlowSprintIndex(deps.ctx, args[0], args[1], req)
 		case sprint.StageTechnicalHandbook:
-			result, err = service.FlowTechnicalHandbook(deps.ctx, args[0], args[1], req)
+			result, err = flowService.FlowTechnicalHandbook(deps.ctx, args[0], args[1], req)
 		default:
 			err = fmt.Errorf("unsupported flow target %q", req.To)
 		}
@@ -130,6 +144,22 @@ func runSprint(deps dependencies, args []string) error {
 	default:
 		return classified(ExitUsage, "sprint: unsupported command %q", args[2])
 	}
+}
+
+func sprintRuntimeService(deps dependencies, root workspace.Root) (sprint.Service, error) {
+	effective, err := loadEffectiveConfig(root, deps, config.CLIOverrides{})
+	if err != nil {
+		return sprint.Service{}, err
+	}
+	req, err := runtimepkg.RequestFromConfig(effective.Config, root.Path)
+	if err != nil {
+		return sprint.Service{}, classified(ExitConfig, "runtime.config: %w", err)
+	}
+	rt, err := sprintRuntimeFactory(effective.Config)
+	if err != nil {
+		return sprint.Service{}, classified(ExitRuntime, "runtime.init: %w", err)
+	}
+	return sprint.NewService(root.Path).WithRuntime(rt, req), nil
 }
 
 func mapSprintError(prefix string, err error) error {

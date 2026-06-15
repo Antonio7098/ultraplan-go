@@ -10,7 +10,7 @@ func ValidateSprintIndexContent(content string, catalog project.ProjectIndex) (S
 	index, findings := ParseSprintIndex(content)
 	findings = append(findings, validateSubset(index.Contracts, catalog, project.SectionActiveContractPool, "Selected Contracts")...)
 	findings = append(findings, validateSubset(index.EvidenceReports, catalog, project.SectionAvailableEvidenceReports, "Selected Evidence Reports")...)
-	findings = append(findings, validateSubset(index.ReasoningTemplates, catalog, project.SectionAvailableReasoningTemplate, "Selected Reasoning Templates")...)
+	findings = append(findings, validateReasoningTemplates(index.ReasoningTemplates, catalog)...)
 	findings = append(findings, validateSubset(index.ReviewProtocols, catalog, project.SectionReviewProtocols, "Required Review Protocols")...)
 	findings = append(findings, validateExcluded(index.ExcludedContexts)...)
 	sortSprintFindings(findings)
@@ -42,6 +42,31 @@ func validateSubset(items []SelectedItem, catalog project.ProjectIndex, section 
 		}
 		if !foundPath {
 			findings = append(findings, finding(label, item.Name, item.Path, "selected path does not match project index", "catalog entry name exists but with a different path", "Use the exact path from project-index.md."))
+		}
+	}
+	return findings
+}
+
+func validateReasoningTemplates(items []SelectedItem, catalog project.ProjectIndex) []ValidationFinding {
+	var findings []ValidationFinding
+	for _, item := range items {
+		foundName := false
+		for _, entry := range catalog.Entries {
+			if entry.Section == project.SectionAvailableReasoningTemplate && strings.EqualFold(entry.Name, item.Name) {
+				foundName = true
+				break
+			}
+		}
+		if !foundName {
+			findings = append(findings, finding("Selected Reasoning Templates", item.Name, item.Path, "selected entry not in project index", "no catalog entry with this template name exists", "Select a reasoning template listed in project-index.md."))
+			continue
+		}
+		if item.Path == "" {
+			findings = append(findings, finding("Selected Reasoning Templates", item.Name, item.Path, "missing output path", "reasoning template selection must name its sprint output path", "Set Output Path to a workspace-relative sprint reasoning file."))
+			continue
+		}
+		if strings.HasPrefix(item.Path, "/") || strings.Contains(item.Path, "\x00") || strings.Contains(item.Path, "..") {
+			findings = append(findings, finding("Selected Reasoning Templates", item.Name, item.Path, "unsafe output path", "output path must be workspace-relative and contained in the sprint", "Use a workspace-relative path under the sprint reasoning directory."))
 		}
 	}
 	return findings

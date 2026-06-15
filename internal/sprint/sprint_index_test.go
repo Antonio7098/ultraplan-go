@@ -156,7 +156,7 @@ func validSprintIndex() string {
 
 | Template | Output Path | Why Selected |
 |---|---|---|
-| Architecture | .ultra/system/reasoning/architecture_reasoning_template.md | Boundaries |
+| Architecture | projects/proj/sprints/01-alpha/reasoning/architecture.md | Boundaries |
 
 ## Required Review Protocols
 
