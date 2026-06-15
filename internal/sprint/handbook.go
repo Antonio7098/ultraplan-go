@@ -145,6 +145,9 @@ func catalogEvidence(catalog project.ProjectIndex, selected SelectedItem) (proje
 func normalizeWorkspacePath(path string) string {
 	path = strings.Trim(path, "`")
 	path = filepath.ToSlash(path)
+	if strings.HasPrefix(path, "ultra/") {
+		path = "." + path
+	}
 	return strings.TrimPrefix(path, ".ultra/")
 }
 

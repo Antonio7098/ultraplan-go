@@ -127,6 +127,14 @@ func (s FSStore) ReadArtifact(sp Sprint, stage PlanningStage) (string, error) {
 	return string(data), nil
 }
 
+func (s FSStore) ReadFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 func nonEmptyFile(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {

@@ -108,6 +108,7 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	writeFixtureFileContent(t, base, commandValidTechnicalHandbook(), "technical-handbook.md")
 	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(), "project-index.md")
 	writeFixtureFileContent(t, dir, "# Evidence\n", "studies", "go-cli-study", "reports", "final", "01-project-structure.md")
+	writeFixtureFileContent(t, dir, "# Architecture Template\n", "system", "reasoning", "architecture_reasoning_template.md")
 
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "sprint-index"})
 	if status != ExitOK || stderr != "" {
@@ -157,6 +158,60 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	}
 	assertContains(t, stdout, "Flow target: technical-handbook")
 	assertContains(t, stdout, "Dry run: true")
+
+	writeFixtureFileContent(t, base, commandValidAreaReasoning(), "reasoning", "architecture.md")
+	writeFixtureFileContent(t, base, commandValidReasoning(), "reasoning.md")
+	writeFixtureFileContent(t, base, commandValidPlan(), "plan.md")
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "area-reasoning"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("area validate status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Validation: ok")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "reasoning"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("reasoning validate status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "reasoning.md")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "plan"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("plan validate status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "plan.md")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "area-reasoning"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("area prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Generate area reasoning")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "reasoning"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("reasoning prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Generate reasoning.md")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "plan"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("plan prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Generate plan.md")
+	assertContains(t, stdout, "Do not execute implementation tasks")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "reasoning", "--dry-run"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("reasoning dry-run status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Flow target: reasoning")
+	assertContains(t, stdout, "Dry run: true")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "plan", "--dry-run"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("plan dry-run status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Flow target: plan")
+	assertContains(t, stdout, "Dry run: true")
 }
 
 func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
@@ -167,6 +222,7 @@ func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 	writeFixtureFileContent(t, base, commandValidSprintIndex(), "sprint-index.md")
 	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(), "project-index.md")
 	writeFixtureFileContent(t, dir, "# Evidence\n", "studies", "go-cli-study", "reports", "final", "01-project-structure.md")
+	writeFixtureFileContent(t, dir, "# Architecture Template\n", "system", "reasoning", "architecture_reasoning_template.md")
 
 	fake := &sprintCommandRuntime{}
 	restore := stubSprintRuntimeFactory(fake)
@@ -187,6 +243,32 @@ func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
 	}
 	assertContains(t, fake.request.Prompt, "Generate sprint-index.md")
+
+	writeFixtureFileContent(t, base, commandValidTechnicalHandbook(), "technical-handbook.md")
+	writeFixtureFileContent(t, base, commandValidAreaReasoning(), "reasoning", "architecture.md")
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "reasoning"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("reasoning flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Result: reasoning complete")
+	if fake.calls != 2 {
+		t.Fatalf("runtime calls = %d", fake.calls)
+	}
+	if fake.request.Metadata["stage"] != "reasoning" {
+		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
+	}
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "plan"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("plan flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Result: plan complete")
+	if fake.calls != 3 {
+		t.Fatalf("runtime calls = %d", fake.calls)
+	}
+	if fake.request.Metadata["stage"] != "plan" {
+		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
+	}
 }
 
 func TestSprintValidateFailuresAndUnsupportedStages(t *testing.T) {
@@ -297,6 +379,18 @@ type sprintCommandRuntime struct {
 func (f *sprintCommandRuntime) StartRun(_ context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
 	f.calls++
 	f.request = req
+	if req.Metadata["stage"] == string(sprint.StageReasoning) {
+		path := filepath.Join(req.WorkDir, "projects", req.Metadata["project"], "sprints", req.Metadata["sprint"], "reasoning.md")
+		if err := os.WriteFile(path, []byte(commandValidReasoning()), 0o644); err != nil {
+			return runtimepkg.Result{}, err
+		}
+	}
+	if req.Metadata["stage"] == string(sprint.StagePlan) {
+		path := filepath.Join(req.WorkDir, "projects", req.Metadata["project"], "sprints", req.Metadata["sprint"], "plan.md")
+		if err := os.WriteFile(path, []byte(commandValidPlan()), 0o644); err != nil {
+			return runtimepkg.Result{}, err
+		}
+	}
 	return runtimepkg.Result{RunID: "sprint-run", Status: "completed"}, nil
 }
 
@@ -338,5 +432,110 @@ func commandValidTechnicalHandbook() string {
 ## Evidence Pointers
 
 - .ultra/studies/go-cli-study/reports/final/01-project-structure.md
+`
+}
+
+func commandValidAreaReasoning() string {
+	return `# Architecture Reasoning
+
+## Area Decisions
+
+- Architecture uses .ultra/system/reasoning/architecture_reasoning_template.md.
+
+## Trade-Offs
+
+- Local validation keeps ownership clear.
+
+## Evidence
+
+- .ultra/studies/go-cli-study/reports/final/01-project-structure.md
+
+## Risks
+
+- Structural validation is limited.
+`
+}
+
+func commandValidReasoning() string {
+	return `# Sprint Reasoning
+
+## Sprint Purpose
+
+Implement reasoning.
+
+## Selected Context And Pre-Reasoning Artifacts
+
+- requirements.md
+
+## Area-Specific Reasoning Inputs
+
+- Architecture: projects/proj/sprints/01-alpha/reasoning/architecture.md
+
+## Decisions
+
+- Keep behavior in internal/sprint.
+
+## Expected Evidence
+
+- go test ./...
+
+## Assumptions And Risks
+
+- Structural validation has limits.
+
+## Implementation Constraints
+
+- Do not generate or validate plan.md.
+`
+}
+
+func commandValidPlan() string {
+	return `# Sprint Plan
+
+## Reasoning Source
+
+- Source: projects/proj/sprints/01-alpha/reasoning.md
+
+## Sprint Status
+
+- Status: not started
+
+## Decisions To Execute
+
+| Decision | Source |
+|---|---|
+| Keep behavior in internal/sprint | reasoning.md |
+
+## Requirements / Contracts To Satisfy
+
+| Contract | Evidence |
+|---|---|
+| AC-01 | go test ./... |
+
+## Tasks
+
+- [ ] Task 1: Add plan behavior for Decision 1 / AC-01
+  > Executes: Decision 1, AC-01
+  - [ ] Verification expectation: go test ./...
+
+## Evidence Checklist
+
+- [ ] Command tests pass.
+
+## Risks And Blockers
+
+| Risk | Mitigation |
+|---|---|
+| Structural validation | Keep checks focused. |
+
+## Execution Log
+
+| Step | Evidence |
+|---|---|
+| pending | pending |
+
+## Completion Criteria
+
+- [ ] Tests pass.
 `
 }
