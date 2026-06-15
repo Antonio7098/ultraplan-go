@@ -1,6 +1,6 @@
-# Gated OpenCode Smoke
+# Gated Study OpenCode Smoke
 
-The normal release gates are offline and do not require OpenCode, provider credentials, network access, or real subprocess smoke fixtures. This smoke is optional and gated for machines that have a real runtime environment.
+The normal release gates are offline and do not require OpenCode, provider credentials, network access, or real subprocess smoke fixtures. This smoke is optional and gated for machines that have a real runtime environment and a prepared study. For planning flow smoke, use [planning-smoke.md](planning-smoke.md).
 
 ## Prerequisites
 

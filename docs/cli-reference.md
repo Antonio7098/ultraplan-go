@@ -1,6 +1,6 @@
 # CLI Reference
 
-All commands are study-side commands. Target and sprint workflows are deferred and are not part of this public release surface.
+This release includes study commands and planning commands through `plan.md`. Sprint implementation execution, smoke investigation execution, review automation, issue tracking, Git mutation, hosted services, and browser UI are deferred.
 
 ## Global Usage
 
@@ -71,6 +71,30 @@ ultraplan health [--json]
 Checks workspace discovery, workspace structure, config validation, filesystem readability, environment override presence, and configured runtime health/capability checks when possible.
 
 `--json` uses the stable JSON envelope with `result.schema_version: 1` and a `checks` array.
+
+### `ultraplan project list`
+
+```text
+ultraplan project list
+```
+
+Lists discovered project roots under `projects/`.
+
+### `ultraplan project <project> status`
+
+```text
+ultraplan project <project> status
+```
+
+Shows project docs, roadmap, `project-index.md`, sprints, and catalog health without runtime execution.
+
+### `ultraplan project <project> validate`
+
+```text
+ultraplan project <project> validate
+```
+
+Validates required project files and `project-index.md` catalog references for contracts, evidence reports, reasoning templates, and review protocols.
 
 ### `ultraplan study init`
 
@@ -174,6 +198,50 @@ ultraplan study <study> summary
 
 Regenerates deterministic `studies/<study>/summary.csv` from existing reports without runtime execution.
 
+### `ultraplan sprint <project> <sprint> status`
+
+```text
+ultraplan sprint <project> <sprint> status
+```
+
+Inspects planning artifacts and refreshes `projects/<project>/sprints/<sprint>/flow-state.json`.
+
+### `ultraplan sprint <project> <sprint> validate`
+
+```text
+ultraplan sprint <project> <sprint> validate sprint-index
+ultraplan sprint <project> <sprint> validate technical-handbook
+ultraplan sprint <project> <sprint> validate area-reasoning
+ultraplan sprint <project> <sprint> validate reasoning
+ultraplan sprint <project> <sprint> validate plan
+```
+
+Validates one planning stage artifact without executing implementation work. `sprint-index` references must be a subset of `project-index.md`. Plan validation checks traceability to `reasoning.md` and task/evidence checklist structure.
+
+### `ultraplan sprint <project> <sprint> prompt`
+
+```text
+ultraplan sprint <project> <sprint> prompt sprint-index
+ultraplan sprint <project> <sprint> prompt technical-handbook
+ultraplan sprint <project> <sprint> prompt area-reasoning
+ultraplan sprint <project> <sprint> prompt reasoning
+ultraplan sprint <project> <sprint> prompt plan
+```
+
+Prints runtime-free prompt previews for planning stages. Prompt previews are for inspection and do not call agentwrap, OpenCode, providers, subprocesses, or the network.
+
+### `ultraplan sprint <project> <sprint> flow`
+
+```text
+ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
+ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
+ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
+ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
+ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
+```
+
+Runs or previews the planning artifact flow through the requested stage. The supported stage chain is `sprint-index`, `technical-handbook`, `area-reasoning`, `reasoning`, and `plan`. The command does not execute implementation, smoke, review, issue, Git, prompt-generation, or hosted workflows.
+
 ### `ultraplan code`
 
 ```text
@@ -196,4 +264,4 @@ The compatibility-sensitive JSON surfaces in this release are:
 - `study <study> status --json`
 - `code --json` deterministic extraction result
 
-Other text output is intended for humans unless a future release explicitly promotes it to stable JSON.
+Project and sprint planning commands currently expose text output only. Other text output is intended for humans unless a future release explicitly promotes it to stable JSON.

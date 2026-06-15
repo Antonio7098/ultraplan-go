@@ -1,6 +1,6 @@
 # UltraPlan User Guide
 
-This guide covers the current study-side release. Target scaffolding, sprint planning, sprint execution, hosted services, browser UI, multi-user collaboration, and automatic Git mutation are not part of this release.
+This guide covers the current study and planning release. Planning supports project and sprint artifacts through `plan.md`. Sprint implementation execution, smoke investigation execution, review automation, issue tracking, hosted services, browser UI, multi-user collaboration, and automatic Git mutation are not part of this release.
 
 ## 1. Build Or Install
 
@@ -174,3 +174,30 @@ ultraplan code studies/<study>/reports/final/01-topic.md --json --output evidenc
 ```
 
 Code extraction resolves cited file and line references from reports back to source snippets. Unresolved citations are reported and return a partial/validation exit class depending on the failure.
+
+## 16. Inspect Planning Projects
+
+Projects live under `projects/<project>/` and contain `docs/`, `roadmap.md`, `project-index.md`, and sprint directories.
+
+```bash
+ultraplan project list
+ultraplan project <project> status
+ultraplan project <project> validate
+```
+
+Project validation checks that the project catalog resolves selected contracts, evidence reports, reasoning templates, review protocols, and source documents.
+
+## 17. Work Through Sprint Planning
+
+Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, and `plan`.
+
+```bash
+ultraplan sprint <project> <sprint> status
+ultraplan sprint <project> <sprint> validate sprint-index
+ultraplan sprint <project> <sprint> prompt plan
+ultraplan sprint <project> <sprint> flow --to plan --dry-run
+```
+
+Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use `flow --to <stage> --dry-run` to preview planned stage execution. Non-dry-run flow can generate planning artifacts when runtime prerequisites are available.
+
+The planning flow stops at `plan.md`; it does not execute the plan or create smoke, review, issue, or Git artifacts.

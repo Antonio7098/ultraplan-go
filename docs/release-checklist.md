@@ -1,11 +1,11 @@
 # Release Checklist
 
-This checklist gates local study-side release artifacts. It does not publish, sign, notarize, tag, upload, or create a GitHub release.
+This checklist gates local study and planning-side release artifacts. It does not publish, sign, notarize, tag, upload, or create a GitHub release.
 
 ## Scope
 
-- Study-side CLI only.
-- No target scaffolding, sprint planning, sprint execution, hosted SaaS, browser UI, multi-user collaboration, or automatic Git mutation.
+- Study workflows and planning workflows through `plan.md`.
+- No target scaffolding, sprint implementation execution, smoke investigation execution, review automation, issue tracking, hosted SaaS, browser UI, multi-user collaboration, or automatic Git mutation.
 - Runtime integration remains through agentwrap/OpenCode.
 
 ## Offline Gates
@@ -53,12 +53,17 @@ Create `dist/smoke-evidence.md` with:
 - package target commands.
 - checksum command and result.
 - gated OpenCode smoke pass/fail/skip status.
+- gated planning runtime smoke pass/fail/skip status.
 - redaction statement.
 - residual risks.
 
 ## Gated OpenCode Smoke
 
 Run [opencode-smoke.md](opencode-smoke.md) only when OpenCode, provider config, network access, and a prepared smoke study are available. Otherwise record an explicit skip reason.
+
+## Gated Planning Smoke
+
+Run [planning-smoke.md](planning-smoke.md) only when OpenCode, provider config, network access, and a prepared planning project/sprint are available. Otherwise record an explicit skip reason. Always run the offline planning checks from that document when a fixture project is available.
 
 ## Dependency Provenance
 
@@ -76,10 +81,11 @@ If `replace github.com/Antonio7098/agentwrap => ../agentwrap` or any other local
 Check:
 
 - README links every release document.
-- CLI reference matches `ultraplan --help`, `ultraplan config --help`, `ultraplan health --help`, `ultraplan study --help`, and `ultraplan code --help`.
+- CLI reference matches `ultraplan --help`, `ultraplan config --help`, `ultraplan health --help`, `ultraplan project --help`, `ultraplan sprint --help`, `ultraplan study --help`, and `ultraplan code --help`.
 - Stable JSON documentation is limited to documented JSON surfaces.
-- Recovery docs describe validation, missing artifacts, cancellation, stale locks, `--force-unlock`, partial completion, retry/fallback metadata, and atomic write failures.
+- Recovery docs describe validation, missing artifacts, failed planning stages, cancellation, stale locks, `--force-unlock`, partial completion, retry/fallback metadata, and atomic write failures.
 - Configuration docs document precedence, schema version rejection, runtime/model/retry/fallback settings, agentwrap/OpenCode mapping, and redaction.
+- Migration docs explain `.ultra/cli` artifact compatibility and explicitly defer implementation, smoke, review, issue, and Git workflows.
 
 ## Security Review
 

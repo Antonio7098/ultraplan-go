@@ -1,13 +1,13 @@
 # Technical Requirements Document: UltraPlan Go
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Draft
 **Owner:** Engineering
-**Last Updated:** 2026-05-25
+**Last Updated:** 2026-06-15
 
 ## 1. Purpose
 
-This TRD defines the technical requirements for UltraPlan Go, a production-grade Go CLI that implements the proven UltraPlan workflow: study initialization, source analysis, report synthesis, code-reference extraction, resumable orchestration, validation, and operational diagnostics. Target scaffolding, sprint planning, and sprint execution are intentionally deferred.
+This TRD defines the technical requirements for UltraPlan Go, a production-grade Go CLI that implements the proven UltraPlan workflow: study initialization, source analysis, report synthesis, code-reference extraction, resumable orchestration, validation, operational diagnostics, and governed project/sprint planning through `plan.md`. Sprint implementation execution is intentionally deferred.
 
 This document is implementation-oriented. It defines boundaries, modules, data models, state machines, validators, runtime contracts, error handling, and testing requirements. It does not prescribe every package name or third-party library, but it should be specific enough to guide implementation.
 
@@ -24,6 +24,9 @@ UltraPlan Go is responsible for:
 - Maintaining durable run state for long-running batches.
 - Validating generated artifacts.
 - Extracting code snippets from report citations.
+- Managing project planning roots under `projects/<project>`.
+- Validating project indexes that catalog contracts, evidence, reasoning templates, and review protocols.
+- Creating and validating sprint planning artifacts through `plan.md`.
 - Providing human-readable and structured operational output.
 
 UltraPlan Go is not responsible for:
@@ -35,6 +38,8 @@ UltraPlan Go is not responsible for:
 - Owning AI provider billing.
 - Guaranteeing semantic correctness of generated prose beyond validation rules.
 - Reimplementing agentwrap SDK features that already exist as runtime-neutral primitives.
+- Executing implementation tasks from sprint plans.
+- Running smoke investigations, review automation, issue tracking, or Git mutation.
 
 ## 3. Architecture Overview
 
@@ -56,6 +61,8 @@ internal/
     runtime/
   workspace/            # workspace discovery, paths, and validation
   study/                # study lifecycle, prompts, scheduling, validation, reports, state
+  project/              # project docs, project-index cataloging and validation
+  sprint/               # planning artifacts, flow state, prompts, and validators through plan
   codeextract/          # citation parsing, file resolution, snippet extraction
 ```
 
@@ -70,7 +77,7 @@ Interfaces appear only at external or volatile boundaries.
 
 Do not create global technical-layer packages such as `internal/validation`, `internal/scheduler`, `internal/reports`, or `internal/prompts` unless the behavior is genuinely reusable across multiple product modules. Prefer keeping behavior inside the module that owns the state and workflow, for example `internal/study/validation.go`, `internal/study/scheduler.go`, and `internal/study/reports.go`.
 
-Runtime supervision is delegated to `agentwrap`. The platform runtime package must stay generic: it may know about prompts, working directories, models, timeouts, permissions, events, and execution results, but it must not know about studies, dimensions, sources, synthesis gating, report semantics, or study state machines.
+Runtime supervision is delegated to `agentwrap`. The platform runtime package must stay generic: it may know about prompts, working directories, models, timeouts, permissions, events, and execution results, but it must not know about studies, dimensions, sources, synthesis gating, report semantics, project catalogs, sprint stages, or product state machines.
 
 ## 4. Design Principles
 
@@ -82,7 +89,7 @@ Runtime supervision is delegated to `agentwrap`. The platform runtime package mu
 - Prefer deterministic fixtures for tests.
 - Do not require real OpenCode for normal unit tests.
 - Use agentwrap for runtime execution, retries, validation wrapping, permission policy translation, health/preflight checks, observability, metadata, and OpenCode structured-output adaptation.
-- Keep UltraPlan-specific study, source, and report behavior outside agentwrap adapters and wrappers. Target and sprint behavior is future scope.
+- Keep UltraPlan-specific study, source, report, project, and sprint behavior outside agentwrap adapters and wrappers.
 - Avoid global mutable state.
 - Avoid package cycles.
 - Make dry-run behavior available before expensive operations.

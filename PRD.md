@@ -1,20 +1,20 @@
 # Product Requirements Document: UltraPlan Go
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Draft
 **Owner:** Product and Engineering
-**Last Updated:** 2026-05-25
+**Last Updated:** 2026-06-15
 
 ## Stage 1: Product Brief
 
 ### 1.1 Executive Summary
 
-UltraPlan Go is a production-grade command-line planning and research system that runs architecture studies across source repositories, synthesizes structured reports, and extracts cited code references. The current implementation scope is the study side only; applying study outputs to targets, sprint planning, and sprint execution is intentionally deferred.
+UltraPlan Go is a production-grade command-line planning and research system that runs architecture studies across source repositories, synthesizes structured reports, extracts cited code references, and creates governed planning artifacts through `plan.md`. Sprint implementation execution remains deferred.
 
 - **Problem Statement:** The current prototype proves the workflow, but it is script-like, tightly coupled to a local Bun/TypeScript environment, and not hardened for durable runs, reproducible outputs, reliable retries, clear configuration, or long-term extensibility.
 - **Proposed Solution:** Rebuild UltraPlan as a Go CLI with a well-defined domain model, deterministic filesystem layout, resumable orchestration, structured runtime adapters, robust validation, and production-quality testing.
 - **Target Users:** Engineers, technical leads, AI workflow builders, and product teams using agentic coding runtimes to study codebases, compare architectural patterns, and plan future implementation work from separately reviewed study outputs.
-- **Expected Outcome:** Users can initialize studies, run large batches of source analyses, synthesize final reports, extract code citations, and inspect study status with durable state and auditable outputs.
+- **Expected Outcome:** Users can initialize studies, run large batches of source analyses, synthesize final reports, extract code citations, inspect study status with durable state, and use selected evidence to produce governed planning artifacts through `plan.md`.
 
 ### 1.2 Product Context
 
@@ -27,10 +27,10 @@ The prototype in `ultraplan/cli` demonstrates the core product shape:
 - Parallel and resumable study runs.
 - Structured prompts and output templates.
 - Code-reference extraction from generated reports.
-- Target documents for PRDs, TRDs, roadmaps, decision logs, sprint reasoning, and sprint trackers in the prototype.
+- Project documents for PRDs, TRDs, roadmaps, project indexes, sprint requirements, sprint indexes, technical handbooks, reasoning, and plans in the prototype.
 - Sprint planning and sprint execution workflows in the prototype.
 
-For UltraPlan Go, these target and sprint workflows are future scope and must not be included in the first study-side build.
+For UltraPlan Go, the planning artifact chain is included through `plan.md`. Sprint implementation execution, smoke investigation execution, review automation, issue tracking, automatic Git mutation, hosted services, and browser UI remain future scope.
 
 The Go product keeps those core capabilities but makes them reliable, portable, testable, and extensible.
 
@@ -354,7 +354,7 @@ Required workspace concepts:
 3. Organization-level permissions.
 4. Built-in issue tracker integration.
 5. Full workflow DAG engine.
-6. Target scaffolding, sprint planning, or sprint execution in the first study-side release.
+6. Sprint implementation execution, smoke investigation execution, review automation, or issue tracking.
 7. Silent auto-commit or auto-push by default.
 
 ### 2.4 Command Requirements
@@ -410,9 +410,32 @@ The exact command names may be refined during implementation, but the production
 - `ultraplan study <study> validate`
   - Validates study structure and generated artifacts.
 
-#### Deferred Target and Sprint Commands
+#### Project And Sprint Planning Commands
 
-The prototype includes target and sprint commands, but UltraPlan Go must not implement them in the first study-side release. The following command families are explicitly deferred: `ultraplan target ...`, `ultraplan sprint plan ...`, `ultraplan sprint execute ...`, and `ultraplan sprint validate ...`.
+UltraPlan Go supports governed planning artifacts through `plan.md`:
+
+- `ultraplan project list`
+  - Lists discovered project roots.
+
+- `ultraplan project <project> status`
+  - Shows docs, roadmap, project index, sprints, and catalog health.
+
+- `ultraplan project <project> validate`
+  - Validates project files and `project-index.md` catalog references.
+
+- `ultraplan sprint <project> <sprint> status`
+  - Inspects planning artifacts and refreshes `flow-state.json`.
+
+- `ultraplan sprint <project> <sprint> validate <stage>`
+  - Validates planning stages through `plan`.
+
+- `ultraplan sprint <project> <sprint> prompt <stage>`
+  - Prints runtime-free stage prompt previews.
+
+- `ultraplan sprint <project> <sprint> flow --to <stage> [--dry-run]`
+  - Runs or previews planning flow through `plan.md`.
+
+The following command families remain deferred: `ultraplan target ...`, sprint implementation execution, smoke investigation execution, review automation, issue tracking, and Git mutation.
 
 ### 2.5 Study Initialization Requirements
 
@@ -545,11 +568,11 @@ Synthesis success requires:
 - Source summary table exists.
 - Rating summary exists.
 
-### 2.7 Deferred: Applying Study Findings
+### 2.7 Planning Scope
 
-The TypeScript prototype demonstrates a second side of UltraPlan: applying study findings to target requirements, roadmaps, decisions, sprint planning, and sprint execution. That side is intentionally out of scope for the current UltraPlan Go requirements.
+The TypeScript prototype demonstrates a second side of UltraPlan: applying study findings to project requirements, roadmaps, decisions, sprint planning, and sprint execution. UltraPlan Go includes the governed planning artifact chain through `plan.md`.
 
-Current requirements stop at producing, validating, summarizing, and extracting evidence from study artifacts. Target and sprint workflows should be considered future product work and should not be built unless this PRD is revised.
+Current planning requirements stop at producing and validating project and sprint planning artifacts. Sprint implementation execution, smoke investigation execution, review automation, issue tracking, automatic Git mutation, hosted services, and browser UI should be considered future product work unless this PRD is revised.
 
 ### 2.8 User Experience Requirements
 
@@ -576,6 +599,9 @@ Required generated artifacts:
 - Run state JSON.
 - Run logs or event records.
 - Optional code extraction bundles.
+- Project indexes.
+- Sprint planning artifacts through `plan.md`.
+- Sprint flow-state JSON.
 
 Artifact requirements:
 
@@ -613,7 +639,7 @@ UltraPlan Go should be organized around these responsibilities:
 - Report validation service.
 - Synthesis service.
 - Code-reference extraction service.
-- Future extension point for target and sprint planning service; not part of current build.
+- Project catalog and sprint planning services through `plan.md`.
 - Logging and diagnostics.
 
 Data flow for a per-source analysis:

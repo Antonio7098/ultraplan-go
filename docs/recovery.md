@@ -40,6 +40,16 @@ Common missing artifacts include per-source reports, final reports, `summary.csv
 - Missing summary: run `study <study> summary`.
 - Missing run state: start `study <study> run-loop` to create durable state, or use `run-all` for a non-resumable batch.
 
+Planning artifacts use a separate chain under `projects/<project>/sprints/<sprint>/`. Missing planning artifacts should be repaired stage by stage:
+
+- Missing `sprint-index.md`: run `sprint <project> <sprint> prompt sprint-index` to inspect context, then `sprint <project> <sprint> flow --to sprint-index`.
+- Missing `technical-handbook.md`: validate `sprint-index` first, then run `flow --to technical-handbook`.
+- Missing `reasoning.md`: validate area reasoning inputs if selected, then run `flow --to reasoning`.
+- Missing `plan.md`: validate `reasoning`, then run `flow --to plan`.
+- Missing `flow-state.json`: run `sprint <project> <sprint> status` to refresh artifact state.
+
+Planning flow stops at `plan.md`; do not expect implementation, smoke, review, issue, or Git artifacts from this release.
+
 ## Stale Running Tasks
 
 `study status` shows active, retrying, waiting, failed, cancelled, and recent tasks from persisted run state. If tasks appear stuck:
@@ -85,6 +95,18 @@ Unknown usage or cost means the runtime did not provide safe metadata; it is not
 ## Partial Completion
 
 `run-all`, `run-loop`, and `code` can return partial completion when some work succeeded and some work failed or remained unresolved. Treat partial completion as release-blocking for production evidence unless the unresolved scope is explicitly documented.
+
+## Failed Planning Stages
+
+For a failed planning stage:
+
+1. Run `ultraplan project <project> validate`.
+2. Run `ultraplan sprint <project> <sprint> status`.
+3. Validate the earliest incomplete stage with `ultraplan sprint <project> <sprint> validate <stage>`.
+4. Use `prompt <stage>` to inspect the runtime input before rerunning flow.
+5. Rerun `flow --to <stage>` only after the upstream artifact validates.
+
+Common causes are project-index references that do not resolve, sprint-index entries outside the project catalog, missing selected evidence, reasoning that does not include decisions/risks/evidence, or a plan that does not trace tasks to `reasoning.md`.
 
 ## Atomic Write Failures
 
