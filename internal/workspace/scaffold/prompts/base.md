@@ -41,11 +41,9 @@ Each study should:
 - Replace template placeholders with concrete prose, tables, or bullet lists as appropriate.
 - Do not leave empty sections. If there is no finding, write `No clear evidence found` and explain the search boundary.
 
-## Output Structure
+## Output Path
 
-```
-reports/source/{source-name}-{NN}-{dimension-name}.md
-```
+Write the final analysis to the exact `Expected output` path in the rendered prompt metadata. That path may be absolute; use it as-is. Do not derive a shorter relative path from the examples or from the current working directory.
 
 ## Evidence Guidelines
 

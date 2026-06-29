@@ -27,7 +27,7 @@ func TestBuildDirectoryAnalysisPromptManifestRulesAndDeterminism(t *testing.T) {
 	if first.Manifest.Kind != PromptKindDirectoryAnalysis {
 		t.Fatalf("kind = %q", first.Manifest.Kind)
 	}
-	if first.Manifest.ExpectedOutputPath != "studies/demo/reports/source/repo-01-structure.md" {
+	if first.Manifest.ExpectedOutputPath != filepath.Join(root, "studies", "demo", "reports", "source", "repo-01-structure.md") {
 		t.Fatalf("output = %q", first.Manifest.ExpectedOutputPath)
 	}
 	assertContains(t, first.Text, "# Base Prompt")
@@ -35,7 +35,7 @@ func TestBuildDirectoryAnalysisPromptManifestRulesAndDeterminism(t *testing.T) {
 	assertContains(t, first.Text, "# Repository Analysis")
 	assertContains(t, first.Text, "Inspect only the selected source directory")
 	assertContains(t, first.Text, "file paths and line numbers")
-	assertNotContains(t, first.Text, root)
+	assertContains(t, first.Text, first.Manifest.ExpectedOutputPath)
 }
 
 func TestBuildDirectoryAnalysisPromptDisabledCitationWording(t *testing.T) {

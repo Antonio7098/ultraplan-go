@@ -86,7 +86,7 @@ func BuildSynthesisPrompt(req PromptRequest) (PromptResult, error) {
 		DimensionPath:      workspace.Rel(req.WorkspaceRoot, req.Dimension.Path),
 		SourceReports:      reports,
 		InputReportPaths:   reportPaths(reports),
-		ExpectedOutputPath: workspace.Rel(req.WorkspaceRoot, FinalReportPath(req.Study)),
+		ExpectedOutputPath: FinalReportPath(req.Study),
 	}
 	text := joinSections(
 		"Synthesis Prompt", synthesis,
@@ -111,7 +111,7 @@ func buildDirectoryAnalysisPrompt(req PromptRequest, base, baseRel, dimension st
 		SourceKind:         req.Source.Kind,
 		Templates:          []string{baseRel, repoRel},
 		DimensionPath:      workspace.Rel(req.WorkspaceRoot, req.Dimension.Path),
-		ExpectedOutputPath: workspace.Rel(req.WorkspaceRoot, SourceReportPath(req.Study, req.Source, req.Dimension)),
+		ExpectedOutputPath: SourceReportPath(req.Study, req.Source, req.Dimension),
 	}
 	citationRule := "Cite code claims with workspace-relative file paths and line numbers from the selected source directory."
 	if req.Dimension.DisableCodeCitations {
@@ -147,7 +147,7 @@ func buildMarkdownAnalysisPrompt(req PromptRequest, base, baseRel, dimension str
 		Templates:          []string{baseRel, reportRel},
 		DimensionPath:      workspace.Rel(req.WorkspaceRoot, req.Dimension.Path),
 		InputDocumentPath:  workspace.Rel(req.WorkspaceRoot, req.Source.Path),
-		ExpectedOutputPath: workspace.Rel(req.WorkspaceRoot, SourceReportPath(req.Study, req.Source, req.Dimension)),
+		ExpectedOutputPath: SourceReportPath(req.Study, req.Source, req.Dimension),
 	}
 	text := joinSections(
 		"Base Prompt", base,
