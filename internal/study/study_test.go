@@ -28,6 +28,26 @@ func TestDimensionFromFileNormalizesIdentity(t *testing.T) {
 	}
 }
 
+func TestDimensionFromFileSupportsDottedHierarchy(t *testing.T) {
+	dimension, ok := dimensionFromFile(filepath.Join("dimensions", "1.2-API Interface.md"))
+	if !ok {
+		t.Fatal("dimensionFromFile did not parse dotted numeric markdown file")
+	}
+	if dimension.Number != "01.02" {
+		t.Fatalf("Number = %q, want %q", dimension.Number, "01.02")
+	}
+	if dimension.Slug != "api-interface" {
+		t.Fatalf("Slug = %q, want %q", dimension.Slug, "api-interface")
+	}
+	if got := dimension.Ref(); got != "01.02-api-interface" {
+		t.Fatalf("Ref = %q, want %q", got, "01.02-api-interface")
+	}
+
+	if got := normalizeDimensionRef("1.2"); got != "01.02" {
+		t.Fatalf("normalizeDimensionRef = %q, want %q", got, "01.02")
+	}
+}
+
 func TestDiscoverStudiesIsSortedAndIgnoresHiddenAndFiles(t *testing.T) {
 	root := t.TempDir()
 	mkdir(t, root, "studies", "zeta")
@@ -142,6 +162,7 @@ func TestDiscoverDimensionsIsSortedAndFilenameDerived(t *testing.T) {
 	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
 	mkdir(t, study.Path, "dimensions", "nested")
 	writeFile(t, study.Path, "dimensions", "2-runtime.md")
+	writeFile(t, study.Path, "dimensions", "1.2-api-interface.md")
 	writeFile(t, study.Path, "dimensions", "01-structure.md")
 	writeFile(t, study.Path, "dimensions", ".03-hidden.md")
 	writeFile(t, study.Path, "dimensions", "notes.txt")
@@ -152,14 +173,17 @@ func TestDiscoverDimensionsIsSortedAndFilenameDerived(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(dimensions) != 2 {
-		t.Fatalf("len(dimensions) = %d, want 2: %+v", len(dimensions), dimensions)
+	if len(dimensions) != 3 {
+		t.Fatalf("len(dimensions) = %d, want 3: %+v", len(dimensions), dimensions)
 	}
 	if dimensions[0].Number != "01" || dimensions[0].Slug != "structure" {
 		t.Fatalf("dimensions[0] = %+v", dimensions[0])
 	}
-	if dimensions[1].Number != "02" || dimensions[1].Slug != "runtime" {
+	if dimensions[1].Number != "01.02" || dimensions[1].Slug != "api-interface" {
 		t.Fatalf("dimensions[1] = %+v", dimensions[1])
+	}
+	if dimensions[2].Number != "02" || dimensions[2].Slug != "runtime" {
+		t.Fatalf("dimensions[2] = %+v", dimensions[2])
 	}
 }
 

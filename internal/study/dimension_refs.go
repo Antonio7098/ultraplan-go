@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-var dimensionFilePattern = regexp.MustCompile(`^([0-9]+)(?:[-_ ]+(.+))?\.md$`)
+var dimensionFilePattern = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)*)(?:[-_ ]+(.+))?\.md$`)
 
 func dimensionFromFile(path string) (Dimension, bool) {
 	file := filepath.Base(path)
@@ -30,11 +30,22 @@ func dimensionFromFile(path string) (Dimension, bool) {
 }
 
 func normalizeDimensionNumber(raw string) (string, bool) {
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
+	parts := strings.Split(strings.TrimSpace(raw), ".")
+	if len(parts) == 0 {
 		return "", false
 	}
-	return fmt.Sprintf("%02d", n), true
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			return "", false
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil || n <= 0 {
+			return "", false
+		}
+		normalized = append(normalized, fmt.Sprintf("%02d", n))
+	}
+	return strings.Join(normalized, "."), true
 }
 
 func normalizeDimensionRef(ref string) string {
