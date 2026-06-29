@@ -123,3 +123,22 @@ func TestInitAndValidate(t *testing.T) {
 		t.Fatalf("idempotent init operations = %v", plan.Operations)
 	}
 }
+
+func TestEmbeddedPromptsDoNotRequireManualPromptOrTemplateReads(t *testing.T) {
+	for rel, content := range DefaultOverrideFiles() {
+		if !strings.HasPrefix(rel, "prompts/") {
+			continue
+		}
+		for _, forbidden := range []string{
+			"../../prompts/",
+			"../../templates/",
+			"../../dimensions/",
+			".ultra/system/templates/",
+			"Read `../../",
+		} {
+			if strings.Contains(content, forbidden) {
+				t.Fatalf("%s contains manual prompt/template read instruction %q", rel, forbidden)
+			}
+		}
+	}
+}

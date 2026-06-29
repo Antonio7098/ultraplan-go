@@ -1,6 +1,6 @@
 # Create Sprint Reasoning
 
-> **Inputs:** project-index.md, requirements.md, docs/*.md, sprint-index.md, technical-handbook.md, area reasoning (if any), sprint-reasoning template
+> **Inputs:** project-index.md, requirements.md, docs/*.md, sprint-index.md, technical-handbook.md, area reasoning (if any), injected sprint-reasoning template
 
 ---
 
@@ -16,13 +16,13 @@ Read these files first:
 4. Sprint index: `.ultra/projects/{project}/sprints/{sprint-slug}/sprint-index.md`
 5. Technical handbook: `.ultra/projects/{project}/sprints/{sprint-slug}/technical-handbook.md`
 6. Area reasoning files: `.ultra/projects/{project}/sprints/{sprint-slug}/reasoning/*.md` (if any)
-7. Sprint reasoning template: `.ultra/system/templates/sprint-reasoning.md`
+7. Injected sprint-reasoning template section in this prompt
 
 ## Output
 
 Write to: `.ultra/projects/{project}/sprints/{sprint-slug}/reasoning.md`
 
-Use the sprint-reasoning template. Fill every section. This document makes the final sprint decisions — it synthesizes selected context, handbook evidence, area-specific reasoning, and contracts into final sprint decisions. It does NOT execute implementation.
+Use the injected sprint-reasoning template section. Fill every section. This document makes the final sprint decisions — it synthesizes selected context, handbook evidence, area-specific reasoning, and contracts into final sprint decisions. It does NOT execute implementation.
 
 ## Instructions
 

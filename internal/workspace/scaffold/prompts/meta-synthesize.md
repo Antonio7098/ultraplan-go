@@ -2,12 +2,9 @@
 
 You are synthesizing findings from multiple completed architecture studies into a single coherent meta study output.
 
-## Files Referenced
+## Inputs Provided By UltraPlan
 
-1. `../../prompts/meta-synthesize.md` — These instructions
-2. `../../templates/meta-report.md` — Output template
-3. Per-study final reports in `studies/{study-name}/reports/final/*.md`
-4. Per-study summary.csv for scores
+UltraPlan injects these instructions, the meta-report template, study inventory, selected final reports, summaries, and the expected output path into the rendered prompt. Prompt/template paths in metadata are provenance labels, not instructions to read files.
 
 ## Core Principles
 

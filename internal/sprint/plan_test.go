@@ -35,7 +35,7 @@ func TestPlanValidationPromptAndFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"# Sprint Planning - Evidence-Grounded Implementation Plan", "Prompt source: `builtin:prompts/plan-sprint.md`", "projects/proj/sprints/01-alpha/plan.md", "Selected area reasoning", "Decision Discipline", "Do not execute implementation tasks"} {
+	for _, want := range []string{"# Sprint Planning - Evidence-Grounded Implementation Plan", "Prompt source: `builtin:prompts/plan-sprint.md`", "Injected Sprint Plan Template:", "Source: builtin:templates/sprint-plan.md", "projects/proj/sprints/01-alpha/plan.md", "Selected area reasoning", "Decision Discipline", "Do not execute implementation tasks"} {
 		if !strings.Contains(preview.Prompt, want) {
 			t.Fatalf("plan prompt missing %q:\n%s", want, preview.Prompt)
 		}

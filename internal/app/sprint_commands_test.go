@@ -129,6 +129,8 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	}
 	assertContains(t, stdout, "# Create Sprint Index")
 	assertContains(t, stdout, "Prompt source: `builtin:prompts/create-sprint-index.md`")
+	assertContains(t, stdout, "Injected Sprint Index Template:")
+	assertContains(t, stdout, "Source: builtin:templates/sprint-index.md")
 	assertContains(t, stdout, "Do not mutate")
 	if strings.Contains(stdout+stderr, "\x1b[") || strings.Contains(stdout, dir) {
 		t.Fatalf("unsafe prompt output stdout=%q stderr=%q", stdout, stderr)

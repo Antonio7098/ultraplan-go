@@ -28,7 +28,7 @@ func TestReasoningManifestPromptsAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"# Create Area Reasoning", "Prompt source: `builtin:prompts/create-area-reasoning.md`", "Architecture", "projects/proj/sprints/01-alpha/reasoning/architecture.md", "Do not write final reasoning.md"} {
+	for _, want := range []string{"# Create Area Reasoning", "Prompt source: `builtin:prompts/create-area-reasoning.md`", "Injected Selected Reasoning Template:", "# Architecture Template", "Architecture", "projects/proj/sprints/01-alpha/reasoning/architecture.md", "Do not write final reasoning.md"} {
 		if !strings.Contains(areaPreview.Prompt, want) {
 			t.Fatalf("area prompt missing %q:\n%s", want, areaPreview.Prompt)
 		}
@@ -37,7 +37,7 @@ func TestReasoningManifestPromptsAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"# Create Sprint Reasoning", "Prompt source: `builtin:prompts/create-sprint-reasoning.md`", "Required selected area reasoning", "Use only selected context", "Do not generate or validate plan.md"} {
+	for _, want := range []string{"# Create Sprint Reasoning", "Prompt source: `builtin:prompts/create-sprint-reasoning.md`", "Injected Sprint Reasoning Template:", "Source: builtin:templates/sprint-reasoning.md", "Required selected area reasoning", "Use only selected context", "Do not generate or validate plan.md"} {
 		if !strings.Contains(finalPreview.Prompt, want) {
 			t.Fatalf("final prompt missing %q:\n%s", want, finalPreview.Prompt)
 		}

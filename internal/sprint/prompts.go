@@ -30,6 +30,7 @@ func RenderSprintIndexPrompt(root string, sp Sprint, catalog project.ProjectInde
 	}
 	fmt.Fprintln(&b, "\nAvailable catalog entries:")
 	writeCatalog(&b, catalog)
+	appendInjectedWorkspaceFile(root, &b, "Sprint Index Template", "templates/sprint-index.md")
 	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Select only entries listed in project-index.md.")
 	fmt.Fprintln(&b, "- Use workspace-relative paths.")
@@ -42,6 +43,7 @@ func RenderTechnicalHandbookPrompt(root string, manifest HandbookManifest) Promp
 	var b strings.Builder
 	fmt.Fprintln(&b, "Input manifest:")
 	fmt.Fprint(&b, formatManifest(manifest))
+	appendInjectedWorkspaceFile(root, &b, "Technical Handbook Template", "templates/technical-handbook.md")
 	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Read and cite only the selected evidence reports in the manifest.")
 	fmt.Fprintln(&b, "- Use workspace-relative paths in handbook citations.")
@@ -58,6 +60,7 @@ func RenderAreaReasoningPrompt(root string, manifest ReasoningManifest, entry Re
 	fmt.Fprintf(&b, "- Selected area template: %s\n", entry.Name)
 	fmt.Fprintf(&b, "- Template path: %s\n", entry.Template)
 	fmt.Fprintf(&b, "- Output: %s\n", entry.OutputPath)
+	appendInjectedReasoningTemplate(root, &b, entry)
 	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Use only selected context from sprint-index.md and technical-handbook.md.")
 	fmt.Fprintln(&b, "- Use workspace-relative paths.")
@@ -78,6 +81,7 @@ func RenderFinalReasoningPrompt(root string, manifest ReasoningManifest) PromptP
 	for _, entry := range manifest.ReasoningTemplates {
 		fmt.Fprintf(&b, "- %s: %s\n", entry.Name, entry.OutputPath)
 	}
+	appendInjectedWorkspaceFile(root, &b, "Sprint Reasoning Template", "templates/sprint-reasoning.md")
 	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Use only selected context from sprint-index.md, technical-handbook.md, and required selected area reasoning artifacts.")
 	fmt.Fprintln(&b, "- Do not generate or validate plan.md, task checklists, implementation files, smoke artifacts, review artifacts, issue artifacts, workspace config, source repositories, or Git state.")
@@ -108,6 +112,7 @@ func RenderPlanPrompt(root string, manifest PlanManifest) PromptPreview {
 	for _, decision := range manifest.DecisionNames {
 		fmt.Fprintf(&b, "- %s\n", decision)
 	}
+	appendInjectedWorkspaceFile(root, &b, "Sprint Plan Template", "templates/sprint-plan.md")
 	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Write editable Markdown only to the expected plan.md output path.")
 	fmt.Fprintln(&b, "- Do not execute implementation tasks, smoke investigations, review automation, issue tracking, Git commands, or multi-stage implementation run loops.")
@@ -155,6 +160,35 @@ func sprintPromptTemplate(root, rel string) (string, string) {
 		return content, "builtin:" + rel
 	}
 	return fmt.Sprintf("# Missing Prompt Default\n\nNo workspace override or built-in default exists for `%s`.\n", rel), rel
+}
+
+func appendInjectedWorkspaceFile(root string, b *strings.Builder, label, rel string) {
+	content, source := sprintPromptTemplate(root, rel)
+	fmt.Fprintf(b, "\nInjected %s:\n", label)
+	fmt.Fprintf(b, "Source: %s\n\n", source)
+	fmt.Fprintln(b, strings.TrimRight(content, "\n"))
+}
+
+func appendInjectedReasoningTemplate(root string, b *strings.Builder, entry ReasoningTemplateEntry) {
+	rel := normalizeWorkspacePath(entry.Template)
+	full, err := workspace.ResolveInside(root, rel)
+	var content string
+	source := entry.Template
+	switch {
+	case err != nil:
+		content = fmt.Sprintf("Could not resolve selected reasoning template %s: %v", entry.Template, err)
+	default:
+		data, readErr := os.ReadFile(full)
+		if readErr != nil {
+			content = fmt.Sprintf("Could not read selected reasoning template %s: %v", entry.Template, readErr)
+		} else {
+			content = string(data)
+			source = rel
+		}
+	}
+	fmt.Fprintln(b, "\nInjected Selected Reasoning Template:")
+	fmt.Fprintf(b, "Source: %s\n\n", source)
+	fmt.Fprintln(b, strings.TrimRight(content, "\n"))
 }
 
 func writeCatalog(b *strings.Builder, catalog project.ProjectIndex) {

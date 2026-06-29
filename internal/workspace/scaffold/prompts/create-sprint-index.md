@@ -1,6 +1,6 @@
 # Create Sprint Index
 
-> **Inputs:** `project-index.md`, `requirements.md`, `docs/*.md`, sprint-index template
+> **Inputs:** `project-index.md`, `requirements.md`, `docs/*.md`, injected sprint-index template
 
 ---
 
@@ -13,20 +13,20 @@ Read these files first:
 1. Project index: `.ultra/projects/{project}/project-index.md`
 2. **Sprint requirements**: `.ultra/projects/{project}/sprints/{sprint-slug}/requirements.md`
 3. Project docs: all markdown files in `.ultra/projects/{project}/docs/*.md`
-4. Sprint index template: `.ultra/system/templates/sprint-index.md`
+4. Injected sprint-index template section in this prompt
 
 ## Output
 
 Write to: `.ultra/projects/{project}/sprints/{sprint-slug}/sprint-index.md`
 
-Use the sprint-index template. Fill every section. The sprint index selects what must be read, distilled, reasoned through, or checked for this sprint. It does NOT make implementation decisions.
+Use the injected sprint-index template section. Fill every section. The sprint index selects what must be read, distilled, reasoned through, or checked for this sprint. It does NOT make implementation decisions.
 
 ## Instructions
 
 1. Read `requirements.md` first — it defines the sprint goal, required outputs, acceptance criteria, non-goals, and constraints.
 2. Read the project index to understand the available pool of contracts, studies, evidence reports, reasoning templates, and protocols.
 3. Read the PRD and TRD for supporting product and technical context.
-4. Use the sprint-index template. Fill every section.
+4. Use the injected sprint-index template section. Fill every section.
 5. At the top of `sprint-index.md`, write `> **Inputs Used:**` listing the exact files used.
 6. **Contracts**: list each selected contract by simple name (e.g. "Architecture"). The contract applies as a flat whole — no requirement ID mappings or per-clause breakdowns. If a clause is particularly important, mention it in the Why Selected column.
 7. **Selected Evidence Reports**: copy the relevant rows from the project index's "Available Evidence Reports" table. These tell the technical handbook which reports to read.

@@ -1,6 +1,6 @@
 # Sprint Planning - Evidence-Grounded Implementation Plan
 
-> **Inputs:** project-index.md, requirements.md, docs/*.md, sprint-index.md, technical-handbook.md, area reasoning (if any), reasoning.md, sprint-plan template
+> **Inputs:** project-index.md, requirements.md, docs/*.md, sprint-index.md, technical-handbook.md, area reasoning (if any), reasoning.md, injected sprint-plan template
 
 ---
 
@@ -19,7 +19,7 @@ Load these files first:
 6. Technical handbook: `.ultra/projects/{project}/sprints/{sprint-slug}/technical-handbook.md`
 7. Area reasoning: `.ultra/projects/{project}/sprints/{sprint-slug}/reasoning/*.md` (if present)
 8. Sprint reasoning: `.ultra/projects/{project}/sprints/{sprint-slug}/reasoning.md`
-9. Sprint plan template: `.ultra/system/templates/sprint-plan.md`
+9. Injected sprint-plan template section in this prompt
 
 ## Evidence Loading Order
 
@@ -71,14 +71,14 @@ If evidence is insufficient, write an open question instead of guessing.
 Write the sprint reasoning to:
 `.ultra/projects/{project}/sprints/{sprint-slug}/reasoning.md`
 
-Use `sprint-reasoning.md` template. Fill every section.
+Use the injected sprint-reasoning template section when this prompt is used to create or repair sprint reasoning. Fill every section.
 
 ## Sprint Plan Output
 
 Write the sprint plan to:
 `.ultra/projects/{project}/sprints/{sprint-slug}/plan.md`
 
-Use `sprint-plan.md` template. Fill every section. The plan must cite `reasoning.md` and carry forward its decisions, expected evidence, risks, assumptions, and open questions.
+Use the injected sprint-plan template section. Fill every section. The plan must cite `reasoning.md` and carry forward its decisions, expected evidence, risks, assumptions, and open questions.
 
 ## Quality Bar
 

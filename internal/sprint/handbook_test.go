@@ -56,7 +56,7 @@ func TestTechnicalHandbookPromptDryRunAndFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"# Create Technical Handbook", "Prompt source: `builtin:prompts/create-technical-handbook.md`", "Selected evidence:", "Do not make final implementation decisions", "projects/proj/sprints/01-alpha/technical-handbook.md"} {
+	for _, want := range []string{"# Create Technical Handbook", "Prompt source: `builtin:prompts/create-technical-handbook.md`", "Injected Technical Handbook Template:", "Source: builtin:templates/technical-handbook.md", "Selected evidence:", "Do not make final implementation decisions", "projects/proj/sprints/01-alpha/technical-handbook.md"} {
 		if !strings.Contains(preview.Prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, preview.Prompt)
 		}

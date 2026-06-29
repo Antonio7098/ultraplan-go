@@ -2,18 +2,17 @@
 
 Read all per-source analysis files across all sources and create a single combined study report for this dimension.
 
-## Files Referenced
+## Inputs Provided By UltraPlan
 
-1. `../../prompts/base.md` — Base execution instructions
-2. The selected `../../dimensions/{NN}-{name}.md` — Dimension definition
+UltraPlan injects the selected dimension, final report template, per-source report manifest, and expected output path into the rendered prompt. Prompt/template paths in metadata are provenance labels, not instructions to read files.
 
 ## Instructions
 
-1. Read ALL per-source analysis files from `../../reports/source/{NN}-{dimension-name}/` across every source.
+1. Read the per-source analysis files listed in the injected synthesis inputs.
 2. Do NOT access any source code directly — all evidence is already captured in the analysis files.
 3. Build a normalized inventory from the per-source reports before writing the final report.
 4. Synthesize findings across all sources into a single combined report.
-5. Write the report to `../../reports/final/{NN}-{dimension-name}.md` using `../../templates/report.md`.
+5. Write the report to the expected output path provided by UltraPlan prompt metadata using the injected final report template section.
 6. Fill in every template section. Do not leave placeholders behind.
 
 ## Synthesis Workflow
@@ -23,7 +22,7 @@ Read all per-source analysis files across all sources and create a single combin
 For each source, extract:
 
 - Overall rating and short rationale.
-- Approach model for this dimension, using the vocabulary from `../../dimensions/{NN}-{name}.md`. For project structure this might be an architectural archetype; for another study it might be an error-handling model, testing strategy, configuration model, release pattern, plugin model, UX pattern, or performance strategy.
+- Approach model for this dimension, using the vocabulary from the injected selected dimension section. For project structure this might be an architectural archetype; for another study it might be an error-handling model, testing strategy, configuration model, release pattern, plugin model, UX pattern, or performance strategy.
 - Where the studied behavior is implemented.
 - Main mechanism used to solve the dimension's problem.
 - Supporting mechanisms, abstractions, policies, conventions, or workflows.
@@ -104,6 +103,6 @@ If the per-source reports include per-dimension ratings, include those dimension
 
 ## Output
 
-- Combined report: `../../reports/final/{NN}-{dimension-name}.md`
+- Combined report: the expected output path provided by UltraPlan prompt metadata.
 
 Work thoroughly. This is a comparative architecture study, not a surface skim.

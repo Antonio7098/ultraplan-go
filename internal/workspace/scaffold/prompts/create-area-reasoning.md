@@ -1,6 +1,6 @@
 # Create Area Reasoning
 
-> **Inputs:** technical-handbook.md, requirements.md, docs/*.md, reasoning templates
+> **Inputs:** technical-handbook.md, requirements.md, docs/*.md, injected selected reasoning template
 
 ---
 
@@ -13,7 +13,7 @@ Read these files first:
 1. Technical handbook: `.ultra/projects/{project}/sprints/{sprint-slug}/technical-handbook.md`
 2. Sprint requirements: `.ultra/projects/{project}/sprints/{sprint-slug}/requirements.md`
 3. Project docs: all markdown files in `.ultra/projects/{project}/docs/*.md`
-4. Area-specific reasoning templates: `.ultra/system/reasoning/*.md`
+4. Injected selected reasoning template section in this prompt
 
 ## Output
 
@@ -28,7 +28,7 @@ Only create files for areas explicitly selected in sprint-index. Do NOT create a
 2. Read the technical handbook for evidence context.
 3. Read `requirements.md` and all project docs in `docs/` for sprint-specific scope and constraints.
 4. For each selected area:
-   - Use the corresponding reasoning template as the output format
+   - Use the injected selected reasoning template section as the output format
    - At the very top of the file, add an `> **Inputs Used:**` line listing the exact files used for that document
    - Ground decisions in technical handbook evidence
    - Record the key conclusion and evidence basis

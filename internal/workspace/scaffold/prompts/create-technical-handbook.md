@@ -1,6 +1,6 @@
 # Create Technical Handbook
 
-> **Inputs:** `sprint-index.md`, `project-index.md`, `project-index.md`, `requirements.md`, `docs/*.md`, reports selected in `sprint-index.md` → "Selected Evidence Reports" section, technical-handbook template
+> **Inputs:** `sprint-index.md`, `project-index.md`, `requirements.md`, `docs/*.md`, reports selected in `sprint-index.md` -> "Selected Evidence Reports" section, injected technical-handbook template
 
 ---
 
@@ -11,7 +11,7 @@ Use this prompt to create the technical handbook for a sprint.
 Read these files first:
 
 1. Sprint index: `.ultra/projects/{project}/sprints/{sprint-slug}/sprint-index.md` — contains the **Selected Evidence Reports** section that tells you which reports to read
-2. Technical handbook template: `.ultra/system/templates/technical-handbook.md`
+2. Injected technical-handbook template section in this prompt
 
 Then read the evidence reports listed in the sprint index's "Selected Evidence Reports" section. The project index's "Available Evidence Reports" table is the authoritative source for those report paths.
 
@@ -21,7 +21,7 @@ Do NOT read all evidence reports indiscriminately. Only read the ones the sprint
 
 Write to: `.ultra/projects/{project}/sprints/{sprint-slug}/technical-handbook.md`
 
-Use the technical-handbook template. Fill every section. The handbook distills selected studies and reports into sprint-relevant patterns, trade-offs, cautions, and questions. It does NOT decide implementation.
+Use the injected technical-handbook template section. Fill every section. The handbook distills selected studies and reports into sprint-relevant patterns, trade-offs, cautions, and questions. It does NOT decide implementation.
 
 ## Instructions
 

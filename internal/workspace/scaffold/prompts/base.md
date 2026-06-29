@@ -1,6 +1,6 @@
 # Base Dimension — Execution Instructions
 
-This file defines the shared workflow for one study analysis task. Each analysis task covers exactly one selected source and one selected dimension. Read this file first, then read the selected dimension file for the study-specific purpose, steps, evidence, and questions.
+This file defines the shared workflow for one study analysis task. Each analysis task covers exactly one selected source and one selected dimension. UltraPlan injects this base prompt, the selected dimension, the selected source metadata, and the output template into the rendered prompt.
 
 ## Hard Rules
 
@@ -14,15 +14,14 @@ Violations of rules 1 or 2 require a rewrite before the study can be accepted.
 
 ## Execution Workflow
 
-1. **Read the dimension file**
-   - Read `../../prompts/base.md` for shared execution rules.
-   - Read the selected `../../dimensions/{NN}-{name}.md` for the study content.
+1. **Use the injected dimension section**
+   - Use the injected selected dimension section for the study-specific purpose, steps, evidence, and questions.
 
 2. **Analyze the selected reference source**
    - Inspect only the selected source for the selected dimension.
    - Prefer implementation, tests, configuration, and public interfaces over README-level claims.
    - Assign a rating score (1–10) based on the rubric in the selected dimension file. Include the score and rationale in the output.
-   - Write findings to the expected output path provided by UltraPlan prompt metadata using `../../templates/repo-analysis.md`.
+   - Write findings to the expected output path provided by UltraPlan prompt metadata using the injected repository analysis template section.
 
 ## Quality Bar
 
@@ -37,9 +36,9 @@ Each study should:
 
 ## Template Usage
 
-- Use `../../templates/repo-analysis.md` for each per-source analysis.
-- Fill every `{{placeholder}}`.
-- Replace placeholders with concrete prose, tables, or bullet lists as appropriate.
+- Use the injected repository analysis template section for the selected source analysis.
+- Treat `{{...}}` markers in the injected template as placeholders that must be replaced in the final output.
+- Replace template placeholders with concrete prose, tables, or bullet lists as appropriate.
 - Do not leave empty sections. If there is no finding, write `No clear evidence found` and explain the search boundary.
 
 ## Output Structure

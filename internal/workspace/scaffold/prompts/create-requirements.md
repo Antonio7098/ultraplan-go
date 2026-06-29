@@ -1,6 +1,6 @@
 # Create Sprint Requirements
 
-> **Inputs:** project-index.md, roadmap.md, docs/*.md, requirements template, prior sprint reviews
+> **Inputs:** project-index.md, roadmap.md, docs/*.md, injected requirements template, prior sprint reviews
 
 ---
 
@@ -13,7 +13,7 @@ Read these files first:
 1. Project index: `.ultra/projects/{project}/project-index.md`
 2. Project roadmap: `.ultra/projects/{project}/roadmap.md`
 3. Project docs: all markdown files in `.ultra/projects/{project}/docs/*.md`
-4. Requirements template: `.ultra/system/templates/requirements.md`
+4. Injected requirements template section in this prompt
 5. Prior sprint decisions (if any): `.ultra/projects/{project}/sprints/*/review.md`
 
 ## Output
@@ -25,7 +25,7 @@ Write to: `.ultra/projects/{project}/sprints/{sprint-slug}/requirements.md`
 1. Read the project index and roadmap to understand the overall project scope and sprint sequence.
 2. Read all project docs in `docs/` for requirements context.
 3. If this is not the first sprint, read prior sprint review(s) for carry-forward decisions.
-4. Fill the requirements template with:
+4. Fill the injected requirements template section with:
    - **Sprint Goal**: one clear sentence describing what must be achieved.
    - **Required Outputs**: enumerate every deliverable file with its path and a one-line description.
    - **Acceptance Criteria**: checkable criteria that prove the sprint succeeded.
