@@ -143,7 +143,7 @@ The command surface should be stable, scriptable, and documented through help ou
 
 ### 2.2 Workspace Model
 
-UltraPlan operates inside a workspace root. The workspace root contains shared configuration, prompt templates, report templates, and studies. Target directories may exist from the prototype but are future scope for UltraPlan Go.
+UltraPlan operates inside a workspace root. The workspace root contains shared configuration and studies. Prompt and report templates are embedded in the CLI as built-in defaults; workspace `prompts/` and `templates/` files are optional overrides. Target directories may exist from the prototype but are future scope for UltraPlan Go.
 
 Required workspace concepts:
 
@@ -205,6 +205,9 @@ Required workspace concepts:
 8. **Prompt composition**
    - CLI composes analysis prompts from shared base instructions, selected dimension file, selected source path, and report template.
    - CLI composes synthesis prompts from synthesis instructions, selected dimension file, per-source report manifest, and final report template.
+   - CLI uses built-in prompt and template defaults when workspace overrides are absent.
+   - CLI can install editable prompt and template defaults into a workspace.
+   - CLI asks before overwriting existing customized prompt/template files unless an explicit force flag is used.
    - Directory source prompts instruct the runtime to explore only the source directory and cite code paths with line numbers.
    - Markdown document source prompts embed the stripped document body directly and instruct the runtime to analyze only the embedded document content without external code or filesystem exploration.
    - Dry-run mode prints or writes prompt previews without executing runtime work.
@@ -318,7 +321,7 @@ Required workspace concepts:
    - Users can generate a starter workspace config.
 
 5. **Template validation**
-   - CLI can validate prompt and report templates for required placeholders.
+   - CLI can validate prompt and report template overrides for required placeholders.
 
 6. **Git integration hooks**
    - CLI can optionally run configured post-write commands such as formatting, tests, commit, or push.
@@ -367,7 +370,11 @@ The exact command names may be refined during implementation, but the production
   - Lists studies. Target listing is deferred.
 
 - `ultraplan init-workspace`
-  - Creates the shared workspace structure and starter config.
+  - Creates the minimal workspace structure and starter config.
+
+- `ultraplan defaults install`
+  - Installs editable copies of built-in prompts and templates.
+  - Lists customized files and asks before overwriting them unless forced.
 
 - `ultraplan config show`
   - Shows effective config with secrets redacted.
@@ -579,7 +586,7 @@ Current planning requirements stop at producing and validating project and sprin
 - Default output should be calm, concise, and useful during long runs.
 - Status output should show totals, completed counts, failed tasks, pending tasks, retry times, and current active work.
 - Errors should include what failed, why it failed, where to inspect state, and a suggested next command.
-- Destructive operations such as overwrite should require explicit flags.
+- Destructive operations such as overwrite should require explicit flags or interactive confirmation.
 - Dry-run modes should be available for initialization, prompt execution and batch runs.
 - Commands should work from nested directories inside a workspace.
 - Generated files should be readable and editable without proprietary tooling.
@@ -691,6 +698,7 @@ Internal dependencies:
 
 - Stable prompt templates.
 - Stable report templates.
+- Deterministic built-in defaults with workspace override support.
 - Workspace config schema.
 - Validator definitions.
 
@@ -723,7 +731,7 @@ Internal dependencies:
 - Generated artifacts must not include API keys or secret env values.
 - Source analysis must respect source isolation requirements.
 - Markdown document source analysis must respect document isolation requirements: no external filesystem or code access should be requested by the prompt.
-- Commands that overwrite or delete user files must require explicit flags.
+- Commands that overwrite or delete user files must require explicit flags or interactive confirmation.
 - User-provided paths must be normalized and checked against the workspace where appropriate.
 
 ### 3.7 Observability Requirements

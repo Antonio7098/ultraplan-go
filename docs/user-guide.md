@@ -26,6 +26,19 @@ Preview without writing:
 ultraplan init-workspace --path . --dry-run
 ```
 
+`init-workspace` creates only the required workspace files: `ultraplan.yml` and `studies/`. Prompts and templates are built into the CLI, so a workspace can run without local `prompts/` or `templates/` directories.
+
+If you want editable copies of the built-in defaults, install them:
+
+```bash
+ultraplan defaults install --dry-run
+ultraplan defaults install
+```
+
+Workspace files at the same relative paths override built-ins. For example, `prompts/base.md` overrides the built-in base prompt, and `templates/report.md` overrides the built-in report template.
+
+If `defaults install` finds an existing prompt or template that differs from the built-in default, it lists the file and asks before overwriting it. Answering anything other than `yes` keeps the customized file. Use `--force` only when you intentionally want to overwrite customized prompt/template files without confirmation.
+
 Workspace discovery uses this order:
 
 1. `--workspace <path>`
@@ -95,6 +108,8 @@ ultraplan study <study> prompt synthesis <dimension> --output previews/synthesis
 ```
 
 Prompt preview renders a deterministic manifest plus prompt text. It does not execute agentwrap, OpenCode, providers, subprocesses, or network calls.
+
+The preview also shows whether prompt/template content came from a workspace override or a built-in default. Built-in sources are shown with a `builtin:` prefix.
 
 ## 8. Run One Analysis
 
@@ -201,3 +216,5 @@ ultraplan sprint <project> <sprint> flow --to plan --dry-run
 Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use `flow --to <stage> --dry-run` to preview planned stage execution. Non-dry-run flow can generate planning artifacts when runtime prerequisites are available.
 
 The planning flow stops at `plan.md`; it does not execute the plan or create smoke, review, issue, or Git artifacts.
+
+Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`.

@@ -26,6 +26,7 @@ const (
 
 type Config struct {
 	Args    []string
+	Stdin   io.Reader
 	Stdout  io.Writer
 	Stderr  io.Writer
 	Context context.Context
@@ -87,6 +88,10 @@ func Run(cfg Config) int {
 	if stderr == nil {
 		stderr = io.Discard
 	}
+	stdin := cfg.Stdin
+	if stdin == nil {
+		stdin = os.Stdin
+	}
 
 	version := cfg.Version
 	if version.IsZero() {
@@ -96,6 +101,7 @@ func Run(cfg Config) int {
 	deps := dependencies{
 		stdout:  stdout,
 		stderr:  stderr,
+		stdin:   stdin,
 		ctx:     cfg.Context,
 		workDir: cfg.WorkDir,
 		env:     cfg.Env,
@@ -148,6 +154,7 @@ func Run(cfg Config) int {
 type dependencies struct {
 	stdout        io.Writer
 	stderr        io.Writer
+	stdin         io.Reader
 	ctx           context.Context
 	workDir       string
 	workspaceFlag string

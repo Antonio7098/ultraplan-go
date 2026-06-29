@@ -61,6 +61,13 @@ ultraplan study <study> prompt analysis 01 <source>
 ultraplan study <study> prompt synthesis 01 --output previews/synthesis-01.txt
 ```
 
+Install editable copies of the built-in prompts and templates only when you want to customize them:
+
+```bash
+ultraplan defaults install --dry-run
+ultraplan defaults install
+```
+
 Run study work:
 
 ```bash
@@ -103,19 +110,36 @@ ultraplan sprint <project> <sprint> flow --to plan --dry-run
 
 ## Workspace Model
 
-`init-workspace` creates:
+`init-workspace` creates the minimal required workspace:
 
 ```text
 ultraplan.yml
+studies/
+```
+
+Prompts and templates are built into the CLI. A workspace does not need `prompts/` or `templates/` to run. If a workspace file exists at the same relative path, it overrides the built-in default. Use `ultraplan defaults install` to materialize editable copies:
+
+```text
 prompts/
   base.md
   synthesize.md
+  create-sprint-index.md
+  create-technical-handbook.md
+  create-area-reasoning.md
+  create-sprint-reasoning.md
+  plan-sprint.md
+  ...
 templates/
   repo-analysis.md
   report.md
-studies/
-projects/
+  sprint-index.md
+  technical-handbook.md
+  sprint-reasoning.md
+  sprint-plan.md
+  ...
 ```
+
+If an existing workspace prompt or template differs from the built-in default, `defaults install` lists the customized file and asks before overwriting it. Use `--force` only when you intentionally want to replace customized files without confirmation.
 
 Studies live under `studies/<study>/` with editable source, dimension, report, run-state, and summary artifacts. Directory sources are analyzed by path. Top-level Markdown sources can use `applicable_dimensions` frontmatter to limit which dimensions apply.
 

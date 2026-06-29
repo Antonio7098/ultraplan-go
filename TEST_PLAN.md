@@ -45,20 +45,43 @@ Evidence: [`evidence/manual-cli-2026-05-30.md`](evidence/manual-cli-2026-05-30.m
 
 | Test | Input | Expected | Actual | Status |
 |---|---|---|---|---|
-| Dry run | `init-workspace --path <dir> --dry-run` | Show would-create operations | 3 dirs + 5 files listed with `would create` prefix | PASS |
-| Create | `init-workspace --path <dir>` | Create scaffold | 3 dirs + 5 files created with `created` prefix | PASS |
-| Scaffold files | `find <workspace>` | Required scaffold exists | `ultraplan.yml`, prompts, templates, and `studies/` present | PASS |
+| Dry run | `init-workspace --path <dir> --dry-run` | Show would-create operations | `studies/` and `ultraplan.yml` listed with `would create` prefix | PASS |
+| Create | `init-workspace --path <dir>` | Create scaffold | `studies/` and `ultraplan.yml` created with `created` prefix | PASS |
+| Scaffold files | `find <workspace>` | Required scaffold exists | `ultraplan.yml` and `studies/` present; prompts/templates absent until installed | PASS |
 | Idempotency | `init-workspace --path <dir>` second call | No-op | `No changes needed.`, exit 0 | PASS |
 
 Scaffold structure verified:
 
 ```text
 ultraplan.yml
+studies/
+```
+
+### 2.2.1 Defaults Install
+
+| Test | Input | Expected | Actual | Status |
+|---|---|---|---|---|
+| Dry run | `defaults install --path <dir> --dry-run` | Show prompt/template files that would be created | Built-in prompt/template files listed with `would create` prefix | PASS |
+| Install | `defaults install --path <dir>` | Materialize editable defaults | `prompts/` and `templates/` created | PASS |
+| Idempotency | `defaults install --path <dir>` second call | No-op | `No changes needed.`, exit 0 | PASS |
+| Customized file | Existing prompt differs from default | List customized file and ask before overwrite | Customized file preserved unless confirmation is `yes` or `--force` is used | PASS |
+
+Installed defaults include:
+
+```text
 prompts/base.md
 prompts/synthesize.md
+prompts/create-sprint-index.md
+prompts/create-technical-handbook.md
+prompts/create-area-reasoning.md
+prompts/create-sprint-reasoning.md
+prompts/plan-sprint.md
 templates/repo-analysis.md
 templates/report.md
-studies/
+templates/sprint-index.md
+templates/technical-handbook.md
+templates/sprint-reasoning.md
+templates/sprint-plan.md
 ```
 
 ### 2.3 Workspace Discovery
@@ -97,7 +120,7 @@ studies/
 |---|---|---|---|---|
 | Valid workspace | `health` on well-formed workspace | Checks pass, runtime skipped | 5 ok + 1 skipped, exit 0 | PASS |
 | Missing workspace | `health` outside workspace | Workspace error | `workspace not found`, exit 4 | PASS |
-| Invalid workspace | `health` on workspace missing required files | Structure failure | `workspace.structure: fail`, exit 5 | PASS |
+| Invalid workspace | `health` on workspace missing `ultraplan.yml` | Workspace discovery failure | `missing ultraplan.yml`, exit 4 | PASS |
 | Bad config | `health` on workspace with `version: 2` | Config validation failure | `config.validation: fail`, exit 3 | PASS |
 | JSON output | `health --json` | JSON with check details | Per-check JSON returned, exit 0 | PASS |
 

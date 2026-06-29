@@ -115,12 +115,6 @@ Required top-level structure:
 ```text
 .
   ultraplan.yml
-  prompts/
-    base.md
-    synthesize.md
-  templates/
-    repo-analysis.md
-    report.md
   studies/
 ```
 
@@ -128,6 +122,16 @@ Optional structure:
 
 ```text
 .
+  prompts/
+    base.md
+    synthesize.md
+    create-sprint-index.md
+    plan-sprint.md
+  templates/
+    repo-analysis.md
+    report.md
+    sprint-index.md
+    sprint-plan.md
   .ultraplan/
     cache/
     logs/
@@ -925,7 +929,10 @@ Sprint planning prompt inputs are deferred; current prompt composition covers an
 - Prompt builders must be unit-tested with golden fixtures.
 - Prompt builders must return both prompt text and input manifest.
 - Dry-run mode must expose the input manifest.
-- Missing required prompt files must fail before runtime execution.
+- Prompt and template markdown defaults are embedded in the CLI.
+- Workspace prompt/template files are optional overrides by relative path.
+- Missing workspace prompt/template overrides must fall back to built-in defaults before runtime execution.
+- Installing defaults must ask before overwriting customized workspace prompt/template files unless forced.
 - Directory source prompts must preserve source-isolation and file-line citation rules.
 - Markdown document source prompts must embed stripped document content and use document-analysis instructions.
 - Prompt builders must not embed YAML frontmatter from Markdown document sources.
@@ -1803,7 +1810,7 @@ UltraPlan Go is technically acceptable when:
 - Which agentwrap wrapper order should be used when validation failures should be eligible for fallback?
 - Should lock files be mandatory for all mutating commands or only long-running run loops?
 - Should code extraction support non-local source paths in the first release?
-- Should generated report templates be versioned independently from the CLI binary?
+- Should embedded generated report templates be versioned independently from the CLI binary?
 - What is the minimum stable JSON schema for status output?
 
 ## 28. Changelog

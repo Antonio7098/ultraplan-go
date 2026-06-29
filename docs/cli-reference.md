@@ -39,7 +39,27 @@ Human-readable errors are printed to stderr. JSON commands use documented envelo
 ultraplan init-workspace [--path <dir>] [--dry-run]
 ```
 
-Creates the baseline workspace scaffold. `--dry-run` prints planned operations without writing files.
+Creates the minimal required workspace scaffold: `ultraplan.yml` and `studies/`. `--dry-run` prints planned operations without writing files.
+
+Built-in prompts and templates are embedded in the CLI and are not required in the workspace.
+
+### `ultraplan defaults install`
+
+```text
+ultraplan defaults install [--path <dir>] [--dry-run] [--force]
+```
+
+Writes editable copies of the built-in prompts and templates into a workspace. If `--path` is omitted, the command uses global `--workspace` when present, otherwise the current working directory.
+
+Behavior:
+
+- Missing prompt/template files are created.
+- Existing files that exactly match the built-in default are left unchanged.
+- Existing files that differ are listed before overwrite.
+- Without `--force`, the command asks for confirmation before overwriting customized files.
+- A negative or empty answer keeps customized files and creates only non-conflicting missing files.
+- `--force` overwrites customized files without asking.
+- `--dry-run` prints planned operations and never writes files or asks for confirmation.
 
 ### `ultraplan config show`
 
@@ -128,6 +148,8 @@ ultraplan study <study> prompt synthesis <dimension> [--output <file>]
 ```
 
 Renders a deterministic manifest and prompt text. It does not invoke runtime execution.
+
+Study prompt rendering first checks workspace overrides such as `prompts/base.md` and `templates/report.md`. If no workspace file exists, it uses the built-in default embedded in the CLI.
 
 ### `ultraplan study <study> run`
 
@@ -229,6 +251,8 @@ ultraplan sprint <project> <sprint> prompt plan
 ```
 
 Prints runtime-free prompt previews for planning stages. Prompt previews are for inspection and do not call agentwrap, OpenCode, providers, subprocesses, or the network.
+
+Planning prompts use the same default/override model as study prompts. The prototype markdown prompt is the instruction source; UltraPlan appends a runtime manifest with concrete project, sprint, path, and selection data.
 
 ### `ultraplan sprint <project> <sprint> flow`
 

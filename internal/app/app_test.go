@@ -165,6 +165,9 @@ func TestDefaultsInstallDryRunCreateSkipAndForce(t *testing.T) {
 	if status != ExitOK {
 		t.Fatalf("custom status = %d stderr = %q", status, stderr)
 	}
+	assertContains(t, stdout, "The following prompt/template files already exist and differ")
+	assertContains(t, stdout, "- prompts/base.md")
+	assertContains(t, stdout, "Keeping customized files")
 	assertContains(t, stdout, "skip file prompts/base.md")
 	got, err := os.ReadFile(custom)
 	if err != nil {
@@ -172,6 +175,17 @@ func TestDefaultsInstallDryRunCreateSkipAndForce(t *testing.T) {
 	}
 	if string(got) != "# Custom\n" {
 		t.Fatalf("custom prompt overwritten without force: %q", got)
+	}
+
+	stdout, stderr, status = runForTestWithInput([]string{"defaults", "install", "--path", dir}, nil, "yes\n")
+	if status != ExitOK {
+		t.Fatalf("confirm status = %d stderr = %q", status, stderr)
+	}
+	assertContains(t, stdout, "Overwriting customized defaults.")
+	assertContains(t, stdout, "overwrite file prompts/base.md")
+
+	if err := os.WriteFile(custom, []byte("# Custom Again\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	stdout, stderr, status = runForTest([]string{"defaults", "install", "--path", dir, "--force"})
@@ -231,11 +245,16 @@ func runForTest(args []string) (string, string, int) {
 }
 
 func runForTestWithEnv(args []string, env map[string]string) (string, string, int) {
+	return runForTestWithInput(args, env, "")
+}
+
+func runForTestWithInput(args []string, env map[string]string, input string) (string, string, int) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
 	status := Run(Config{
 		Args:   args,
+		Stdin:  strings.NewReader(input),
 		Stdout: &stdout,
 		Stderr: &stderr,
 		Version: Version{
