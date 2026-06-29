@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 func ArtifactRelPath(s Sprint, stage PlanningStage) string {

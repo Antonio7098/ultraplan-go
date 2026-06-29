@@ -1,4 +1,4 @@
-module ultraplan-go
+module github.com/Antonio7098/ultraplan-go
 
 go 1.26
 

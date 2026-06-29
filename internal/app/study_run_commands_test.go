@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ultraplan-go/internal/platform/config"
-	runtimepkg "ultraplan-go/internal/platform/runtime"
-	"ultraplan-go/internal/study"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/study"
 )
 
 type commandFakeRuntime struct {

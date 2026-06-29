@@ -3,9 +3,9 @@ package app
 import (
 	"time"
 
-	"ultraplan-go/internal/platform/config"
-	"ultraplan-go/internal/study"
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	"github.com/Antonio7098/ultraplan-go/internal/study"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 type statusJSON struct {

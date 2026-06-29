@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"ultraplan-go/internal/project"
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 type PromptPreview struct {

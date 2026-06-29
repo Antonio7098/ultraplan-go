@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"ultraplan-go/internal/app"
+	"github.com/Antonio7098/ultraplan-go/internal/app"
 )
 
 func main() {

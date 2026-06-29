@@ -3,7 +3,7 @@ package sprint
 import (
 	"strings"
 
-	"ultraplan-go/internal/project"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
 )
 
 func ValidateSprintIndexContent(content string, catalog project.ProjectIndex) (SprintIndex, []ValidationFinding) {

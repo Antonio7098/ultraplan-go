@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"ultraplan-go/internal/platform/config"
-	"ultraplan-go/internal/study"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	"github.com/Antonio7098/ultraplan-go/internal/study"
 )
 
 func TestStudyStatusShowsPersistedRunState(t *testing.T) {

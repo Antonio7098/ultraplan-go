@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ultraplan-go/internal/codeextract"
+	"github.com/Antonio7098/ultraplan-go/internal/codeextract"
 )
 
 type codeFlags struct {

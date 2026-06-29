@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 type NewRunStateRequest struct {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	pruntime "ultraplan-go/internal/platform/runtime"
-	"ultraplan-go/internal/project"
-	"ultraplan-go/internal/workspace"
+	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 type Service struct {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"ultraplan-go/internal/platform/config"
-	runtimepkg "ultraplan-go/internal/platform/runtime"
-	"ultraplan-go/internal/sprint"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 )
 
 func TestSprintHelpIsRegistered(t *testing.T) {

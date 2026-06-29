@@ -9,7 +9,7 @@ import (
 
 	"github.com/Antonio7098/agentwrap"
 
-	"ultraplan-go/internal/platform/config"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
 )
 
 type Request struct {

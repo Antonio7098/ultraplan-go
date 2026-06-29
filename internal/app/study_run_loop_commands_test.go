@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	runtimepkg "ultraplan-go/internal/platform/runtime"
-	"ultraplan-go/internal/study"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/study"
 )
 
 func TestStudyRunLoopCommandHelpInvalidFlagsAndSuccess(t *testing.T) {

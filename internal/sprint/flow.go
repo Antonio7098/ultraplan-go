@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 type Runtime interface {

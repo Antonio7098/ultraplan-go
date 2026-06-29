@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"ultraplan-go/internal/project"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
 )
 
 func TestDomainStagesStatusesAndArtifactPaths(t *testing.T) {

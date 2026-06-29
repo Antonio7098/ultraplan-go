@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"ultraplan-go/internal/platform/config"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
 )
 
 func runConfig(deps dependencies, args []string) error {

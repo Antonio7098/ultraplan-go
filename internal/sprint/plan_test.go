@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	pruntime "ultraplan-go/internal/platform/runtime"
+	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 func TestPlanValidationPromptAndFlow(t *testing.T) {

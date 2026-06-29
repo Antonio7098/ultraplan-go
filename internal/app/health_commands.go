@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"ultraplan-go/internal/platform/config"
-	runtimepkg "ultraplan-go/internal/platform/runtime"
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 type healthCheck struct {

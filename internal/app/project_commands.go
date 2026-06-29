@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"ultraplan-go/internal/project"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
 )
 
 func runProject(deps dependencies, args []string) error {

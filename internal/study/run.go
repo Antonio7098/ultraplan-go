@@ -8,7 +8,7 @@ import (
 
 	"github.com/Antonio7098/agentwrap"
 
-	runtimepkg "ultraplan-go/internal/platform/runtime"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (ExecutionResult, error) {

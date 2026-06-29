@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 func ValidateProject(root string, p Project, files ProjectFiles) ValidationResult {

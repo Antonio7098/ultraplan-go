@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"ultraplan-go/internal/platform/config"
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 const (

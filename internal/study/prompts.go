@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 var ErrPromptInapplicable = errors.New("prompt inapplicable")

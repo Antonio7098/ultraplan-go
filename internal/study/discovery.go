@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 func DiscoverStudies(root string) ([]Study, error) {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	pruntime "ultraplan-go/internal/platform/runtime"
-	"ultraplan-go/internal/project"
+	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
 )
 
 func TestSprintIndexParseAndValidateAgainstCatalog(t *testing.T) {

@@ -3,7 +3,7 @@ package study
 import (
 	"context"
 
-	runtimepkg "ultraplan-go/internal/platform/runtime"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 type Service struct {

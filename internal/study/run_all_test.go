@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	runtimepkg "ultraplan-go/internal/platform/runtime"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 type runAllRuntime struct {

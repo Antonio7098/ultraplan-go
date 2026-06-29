@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	runtimepkg "ultraplan-go/internal/platform/runtime"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 func agentMetadata(result runtimepkg.Result, req runtimepkg.Request) AgentMetadata {

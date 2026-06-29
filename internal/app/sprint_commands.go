@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"ultraplan-go/internal/platform/config"
-	runtimepkg "ultraplan-go/internal/platform/runtime"
-	"ultraplan-go/internal/project"
-	"ultraplan-go/internal/sprint"
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
+	"github.com/Antonio7098/ultraplan-go/internal/sprint"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 var sprintRuntimeFactory = func(c config.Config) (sprint.Runtime, error) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"ultraplan-go/internal/workspace"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 func runInitWorkspace(deps dependencies, args []string) error {
