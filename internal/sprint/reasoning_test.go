@@ -28,7 +28,7 @@ func TestReasoningManifestPromptsAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Generate area reasoning", "Architecture", "projects/proj/sprints/01-alpha/reasoning/architecture.md", "Do not write final reasoning.md"} {
+	for _, want := range []string{"# Create Area Reasoning", "Prompt source: `builtin:prompts/create-area-reasoning.md`", "Architecture", "projects/proj/sprints/01-alpha/reasoning/architecture.md", "Do not write final reasoning.md"} {
 		if !strings.Contains(areaPreview.Prompt, want) {
 			t.Fatalf("area prompt missing %q:\n%s", want, areaPreview.Prompt)
 		}
@@ -37,7 +37,7 @@ func TestReasoningManifestPromptsAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Generate reasoning.md", "Required selected area reasoning", "Use only selected context", "Do not generate or validate plan.md"} {
+	for _, want := range []string{"# Create Sprint Reasoning", "Prompt source: `builtin:prompts/create-sprint-reasoning.md`", "Required selected area reasoning", "Use only selected context", "Do not generate or validate plan.md"} {
 		if !strings.Contains(finalPreview.Prompt, want) {
 			t.Fatalf("final prompt missing %q:\n%s", want, finalPreview.Prompt)
 		}
@@ -111,7 +111,7 @@ func TestFlowReasoningDryRunSuccessAndFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.DryRun || !strings.Contains(result.Message, "Generate reasoning.md") {
+	if !result.DryRun || !strings.Contains(result.Message, "# Create Sprint Reasoning") {
 		t.Fatalf("dry-run result = %+v", result)
 	}
 

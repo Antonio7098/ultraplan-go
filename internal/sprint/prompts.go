@@ -2,6 +2,7 @@ package sprint
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,7 +20,6 @@ type PromptPreview struct {
 func RenderSprintIndexPrompt(root string, sp Sprint, catalog project.ProjectIndex, docs []string) PromptPreview {
 	sort.Strings(docs)
 	var b strings.Builder
-	fmt.Fprintf(&b, "Generate sprint-index.md for project %s sprint %s.\n\n", sp.Project, sp.Slug)
 	fmt.Fprintln(&b, "Inputs:")
 	fmt.Fprintf(&b, "- Requirements: %s\n", ArtifactRelPath(sp, StageRequirements))
 	fmt.Fprintf(&b, "- Output: %s\n", ArtifactRelPath(sp, StageSprintIndex))
@@ -30,67 +30,45 @@ func RenderSprintIndexPrompt(root string, sp Sprint, catalog project.ProjectInde
 	}
 	fmt.Fprintln(&b, "\nAvailable catalog entries:")
 	writeCatalog(&b, catalog)
-	fmt.Fprintln(&b, "\nRules:")
+	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Select only entries listed in project-index.md.")
 	fmt.Fprintln(&b, "- Use workspace-relative paths.")
-	fmt.Fprintln(&b, "- Include Selected Contracts, Selected Evidence Reports, Selected Reasoning Templates, Required Review Protocols, and Excluded Context.")
-	fmt.Fprintln(&b, "- Carry forward Phase 2 non-goals: no implementation execution, smoke investigation, review automation, issue tracking, Git mutation, or study-side execution semantics.")
 	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, source repositories, config, Git state, or any artifact other than sprint-index.md.")
-	fmt.Fprintln(&b, "- This prompt preview is runtime-free and must not itself write artifacts.")
-	prompt := strings.ReplaceAll(b.String(), root, workspace.Rel(root, root))
+	prompt := renderPromptFromDefault(root, "prompts/create-sprint-index.md", sp.Project, sp.Slug, b.String())
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
 func RenderTechnicalHandbookPrompt(root string, manifest HandbookManifest) PromptPreview {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Generate technical-handbook.md for project %s sprint %s.\n\n", manifest.ProjectSlug, manifest.SprintSlug)
 	fmt.Fprintln(&b, "Input manifest:")
 	fmt.Fprint(&b, formatManifest(manifest))
-	fmt.Fprintln(&b, "\nRequired sections:")
-	fmt.Fprintln(&b, "- Selected Studies And Reports")
-	fmt.Fprintln(&b, "- Relevant Patterns")
-	fmt.Fprintln(&b, "- Trade-Offs")
-	fmt.Fprintln(&b, "- Anti-Patterns And Warnings")
-	fmt.Fprintln(&b, "- Open Questions For Reasoning")
-	fmt.Fprintln(&b, "- Evidence Pointers")
-	fmt.Fprintln(&b, "\nRules:")
+	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Read and cite only the selected evidence reports in the manifest.")
 	fmt.Fprintln(&b, "- Use workspace-relative paths in handbook citations.")
-	fmt.Fprintln(&b, "- Distill observed patterns, trade-offs, warnings, examples, design pressures, and open questions.")
-	fmt.Fprintln(&b, "- Do not make final architecture decisions, implementation decisions, task plans, or sprint plan sections.")
 	fmt.Fprintln(&b, "- Write editable Markdown only to the output path.")
 	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, selected evidence reports, source repositories, config, Git state, implementation files, sprint-index.md, reasoning artifacts, or plan.md.")
-	fmt.Fprintln(&b, "- This prompt preview is runtime-free and must not itself write artifacts.")
-	prompt := strings.ReplaceAll(b.String(), root, workspace.Rel(root, root))
+	prompt := renderPromptFromDefault(root, "prompts/create-technical-handbook.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
 }
 
 func RenderAreaReasoningPrompt(root string, manifest ReasoningManifest, entry ReasoningTemplateEntry) PromptPreview {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Generate area reasoning for project %s sprint %s.\n\n", manifest.ProjectSlug, manifest.SprintSlug)
 	fmt.Fprintln(&b, "Input manifest:")
 	fmt.Fprint(&b, formatReasoningManifest(manifest))
 	fmt.Fprintf(&b, "- Selected area template: %s\n", entry.Name)
 	fmt.Fprintf(&b, "- Template path: %s\n", entry.Template)
 	fmt.Fprintf(&b, "- Output: %s\n", entry.OutputPath)
-	fmt.Fprintln(&b, "\nRequired sections:")
-	fmt.Fprintln(&b, "- Area Decisions")
-	fmt.Fprintln(&b, "- Trade-Offs")
-	fmt.Fprintln(&b, "- Evidence")
-	fmt.Fprintln(&b, "- Risks")
-	fmt.Fprintln(&b, "\nRules:")
+	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Use only selected context from sprint-index.md and technical-handbook.md.")
 	fmt.Fprintln(&b, "- Use workspace-relative paths.")
 	fmt.Fprintln(&b, "- Do not write final reasoning.md, plan.md, implementation files, smoke artifacts, review artifacts, issue artifacts, workspace config, source repositories, or Git state.")
 	fmt.Fprintln(&b, "- Write editable Markdown only to the selected area output path.")
-	fmt.Fprintln(&b, "- This prompt preview is runtime-free and must not itself write artifacts.")
-	prompt := strings.ReplaceAll(b.String(), root, workspace.Rel(root, root))
+	prompt := renderPromptFromDefault(root, "prompts/create-area-reasoning.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
 }
 
 func RenderFinalReasoningPrompt(root string, manifest ReasoningManifest) PromptPreview {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Generate reasoning.md for project %s sprint %s.\n\n", manifest.ProjectSlug, manifest.SprintSlug)
 	fmt.Fprintln(&b, "Input manifest:")
 	fmt.Fprint(&b, formatReasoningManifest(manifest))
 	fmt.Fprintln(&b, "\nRequired selected area reasoning:")
@@ -100,26 +78,16 @@ func RenderFinalReasoningPrompt(root string, manifest ReasoningManifest) PromptP
 	for _, entry := range manifest.ReasoningTemplates {
 		fmt.Fprintf(&b, "- %s: %s\n", entry.Name, entry.OutputPath)
 	}
-	fmt.Fprintln(&b, "\nRequired sections:")
-	fmt.Fprintln(&b, "- Sprint Purpose")
-	fmt.Fprintln(&b, "- Selected Context And Pre-Reasoning Artifacts")
-	fmt.Fprintln(&b, "- Area-Specific Reasoning Inputs")
-	fmt.Fprintln(&b, "- Decisions")
-	fmt.Fprintln(&b, "- Expected Evidence")
-	fmt.Fprintln(&b, "- Assumptions And Risks")
-	fmt.Fprintln(&b, "- Implementation Constraints")
-	fmt.Fprintln(&b, "\nRules:")
+	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Use only selected context from sprint-index.md, technical-handbook.md, and required selected area reasoning artifacts.")
 	fmt.Fprintln(&b, "- Do not generate or validate plan.md, task checklists, implementation files, smoke artifacts, review artifacts, issue artifacts, workspace config, source repositories, or Git state.")
 	fmt.Fprintln(&b, "- Write editable Markdown only to reasoning.md.")
-	fmt.Fprintln(&b, "- This prompt preview is runtime-free and must not itself write artifacts.")
-	prompt := strings.ReplaceAll(b.String(), root, workspace.Rel(root, root))
+	prompt := renderPromptFromDefault(root, "prompts/create-sprint-reasoning.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
 }
 
 func RenderPlanPrompt(root string, manifest PlanManifest) PromptPreview {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Generate plan.md for project %s sprint %s.\n\n", manifest.ProjectSlug, manifest.SprintSlug)
 	fmt.Fprintln(&b, "Input manifest:")
 	fmt.Fprintf(&b, "- Project: %s\n", manifest.ProjectSlug)
 	fmt.Fprintf(&b, "- Sprint: %s\n", manifest.SprintSlug)
@@ -140,28 +108,53 @@ func RenderPlanPrompt(root string, manifest PlanManifest) PromptPreview {
 	for _, decision := range manifest.DecisionNames {
 		fmt.Fprintf(&b, "- %s\n", decision)
 	}
-	fmt.Fprintln(&b, "\nRequired sections:")
-	fmt.Fprintln(&b, "- Reasoning Source")
-	fmt.Fprintln(&b, "- Sprint Status")
-	fmt.Fprintln(&b, "- Decisions To Execute")
-	fmt.Fprintln(&b, "- Requirements / Contracts To Satisfy")
-	fmt.Fprintln(&b, "- Tasks")
-	fmt.Fprintln(&b, "- Evidence Checklist")
-	fmt.Fprintln(&b, "- Risks And Blockers")
-	fmt.Fprintln(&b, "- Execution Log")
-	fmt.Fprintln(&b, "- Completion Criteria")
-	fmt.Fprintln(&b, "\nTraceability rules:")
-	fmt.Fprintln(&b, "- Trace every executable task to reasoning decisions or acceptance evidence.")
-	fmt.Fprintln(&b, "- Include verification or evidence expectations for each implementation task.")
-	fmt.Fprintln(&b, "- Keep decisions, requirements, risks, and evidence aligned with reasoning.md.")
-	fmt.Fprintln(&b, "\nMutation and execution rules:")
+	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Write editable Markdown only to the expected plan.md output path.")
 	fmt.Fprintln(&b, "- Do not execute implementation tasks, smoke investigations, review automation, issue tracking, Git commands, or multi-stage implementation run loops.")
 	fmt.Fprintln(&b, "- Do not create .run-state.json, smoke.md, smoke.json, generated review.md, issues.md, or issues.json.")
 	fmt.Fprintln(&b, "- Do not modify requirements.md, sprint-index.md, technical-handbook.md, reasoning/*.md, reasoning.md, project docs, prior reviews, source repositories, implementation files, workspace config, or Git state.")
-	fmt.Fprintln(&b, "- This prompt preview is runtime-free and must not itself write artifacts.")
-	prompt := strings.ReplaceAll(b.String(), root, workspace.Rel(root, root))
+	prompt := renderPromptFromDefault(root, "prompts/plan-sprint.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
+}
+
+func renderPromptFromDefault(root, rel, projectSlug, sprintSlug, manifest string) string {
+	body, source := sprintPromptTemplate(root, rel)
+	replacements := map[string]string{
+		"{project}":     projectSlug,
+		"{sprint-slug}": sprintSlug,
+	}
+	for old, newValue := range replacements {
+		body = strings.ReplaceAll(body, old, newValue)
+	}
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(body, "\n"))
+	fmt.Fprintln(&b, "\n\n---")
+	fmt.Fprintln(&b, "\n## UltraPlan Runtime Manifest")
+	fmt.Fprintf(&b, "\nPrompt source: `%s`\n", source)
+	fmt.Fprintln(&b, "\nPath convention: this workspace uses paths relative to the workspace root. When prototype instructions mention `.ultra/...`, use the same path without the `.ultra/` prefix.")
+	fmt.Fprintln(&b, "\nUse the concrete paths and selections below when they differ from placeholder text in the default prompt.")
+	fmt.Fprintln(&b)
+	b.WriteString(strings.ReplaceAll(strings.TrimRight(manifest, "\n"), root, workspace.Rel(root, root)))
+	b.WriteString("\n")
+	return b.String()
+}
+
+func sprintPromptTemplate(root, rel string) (string, string) {
+	rel = filepath.ToSlash(rel)
+	full, err := workspace.ResolveInside(root, rel)
+	if err == nil {
+		content, readErr := os.ReadFile(full)
+		if readErr == nil {
+			return string(content), rel
+		}
+		if !os.IsNotExist(readErr) {
+			return fmt.Sprintf("# Prompt Load Error\n\nCould not read `%s`: %v\n", rel, readErr), rel
+		}
+	}
+	if content, ok := workspace.DefaultOverrideFile(rel); ok {
+		return content, "builtin:" + rel
+	}
+	return fmt.Sprintf("# Missing Prompt Default\n\nNo workspace override or built-in default exists for `%s`.\n", rel), rel
 }
 
 func writeCatalog(b *strings.Builder, catalog project.ProjectIndex) {

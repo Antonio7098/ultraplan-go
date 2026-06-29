@@ -50,7 +50,7 @@ func TestStudyPromptSynthesisPreview(t *testing.T) {
 func TestStudyPromptFailuresAreActionable(t *testing.T) {
 	dir, studyRoot := promptCommandFixture(t)
 
-	_, stderr, status := runForTest([]string{"--workspace", dir, "study", "missing", "prompt", "analysis", "01", "repo"})
+	stdout, stderr, status := runForTest([]string{"--workspace", dir, "study", "missing", "prompt", "analysis", "01", "repo"})
 	if status != ExitValidation {
 		t.Fatalf("missing study status = %d stderr = %q", status, stderr)
 	}
@@ -81,14 +81,11 @@ func TestStudyPromptFailuresAreActionable(t *testing.T) {
 	}
 	assertContains(t, stderr, "does not apply to dimension")
 
-	if err := os.Remove(filepath.Join(dir, "prompts", "base.md")); err != nil {
-		t.Fatal(err)
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "study", "demo", "prompt", "analysis", "01", "repo"})
+	if status != ExitOK {
+		t.Fatalf("builtin prompt fallback status = %d stderr = %q", status, stderr)
 	}
-	_, stderr, status = runForTest([]string{"--workspace", dir, "study", "demo", "prompt", "analysis", "01", "repo"})
-	if status != ExitWorkspace {
-		t.Fatalf("missing template status = %d stderr = %q", status, stderr)
-	}
-	assertContains(t, stderr, "prompts/base.md")
+	assertContains(t, stdout, "builtin:prompts/base.md")
 
 	writeFixtureFileContent(t, dir, "# Base Prompt\n", "prompts", "base.md")
 	if err := os.Remove(filepath.Join(studyRoot, "sources", "doc.md")); err != nil {

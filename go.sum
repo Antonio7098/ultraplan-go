@@ -1,5 +1,5 @@
-github.com/Antonio7098/agentwrap v0.0.0-20260613122459-bc655a256a5f h1:ehupCFZamHDbj9rBe3l6iiONydydwus5lKPJKuIOo1U=
-github.com/Antonio7098/agentwrap v0.0.0-20260613122459-bc655a256a5f/go.mod h1:ioOvRl2krovIGKrJcznuLdfJVlDKfMDJbCxKxui46VU=
+github.com/Antonio7098/agentwrap v0.0.0-20260629144550-2e8fbbe2c6cd h1:HZnd4f/KW2xtxS/dQfP0CRbJ+iRU5mQzlexNE9eoEhA=
+github.com/Antonio7098/agentwrap v0.0.0-20260629144550-2e8fbbe2c6cd/go.mod h1:ioOvRl2krovIGKrJcznuLdfJVlDKfMDJbCxKxui46VU=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=

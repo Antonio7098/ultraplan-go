@@ -127,7 +127,8 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
-	assertContains(t, stdout, "Generate sprint-index.md")
+	assertContains(t, stdout, "# Create Sprint Index")
+	assertContains(t, stdout, "Prompt source: `builtin:prompts/create-sprint-index.md`")
 	assertContains(t, stdout, "Do not mutate")
 	if strings.Contains(stdout+stderr, "\x1b[") || strings.Contains(stdout, dir) {
 		t.Fatalf("unsafe prompt output stdout=%q stderr=%q", stdout, stderr)
@@ -137,7 +138,8 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("handbook prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
-	assertContains(t, stdout, "Generate technical-handbook.md")
+	assertContains(t, stdout, "# Create Technical Handbook")
+	assertContains(t, stdout, "Prompt source: `builtin:prompts/create-technical-handbook.md`")
 	assertContains(t, stdout, "Selected evidence:")
 	if strings.Contains(stdout+stderr, "\x1b[") || strings.Contains(stdout, dir) {
 		t.Fatalf("unsafe handbook prompt output stdout=%q stderr=%q", stdout, stderr)
@@ -184,19 +186,22 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("area prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
-	assertContains(t, stdout, "Generate area reasoning")
+	assertContains(t, stdout, "# Create Area Reasoning")
+	assertContains(t, stdout, "Prompt source: `builtin:prompts/create-area-reasoning.md`")
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "reasoning"})
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("reasoning prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
-	assertContains(t, stdout, "Generate reasoning.md")
+	assertContains(t, stdout, "# Create Sprint Reasoning")
+	assertContains(t, stdout, "Prompt source: `builtin:prompts/create-sprint-reasoning.md`")
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "plan"})
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("plan prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
-	assertContains(t, stdout, "Generate plan.md")
+	assertContains(t, stdout, "# Sprint Planning - Evidence-Grounded Implementation Plan")
+	assertContains(t, stdout, "Prompt source: `builtin:prompts/plan-sprint.md`")
 	assertContains(t, stdout, "Do not execute implementation tasks")
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "reasoning", "--dry-run"})
@@ -242,7 +247,8 @@ func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 	if fake.request.Metadata["stage"] != "sprint-index" {
 		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
 	}
-	assertContains(t, fake.request.Prompt, "Generate sprint-index.md")
+	assertContains(t, fake.request.Prompt, "# Create Sprint Index")
+	assertContains(t, fake.request.Prompt, "Prompt source: `builtin:prompts/create-sprint-index.md`")
 
 	writeFixtureFileContent(t, base, commandValidTechnicalHandbook(), "technical-handbook.md")
 	writeFixtureFileContent(t, base, commandValidAreaReasoning(), "reasoning", "architecture.md")

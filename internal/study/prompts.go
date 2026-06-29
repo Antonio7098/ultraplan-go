@@ -177,11 +177,17 @@ func readWorkspaceFile(root, rel string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	content, err := readFile(rel, path)
-	if err != nil {
-		return "", "", err
+	content, err := os.ReadFile(path)
+	if err == nil {
+		return string(content), filepath.ToSlash(rel), nil
 	}
-	return content, filepath.ToSlash(rel), nil
+	if !os.IsNotExist(err) {
+		return "", "", fmt.Errorf("read %s %s: %w", rel, path, err)
+	}
+	if content, ok := workspace.DefaultOverrideFile(rel); ok {
+		return content, "builtin:" + filepath.ToSlash(rel), nil
+	}
+	return "", "", fmt.Errorf("read %s %s: %w", rel, path, err)
 }
 
 func readFile(label, path string) (string, error) {

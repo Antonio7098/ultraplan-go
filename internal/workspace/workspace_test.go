@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -73,6 +74,46 @@ func TestInitAndValidate(t *testing.T) {
 	result := Validate(root)
 	if !result.Valid {
 		t.Fatalf("validation issues: %v", result.Issues)
+	}
+	for _, rel := range []string{"prompts/base.md", "prompts/synthesize.md", "templates/repo-analysis.md", "templates/report.md"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("init should not materialize optional override %s: %v", rel, err)
+		}
+	}
+	defaultsPlan, err := InstallDefaults(root, DefaultsOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(defaultsPlan.Operations) == 0 {
+		t.Fatal("expected defaults install operations")
+	}
+	repoTemplate, err := os.ReadFile(filepath.Join(root, "templates", "repo-analysis.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(repoTemplate), "# Source Analysis: {{source_name}}") {
+		t.Fatalf("repo analysis template was not scaffolded from full template:\n%s", repoTemplate)
+	}
+	reportTemplate, err := os.ReadFile(filepath.Join(root, "templates", "report.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(reportTemplate), "# {{dimension_title}} - Combined Study Report") {
+		t.Fatalf("report template was not scaffolded from full template:\n%s", reportTemplate)
+	}
+	basePrompt, err := os.ReadFile(filepath.Join(root, "prompts", "base.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(basePrompt), "# Base Dimension") || !strings.Contains(string(basePrompt), "Hard Rules") {
+		t.Fatalf("base prompt was not scaffolded from full prototype:\n%s", basePrompt)
+	}
+	synthesizePrompt, err := os.ReadFile(filepath.Join(root, "prompts", "synthesize.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(synthesizePrompt), "# Synthesis Dimension") || !strings.Contains(string(synthesizePrompt), "Required Rating Summary") {
+		t.Fatalf("synthesize prompt was not scaffolded from full prototype:\n%s", synthesizePrompt)
 	}
 	plan, err = Init(root)
 	if err != nil {

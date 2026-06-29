@@ -121,7 +121,7 @@ func TestBuildSynthesisPromptApplicableReportsAndMissingFailures(t *testing.T) {
 	assertNotContains(t, err.Error(), "other.md")
 }
 
-func TestBuildPromptMissingTemplates(t *testing.T) {
+func TestBuildPromptUsesBuiltinDefaultsWhenWorkspaceOverridesAreMissing(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		remove string
@@ -154,10 +154,9 @@ func TestBuildPromptMissingTemplates(t *testing.T) {
 				t.Fatal(err)
 			}
 			err := tc.build(root, st, dim, source)
-			if err == nil {
-				t.Fatal("err = nil")
+			if err != nil {
+				t.Fatalf("expected builtin fallback for %s, got %v", tc.remove, err)
 			}
-			assertContains(t, err.Error(), tc.remove)
 		})
 	}
 }

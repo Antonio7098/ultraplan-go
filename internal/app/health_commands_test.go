@@ -22,15 +22,15 @@ func TestHealthValidAndInvalidWorkspace(t *testing.T) {
 	assertContains(t, stdout, "workspace.discovery: ok")
 	assertContains(t, stdout, "runtime.runtime_available: ok - fake runtime ready")
 
-	if err := os.Remove(filepath.Join(dir, "templates", "report.md")); err != nil {
+	if err := os.Remove(filepath.Join(dir, "ultraplan.yml")); err != nil {
 		t.Fatal(err)
 	}
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "health", "--json"})
-	if status != ExitValidation {
-		t.Fatalf("status = %d, want %d, stdout = %q stderr = %q", status, ExitValidation, stdout, stderr)
+	if status != ExitWorkspace {
+		t.Fatalf("status = %d, want %d, stdout = %q stderr = %q", status, ExitWorkspace, stdout, stderr)
 	}
 	assertContains(t, stdout, `"status": "fail"`)
-	assertContains(t, stderr, "missing required file: templates/report.md")
+	assertContains(t, stderr, "missing ultraplan.yml")
 }
 
 func TestHealthEnvironmentSummaryCountsAllKnownOverrides(t *testing.T) {

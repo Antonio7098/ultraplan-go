@@ -116,11 +116,69 @@ func TestInitWorkspaceDryRunAndCreate(t *testing.T) {
 		t.Fatalf("create status = %d, stderr = %q", status, stderr)
 	}
 	assertContains(t, stdout, "created file ultraplan.yml")
-	for _, rel := range []string{"ultraplan.yml", "prompts/base.md", "prompts/synthesize.md", "templates/repo-analysis.md", "templates/report.md", "studies"} {
+	for _, rel := range []string{"ultraplan.yml", "studies"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Fatalf("expected %s: %v", rel, err)
 		}
 	}
+	for _, rel := range []string{"prompts/base.md", "templates/report.md"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("init should not materialize optional default %s: %v", rel, err)
+		}
+	}
+}
+
+func TestDefaultsInstallDryRunCreateSkipAndForce(t *testing.T) {
+	dir := initializedWorkspace(t)
+	stdout, stderr, status := runForTest([]string{"defaults", "install", "--path", dir, "--dry-run"})
+	if status != ExitOK {
+		t.Fatalf("dry-run status = %d stderr = %q", status, stderr)
+	}
+	assertContains(t, stdout, "would create file prompts/base.md")
+	if _, err := os.Stat(filepath.Join(dir, "prompts", "base.md")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote prompt: %v", err)
+	}
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "defaults", "install", "--dry-run"})
+	if status != ExitOK {
+		t.Fatalf("global workspace dry-run status = %d stderr = %q", status, stderr)
+	}
+	assertContains(t, stdout, "Workspace: "+dir)
+
+	stdout, stderr, status = runForTest([]string{"defaults", "install", "--path", dir})
+	if status != ExitOK {
+		t.Fatalf("install status = %d stderr = %q", status, stderr)
+	}
+	assertContains(t, stdout, "create file prompts/base.md")
+	assertContains(t, stdout, "create file templates/report.md")
+
+	stdout, stderr, status = runForTest([]string{"defaults", "install", "--path", dir})
+	if status != ExitOK {
+		t.Fatalf("idempotent status = %d stderr = %q", status, stderr)
+	}
+	assertContains(t, stdout, "No changes needed.")
+
+	custom := filepath.Join(dir, "prompts", "base.md")
+	if err := os.WriteFile(custom, []byte("# Custom\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, status = runForTest([]string{"defaults", "install", "--path", dir})
+	if status != ExitOK {
+		t.Fatalf("custom status = %d stderr = %q", status, stderr)
+	}
+	assertContains(t, stdout, "skip file prompts/base.md")
+	got, err := os.ReadFile(custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "# Custom\n" {
+		t.Fatalf("custom prompt overwritten without force: %q", got)
+	}
+
+	stdout, stderr, status = runForTest([]string{"defaults", "install", "--path", dir, "--force"})
+	if status != ExitOK {
+		t.Fatalf("force status = %d stderr = %q", status, stderr)
+	}
+	assertContains(t, stdout, "overwrite file prompts/base.md")
 }
 
 func TestConfigShowJSONRedactsAndUsesWorkspace(t *testing.T) {

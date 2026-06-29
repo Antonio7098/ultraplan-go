@@ -126,6 +126,8 @@ func Run(cfg Config) int {
 		return writeStatus(stdout, renderVersion(version))
 	case "init-workspace":
 		return failOrOK(stderr, runInitWorkspace(deps, args[1:]))
+	case "defaults":
+		return failOrOK(stderr, runDefaults(deps, args[1:]))
 	case "config":
 		return failOrOK(stderr, runConfig(deps, args[1:]))
 	case "health":
@@ -216,6 +218,7 @@ Usage:
 
 Commands:
   init-workspace   Initialize an UltraPlan workspace.
+  defaults         Install editable built-in prompts and templates.
   config           Inspect effective configuration.
   code             Extract cited code snippets from reports.
   health           Check workspace, config, filesystem, and environment basics.
