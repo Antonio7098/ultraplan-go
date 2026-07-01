@@ -41,10 +41,7 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 	if err != nil {
 		return ExecutionResult{}, err
 	}
-	workDir := source.Path
-	if source.Kind == SourceKindMarkdown {
-		workDir = listing.Study.Path
-	}
+	workDir := listing.Study.Path
 	beforeFiles, snapshotErr := snapshotFiles(listing.Study.Path)
 	runtimeResult, runErr := s.startRuntime(ctx, prompt, TaskKindAnalysis, listing.Study, dimension, source, workDir, result.OutputPath)
 	if snapshotErr != nil {
@@ -92,6 +89,7 @@ func (s Service) startRuntime(ctx context.Context, prompt PromptResult, kind Tas
 	req := s.runtimeConfig
 	req.Prompt = prompt.Text
 	req.WorkDir = workDir
+	req = withStudyRuntimeIsolation(req)
 	req.Metadata = executionMetadata(req, kind, study, dimension, source, outputPath)
 	req.Validation = &agentwrap.ValidationSpec{Expectations: []agentwrap.ValidationExpectation{{
 		ID:       "expected_output",
@@ -100,6 +98,14 @@ func (s Service) startRuntime(ctx context.Context, prompt PromptResult, kind Tas
 		Path:     outputPath,
 	}}}
 	return s.runtime.StartRun(ctx, req)
+}
+
+func withStudyRuntimeIsolation(req runtimepkg.Request) runtimepkg.Request {
+	if req.Policy.Tools == nil {
+		req.Policy.Tools = map[string]string{}
+	}
+	req.Policy.Tools["external_directory"] = "deny"
+	return req
 }
 
 func executionMetadata(req runtimepkg.Request, kind TaskKind, study Study, dimension Dimension, source Source, outputPath string) map[string]string {

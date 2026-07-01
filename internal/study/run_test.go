@@ -58,8 +58,11 @@ func TestRunAnalysisSuccessMapsRuntimeRequestAndValidates(t *testing.T) {
 		t.Fatalf("runtime calls = %d", len(rt.requests))
 	}
 	req := rt.requests[0]
-	if req.WorkDir != filepath.Join(st.Path, "sources", "repo") {
+	if req.WorkDir != st.Path {
 		t.Fatalf("WorkDir = %q", req.WorkDir)
+	}
+	if req.Policy.Tools["external_directory"] != "deny" {
+		t.Fatalf("external_directory policy = %q, want deny", req.Policy.Tools["external_directory"])
 	}
 	if req.Provider != "anthropic" || req.Model != "claude" || req.Timeout != time.Minute {
 		t.Fatalf("runtime config not mapped: %+v", req)
