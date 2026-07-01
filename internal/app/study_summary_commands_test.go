@@ -11,7 +11,7 @@ func TestStudySummaryCommandWritesCSVAndWarnings(t *testing.T) {
 	studyRoot := filepath.Join(dir, "studies", "demo")
 	writeFixtureFileContent(t, studyRoot, "# Dim\n", "dimensions", "01-structure.md")
 	mkdirAll(t, studyRoot, "sources", "repo")
-	writeFixtureFileContent(t, studyRoot, "# Report\n\nRating: 9\n", "reports", "source", "repo-01-structure.md")
+	writeFixtureFileContent(t, studyRoot, "# Report\n\nRating: 9\n", "reports", "source", "01-structure", "repo.md")
 	writeFixtureFileContent(t, studyRoot, "# Body\n", "sources", "missing.md")
 
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "study", "demo", "summary"})

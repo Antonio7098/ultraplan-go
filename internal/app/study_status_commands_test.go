@@ -64,9 +64,9 @@ func TestStudyStatusJSONShapeAndNoRuntime(t *testing.T) {
 			{
 				ID: "a", Kind: study.TaskKindAnalysis, Status: study.TaskStatusCompleted,
 				Study: "platform", Dimension: "01", DimensionRef: "01-structure", Source: "repo",
-				SourceKind: study.SourceKindDirectory, OutputPath: filepath.Join(studyRoot, "reports", "source", "repo-01-structure.md"),
+				SourceKind: study.SourceKindDirectory, OutputPath: filepath.Join(studyRoot, "reports", "source", "01-structure", "repo.md"),
 				CreatedAt: now, UpdatedAt: now,
-				Validation: &study.ValidationSummary{Status: study.ValidationStatusPassed, CheckedAt: now, Path: filepath.Join(studyRoot, "reports", "source", "repo-01-structure.md"), PassedChecks: 3},
+				Validation: &study.ValidationSummary{Status: study.ValidationStatusPassed, CheckedAt: now, Path: filepath.Join(studyRoot, "reports", "source", "01-structure", "repo.md"), PassedChecks: 3},
 			},
 		},
 	}

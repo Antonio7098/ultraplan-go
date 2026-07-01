@@ -20,8 +20,8 @@ func ValidateSourceReport(study Study, source Source, dimension Dimension) Valid
 	return ValidationResult{Kind: ReportKindSource, Path: path, Status: status, Checks: checks, Err: err}
 }
 
-func ValidateFinalReport(study Study) ValidationResult {
-	path := FinalReportPath(study)
+func ValidateFinalReport(study Study, dimension Dimension) ValidationResult {
+	path := FinalReportPath(study, dimension)
 	checks, err := validateFinalReport(path)
 	status := ValidationStatusPassed
 	if err != nil {

@@ -86,7 +86,7 @@ func BuildSynthesisPrompt(req PromptRequest) (PromptResult, error) {
 		DimensionPath:      workspace.Rel(req.WorkspaceRoot, req.Dimension.Path),
 		SourceReports:      reports,
 		InputReportPaths:   reportPaths(reports),
-		ExpectedOutputPath: FinalReportPath(req.Study),
+		ExpectedOutputPath: FinalReportPath(req.Study, req.Dimension),
 	}
 	text := joinSections(
 		"Synthesis Prompt", synthesis,

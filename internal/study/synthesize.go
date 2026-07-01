@@ -19,7 +19,7 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 		TaskKind:   TaskKindSynthesis,
 		Study:      listing.Study,
 		Dimension:  dimension,
-		OutputPath: FinalReportPath(listing.Study),
+		OutputPath: FinalReportPath(listing.Study, dimension),
 	}
 	selectedSources := listing.Sources
 	if len(req.SourceRefs) > 0 {
@@ -62,7 +62,7 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 		if runtimeResult.Error != nil {
 			result.RuntimeCategory = runtimeResult.Error.Category
 		}
-		result.Validation = ValidateFinalReport(listing.Study)
+		result.Validation = ValidateFinalReport(listing.Study, dimension)
 		if result.Validation.Status == ValidationStatusPassed {
 			result.Status = ExecutionStatusCompleted
 			return result, nil
@@ -74,7 +74,7 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 		result.Status = statusForRuntimeFailure(runtimeResult)
 		return result, nil
 	}
-	result.Validation = ValidateFinalReport(listing.Study)
+	result.Validation = ValidateFinalReport(listing.Study, dimension)
 	if result.Validation.Status != ValidationStatusPassed {
 		result.Status = ExecutionStatusValidationFailed
 	}

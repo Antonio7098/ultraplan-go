@@ -219,7 +219,8 @@ func hasCheck(checks []ValidationCheck, name string, status ValidationStatus) bo
 func TestValidateFinalReport(t *testing.T) {
 	root := t.TempDir()
 	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
-	reportPath := FinalReportPath(study)
+	dimension := Dimension{Number: "01", Slug: "structure"}
+	reportPath := FinalReportPath(study, dimension)
 	writeReport(t, reportPath, `# Final Report
 
 ## Study Parameters
@@ -238,7 +239,7 @@ func TestValidateFinalReport(t *testing.T) {
 
 ## Open Questions
 `)
-	res := ValidateFinalReport(study)
+	res := ValidateFinalReport(study, dimension)
 	if res.Status != ValidationStatusPassed {
 		t.Fatalf("Status = %q, want passed: %+v", res.Status, res)
 	}
@@ -247,12 +248,13 @@ func TestValidateFinalReport(t *testing.T) {
 func TestValidateFinalReportFailures(t *testing.T) {
 	root := t.TempDir()
 	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
-	reportPath := FinalReportPath(study)
+	dimension := Dimension{Number: "01", Slug: "structure"}
+	reportPath := FinalReportPath(study, dimension)
 	writeReport(t, reportPath, `# Final Report
 
 ## Executive Summary
 `)
-	res := ValidateFinalReport(study)
+	res := ValidateFinalReport(study, dimension)
 	if res.Status != ValidationStatusFailed {
 		t.Fatalf("Status = %q, want failed", res.Status)
 	}

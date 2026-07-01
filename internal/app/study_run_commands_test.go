@@ -72,7 +72,7 @@ func TestStudyRunCommandSuccessSkipAndDiagnostics(t *testing.T) {
 	if fake.calls != 1 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
-	if _, err := os.Stat(filepath.Join(studyRoot, "reports", "source", "repo-01-structure.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(studyRoot, "reports", "source", "01-structure", "repo.md")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,7 +88,7 @@ func TestStudyRunCommandSuccessSkipAndDiagnostics(t *testing.T) {
 
 	fake.err = errors.New("provider secret should be redacted")
 	fake.write = ""
-	if err := os.Remove(filepath.Join(studyRoot, "reports", "source", "repo-01-structure.md")); err != nil {
+	if err := os.Remove(filepath.Join(studyRoot, "reports", "source", "01-structure", "repo.md")); err != nil {
 		t.Fatal(err)
 	}
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "study", "demo", "run", "01", "repo"})
@@ -121,8 +121,8 @@ func TestStudyRunCommandWarnsForUnexpectedRuntimeEdits(t *testing.T) {
 
 func TestStudySynthesizeCommandPreflightAndValidationExit(t *testing.T) {
 	dir, studyRoot := promptCommandFixture(t)
-	writeFixtureFileContent(t, studyRoot, validCommandSourceReport, "reports", "source", "repo-01-structure.md")
-	writeFixtureFileContent(t, studyRoot, validCommandMarkdownReport, "reports", "source", "doc.md-01-structure.md")
+	writeFixtureFileContent(t, studyRoot, validCommandSourceReport, "reports", "source", "01-structure", "repo.md")
+	writeFixtureFileContent(t, studyRoot, validCommandMarkdownReport, "reports", "source", "01-structure", "doc.md")
 	fake := &commandFakeRuntime{write: validCommandFinalReport}
 	restore := stubStudyRuntime(t, fake)
 	defer restore()
@@ -136,7 +136,7 @@ func TestStudySynthesizeCommandPreflightAndValidationExit(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 
-	if err := os.Remove(filepath.Join(studyRoot, "reports", "source", "repo-01-structure.md")); err != nil {
+	if err := os.Remove(filepath.Join(studyRoot, "reports", "source", "01-structure", "repo.md")); err != nil {
 		t.Fatal(err)
 	}
 	fake.calls = 0
@@ -149,7 +149,7 @@ func TestStudySynthesizeCommandPreflightAndValidationExit(t *testing.T) {
 		t.Fatalf("preflight runtime calls = %d", fake.calls)
 	}
 
-	writeFixtureFileContent(t, studyRoot, validCommandSourceReport, "reports", "source", "repo-01-structure.md")
+	writeFixtureFileContent(t, studyRoot, validCommandSourceReport, "reports", "source", "01-structure", "repo.md")
 	fake.write = "# Invalid final\n"
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "study", "demo", "synthesize", "01"})
 	if status != ExitValidation {

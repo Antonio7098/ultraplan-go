@@ -16,7 +16,7 @@ func TestValidateStudyArtifactsValidAndInapplicable(t *testing.T) {
 	dim := Dimension{Number: "01", Slug: "structure", File: "01-structure.md", Path: filepath.Join(study.Path, "dimensions", "01-structure.md")}
 	mkdirStudy(t, study.Path)
 	writeReport(t, SourceReportPath(study, source, dim), validSourceValidationReport())
-	writeReport(t, FinalReportPath(study), validFinalValidationReport())
+	writeReport(t, FinalReportPath(study, dim), validFinalValidationReport())
 	writeReport(t, SummaryPath(study), "source,01-structure,total\nrepo,8,8\n")
 
 	result := ValidateStudyArtifacts(StudyListing{Study: study, Sources: []Source{source, doc}, Dimensions: []Dimension{dim}})

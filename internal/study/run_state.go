@@ -91,7 +91,7 @@ func NewRunState(req NewRunStateRequest) (RunState, error) {
 			Study:        req.Study.Name,
 			Dimension:    dimension.Number,
 			DimensionRef: dimension.Ref(),
-			OutputPath:   relPath(req.WorkspaceRoot, FinalReportPath(req.Study)),
+			OutputPath:   relPath(req.WorkspaceRoot, FinalReportPath(req.Study, dimension)),
 			CreatedAt:    now,
 			UpdatedAt:    now,
 			Dependencies: deps,
@@ -191,7 +191,17 @@ func ResumeValidateRunState(state *RunState, study Study, sources []Source, dime
 				}
 				result = ValidateSourceReport(study, source, dimension)
 			case TaskKindSynthesis:
-				result = ValidateFinalReport(study)
+				dimension, dimensionOK := dimensionByRef[task.DimensionRef]
+				if !dimensionOK {
+					dimension, dimensionOK = dimensionByRef[task.Dimension]
+				}
+				if !dimensionOK {
+					task.Status = TaskStatusFailed
+					task.LastError = &TaskError{Code: "validation.reference", Message: "completed task references unknown dimension"}
+					task.UpdatedAt = now
+					continue
+				}
+				result = ValidateFinalReport(study, dimension)
 			default:
 				continue
 			}

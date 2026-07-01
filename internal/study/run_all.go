@@ -63,19 +63,19 @@ func (s Service) RunAll(ctx context.Context, req RunAllRequest) (RunAllResult, e
 
 	for _, dimension := range dimensions {
 		if ctx.Err() != nil {
-			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusCancelled, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study)})
+			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusCancelled, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study, dimension)})
 			continue
 		}
 		if !hasAnalysisForDimension(result.Analysis, dimension) {
 			continue
 		}
 		if blockers := synthesisBlockers(result.Analysis, dimension); len(blockers) > 0 {
-			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusPreflightBlocked, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study), Blockers: blockers})
+			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusPreflightBlocked, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study, dimension), Blockers: blockers})
 			continue
 		}
 		res, err := s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: dimension.Ref(), SourceRefs: selectedSourceNames(sources)})
 		if err != nil {
-			res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study), RuntimeError: safeError(err), RuntimeErr: err}
+			res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study, dimension), RuntimeError: safeError(err), RuntimeErr: err}
 		}
 		result.Synthesis = append(result.Synthesis, res)
 	}

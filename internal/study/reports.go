@@ -1,15 +1,22 @@
 package study
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"strings"
+)
 
 func SourceReportPath(study Study, source Source, dimension Dimension) string {
-	return filepath.Join(study.Path, "reports", "source", sourceReportFileName(source, dimension))
+	return filepath.Join(study.Path, "reports", "source", dimension.Ref(), sourceReportFileName(source))
 }
 
-func FinalReportPath(study Study) string {
-	return filepath.Join(study.Path, "reports", "final", "report.md")
+func FinalReportPath(study Study, dimension Dimension) string {
+	return filepath.Join(study.Path, "reports", "final", dimension.Ref()+".md")
 }
 
-func sourceReportFileName(source Source, dimension Dimension) string {
-	return source.Name + "-" + dimension.Ref() + ".md"
+func sourceReportFileName(source Source) string {
+	name := strings.TrimSuffix(source.Name, ".md")
+	if name == "" {
+		name = source.Name
+	}
+	return name + ".md"
 }

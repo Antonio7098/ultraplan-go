@@ -39,6 +39,8 @@ Workspace files at the same relative paths override built-ins. For example, `pro
 
 If `defaults install` finds an existing prompt or template that differs from the built-in default, it lists the file and asks before overwriting it. Answering anything other than `yes` keeps the customized file. Use `--force` only when you intentionally want to overwrite customized prompt/template files without confirmation.
 
+Study reports are grouped by dimension. Analysis writes `studies/<study>/reports/source/<dimension-ref>/<source>.md`; synthesis writes `studies/<study>/reports/final/<dimension-ref>.md`.
+
 Workspace discovery uses this order:
 
 1. `--workspace <path>`

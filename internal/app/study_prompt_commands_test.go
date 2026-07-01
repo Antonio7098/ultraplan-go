@@ -29,13 +29,13 @@ func TestStudyPromptAnalysisPreviewStdoutAndOutputFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertContains(t, string(content), filepath.ToSlash(filepath.Join("studies", filepath.Base(studyRoot), "reports", "source", "repo-01-structure.md")))
+	assertContains(t, string(content), filepath.ToSlash(filepath.Join("studies", filepath.Base(studyRoot), "reports", "source", "01-structure", "repo.md")))
 }
 
 func TestStudyPromptSynthesisPreview(t *testing.T) {
 	dir, studyRoot := promptCommandFixture(t)
-	writeFixtureFileContent(t, studyRoot, "# Repo report\n", "reports", "source", "repo-01-structure.md")
-	writeFixtureFileContent(t, studyRoot, "# Doc report\n", "reports", "source", "doc.md-01-structure.md")
+	writeFixtureFileContent(t, studyRoot, "# Repo report\n", "reports", "source", "01-structure", "repo.md")
+	writeFixtureFileContent(t, studyRoot, "# Doc report\n", "reports", "source", "01-structure", "doc.md")
 
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "study", "demo", "prompt", "synthesis", "structure"})
 	if status != ExitOK {
@@ -44,7 +44,7 @@ func TestStudyPromptSynthesisPreview(t *testing.T) {
 	assertContains(t, stdout, `"kind": "synthesis"`)
 	assertContains(t, stdout, `"source": "doc.md"`)
 	assertContains(t, stdout, `"source": "repo"`)
-	assertContains(t, stdout, "studies/demo/reports/final/report.md")
+	assertContains(t, stdout, "studies/demo/reports/final/01-structure.md")
 }
 
 func TestStudyPromptFailuresAreActionable(t *testing.T) {
@@ -103,13 +103,13 @@ func TestStudyPromptFailuresAreActionable(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFixtureFileContent(t, studyRoot, "---\napplicable_dimensions: [1]\n---\n# Doc\n", "sources", "doc.md")
-	writeFixtureFileContent(t, studyRoot, "# Doc report\n", "reports", "source", "doc.md-01-structure.md")
+	writeFixtureFileContent(t, studyRoot, "# Doc report\n", "reports", "source", "01-structure", "doc.md")
 
 	_, stderr, status = runForTest([]string{"--workspace", dir, "study", "demo", "prompt", "synthesis", "01"})
 	if status != ExitWorkspace {
 		t.Fatalf("missing report status = %d stderr = %q", status, stderr)
 	}
-	assertContains(t, stderr, "repo-01-structure.md")
+	assertContains(t, stderr, filepath.ToSlash(filepath.Join("01-structure", "repo.md")))
 }
 
 func TestStudyPromptHelpDescribesNoRuntimeBoundary(t *testing.T) {

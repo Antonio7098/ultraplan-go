@@ -159,7 +159,7 @@ func TestResumeValidateRunStateKeepsValidCompletedOutputs(t *testing.T) {
 		state.Tasks[i].Status = TaskStatusCompleted
 	}
 	writeStateTestReport(t, SourceReportPath(sample, source, dimension), true)
-	writeStateTestReport(t, FinalReportPath(sample), false)
+	writeStateTestReport(t, FinalReportPath(sample, dimension), false)
 
 	ResumeValidateRunState(&state, sample, []Source{source}, []Dimension{dimension}, now.Add(time.Hour))
 

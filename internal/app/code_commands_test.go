@@ -25,7 +25,7 @@ func TestCodeCommandHelp(t *testing.T) {
 func TestCodeCommandExtractsTextAndJSON(t *testing.T) {
 	dir := initializedWorkspace(t)
 	writeFixtureFileContent(t, dir, "package main\n\nfunc main() {}\n", "studies", "demo", "sources", "repo", "main.go")
-	report := filepath.Join(dir, "studies", "demo", "reports", "final", "report.md")
+	report := filepath.Join(dir, "studies", "demo", "reports", "final", "01-structure.md")
 	writeFixtureFileContent(t, filepath.Dir(report), "| # | Source | Path |\n| 1 | repo | `studies/demo/sources/repo` |\n\nSee `main.go:1-3`.\n", filepath.Base(report))
 
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "code", report})

@@ -27,7 +27,7 @@ func TestBuildDirectoryAnalysisPromptManifestRulesAndDeterminism(t *testing.T) {
 	if first.Manifest.Kind != PromptKindDirectoryAnalysis {
 		t.Fatalf("kind = %q", first.Manifest.Kind)
 	}
-	if first.Manifest.ExpectedOutputPath != filepath.Join(root, "studies", "demo", "reports", "source", "repo-01-structure.md") {
+	if first.Manifest.ExpectedOutputPath != filepath.Join(root, "studies", "demo", "reports", "source", "01-structure", "repo.md") {
 		t.Fatalf("output = %q", first.Manifest.ExpectedOutputPath)
 	}
 	assertContains(t, first.Text, "# Base Prompt")
@@ -99,9 +99,9 @@ func TestBuildMarkdownAnalysisPromptInapplicableAndMissingDocument(t *testing.T)
 
 func TestBuildSynthesisPromptApplicableReportsAndMissingFailures(t *testing.T) {
 	root, st, dim, _ := promptFixture(t)
-	writeFileContent(t, st.Path, "# Repo report\n", "reports", "source", "repo-01-structure.md")
-	writeFileContent(t, st.Path, "# Doc report\n", "reports", "source", "doc.md-01-structure.md")
-	writeFileContent(t, st.Path, "# Other doc report\n", "reports", "source", "other.md-01-structure.md")
+	writeFileContent(t, st.Path, "# Repo report\n", "reports", "source", "01-structure", "repo.md")
+	writeFileContent(t, st.Path, "# Doc report\n", "reports", "source", "01-structure", "doc.md")
+	writeFileContent(t, st.Path, "# Other doc report\n", "reports", "source", "01-structure", "other.md")
 
 	result, err := BuildSynthesisPrompt(PromptRequest{WorkspaceRoot: root, Study: st, Dimension: dim})
 	if err != nil {
@@ -119,7 +119,7 @@ func TestBuildSynthesisPromptApplicableReportsAndMissingFailures(t *testing.T) {
 		t.Fatalf("report order/filter = %+v", result.Manifest.SourceReports)
 	}
 
-	if err := os.Remove(filepath.Join(st.Path, "reports", "source", "repo-01-structure.md")); err != nil {
+	if err := os.Remove(filepath.Join(st.Path, "reports", "source", "01-structure", "repo.md")); err != nil {
 		t.Fatal(err)
 	}
 	_, err = BuildSynthesisPrompt(PromptRequest{WorkspaceRoot: root, Study: st, Dimension: dim})
@@ -127,7 +127,7 @@ func TestBuildSynthesisPromptApplicableReportsAndMissingFailures(t *testing.T) {
 		t.Fatal("missing report error = nil")
 	}
 	assertContains(t, err.Error(), "repo")
-	assertContains(t, err.Error(), "repo-01-structure.md")
+	assertContains(t, err.Error(), filepath.ToSlash(filepath.Join("01-structure", "repo.md")))
 	assertNotContains(t, err.Error(), "other.md")
 }
 
@@ -157,8 +157,8 @@ func TestBuildPromptUsesBuiltinDefaultsWhenWorkspaceOverridesAreMissing(t *testi
 		t.Run(tc.name, func(t *testing.T) {
 			root, st, dim, source := promptFixture(t)
 			if tc.name == "synthesize" || tc.name == "final report template" {
-				writeFileContent(t, st.Path, "# Repo report\n", "reports", "source", "repo-01-structure.md")
-				writeFileContent(t, st.Path, "# Doc report\n", "reports", "source", "doc.md-01-structure.md")
+				writeFileContent(t, st.Path, "# Repo report\n", "reports", "source", "01-structure", "repo.md")
+				writeFileContent(t, st.Path, "# Doc report\n", "reports", "source", "01-structure", "doc.md")
 			}
 			if err := os.Remove(filepath.Join(root, filepath.FromSlash(tc.remove))); err != nil {
 				t.Fatal(err)

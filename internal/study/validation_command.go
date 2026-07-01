@@ -85,8 +85,8 @@ func ValidateStudyArtifacts(listing StudyListing) StudyValidationResult {
 			addCheck(check)
 		}
 	}
-	if len(listing.Dimensions) > 0 {
-		addReport(ValidateFinalReport(listing.Study))
+	for _, dimension := range listing.Dimensions {
+		addReport(ValidateFinalReport(listing.Study, dimension))
 	}
 	addCheck(validateRunStateCheck(listing.Study))
 

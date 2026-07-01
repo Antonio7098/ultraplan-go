@@ -143,6 +143,8 @@ If an existing workspace prompt or template differs from the built-in default, `
 
 Studies live under `studies/<study>/` with editable source, dimension, report, run-state, and summary artifacts. Directory sources are analyzed by path. Source entries in `study-init.yml` can use `applicable_dimensions` to limit which dimensions apply; top-level Markdown sources can also declare the same filter in frontmatter.
 
+Study reports are dimension-scoped. Per-source reports are written to `studies/<study>/reports/source/<dimension-ref>/<source>.md`, and synthesis writes `studies/<study>/reports/final/<dimension-ref>.md`.
+
 Projects live under `projects/<project>/` with `docs/`, `roadmap.md`, `project-index.md`, and `sprints/<sprint>/`. Planning sprints are editable Markdown/JSON artifact chains through `requirements.md`, `sprint-index.md`, `technical-handbook.md`, optional `reasoning/*.md`, `reasoning.md`, `plan.md`, and `flow-state.json`.
 
 ## Runtime Boundary

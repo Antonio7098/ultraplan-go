@@ -100,8 +100,8 @@ func validValidationWorkspace(t *testing.T) string {
 	mkdirAll(t, studyRoot, "sources", "repo", "dimensions", "reports", "source", "reports", "final")
 	writeFixtureFile(t, studyRoot, "dimensions", "01-structure.md")
 	writeFixtureFile(t, studyRoot, "summary.csv")
-	writeFixtureFileContent(t, studyRoot, validSourceReport(), "reports", "source", "repo-01-structure.md")
-	writeFixtureFileContent(t, studyRoot, validFinalReport(), "reports", "final", "report.md")
+	writeFixtureFileContent(t, studyRoot, validSourceReport(), "reports", "source", "01-structure", "repo.md")
+	writeFixtureFileContent(t, studyRoot, validFinalReport(), "reports", "final", "01-structure.md")
 	return dir
 }
 
