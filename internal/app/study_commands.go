@@ -85,15 +85,11 @@ func runStudy(deps dependencies, args []string) error {
 			fmt.Fprintln(deps.stdout, "  (none)")
 		}
 		for _, source := range listing.Sources {
-			if source.Kind == study.SourceKindMarkdown {
-				applicability := "all"
-				if len(source.ApplicableDimensions) > 0 {
-					applicability = strings.Join(source.ApplicableDimensions, ",")
-				}
-				fmt.Fprintf(deps.stdout, "  %s %s %s\n", source.Name, source.Kind, applicability)
-				continue
+			applicability := "all"
+			if len(source.ApplicableDimensions) > 0 {
+				applicability = strings.Join(source.ApplicableDimensions, ",")
 			}
-			fmt.Fprintf(deps.stdout, "  %s %s\n", source.Name, source.Kind)
+			fmt.Fprintf(deps.stdout, "  %s %s %s\n", source.Name, source.Kind, applicability)
 		}
 		fmt.Fprintln(deps.stdout, "Dimensions:")
 		if len(listing.Dimensions) == 0 {

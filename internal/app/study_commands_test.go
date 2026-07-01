@@ -63,9 +63,9 @@ func TestStudyDetailListsSourcesDimensionsAndKind(t *testing.T) {
 		t.Fatalf("status = %d, stderr = %q stdout = %q", status, stderr, stdout)
 	}
 	assertContains(t, stdout, "Study: platform")
-	assertInOrder(t, stdout, "  alpha directory\n", "  document.md markdown all\n")
+	assertInOrder(t, stdout, "  alpha directory all\n", "  document.md markdown all\n")
 	assertInOrder(t, stdout, "  document.md markdown all\n", "  filtered.md markdown 01,02\n")
-	assertInOrder(t, stdout, "  filtered.md markdown 01,02\n", "  zeta directory\n")
+	assertInOrder(t, stdout, "  filtered.md markdown 01,02\n", "  zeta directory all\n")
 	assertInOrder(t, stdout, "  01 structure 01-structure.md\n", "  02 runtime 02-runtime.md\n")
 	assertNotContains(t, stdout, "ignored.md")
 	assertNotContains(t, stdout, "ignored.txt")

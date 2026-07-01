@@ -145,7 +145,7 @@ func buildAnalysisTasks(dimensions []Dimension, sources []Source) []analysisTask
 	var tasks []analysisTask
 	for _, dimension := range dimensions {
 		for _, source := range sources {
-			if source.Kind == SourceKindMarkdown && !SourceAppliesToDimension(source, dimension) {
+			if !SourceAppliesToDimension(source, dimension) {
 				continue
 			}
 			tasks = append(tasks, analysisTask{dimension: dimension, source: source})

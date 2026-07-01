@@ -17,6 +17,7 @@ type initYAML struct {
 		Count int          `yaml:"count"`
 		Items []sourceYAML `yaml:"items"`
 	} `yaml:"repos"`
+	Sources    []sourceYAML `yaml:"sources"`
 	Dimensions struct {
 		Count int             `yaml:"count"`
 		Items []dimensionYAML `yaml:"items"`
@@ -24,10 +25,11 @@ type initYAML struct {
 }
 
 type sourceYAML struct {
-	Name        string `yaml:"name"`
-	URL         string `yaml:"url"`
-	Path        string `yaml:"path"`
-	Description string `yaml:"description"`
+	Name                 string `yaml:"name"`
+	URL                  string `yaml:"url"`
+	Path                 string `yaml:"path"`
+	Description          string `yaml:"description"`
+	ApplicableDimensions any    `yaml:"applicable_dimensions"`
 }
 
 type dimensionYAML struct {
@@ -73,10 +75,11 @@ func (e InitValidationError) Error() string {
 func (e InitValidationError) Unwrap() error { return ErrInitValidation }
 
 type InitSource struct {
-	Name        string
-	URL         string
-	Path        string
-	Description string
+	Name                 string
+	URL                  string
+	Path                 string
+	Description          string
+	ApplicableDimensions []string
 }
 
 type InitDimension struct {
@@ -116,10 +119,16 @@ func normalizeInit(raw initYAML) (initDefinition, error) {
 	if raw.Name != "" && !isSafeName(raw.Name) {
 		addProblem(&problems, "validation.name", "name", "must be filesystem-safe")
 	}
-	if raw.Repos.Count < len(raw.Repos.Items) {
+	sourceItems := raw.Repos.Items
+	validateSourceCount := true
+	if len(sourceItems) == 0 && len(raw.Sources) > 0 {
+		sourceItems = raw.Sources
+		validateSourceCount = false
+	}
+	if validateSourceCount && raw.Repos.Count < len(sourceItems) {
 		addProblem(&problems, "validation.count", "repos.count", "cannot be less than explicit repos.items")
 	}
-	if raw.Repos.Count > len(raw.Repos.Items) {
+	if validateSourceCount && raw.Repos.Count > len(sourceItems) {
 		addProblem(&problems, "validation.count", "repos.count", "is greater than repos.items; assisted completion is deferred, provide explicit repo items")
 	}
 	if raw.Dimensions.Count < len(raw.Dimensions.Items) {
@@ -129,9 +138,9 @@ func normalizeInit(raw initYAML) (initDefinition, error) {
 		addProblem(&problems, "validation.count", "dimensions.count", "is greater than dimensions.items; assisted completion is deferred, provide explicit dimension items")
 	}
 
-	sources := make([]InitSource, 0, len(raw.Repos.Items))
+	sources := make([]InitSource, 0, len(sourceItems))
 	sourceNames := map[string]bool{}
-	for i, item := range raw.Repos.Items {
+	for i, item := range sourceItems {
 		prefix := fmt.Sprintf("repos.items[%d]", i)
 		requireField(&problems, prefix+".name", item.Name)
 		requireField(&problems, prefix+".description", item.Description)
@@ -147,8 +156,12 @@ func normalizeInit(raw initYAML) (initDefinition, error) {
 		if item.Name != "" && sourceNames[item.Name] {
 			addProblem(&problems, "validation.duplicate", prefix+".name", "duplicates source "+item.Name)
 		}
+		applicable, err := normalizeApplicableDimensions(item.ApplicableDimensions)
+		if err != nil {
+			addProblem(&problems, "validation.applicable_dimensions", prefix+".applicable_dimensions", err.Error())
+		}
 		sourceNames[item.Name] = true
-		sources = append(sources, InitSource{Name: item.Name, URL: item.URL, Path: item.Path, Description: item.Description})
+		sources = append(sources, InitSource{Name: item.Name, URL: item.URL, Path: item.Path, Description: item.Description, ApplicableDimensions: applicable})
 	}
 
 	dimensions := make([]InitDimension, 0, len(raw.Dimensions.Items))

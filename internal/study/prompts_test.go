@@ -50,6 +50,16 @@ func TestBuildDirectoryAnalysisPromptDisabledCitationWording(t *testing.T) {
 	assertContains(t, result.Text, "Code citation requirements are disabled")
 }
 
+func TestBuildDirectoryAnalysisPromptInapplicable(t *testing.T) {
+	root, st, dim, source := promptFixture(t)
+	source.ApplicableDimensions = []string{"02"}
+
+	_, err := BuildAnalysisPrompt(PromptRequest{WorkspaceRoot: root, Study: st, Dimension: dim, Source: source})
+	if !errors.Is(err, ErrPromptInapplicable) {
+		t.Fatalf("err = %v, want ErrPromptInapplicable", err)
+	}
+}
+
 func TestBuildMarkdownAnalysisPromptStripsFrontmatterAndDocumentOnly(t *testing.T) {
 	root, st, dim, _ := promptFixture(t)
 	source := Source{Name: "doc.md", Kind: SourceKindMarkdown, Path: filepath.Join(st.Path, "sources", "doc.md"), ApplicableDimensions: []string{"01"}}

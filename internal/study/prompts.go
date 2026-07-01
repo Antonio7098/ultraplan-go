@@ -14,8 +14,8 @@ import (
 var ErrPromptInapplicable = errors.New("prompt inapplicable")
 
 func BuildAnalysisPrompt(req PromptRequest) (PromptResult, error) {
-	if req.Source.Kind == SourceKindMarkdown && !SourceAppliesToDimension(req.Source, req.Dimension) {
-		return PromptResult{}, fmt.Errorf("%w: markdown source %q does not apply to dimension %s", ErrPromptInapplicable, req.Source.Name, req.Dimension.Ref())
+	if !SourceAppliesToDimension(req.Source, req.Dimension) {
+		return PromptResult{}, fmt.Errorf("%w: source %q does not apply to dimension %s", ErrPromptInapplicable, req.Source.Name, req.Dimension.Ref())
 	}
 	base, baseRel, err := readWorkspaceFile(req.WorkspaceRoot, "prompts/base.md")
 	if err != nil {
@@ -161,7 +161,7 @@ func buildMarkdownAnalysisPrompt(req PromptRequest, base, baseRel, dimension str
 }
 
 func SourceAppliesToDimension(source Source, dimension Dimension) bool {
-	if source.Kind == SourceKindDirectory || len(source.ApplicableDimensions) == 0 {
+	if len(source.ApplicableDimensions) == 0 {
 		return true
 	}
 	for _, applicable := range source.ApplicableDimensions {

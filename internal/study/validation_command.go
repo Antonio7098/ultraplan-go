@@ -68,7 +68,7 @@ func ValidateStudyArtifacts(listing StudyListing) StudyValidationResult {
 			addReport(ValidateSourceReport(listing.Study, source, dimension))
 		}
 		for _, source := range listing.Sources {
-			if source.Kind != SourceKindMarkdown || applicable[sourceKey(source.Name, source.Kind)] {
+			if applicable[sourceKey(source.Name, source.Kind)] {
 				continue
 			}
 			check := ValidationCheck{
@@ -78,7 +78,7 @@ func ValidateStudyArtifacts(listing StudyListing) StudyValidationResult {
 				Severity:   ValidationSeverityInfo,
 				Path:       source.Path,
 				Expected:   "source applies to dimension " + dimension.Ref(),
-				Observed:   "Markdown source declares dimension inapplicable",
+				Observed:   "source declares dimension inapplicable",
 				SourceKind: source.Kind,
 				Guidance:   "no report is required for this source and dimension",
 			}

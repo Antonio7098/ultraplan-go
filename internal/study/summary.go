@@ -49,7 +49,7 @@ func WriteSummary(study Study, dimensions []Dimension, sources []Source) (Summar
 		row := []string{source.Name}
 		total := 0
 		for _, dimension := range dimensions {
-			if source.Kind == SourceKindMarkdown && !SourceAppliesToDimension(source, dimension) {
+			if !SourceAppliesToDimension(source, dimension) {
 				row = append(row, "N/A")
 				continue
 			}

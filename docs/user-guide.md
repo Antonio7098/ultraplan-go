@@ -91,7 +91,7 @@ ultraplan study list
 ultraplan study <study> list
 ```
 
-Source listing reports directory sources and Markdown document sources. Markdown document sources can declare `applicable_dimensions` frontmatter; if present, UltraPlan skips non-matching dimensions instead of invoking the runtime.
+Source listing reports directory sources and Markdown document sources. Source entries can declare `applicable_dimensions` in `study-init.yml`, and Markdown document sources can also declare it in frontmatter; if present, UltraPlan skips non-matching dimensions instead of invoking the runtime.
 
 ## 7. Preview Prompts
 

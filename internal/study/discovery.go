@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
+	"gopkg.in/yaml.v3"
 )
 
 func DiscoverStudies(root string) ([]Study, error) {
@@ -41,17 +42,23 @@ func DiscoverSources(study Study) ([]Source, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read sources for study %q: %w", study.Name, err)
 	}
+	sourceMetadata, err := readSourceMetadata(study)
+	if err != nil {
+		return nil, err
+	}
 	var sources []Source
 	for _, entry := range entries {
 		if isHidden(entry.Name()) {
 			continue
 		}
 		sourcePath := filepath.Join(sourcesDir, entry.Name())
+		metadata := sourceMetadata[entry.Name()]
 		if entry.IsDir() {
 			sources = append(sources, Source{
-				Name: entry.Name(),
-				Kind: SourceKindDirectory,
-				Path: sourcePath,
+				Name:                 entry.Name(),
+				Kind:                 SourceKindDirectory,
+				Path:                 sourcePath,
+				ApplicableDimensions: metadata,
 			})
 			continue
 		}
@@ -70,7 +77,7 @@ func DiscoverSources(study Study) ([]Source, error) {
 			Name:                 entry.Name(),
 			Kind:                 SourceKindMarkdown,
 			Path:                 sourcePath,
-			ApplicableDimensions: applicable,
+			ApplicableDimensions: mergeApplicableDimensions(applicable, metadata),
 			Frontmatter:          frontmatter,
 		})
 	}
@@ -84,6 +91,49 @@ func DiscoverSources(study Study) ([]Source, error) {
 		return sources[i].Name < sources[j].Name
 	})
 	return sources, nil
+}
+
+func readSourceMetadata(study Study) (map[string][]string, error) {
+	path := filepath.Join(study.Path, "study-init.yml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read study metadata %s: %w", path, err)
+	}
+	var raw struct {
+		Repos struct {
+			Items []sourceYAML `yaml:"items"`
+		} `yaml:"repos"`
+		Sources []sourceYAML `yaml:"sources"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse study metadata %s: %w", path, err)
+	}
+	sourceItems := raw.Repos.Items
+	if len(sourceItems) == 0 && len(raw.Sources) > 0 {
+		sourceItems = raw.Sources
+	}
+	metadata := make(map[string][]string, len(sourceItems))
+	for i, item := range sourceItems {
+		if item.Name == "" || item.ApplicableDimensions == nil {
+			continue
+		}
+		applicable, err := normalizeApplicableDimensions(item.ApplicableDimensions)
+		if err != nil {
+			return nil, fmt.Errorf("parse study metadata %s repos.items[%d].applicable_dimensions: %w", path, i, err)
+		}
+		metadata[item.Name] = applicable
+	}
+	return metadata, nil
+}
+
+func mergeApplicableDimensions(primary, fallback []string) []string {
+	if len(primary) > 0 {
+		return primary
+	}
+	return fallback
 }
 
 func DiscoverDimensions(study Study) ([]Dimension, error) {

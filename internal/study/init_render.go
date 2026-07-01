@@ -19,6 +19,9 @@ func renderNormalizedYAML(def initDefinition) string {
 			fmt.Fprintf(&b, "      path: %s\n", yamlQuote(source.Path))
 		}
 		fmt.Fprintf(&b, "      description: %s\n", yamlQuote(source.Description))
+		if len(source.ApplicableDimensions) > 0 {
+			writeYAMLList(&b, "applicable_dimensions", source.ApplicableDimensions)
+		}
 	}
 	fmt.Fprintf(&b, "dimensions:\n  count: %d\n  items:\n", len(def.Dimensions))
 	for _, dim := range def.Dimensions {

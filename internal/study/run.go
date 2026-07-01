@@ -32,9 +32,9 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 		Source:     source,
 		OutputPath: SourceReportPath(listing.Study, source, dimension),
 	}
-	if source.Kind == SourceKindMarkdown && !SourceAppliesToDimension(source, dimension) {
+	if !SourceAppliesToDimension(source, dimension) {
 		result.Status = ExecutionStatusSkipped
-		result.SkippedReason = fmt.Sprintf("markdown source %q does not apply to dimension %s", source.Name, dimension.Ref())
+		result.SkippedReason = fmt.Sprintf("source %q does not apply to dimension %s", source.Name, dimension.Ref())
 		return result, nil
 	}
 	prompt, err := BuildAnalysisPrompt(PromptRequest{WorkspaceRoot: s.workspaceRoot, Study: listing.Study, Dimension: dimension, Source: source})

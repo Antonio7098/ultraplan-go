@@ -49,6 +49,18 @@ func TestInitCreatesArtifactsAndSkipsClones(t *testing.T) {
 	assertFileContains(t, root, "studies/go-cli-study/dimensions/01-project-structure.md", "## Citations")
 }
 
+func TestInitPreservesSourceApplicableDimensions(t *testing.T) {
+	root := t.TempDir()
+	input := writeInitYAML(t, root, replace(validInitYAML(), "description: Example repository", "description: Example repository\n      applicable_dimensions: [2, \"01\"]"))
+
+	if _, err := Init(InitRequest{WorkspaceRoot: root, InputPath: input, NoClone: true}); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContains(t, root, "studies/go-cli-study/study-init.yml", "applicable_dimensions:")
+	assertFileContains(t, root, "studies/go-cli-study/study-init.yml", `        - "01"`)
+	assertFileContains(t, root, "studies/go-cli-study/study-init.yml", `        - "02"`)
+}
+
 func TestInitCloneRunnerArgsAndPartialFailure(t *testing.T) {
 	root := t.TempDir()
 	input := writeInitYAML(t, root, validInitYAML())
@@ -84,6 +96,7 @@ func TestInitValidationFailuresAreActionable(t *testing.T) {
 		{name: "duplicate source", yaml: replace(validInitYAML(), "name: guide", "name: example"), want: "duplicates source"},
 		{name: "duplicate dimension slug", yaml: validInitYAML() + dimensionItemYAML("02", "Project Structure"), want: "duplicates dimension slug"},
 		{name: "unsafe source path", yaml: replace(validInitYAML(), "path: sources/guide.md", "path: ../guide.md"), want: "safe relative path"},
+		{name: "invalid source applicability", yaml: replace(validInitYAML(), "description: Example repository", "description: Example repository\n      applicable_dimensions: [bad]"), want: "invalid applicable dimension"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
