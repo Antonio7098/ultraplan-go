@@ -182,7 +182,7 @@ func containsSection(content string, needles ...string) bool {
 }
 
 func citationShapeValid(content string) bool {
-	return regexp.MustCompile(`\b[a-zA-Z0-9_.\-/]+\.(?:go|md|txt):\d+(?:-\d+)?\b`).FindString(content) != ""
+	return regexp.MustCompile(`\b[a-zA-Z0-9_.\-/]+\.[A-Za-z0-9]+:\d+(?:-\d+)?\b`).FindString(content) != ""
 }
 
 func validationErrorSummary(err error) string {

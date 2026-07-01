@@ -42,6 +42,49 @@ code.go:42
 	}
 }
 
+func TestValidateSourceReportAcceptsCommonCodeCitationExtensions(t *testing.T) {
+	root := t.TempDir()
+	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
+	source := Source{Name: "repo", Kind: SourceKindDirectory}
+
+	for _, tc := range []struct {
+		name     string
+		citation string
+	}{
+		{name: "python", citation: "lib/crewai/src/crewai/flow/runtime/__init__.py:2984"},
+		{name: "typescript", citation: "packages/core/src/runtime.ts:41-53"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dim := Dimension{Number: "01-" + tc.name, Slug: "structure"}
+			reportPath := SourceReportPath(study, source, dim)
+			writeReport(t, reportPath, `# Report
+
+## Source Information
+
+## Summary
+
+## Rating
+
+Rating: 8
+
+## Questions and Answers
+
+- Q: one?
+  A: answer
+
+`+tc.citation+`
+`)
+			res := ValidateSourceReport(study, source, dim)
+			if res.Status != ValidationStatusPassed {
+				t.Fatalf("Status = %q, want passed: %+v", res.Status, res)
+			}
+			if !hasCheck(res.Checks, "citation.shape", ValidationStatusPassed) {
+				t.Fatalf("missing passed citation check: %+v", res.Checks)
+			}
+		})
+	}
+}
+
 func TestValidateSourceReportFailures(t *testing.T) {
 	root := t.TempDir()
 	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
