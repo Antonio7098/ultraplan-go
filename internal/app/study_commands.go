@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -159,6 +160,7 @@ type runAllFlags struct {
 	parallelism *int
 	forceUnlock bool
 	continueRun bool
+	yes         bool
 }
 
 func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, args []string) error {
@@ -169,6 +171,11 @@ func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, ar
 	flags, err := parseRunLoopArgs(args)
 	if err != nil {
 		return classified(ExitUsage, "study run-loop: %w", err)
+	}
+	if !flags.continueRun {
+		if err := confirmRunLoopReplacement(deps, root.Path, studyRef, flags); err != nil {
+			return err
+		}
 	}
 	service, parallelism, summary, err := runLoopService(deps, root, flags)
 	if err != nil {
@@ -197,6 +204,7 @@ func parseRunLoopArgs(args []string) (runAllFlags, error) {
 	var filtered []string
 	forceUnlock := false
 	continueRun := false
+	yes := false
 	for _, arg := range args {
 		if arg == "--force-unlock" {
 			forceUnlock = true
@@ -206,15 +214,62 @@ func parseRunLoopArgs(args []string) (runAllFlags, error) {
 			continueRun = true
 			continue
 		}
+		if arg == "--yes" || arg == "-y" {
+			yes = true
+			continue
+		}
 		filtered = append(filtered, arg)
 	}
-	flags, err := parseRunAllArgs(filtered)
+	parsed, err := parseRunAllArgs(filtered)
 	if err != nil {
-		return flags, err
+		return parsed, err
 	}
-	flags.forceUnlock = forceUnlock
-	flags.continueRun = continueRun
-	return flags, nil
+	parsed.forceUnlock = forceUnlock
+	parsed.continueRun = continueRun
+	parsed.yes = yes
+	return parsed, nil
+}
+
+func confirmRunLoopReplacement(deps dependencies, root string, studyRef string, flags runAllFlags) error {
+	service := study.NewService(root)
+	listing, err := service.ListStudy(studyRef)
+	if err != nil {
+		return mapStudyError(err)
+	}
+	path := study.RunStatePath(listing.Study)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return classified(ExitWorkspace, "study.run-loop: inspect existing run-state: %w", err)
+	}
+	if flags.yes {
+		return nil
+	}
+	state, stateErr := study.LoadRunState(listing.Study)
+	fmt.Fprintln(deps.stdout, "An existing study run-state is present and would be archived/replaced.")
+	fmt.Fprintf(deps.stdout, "Run state: %s\n", workspace.Rel(root, path))
+	if stateErr == nil {
+		counts := study.SummarizeRunState(state, path)
+		fmt.Fprintf(deps.stdout, "Run ID: %s\n", state.RunID)
+		fmt.Fprintf(deps.stdout, "Tasks: %d completed, %d failed, %d cancelled, %d pending/running/waiting\n", counts.Completed, counts.Failed, counts.Cancelled, counts.Pending+counts.Running+counts.Validating+counts.Waiting+counts.Retrying)
+	} else {
+		fmt.Fprintf(deps.stdout, "Could not summarize current run-state: %v\n", stateErr)
+	}
+	fmt.Fprintln(deps.stdout, "Use --continue to resume the existing run-state instead.")
+	fmt.Fprint(deps.stdout, "Archive and replace the existing run-state? Type yes to replace: ")
+	answer, err := bufio.NewReader(deps.stdin).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return classified(ExitPartial, "study.run-loop: read replacement confirmation: %w", err)
+	}
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "yes", "y":
+		fmt.Fprintln(deps.stdout, "Replacing existing run-state.")
+		return nil
+	default:
+		fmt.Fprintln(deps.stdout, "Keeping existing run-state. Re-run with --continue to resume it, or --yes to replace without prompting.")
+		return classified(ExitPartial, "study.run-loop: replacement not confirmed")
+	}
 }
 
 func runLoopService(deps dependencies, root workspace.Root, flags runAllFlags) (study.Service, int, study.ConfigSummary, error) {
@@ -392,7 +447,7 @@ func studyRunLoopHelp() string {
 	return `ultraplan study <study> run-loop
 
 Usage:
-  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock] [--continue]
+  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock] [--continue] [--yes]
 
 Flags:
   --dimension <ref>   Limit execution to one dimension. Repeatable. Preserved in new durable state.
@@ -400,8 +455,9 @@ Flags:
   --parallel <n>      Override configured default parallelism. Must be at least 1.
   --force-unlock      Remove this study's existing run-loop lock before starting.
   --continue          Resume and revalidate the existing durable run-state instead of replacing it.
+  --yes, -y           Replace an existing run-state without prompting. Has no effect with --continue.
 
-By default, run-loop archives any existing run-state and starts a fresh durable run for the selected filters. Use --continue to resume the current run-state. The run-loop persists studies/<study>/.ultraplan/run-state.json after each meaningful task transition, appends run history to studies/<study>/.ultraplan/runs/tasks.jsonl, refreshes studies/<study>/.ultraplan/runs/summary.md, cancels through the runtime boundary on interrupt, and refuses concurrent runs unless --force-unlock is used.
+By default, run-loop asks before archiving any existing run-state and starting a fresh durable run for the selected filters. Use --continue to resume the current run-state. The run-loop persists studies/<study>/.ultraplan/run-state.json after each meaningful task transition, appends run history to studies/<study>/.ultraplan/runs/tasks.jsonl, refreshes studies/<study>/.ultraplan/runs/summary.md, cancels through the runtime boundary on interrupt, and refuses concurrent runs unless --force-unlock is used.
 `
 }
 

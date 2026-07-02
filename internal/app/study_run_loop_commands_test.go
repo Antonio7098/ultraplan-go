@@ -130,6 +130,55 @@ func TestStudyRunLoopCommandLockConflictForceUnlockAndStatusMetadata(t *testing.
 	assertContains(t, stdout, "omitted: events.event-1.raw")
 }
 
+func TestStudyRunLoopCommandConfirmsBeforeReplacingExistingState(t *testing.T) {
+	dir, studyRoot := promptCommandFixture(t)
+	fake := &commandFakeRuntime{write: validCommandSourceReport, result: runtimepkg.Result{RunID: "fake-run", Status: "completed"}}
+	restore := stubStudyRuntime(t, fake)
+	defer restore()
+
+	stdout, stderr, status := runForTest([]string{"--workspace", dir, "study", "demo", "run-loop", "--dimension", "01", "--source", "repo", "--parallel", "1"})
+	if status != ExitOK {
+		t.Fatalf("initial status = %d stdout = %q stderr = %q", status, stdout, stderr)
+	}
+	initialCalls := fake.calls
+	loaded, err := study.LoadRunState(study.Study{Name: "demo", Path: studyRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialTaskCount := len(loaded.Tasks)
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "study", "demo", "run-loop", "--dimension", "01", "--source", "doc.md", "--parallel", "1"})
+	if status != ExitPartial {
+		t.Fatalf("unconfirmed status = %d stdout = %q stderr = %q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "An existing study run-state is present")
+	assertContains(t, stdout, "Use --continue to resume")
+	assertContains(t, stderr, "replacement not confirmed")
+	if fake.calls != initialCalls {
+		t.Fatalf("runtime calls after unconfirmed replace = %d, want %d", fake.calls, initialCalls)
+	}
+	loaded, err = study.LoadRunState(study.Study{Name: "demo", Path: studyRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Tasks) != initialTaskCount || loaded.Tasks[0].Source != "repo" {
+		t.Fatalf("state changed without confirmation: %#v", loaded.Tasks)
+	}
+
+	stdout, stderr, status = runForTestWithInput([]string{"--workspace", dir, "study", "demo", "run-loop", "--dimension", "01", "--source", "doc.md", "--parallel", "1"}, nil, "yes\n")
+	if status != ExitOK {
+		t.Fatalf("confirmed status = %d stdout = %q stderr = %q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Replacing existing run-state.")
+	loaded, err = study.LoadRunState(study.Study{Name: "demo", Path: studyRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Tasks) != 2 || loaded.Tasks[0].Source != "doc.md" {
+		t.Fatalf("state was not replaced after confirmation: %#v", loaded.Tasks)
+	}
+}
+
 func TestStudyRunLoopCommandCancellationExit(t *testing.T) {
 	dir, _ := promptCommandFixture(t)
 	fake := &commandFakeRuntime{
