@@ -36,7 +36,7 @@ ultraplan study <study> run-loop --dimension <dimension> --source <source> --par
 ## Expected Artifacts
 
 - per-source report under the study reports tree.
-- final report for the selected dimension.
+- final report for the selected dimension when the selected scope includes synthesis and all applicable source reports are complete.
 - `studies/<study>/summary.csv`.
 - `studies/<study>/.ultraplan/run-state.json` when `run-loop` is used.
 - validation passes after the run.

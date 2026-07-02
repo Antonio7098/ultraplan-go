@@ -38,22 +38,20 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 	}()
 
-	dimensions, err := resolveDimensions(listing.Dimensions, req.DimensionRefs)
+	scopeDimensions, err := resolveDimensions(listing.Dimensions, req.DimensionRefs)
 	if err != nil {
 		return RunLoopResult{}, err
 	}
-	sources, err := resolveSources(listing.Sources, req.SourceRefs)
+	scopeSources, err := resolveSources(listing.Sources, req.SourceRefs)
 	if err != nil {
 		return RunLoopResult{}, err
 	}
 
-	state, err := loadOrCreateRunLoopState(req, listing.Study, sources, dimensions, s.workspaceRoot)
+	state, err := loadOrCreateRunLoopState(req, listing.Study, listing.Sources, listing.Dimensions, s.workspaceRoot)
 	if err != nil {
 		return RunLoopResult{}, err
 	}
-	if req.Continue {
-		ResumeValidateRunState(&state, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
-	}
+	ResumeValidateRunState(&state, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
 	if err := SaveRunState(listing.Study, state); err != nil {
 		return RunLoopResult{}, err
 	}
@@ -71,13 +69,14 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	for i, task := range state.Tasks {
 		taskIndex[task.ID] = i
 	}
+	scope := runLoopScope(listing.Study, listing.Sources, scopeSources, scopeDimensions, len(req.SourceRefs) > 0)
 
 	var mu sync.Mutex
 	emit := func(event RunLoopProgressEvent, task TaskState) {
 		if req.Progress == nil {
 			return
 		}
-		req.Progress(RunLoopProgress{Event: event, Task: task, Counts: SummarizeRunState(state, result.StatePath)})
+		req.Progress(RunLoopProgress{Event: event, Task: task, Counts: SummarizeRunState(state, result.StatePath), ScopeCounts: SummarizeRunState(filterRunState(state, scope), result.StatePath)})
 	}
 	emitTask := func(event RunLoopProgressEvent, id string) {
 		if req.Progress == nil {
@@ -89,7 +88,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		if !ok {
 			return
 		}
-		req.Progress(RunLoopProgress{Event: event, Task: state.Tasks[idx], Counts: SummarizeRunState(state, result.StatePath)})
+		req.Progress(RunLoopProgress{Event: event, Task: state.Tasks[idx], Counts: SummarizeRunState(state, result.StatePath), ScopeCounts: SummarizeRunState(filterRunState(state, scope), result.StatePath)})
 	}
 	emitRuntime := func(id string, event runtimeEvent) {
 		if req.Progress == nil || !interestingRuntimeEvent(event.Kind) {
@@ -101,7 +100,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		if !ok {
 			return
 		}
-		req.Progress(RunLoopProgress{Event: RunLoopProgressRuntime, Task: state.Tasks[idx], Counts: SummarizeRunState(state, result.StatePath), RuntimeEvent: &event})
+		req.Progress(RunLoopProgress{Event: RunLoopProgressRuntime, Task: state.Tasks[idx], Counts: SummarizeRunState(state, result.StatePath), ScopeCounts: SummarizeRunState(filterRunState(state, scope), result.StatePath), RuntimeEvent: &event})
 	}
 	save := func() error {
 		mu.Lock()
@@ -200,7 +199,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 				res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
 			}
 		case TaskKindSynthesis:
-			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(sources), OnEvent: func(event runtimeEvent) {
+			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {
@@ -217,15 +216,15 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	for ctx.Err() == nil {
 		mu.Lock()
 		now := time.Now().UTC()
-		ids := runnableTaskIDs(state, attempted, req.Parallelism, now)
-		nextRetry := nextRetryAfter(state, now)
+		ids := runnableTaskIDs(state, scope, attempted, req.Parallelism, now)
+		nextRetry := nextRetryAfter(state, scope, now)
 		mu.Unlock()
 		if len(ids) == 0 {
 			if nextRetry == nil {
 				break
 			}
 			waitUntilRetry(ctx, *nextRetry, func() {
-				emitRetryWait(state, result.StatePath, req.Progress)
+				emitRetryWait(state, scope, result.StatePath, req.Progress)
 			})
 			continue
 		}
@@ -255,7 +254,8 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	}
 	result.State = state
 	result.Counts = runLoopCounts(state)
-	result.Status = runLoopStatus(state, result.Counts, ctx.Err() != nil)
+	result.ScopeCounts = runLoopCounts(filterRunState(state, scope))
+	result.Status = runLoopStatus(filterRunState(state, scope), result.ScopeCounts, ctx.Err() != nil)
 	return result, nil
 }
 
@@ -281,20 +281,23 @@ func waitUntilRetry(ctx context.Context, retryAt time.Time, emit func()) {
 	}
 }
 
-func emitRetryWait(state RunState, statePath string, progress func(RunLoopProgress)) {
+func emitRetryWait(state RunState, scope map[string]bool, statePath string, progress func(RunLoopProgress)) {
 	if progress == nil {
 		return
 	}
 	for _, task := range state.Tasks {
+		if !scope[task.ID] {
+			continue
+		}
 		if task.Status == TaskStatusRetrying && task.RetryAfter != nil && task.RetryAfter.After(time.Now().UTC()) {
-			progress(RunLoopProgress{Event: RunLoopProgressWaiting, Task: task, Counts: SummarizeRunState(state, statePath)})
+			progress(RunLoopProgress{Event: RunLoopProgressWaiting, Task: task, Counts: SummarizeRunState(state, statePath), ScopeCounts: SummarizeRunState(filterRunState(state, scope), statePath)})
 			return
 		}
 	}
 }
 
 func loadOrCreateRunLoopState(req RunLoopRequest, study Study, sources []Source, dimensions []Dimension, workspaceRoot string) (RunState, error) {
-	if req.Continue {
+	if !req.Reset {
 		state, err := LoadRunState(study)
 		if err == nil {
 			return state, nil
@@ -311,7 +314,7 @@ func loadOrCreateRunLoopState(req RunLoopRequest, study Study, sources []Source,
 		Study:         study,
 		Sources:       sources,
 		Dimensions:    dimensions,
-		Filters:       RunFilters{Dimensions: append([]string(nil), req.DimensionRefs...), Sources: append([]string(nil), req.SourceRefs...)},
+		Filters:       RunFilters{},
 		Config:        req.Config,
 	})
 }
@@ -357,7 +360,7 @@ func interestingRuntimeEvent(kind string) bool {
 	}
 }
 
-func runnableTaskIDs(state RunState, attempted map[string]bool, limit int, now time.Time) []string {
+func runnableTaskIDs(state RunState, scope map[string]bool, attempted map[string]bool, limit int, now time.Time) []string {
 	if limit < 1 {
 		limit = 1
 	}
@@ -370,6 +373,9 @@ func runnableTaskIDs(state RunState, attempted map[string]bool, limit int, now t
 		if len(ids) >= limit {
 			return ids
 		}
+		if !scope[task.ID] {
+			continue
+		}
 		if taskAttemptBlocked(task, attempted) || task.Kind != TaskKindSynthesis || !taskRunnable(task, now) {
 			continue
 		}
@@ -381,12 +387,51 @@ func runnableTaskIDs(state RunState, attempted map[string]bool, limit int, now t
 		if len(ids) >= limit {
 			return ids
 		}
+		if !scope[task.ID] {
+			continue
+		}
 		if taskAttemptBlocked(task, attempted) || task.Kind != TaskKindAnalysis || !taskRunnable(task, now) {
 			continue
 		}
 		ids = append(ids, task.ID)
 	}
 	return ids
+}
+
+func runLoopScope(study Study, allSources []Source, scopeSources []Source, dimensions []Dimension, sourceFiltered bool) map[string]bool {
+	scope := map[string]bool{}
+	for _, dimension := range dimensions {
+		applicable := GetApplicableSources(scopeSources, dimension)
+		if len(applicable) == 0 {
+			continue
+		}
+		for _, source := range applicable {
+			scope[analysisTaskID(study, dimension, source)] = true
+		}
+		allApplicable := GetApplicableSources(allSources, dimension)
+		if !sourceFiltered || len(applicable) == len(allApplicable) {
+			scope[synthesisTaskID(study, dimension)] = true
+		}
+	}
+	return scope
+}
+
+func filterRunState(state RunState, scope map[string]bool) RunState {
+	if len(scope) == 0 {
+		out := state
+		out.Tasks = nil
+		out.Complete = true
+		return out
+	}
+	out := state
+	out.Tasks = make([]TaskState, 0, len(state.Tasks))
+	for _, task := range state.Tasks {
+		if scope[task.ID] {
+			out.Tasks = append(out.Tasks, task)
+		}
+	}
+	out.Complete = allTasksComplete(out)
+	return out
 }
 
 func taskAttemptBlocked(task TaskState, attempted map[string]bool) bool {
@@ -407,9 +452,12 @@ func taskRunnable(task TaskState, now time.Time) bool {
 	}
 }
 
-func nextRetryAfter(state RunState, now time.Time) *time.Time {
+func nextRetryAfter(state RunState, scope map[string]bool, now time.Time) *time.Time {
 	var next *time.Time
 	for _, task := range state.Tasks {
+		if !scope[task.ID] {
+			continue
+		}
 		if task.Status != TaskStatusRetrying || task.RetryAfter == nil || !task.RetryAfter.After(now) {
 			continue
 		}

@@ -87,15 +87,15 @@ func TestRunLoopWritesRunHistoryAndSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 2 {
-		t.Fatalf("records = %d, want analysis + synthesis", len(records))
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want filtered analysis only", len(records))
 	}
 	content, err := os.ReadFile(RunHistorySummaryPath(st))
 	if err != nil {
 		t.Fatal(err)
 	}
 	summary := string(content)
-	for _, want := range []string{"# Study Run Summary", "## Dimensions", "01-structure", "repo", "No remaining tasks"} {
+	for _, want := range []string{"# Study Run Summary", "## Dimensions", "01-structure", "repo"} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary missing %q:\n%s", want, summary)
 		}

@@ -104,6 +104,7 @@ type RunLoopRequest struct {
 	Command       []string
 	ForceUnlock   bool
 	Continue      bool
+	Reset         bool
 	Progress      func(RunLoopProgress)
 }
 
@@ -115,6 +116,7 @@ type RunLoopResult struct {
 	StatePath   string
 	LockPath    string
 	Counts      RunAllCounts
+	ScopeCounts RunAllCounts
 	Warnings    []RunAllWarning
 }
 
@@ -122,6 +124,7 @@ type RunLoopProgress struct {
 	Event        RunLoopProgressEvent
 	Task         TaskState
 	Counts       StatusSummary
+	ScopeCounts  StatusSummary
 	RuntimeEvent *runtimepkg.Event
 }
 

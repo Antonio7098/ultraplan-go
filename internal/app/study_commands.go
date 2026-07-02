@@ -160,6 +160,7 @@ type runAllFlags struct {
 	parallelism *int
 	forceUnlock bool
 	continueRun bool
+	reset       bool
 	yes         bool
 }
 
@@ -172,7 +173,7 @@ func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, ar
 	if err != nil {
 		return classified(ExitUsage, "study run-loop: %w", err)
 	}
-	if !flags.continueRun {
+	if flags.reset {
 		if err := confirmRunLoopReplacement(deps, root.Path, studyRef, flags); err != nil {
 			return err
 		}
@@ -191,6 +192,7 @@ func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, ar
 		Command:       command,
 		ForceUnlock:   flags.forceUnlock,
 		Continue:      flags.continueRun,
+		Reset:         flags.reset,
 		Progress:      renderRunLoopProgress(deps, root.Path),
 	})
 	if err != nil {
@@ -204,6 +206,7 @@ func parseRunLoopArgs(args []string) (runAllFlags, error) {
 	var filtered []string
 	forceUnlock := false
 	continueRun := false
+	reset := false
 	yes := false
 	for _, arg := range args {
 		if arg == "--force-unlock" {
@@ -212,6 +215,10 @@ func parseRunLoopArgs(args []string) (runAllFlags, error) {
 		}
 		if arg == "--continue" {
 			continueRun = true
+			continue
+		}
+		if arg == "--reset" {
+			reset = true
 			continue
 		}
 		if arg == "--yes" || arg == "-y" {
@@ -226,6 +233,7 @@ func parseRunLoopArgs(args []string) (runAllFlags, error) {
 	}
 	parsed.forceUnlock = forceUnlock
 	parsed.continueRun = continueRun
+	parsed.reset = reset
 	parsed.yes = yes
 	return parsed, nil
 }
@@ -247,27 +255,26 @@ func confirmRunLoopReplacement(deps dependencies, root string, studyRef string, 
 		return nil
 	}
 	state, stateErr := study.LoadRunState(listing.Study)
-	fmt.Fprintln(deps.stdout, "An existing study run-state is present and would be archived/replaced.")
-	fmt.Fprintf(deps.stdout, "Run state: %s\n", workspace.Rel(root, path))
+	fmt.Fprintln(deps.stdout, "Existing study progress is present and would be archived/replaced.")
+	fmt.Fprintf(deps.stdout, "Study progress state: %s\n", workspace.Rel(root, path))
 	if stateErr == nil {
 		counts := study.SummarizeRunState(state, path)
-		fmt.Fprintf(deps.stdout, "Run ID: %s\n", state.RunID)
 		fmt.Fprintf(deps.stdout, "Tasks: %d completed, %d failed, %d cancelled, %d pending/running/waiting\n", counts.Completed, counts.Failed, counts.Cancelled, counts.Pending+counts.Running+counts.Validating+counts.Waiting+counts.Retrying)
 	} else {
-		fmt.Fprintf(deps.stdout, "Could not summarize current run-state: %v\n", stateErr)
+		fmt.Fprintf(deps.stdout, "Could not summarize current study progress: %v\n", stateErr)
 	}
-	fmt.Fprintln(deps.stdout, "Use --continue to resume the existing run-state instead.")
-	fmt.Fprint(deps.stdout, "Archive and replace the existing run-state? Type yes to replace: ")
+	fmt.Fprintln(deps.stdout, "Omit --reset to resume existing study progress instead.")
+	fmt.Fprint(deps.stdout, "Archive and replace existing study progress? Type yes to replace: ")
 	answer, err := bufio.NewReader(deps.stdin).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return classified(ExitPartial, "study.run-loop: read replacement confirmation: %w", err)
 	}
 	switch strings.ToLower(strings.TrimSpace(answer)) {
 	case "yes", "y":
-		fmt.Fprintln(deps.stdout, "Replacing existing run-state.")
+		fmt.Fprintln(deps.stdout, "Replacing existing study progress.")
 		return nil
 	default:
-		fmt.Fprintln(deps.stdout, "Keeping existing run-state. Re-run with --continue to resume it, or --yes to replace without prompting.")
+		fmt.Fprintln(deps.stdout, "Keeping existing study progress. Re-run without --reset to resume it, or use --reset --yes to replace without prompting.")
 		return classified(ExitPartial, "study.run-loop: replacement not confirmed")
 	}
 }
@@ -316,16 +323,22 @@ func mapStudyRunLoopError(err error) error {
 }
 
 func renderRunLoopResult(deps dependencies, root string, result study.RunLoopResult) {
-	fmt.Fprintf(deps.stdout, "Run-loop: %s\n", result.Status)
+	fmt.Fprintf(deps.stdout, "Study progress: %s\n", result.Status)
 	fmt.Fprintf(deps.stdout, "Study: %s\n", result.Study.Name)
 	fmt.Fprintf(deps.stdout, "Parallelism: %d\n", result.Parallelism)
-	fmt.Fprintf(deps.stdout, "Run state: %s\n", workspace.Rel(root, result.StatePath))
-	fmt.Fprintf(deps.stdout, "Run summary: %s\n", workspace.Rel(root, study.RunHistorySummaryPath(result.Study)))
+	fmt.Fprintf(deps.stdout, "Study progress state: %s\n", workspace.Rel(root, result.StatePath))
+	fmt.Fprintf(deps.stdout, "Study progress summary: %s\n", workspace.Rel(root, study.RunHistorySummaryPath(result.Study)))
 	fmt.Fprintf(deps.stdout, "Lock: %s\n", workspace.Rel(root, result.LockPath))
-	fmt.Fprintf(deps.stdout, "Completed: %d\n", result.Counts.Completed)
-	fmt.Fprintf(deps.stdout, "Failed: %d\n", result.Counts.Failed)
-	fmt.Fprintf(deps.stdout, "Skipped: %d\n", result.Counts.Skipped)
-	fmt.Fprintf(deps.stdout, "Pending: %d\n", result.Counts.Pending)
+	fmt.Fprintf(deps.stdout, "Study completed: %d\n", result.Counts.Completed)
+	fmt.Fprintf(deps.stdout, "Study failed: %d\n", result.Counts.Failed)
+	fmt.Fprintf(deps.stdout, "Study skipped: %d\n", result.Counts.Skipped)
+	fmt.Fprintf(deps.stdout, "Study pending: %d\n", result.Counts.Pending)
+	if result.ScopeCounts != result.Counts {
+		fmt.Fprintf(deps.stdout, "Scope completed: %d\n", result.ScopeCounts.Completed)
+		fmt.Fprintf(deps.stdout, "Scope failed: %d\n", result.ScopeCounts.Failed)
+		fmt.Fprintf(deps.stdout, "Scope skipped: %d\n", result.ScopeCounts.Skipped)
+		fmt.Fprintf(deps.stdout, "Scope pending: %d\n", result.ScopeCounts.Pending)
+	}
 	for _, task := range result.State.Tasks {
 		if task.Status == study.TaskStatusCompleted {
 			continue
@@ -345,13 +358,14 @@ func renderRunLoopProgress(deps dependencies, root string) func(study.RunLoopPro
 	return func(progress study.RunLoopProgress) {
 		task := progress.Task
 		counts := progress.Counts
+		scope := progress.ScopeCounts
 		if progress.Event == study.RunLoopProgressRuntime && progress.RuntimeEvent != nil {
 			fmt.Fprintf(deps.stdout, "[run-loop] runtime  %-9s %s", task.Kind, task.DimensionRef)
 			if task.Source != "" {
 				fmt.Fprintf(deps.stdout, " %s", task.Source)
 			}
 			fmt.Fprintf(deps.stdout, " | %s", runtimeProgressSummary(*progress.RuntimeEvent))
-			fmt.Fprintf(deps.stdout, " | done %d/%d active %d pending %d retrying %d failed %d\n", counts.Completed, counts.Total, counts.Active, counts.Pending, counts.Retrying, counts.Failed+counts.Cancelled)
+			fmt.Fprintf(deps.stdout, " | scope done %d/%d study done %d/%d active %d pending %d retrying %d failed %d\n", scope.Completed, scope.Total, counts.Completed, counts.Total, counts.Active, counts.Pending, counts.Retrying, counts.Failed+counts.Cancelled)
 			return
 		}
 		fmt.Fprintf(deps.stdout, "[run-loop] %-9s %-9s %s", progress.Event, task.Kind, task.DimensionRef)
@@ -361,7 +375,7 @@ func renderRunLoopProgress(deps dependencies, root string) func(study.RunLoopPro
 		if task.OutputPath != "" {
 			fmt.Fprintf(deps.stdout, " -> %s", runLoopProgressPath(root, task.OutputPath))
 		}
-		fmt.Fprintf(deps.stdout, " | done %d/%d active %d pending %d failed %d\n", counts.Completed, counts.Total, counts.Active, counts.Pending, counts.Failed+counts.Cancelled)
+		fmt.Fprintf(deps.stdout, " | scope done %d/%d study done %d/%d active %d pending %d failed %d\n", scope.Completed, scope.Total, counts.Completed, counts.Total, counts.Active, counts.Pending, counts.Failed+counts.Cancelled)
 		if task.LastError != nil {
 			fmt.Fprintf(deps.stdout, "[run-loop] error     %s: %s\n", task.ID, config.RedactValue("task.error", task.LastError.Message))
 		}
@@ -480,17 +494,18 @@ func studyRunLoopHelp() string {
 	return `ultraplan study <study> run-loop
 
 Usage:
-  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock] [--continue] [--yes]
+  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock] [--reset] [--yes]
 
 Flags:
-  --dimension <ref>   Limit execution to one dimension. Repeatable. Preserved in new durable state.
-  --source <ref>      Limit execution to one source. Repeatable. Preserved in new durable state.
+  --dimension <ref>   Advance only this dimension in the shared study progress. Repeatable.
+  --source <ref>      Advance only this source in the shared study progress. Repeatable.
   --parallel <n>      Override configured default parallelism. Must be at least 1.
   --force-unlock      Remove this study's existing run-loop lock before starting.
-  --continue          Resume and revalidate the existing durable run-state instead of replacing it.
-  --yes, -y           Replace an existing run-state without prompting. Has no effect with --continue.
+  --continue          Deprecated compatibility no-op; continuing is the default.
+  --reset             Archive existing study progress and rebuild it from the current study graph.
+  --yes, -y           Replace existing study progress without prompting. Only applies with --reset.
 
-By default, run-loop asks before archiving any existing run-state and starting a fresh durable run for the selected filters. Use --continue to resume the current run-state. The run-loop persists studies/<study>/.ultraplan/run-state.json after each meaningful task transition, appends run history to studies/<study>/.ultraplan/runs/tasks.jsonl, refreshes studies/<study>/.ultraplan/runs/summary.md, cancels through the runtime boundary on interrupt, and refuses concurrent runs unless --force-unlock is used.
+By default, run-loop resumes shared study progress and filters only choose which slice is eligible to advance. The run-loop persists studies/<study>/.ultraplan/run-state.json after each meaningful task transition, appends execution history to studies/<study>/.ultraplan/runs/tasks.jsonl, refreshes studies/<study>/.ultraplan/runs/summary.md, cancels through the runtime boundary on interrupt, and refuses concurrent invocations unless --force-unlock is used.
 `
 }
 
@@ -945,7 +960,7 @@ func statusRunStateErrorDisplay(root string, st study.Study, err error) string {
 }
 
 func renderStudyStatus(w io.Writer, root string, summary study.StatusSummary) {
-	fmt.Fprintf(w, "Run state: %s\n", workspace.Rel(root, summary.StatePath))
+	fmt.Fprintf(w, "Study progress state: %s\n", workspace.Rel(root, summary.StatePath))
 	fmt.Fprintf(w, "Run ID: %s\n", summary.RunID)
 	fmt.Fprintf(w, "Complete: %t\n", summary.Complete)
 	fmt.Fprintf(w, "Tasks: %d\n", summary.Total)

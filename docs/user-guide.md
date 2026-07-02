@@ -149,13 +149,15 @@ ultraplan study <study> run-all --dimension 01 --source <source>
 ultraplan study <study> run-loop --parallel 3
 ```
 
-`run-loop` persists `studies/<study>/.ultraplan/run-state.json` after meaningful task transitions, prints compact task progress as it runs, and refuses concurrent runs through a per-study lock. By default, it archives any existing run-state and starts a fresh durable run for the selected filters.
+`run-loop` persists shared study progress in `studies/<study>/.ultraplan/run-state.json` after meaningful task transitions, prints compact task progress as it runs, and refuses concurrent invocations through a per-study lock. By default, it resumes existing progress; dimension/source filters only choose which slice of the study graph is eligible to advance.
 
-Use `--continue` to resume and revalidate the current run-state:
+Use filters to advance a specific slice without creating a separate run:
 
 ```bash
-ultraplan study <study> run-loop --continue --parallel 3
+ultraplan study <study> run-loop --dimension 01 --source temporal --parallel 1
 ```
+
+Use `--reset` only when you intentionally want to archive and rebuild study progress. The command asks for confirmation unless `--yes` is also provided.
 
 Use `--force-unlock` only after confirming no active process owns the lock:
 

@@ -30,7 +30,7 @@ func RenderRunHistorySummary(study Study, state RunState, records []RunHistoryRe
 	fmt.Fprintf(&b, "# Study Run Summary\n\n")
 	fmt.Fprintf(&b, "- Study: `%s`\n", study.Name)
 	fmt.Fprintf(&b, "- Updated: `%s`\n", now.UTC().Format(time.RFC3339))
-	fmt.Fprintf(&b, "- Run state: `%s`\n", filepath.Join(RunStateDirName, RunStateFileName))
+	fmt.Fprintf(&b, "- Study progress state: `%s`\n", filepath.Join(RunStateDirName, RunStateFileName))
 	fmt.Fprintf(&b, "- Ledger: `%s`\n\n", filepath.Join(RunStateDirName, RunHistoryDirName, RunHistoryFileName))
 
 	counts := historyCounts(records)

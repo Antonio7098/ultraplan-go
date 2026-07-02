@@ -29,7 +29,7 @@ func TestRunLoopCreatesDurableStateRunsTasksAndReleasesLock(t *testing.T) {
 	if result.Status != RunAllStatusCompleted {
 		t.Fatalf("Status = %q counts = %+v", result.Status, result.Counts)
 	}
-	if result.Counts.Completed != 3 || result.Counts.Failed != 0 || result.Counts.Pending != 0 {
+	if result.ScopeCounts.Completed != 3 || result.ScopeCounts.Failed != 0 || result.ScopeCounts.Pending != 0 {
 		t.Fatalf("Counts = %+v", result.Counts)
 	}
 	if rt.calls != 3 {
@@ -75,7 +75,7 @@ func TestRunLoopContinueResumesAndRevalidatesCompletedStateBeforeScheduling(t *t
 	}
 }
 
-func TestRunLoopDefaultArchivesExistingStateAndStartsFresh(t *testing.T) {
+func TestRunLoopDefaultResumesExistingStateAndResetStartsFresh(t *testing.T) {
 	root, st := executionFixture(t)
 	rt := &runAllRuntime{write: validSourceReport}
 	service := NewService(root, WithRuntime(rt, runtimeRequest()))
@@ -95,11 +95,28 @@ func TestRunLoopDefaultArchivesExistingStateAndStartsFresh(t *testing.T) {
 	if result.Status != RunAllStatusCompleted {
 		t.Fatalf("Status = %q counts = %+v", result.Status, result.Counts)
 	}
+	resumed, err := LoadRunState(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resumed.Tasks) != 3 || resumed.Tasks[0].Source != "doc.md" || resumed.Tasks[1].Source != "repo" {
+		t.Fatalf("tasks = %#v, want shared full-study state", resumed.Tasks)
+	}
+
+	rt = &runAllRuntime{write: validSourceReport}
+	service = NewService(root, WithRuntime(rt, runtimeRequest()))
+	result, err = service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, SourceRefs: []string{"doc.md"}, Parallelism: 1, Reset: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunAllStatusCompleted {
+		t.Fatalf("reset Status = %q counts = %+v", result.Status, result.Counts)
+	}
 	second, err := LoadRunState(st)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(second.Tasks) != 2 || second.Tasks[0].Source != "doc.md" || second.Tasks[1].Kind != TaskKindSynthesis {
+	if len(second.Tasks) != 3 || second.Tasks[0].Source != "doc.md" || second.Tasks[1].Source != "repo" {
 		t.Fatalf("tasks = %#v, want fresh doc.md-only state", second.Tasks)
 	}
 	entries, err := os.ReadDir(filepath.Join(st.Path, RunStateDirName, "archive"))
@@ -117,7 +134,7 @@ func TestRunLoopSynthesizesDimensionAsSoonAsItsAnalysisCompletes(t *testing.T) {
 	rt := &orderedRuntime{}
 	service := NewService(root, WithRuntime(rt, runtimeRequest()))
 
-	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01", "02"}, SourceRefs: []string{"repo"}, Parallelism: 1})
+	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01", "02"}, Parallelism: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +143,9 @@ func TestRunLoopSynthesizesDimensionAsSoonAsItsAnalysisCompletes(t *testing.T) {
 	}
 	want := []string{
 		"analysis:01-structure",
+		"analysis:01-structure",
 		"synthesis:01-structure",
+		"analysis:02-runtime",
 		"analysis:02-runtime",
 		"synthesis:02-runtime",
 	}

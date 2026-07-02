@@ -75,10 +75,10 @@ ultraplan study <study> run 01 <source>
 ultraplan study <study> synthesize 01
 ultraplan study <study> run-all --parallel 3
 ultraplan study <study> run-loop --parallel 3
-ultraplan study <study> run-loop --continue --parallel 3
+ultraplan study <study> run-loop --dimension 01 --source <source> --parallel 1
 ```
 
-`run-loop` starts a fresh durable run by default and archives any existing run-state. Use `--continue` to resume and revalidate the current `studies/<study>/.ultraplan/run-state.json`.
+`run-loop` resumes shared study progress by default. Dimension/source filters advance only that slice of the study graph while progress is still stored in `studies/<study>/.ultraplan/run-state.json`. Use `--reset` only when you intentionally want to archive and rebuild study progress.
 
 Validate, inspect status, summarize, and extract code references:
 
