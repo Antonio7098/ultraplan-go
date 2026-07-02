@@ -107,3 +107,35 @@ func TestRunLoopDefaultArchivesExistingStateAndStartsFresh(t *testing.T) {
 		t.Fatal("expected archived prior run-state")
 	}
 }
+
+func TestRunLoopCancellationDoesNotCancelUnscheduledTasks(t *testing.T) {
+	root, st := executionFixture(t)
+	rt := &runAllRuntime{write: validSourceReport}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := service.RunLoop(ctx, RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, SourceRefs: []string{"repo", "doc.md"}, Parallelism: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunAllStatusCancelled {
+		t.Fatalf("Status = %q", result.Status)
+	}
+	loaded, err := LoadRunState(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range loaded.Tasks {
+		if task.Status != TaskStatusPending {
+			t.Fatalf("task %s status = %s, want pending", task.ID, task.Status)
+		}
+	}
+	records, err := LoadRunHistory(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("history records = %d, want 0", len(records))
+	}
+}

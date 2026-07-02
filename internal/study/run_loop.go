@@ -193,10 +193,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	}
 	for _, id := range analysisIDs {
 		if ctx.Err() != nil {
-			recordErr(markTaskCancelled(update, id, ctx.Err()))
-			recordErr(recordHistory(id))
-			emitTask(RunLoopProgressCancelled, id)
-			continue
+			break
 		}
 		taskCh <- id
 	}
@@ -208,14 +205,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 
 	for _, id := range runnableSynthesisTaskIDs(state) {
 		if ctx.Err() != nil {
-			if err := markTaskCancelled(update, id, ctx.Err()); err != nil {
-				return result, err
-			}
-			if err := recordHistory(id); err != nil {
-				return result, err
-			}
-			emitTask(RunLoopProgressCancelled, id)
-			continue
+			break
 		}
 		task, err := taskSnapshot(id)
 		if err != nil {
