@@ -57,7 +57,7 @@ Planning flow stops at `plan.md`; do not expect implementation, smoke, review, i
 1. Check whether an UltraPlan process is still running.
 2. Check lock diagnostics in `study status`.
 3. Confirm runtime/provider state outside UltraPlan if a task is still active.
-4. Resume with `study <study> run-loop` only after deciding the previous process is gone or safe to abandon.
+4. Resume with `study <study> run-loop --continue` only after deciding the previous process is gone or safe to abandon. Without `--continue`, `run-loop` archives the existing run-state and starts a fresh run.
 
 ## Locks And `--force-unlock`
 
@@ -84,7 +84,7 @@ On interrupt or context cancellation, the runtime boundary is asked to cancel an
 1. Run `study status`.
 2. Inspect cancelled or active tasks.
 3. Run `study validate`.
-4. Resume with `study run-loop` or rerun specific failed tasks.
+4. Resume with `study run-loop --continue` or rerun specific failed tasks.
 
 ## Retry And Fallback Metadata
 

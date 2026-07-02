@@ -178,10 +178,10 @@ Runs selected applicable analysis tasks, synthesis tasks, and summary generation
 ### `ultraplan study <study> run-loop`
 
 ```text
-ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock]
+ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock] [--continue]
 ```
 
-Runs or resumes durable study execution with per-study locking and `studies/<study>/.ultraplan/run-state.json`. Use `--force-unlock` only for operator-confirmed stale locks.
+Runs durable study execution with per-study locking and `studies/<study>/.ultraplan/run-state.json`. By default, an existing run-state is archived and replaced. Use `--continue` to resume and revalidate the current run-state. Use `--force-unlock` only for operator-confirmed stale locks. The command prints compact progress lines while tasks start and finish.
 
 ### `ultraplan study <study> validate`
 

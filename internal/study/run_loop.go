@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -43,23 +45,11 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		return RunLoopResult{}, err
 	}
 
-	state, err := LoadRunState(listing.Study)
+	state, err := loadOrCreateRunLoopState(req, listing.Study, sources, dimensions, s.workspaceRoot)
 	if err != nil {
-		if !errors.Is(err, ErrRunStateMissing) {
-			return RunLoopResult{}, err
-		}
-		state, err = NewRunState(NewRunStateRequest{
-			WorkspaceRoot: s.workspaceRoot,
-			Study:         listing.Study,
-			Sources:       sources,
-			Dimensions:    dimensions,
-			Filters:       RunFilters{Dimensions: append([]string(nil), req.DimensionRefs...), Sources: append([]string(nil), req.SourceRefs...)},
-			Config:        req.Config,
-		})
-		if err != nil {
-			return RunLoopResult{}, err
-		}
-	} else {
+		return RunLoopResult{}, err
+	}
+	if req.Continue {
 		ResumeValidateRunState(&state, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
 	}
 	if err := SaveRunState(listing.Study, state); err != nil {
@@ -78,6 +68,24 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	}
 
 	var mu sync.Mutex
+	emit := func(event RunLoopProgressEvent, task TaskState) {
+		if req.Progress == nil {
+			return
+		}
+		req.Progress(RunLoopProgress{Event: event, Task: task, Counts: SummarizeRunState(state, result.StatePath)})
+	}
+	emitTask := func(event RunLoopProgressEvent, id string) {
+		if req.Progress == nil {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		idx, ok := taskIndex[id]
+		if !ok {
+			return
+		}
+		req.Progress(RunLoopProgress{Event: event, Task: state.Tasks[idx], Counts: SummarizeRunState(state, result.StatePath)})
+	}
 	save := func() error {
 		mu.Lock()
 		stateCopy := cloneRunState(state)
@@ -106,6 +114,11 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 		return state.Tasks[idx], nil
 	}
+	for _, task := range state.Tasks {
+		if task.Status == TaskStatusRunning || task.Status == TaskStatusValidating || task.Status == TaskStatusRetrying {
+			emit(RunLoopProgressStarted, task)
+		}
+	}
 
 	analysisIDs := runnableAnalysisTaskIDs(state)
 	taskCh := make(chan string)
@@ -129,6 +142,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			for id := range taskCh {
 				if ctx.Err() != nil {
 					recordErr(markTaskCancelled(update, id, ctx.Err()))
+					emitTask(RunLoopProgressCancelled, id)
 					continue
 				}
 				task, err := taskSnapshot(id)
@@ -144,17 +158,20 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 					t.UpdatedAt = now
 					t.LastError = nil
 				}))
+				emitTask(RunLoopProgressStarted, id)
 				res, err := s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source})
 				if err != nil {
 					res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
 				}
 				recordErr(applyExecutionResult(update, id, res))
+				emitTask(progressEventForExecution(res), id)
 			}
 		}()
 	}
 	for _, id := range analysisIDs {
 		if ctx.Err() != nil {
 			recordErr(markTaskCancelled(update, id, ctx.Err()))
+			emitTask(RunLoopProgressCancelled, id)
 			continue
 		}
 		taskCh <- id
@@ -170,6 +187,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			if err := markTaskCancelled(update, id, ctx.Err()); err != nil {
 				return result, err
 			}
+			emitTask(RunLoopProgressCancelled, id)
 			continue
 		}
 		task, err := taskSnapshot(id)
@@ -183,6 +201,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			}); err != nil {
 				return result, err
 			}
+			emitTask(RunLoopProgressWaiting, id)
 			continue
 		}
 		if err := update(id, func(t *TaskState) {
@@ -194,6 +213,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}); err != nil {
 			return result, err
 		}
+		emitTask(RunLoopProgressStarted, id)
 		res, err := s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(sources)})
 		if err != nil {
 			res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
@@ -201,6 +221,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		if err := applyExecutionResult(update, id, res); err != nil {
 			return result, err
 		}
+		emitTask(progressEventForExecution(res), id)
 	}
 
 	state.Complete = allTasksComplete(state)
@@ -211,6 +232,56 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	result.Counts = runLoopCounts(state)
 	result.Status = runLoopStatus(state, result.Counts, ctx.Err() != nil)
 	return result, nil
+}
+
+func loadOrCreateRunLoopState(req RunLoopRequest, study Study, sources []Source, dimensions []Dimension, workspaceRoot string) (RunState, error) {
+	if req.Continue {
+		state, err := LoadRunState(study)
+		if err == nil {
+			return state, nil
+		}
+		if !errors.Is(err, ErrRunStateMissing) {
+			return RunState{}, err
+		}
+	}
+	if err := archiveRunStateIfExists(study); err != nil {
+		return RunState{}, err
+	}
+	return NewRunState(NewRunStateRequest{
+		WorkspaceRoot: workspaceRoot,
+		Study:         study,
+		Sources:       sources,
+		Dimensions:    dimensions,
+		Filters:       RunFilters{Dimensions: append([]string(nil), req.DimensionRefs...), Sources: append([]string(nil), req.SourceRefs...)},
+		Config:        req.Config,
+	})
+}
+
+func archiveRunStateIfExists(study Study) error {
+	path := RunStatePath(study)
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	archiveDir := filepath.Join(study.Path, RunStateDirName, "archive")
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("run-state-%s.json", time.Now().UTC().Format("20060102T150405Z"))
+	return os.Rename(path, filepath.Join(archiveDir, name))
+}
+
+func progressEventForExecution(res ExecutionResult) RunLoopProgressEvent {
+	switch res.Status {
+	case ExecutionStatusCompleted, ExecutionStatusSkipped:
+		return RunLoopProgressCompleted
+	case ExecutionStatusCancelled:
+		return RunLoopProgressCancelled
+	default:
+		return RunLoopProgressFailed
+	}
 }
 
 func runnableAnalysisTaskIDs(state RunState) []string {

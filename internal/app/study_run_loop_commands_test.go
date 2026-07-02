@@ -37,6 +37,7 @@ func TestStudyRunLoopCommandHelpInvalidFlagsAndSuccess(t *testing.T) {
 		t.Fatalf("status = %d stdout = %q stderr = %q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "--force-unlock")
+	assertContains(t, stdout, "--continue")
 	assertContains(t, stdout, "run-state.json")
 
 	_, stderr, status = runForTest([]string{"--workspace", dir, "study", "demo", "run-loop", "--parallel", "0"})
@@ -52,6 +53,7 @@ func TestStudyRunLoopCommandHelpInvalidFlagsAndSuccess(t *testing.T) {
 		t.Fatalf("status = %d stdout = %q stderr = %q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Run-loop: completed")
+	assertContains(t, stdout, "[run-loop]")
 	assertContains(t, stdout, "Run state: "+filepath.Join("studies", "demo", ".ultraplan", "run-state.json"))
 	assertContains(t, stdout, "Lock: "+filepath.Join("studies", "demo", ".ultraplan", "run-loop.lock"))
 	assertNotContains(t, stdout, studyRoot)

@@ -154,6 +154,7 @@ type runAllFlags struct {
 	sources     []string
 	parallelism *int
 	forceUnlock bool
+	continueRun bool
 }
 
 func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, args []string) error {
@@ -178,6 +179,8 @@ func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, ar
 		Config:        summary,
 		Command:       command,
 		ForceUnlock:   flags.forceUnlock,
+		Continue:      flags.continueRun,
+		Progress:      renderRunLoopProgress(deps, root.Path),
 	})
 	if err != nil {
 		return mapStudyRunLoopError(err)
@@ -189,9 +192,14 @@ func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, ar
 func parseRunLoopArgs(args []string) (runAllFlags, error) {
 	var filtered []string
 	forceUnlock := false
+	continueRun := false
 	for _, arg := range args {
 		if arg == "--force-unlock" {
 			forceUnlock = true
+			continue
+		}
+		if arg == "--continue" {
+			continueRun = true
 			continue
 		}
 		filtered = append(filtered, arg)
@@ -201,6 +209,7 @@ func parseRunLoopArgs(args []string) (runAllFlags, error) {
 		return flags, err
 	}
 	flags.forceUnlock = forceUnlock
+	flags.continueRun = continueRun
 	return flags, nil
 }
 
@@ -270,6 +279,31 @@ func renderRunLoopResult(deps dependencies, root string, result study.RunLoopRes
 		}
 		fmt.Fprintln(deps.stderr)
 	}
+}
+
+func renderRunLoopProgress(deps dependencies, root string) func(study.RunLoopProgress) {
+	return func(progress study.RunLoopProgress) {
+		task := progress.Task
+		counts := progress.Counts
+		fmt.Fprintf(deps.stdout, "[run-loop] %-9s %-9s %s", progress.Event, task.Kind, task.DimensionRef)
+		if task.Source != "" {
+			fmt.Fprintf(deps.stdout, " %s", task.Source)
+		}
+		if task.OutputPath != "" {
+			fmt.Fprintf(deps.stdout, " -> %s", runLoopProgressPath(root, task.OutputPath))
+		}
+		fmt.Fprintf(deps.stdout, " | done %d/%d active %d pending %d failed %d\n", counts.Completed, counts.Total, counts.Active, counts.Pending, counts.Failed+counts.Cancelled)
+		if task.LastError != nil {
+			fmt.Fprintf(deps.stdout, "[run-loop] error     %s: %s\n", task.ID, config.RedactValue("task.error", task.LastError.Message))
+		}
+	}
+}
+
+func runLoopProgressPath(root, path string) string {
+	if filepath.IsAbs(path) {
+		return workspace.Rel(root, path)
+	}
+	return filepath.ToSlash(filepath.Clean(path))
 }
 
 func runStudyRunAll(deps dependencies, root workspace.Root, studyRef string, args []string) error {
@@ -353,15 +387,16 @@ func studyRunLoopHelp() string {
 	return `ultraplan study <study> run-loop
 
 Usage:
-  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock]
+  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock] [--continue]
 
 Flags:
   --dimension <ref>   Limit execution to one dimension. Repeatable. Preserved in new durable state.
   --source <ref>      Limit execution to one source. Repeatable. Preserved in new durable state.
   --parallel <n>      Override configured default parallelism. Must be at least 1.
   --force-unlock      Remove this study's existing run-loop lock before starting.
+  --continue          Resume and revalidate the existing durable run-state instead of replacing it.
 
-The run-loop persists studies/<study>/.ultraplan/run-state.json after each meaningful task transition, resumes existing state, revalidates completed reports before trusting them, cancels through the runtime boundary on interrupt, and refuses concurrent runs unless --force-unlock is used.
+By default, run-loop archives any existing run-state and starts a fresh durable run for the selected filters. Use --continue to resume the current run-state. The run-loop persists studies/<study>/.ultraplan/run-state.json after each meaningful task transition, cancels through the runtime boundary on interrupt, and refuses concurrent runs unless --force-unlock is used.
 `
 }
 

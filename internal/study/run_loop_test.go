@@ -3,6 +3,7 @@ package study
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -48,7 +49,7 @@ func TestRunLoopCreatesDurableStateRunsTasksAndReleasesLock(t *testing.T) {
 	}
 }
 
-func TestRunLoopResumesAndRevalidatesCompletedStateBeforeScheduling(t *testing.T) {
+func TestRunLoopContinueResumesAndRevalidatesCompletedStateBeforeScheduling(t *testing.T) {
 	root, st := executionFixture(t)
 	rt := &runAllRuntime{write: validSourceReport}
 	service := NewService(root, WithRuntime(rt, runtimeRequest()))
@@ -59,7 +60,7 @@ func TestRunLoopResumesAndRevalidatesCompletedStateBeforeScheduling(t *testing.T
 
 	rt = &runAllRuntime{write: validSourceReport}
 	service = NewService(root, WithRuntime(rt, runtimeRequest()))
-	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, SourceRefs: []string{"repo"}, Parallelism: 1})
+	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, SourceRefs: []string{"repo"}, Parallelism: 1, Continue: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,5 +69,41 @@ func TestRunLoopResumesAndRevalidatesCompletedStateBeforeScheduling(t *testing.T
 	}
 	if rt.calls == 0 {
 		t.Fatal("expected missing completed report to be rerun after resume validation")
+	}
+}
+
+func TestRunLoopDefaultArchivesExistingStateAndStartsFresh(t *testing.T) {
+	root, st := executionFixture(t)
+	rt := &runAllRuntime{write: validSourceReport}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+	if _, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, SourceRefs: []string{"repo"}, Parallelism: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadRunState(st); err != nil {
+		t.Fatal(err)
+	}
+
+	rt = &runAllRuntime{write: validSourceReport}
+	service = NewService(root, WithRuntime(rt, runtimeRequest()))
+	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, SourceRefs: []string{"doc.md"}, Parallelism: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunAllStatusCompleted {
+		t.Fatalf("Status = %q counts = %+v", result.Status, result.Counts)
+	}
+	second, err := LoadRunState(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Tasks) != 2 || second.Tasks[0].Source != "doc.md" || second.Tasks[1].Kind != TaskKindSynthesis {
+		t.Fatalf("tasks = %#v, want fresh doc.md-only state", second.Tasks)
+	}
+	entries, err := os.ReadDir(filepath.Join(st.Path, RunStateDirName, "archive"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected archived prior run-state")
 	}
 }

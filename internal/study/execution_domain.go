@@ -99,6 +99,8 @@ type RunLoopRequest struct {
 	Config        ConfigSummary
 	Command       []string
 	ForceUnlock   bool
+	Continue      bool
+	Progress      func(RunLoopProgress)
 }
 
 type RunLoopResult struct {
@@ -111,3 +113,19 @@ type RunLoopResult struct {
 	Counts      RunAllCounts
 	Warnings    []RunAllWarning
 }
+
+type RunLoopProgress struct {
+	Event  RunLoopProgressEvent
+	Task   TaskState
+	Counts StatusSummary
+}
+
+type RunLoopProgressEvent string
+
+const (
+	RunLoopProgressStarted   RunLoopProgressEvent = "started"
+	RunLoopProgressCompleted RunLoopProgressEvent = "completed"
+	RunLoopProgressFailed    RunLoopProgressEvent = "failed"
+	RunLoopProgressWaiting   RunLoopProgressEvent = "waiting"
+	RunLoopProgressCancelled RunLoopProgressEvent = "cancelled"
+)

@@ -149,7 +149,13 @@ ultraplan study <study> run-all --dimension 01 --source <source>
 ultraplan study <study> run-loop --parallel 3
 ```
 
-`run-loop` persists `studies/<study>/.ultraplan/run-state.json` after meaningful task transitions, resumes existing state, revalidates completed reports before trusting them, and refuses concurrent runs through a per-study lock.
+`run-loop` persists `studies/<study>/.ultraplan/run-state.json` after meaningful task transitions, prints compact task progress as it runs, and refuses concurrent runs through a per-study lock. By default, it archives any existing run-state and starts a fresh durable run for the selected filters.
+
+Use `--continue` to resume and revalidate the current run-state:
+
+```bash
+ultraplan study <study> run-loop --continue --parallel 3
+```
 
 Use `--force-unlock` only after confirming no active process owns the lock:
 

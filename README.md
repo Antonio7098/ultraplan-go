@@ -75,7 +75,10 @@ ultraplan study <study> run 01 <source>
 ultraplan study <study> synthesize 01
 ultraplan study <study> run-all --parallel 3
 ultraplan study <study> run-loop --parallel 3
+ultraplan study <study> run-loop --continue --parallel 3
 ```
+
+`run-loop` starts a fresh durable run by default and archives any existing run-state. Use `--continue` to resume and revalidate the current `studies/<study>/.ultraplan/run-state.json`.
 
 Validate, inspect status, summarize, and extract code references:
 
