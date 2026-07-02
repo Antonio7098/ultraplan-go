@@ -261,6 +261,7 @@ func renderRunLoopResult(deps dependencies, root string, result study.RunLoopRes
 	fmt.Fprintf(deps.stdout, "Study: %s\n", result.Study.Name)
 	fmt.Fprintf(deps.stdout, "Parallelism: %d\n", result.Parallelism)
 	fmt.Fprintf(deps.stdout, "Run state: %s\n", workspace.Rel(root, result.StatePath))
+	fmt.Fprintf(deps.stdout, "Run summary: %s\n", workspace.Rel(root, study.RunHistorySummaryPath(result.Study)))
 	fmt.Fprintf(deps.stdout, "Lock: %s\n", workspace.Rel(root, result.LockPath))
 	fmt.Fprintf(deps.stdout, "Completed: %d\n", result.Counts.Completed)
 	fmt.Fprintf(deps.stdout, "Failed: %d\n", result.Counts.Failed)
@@ -396,7 +397,7 @@ Flags:
   --force-unlock      Remove this study's existing run-loop lock before starting.
   --continue          Resume and revalidate the existing durable run-state instead of replacing it.
 
-By default, run-loop archives any existing run-state and starts a fresh durable run for the selected filters. Use --continue to resume the current run-state. The run-loop persists studies/<study>/.ultraplan/run-state.json after each meaningful task transition, cancels through the runtime boundary on interrupt, and refuses concurrent runs unless --force-unlock is used.
+By default, run-loop archives any existing run-state and starts a fresh durable run for the selected filters. Use --continue to resume the current run-state. The run-loop persists studies/<study>/.ultraplan/run-state.json after each meaningful task transition, appends run history to studies/<study>/.ultraplan/runs/tasks.jsonl, refreshes studies/<study>/.ultraplan/runs/summary.md, cancels through the runtime boundary on interrupt, and refuses concurrent runs unless --force-unlock is used.
 `
 }
 

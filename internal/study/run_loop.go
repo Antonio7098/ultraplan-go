@@ -55,6 +55,9 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	if err := SaveRunState(listing.Study, state); err != nil {
 		return RunLoopResult{}, err
 	}
+	if err := SyncRunHistory(listing.Study, state); err != nil {
+		return RunLoopResult{}, err
+	}
 
 	result := RunLoopResult{
 		Study:       listing.Study,
@@ -114,6 +117,24 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 		return state.Tasks[idx], nil
 	}
+	var historyMu sync.Mutex
+	recordHistory := func(id string) error {
+		mu.Lock()
+		idx, ok := taskIndex[id]
+		if !ok {
+			mu.Unlock()
+			return fmt.Errorf("task %q not found", id)
+		}
+		stateCopy := cloneRunState(state)
+		task := state.Tasks[idx]
+		mu.Unlock()
+		historyMu.Lock()
+		defer historyMu.Unlock()
+		if err := AppendRunHistory(listing.Study, stateCopy, task); err != nil {
+			return err
+		}
+		return WriteRunHistorySummary(listing.Study, stateCopy)
+	}
 	for _, task := range state.Tasks {
 		if task.Status == TaskStatusRunning || task.Status == TaskStatusValidating || task.Status == TaskStatusRetrying {
 			emit(RunLoopProgressStarted, task)
@@ -142,6 +163,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			for id := range taskCh {
 				if ctx.Err() != nil {
 					recordErr(markTaskCancelled(update, id, ctx.Err()))
+					recordErr(recordHistory(id))
 					emitTask(RunLoopProgressCancelled, id)
 					continue
 				}
@@ -164,6 +186,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 					res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
 				}
 				recordErr(applyExecutionResult(update, id, res))
+				recordErr(recordHistory(id))
 				emitTask(progressEventForExecution(res), id)
 			}
 		}()
@@ -171,6 +194,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	for _, id := range analysisIDs {
 		if ctx.Err() != nil {
 			recordErr(markTaskCancelled(update, id, ctx.Err()))
+			recordErr(recordHistory(id))
 			emitTask(RunLoopProgressCancelled, id)
 			continue
 		}
@@ -185,6 +209,9 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	for _, id := range runnableSynthesisTaskIDs(state) {
 		if ctx.Err() != nil {
 			if err := markTaskCancelled(update, id, ctx.Err()); err != nil {
+				return result, err
+			}
+			if err := recordHistory(id); err != nil {
 				return result, err
 			}
 			emitTask(RunLoopProgressCancelled, id)
@@ -221,11 +248,17 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		if err := applyExecutionResult(update, id, res); err != nil {
 			return result, err
 		}
+		if err := recordHistory(id); err != nil {
+			return result, err
+		}
 		emitTask(progressEventForExecution(res), id)
 	}
 
 	state.Complete = allTasksComplete(state)
 	if err := save(); err != nil {
+		return result, err
+	}
+	if err := SyncRunHistory(listing.Study, state); err != nil {
 		return result, err
 	}
 	result.State = state
