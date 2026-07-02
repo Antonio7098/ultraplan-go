@@ -158,11 +158,18 @@ func failedCheck(name, path, expected, observed string, kind SourceKind, guidanc
 }
 
 func findRating(content string) RatingResult {
-	lines := ratingCandidateLines(content)
+	lines, ratingSection := ratingCandidateLines(content)
 	var ratingLines []string
 	for _, line := range lines {
 		if ratingFractionPattern.MatchString(line) || ratingLabelPattern.MatchString(line) {
 			ratingLines = append(ratingLines, line)
+			continue
+		}
+		if ratingSection && len(ratingLines) > 0 && strings.TrimSpace(line) == "" {
+			break
+		}
+		if ratingSection && len(ratingLines) > 0 {
+			break
 		}
 	}
 	if len(ratingLines) > 0 {
@@ -171,7 +178,7 @@ func findRating(content string) RatingResult {
 	return RatingResult{State: RatingStateMissing}
 }
 
-func ratingCandidateLines(content string) []string {
+func ratingCandidateLines(content string) ([]string, bool) {
 	lines := strings.Split(content, "\n")
 	var section []string
 	inRating := false
@@ -192,9 +199,9 @@ func ratingCandidateLines(content string) []string {
 		}
 	}
 	if len(section) > 0 {
-		return section
+		return section, true
 	}
-	return lines
+	return lines, false
 }
 
 func containsSection(content string, needles ...string) bool {

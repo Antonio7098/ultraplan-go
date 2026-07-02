@@ -234,6 +234,8 @@ This is not 10/10 because there are tradeoffs.
 
 **9 / 10** - Strong, but not perfect.
 
+Weak points prevent a 10/10.
+
 ## Questions
 
 ## Answers
