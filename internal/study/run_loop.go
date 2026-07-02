@@ -141,9 +141,6 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 	}
 
-	analysisIDs := runnableAnalysisTaskIDs(state)
-	taskCh := make(chan string)
-	var wg sync.WaitGroup
 	var firstErr error
 	var errMu sync.Mutex
 	recordErr := func(err error) {
@@ -156,92 +153,71 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			firstErr = err
 		}
 	}
-	for i := 0; i < req.Parallelism; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for id := range taskCh {
-				if ctx.Err() != nil {
-					recordErr(markTaskCancelled(update, id, ctx.Err()))
-					recordErr(recordHistory(id))
-					emitTask(RunLoopProgressCancelled, id)
-					continue
-				}
-				task, err := taskSnapshot(id)
-				if err != nil {
-					recordErr(err)
-					continue
-				}
-				recordErr(update(id, func(t *TaskState) {
-					now := time.Now().UTC()
-					t.Status = TaskStatusRunning
-					t.Attempts++
-					t.StartedAt = &now
-					t.UpdatedAt = now
-					t.LastError = nil
-				}))
-				emitTask(RunLoopProgressStarted, id)
-				res, err := s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source})
-				if err != nil {
-					res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
-				}
-				recordErr(applyExecutionResult(update, id, res))
-				recordErr(recordHistory(id))
-				emitTask(progressEventForExecution(res), id)
-			}
-		}()
-	}
-	for _, id := range analysisIDs {
+	attempted := map[string]bool{}
+	runTask := func(id string) {
 		if ctx.Err() != nil {
-			break
-		}
-		taskCh <- id
-	}
-	close(taskCh)
-	wg.Wait()
-	if firstErr != nil {
-		return result, firstErr
-	}
-
-	for _, id := range runnableSynthesisTaskIDs(state) {
-		if ctx.Err() != nil {
-			break
+			recordErr(markTaskCancelled(update, id, ctx.Err()))
+			recordErr(recordHistory(id))
+			emitTask(RunLoopProgressCancelled, id)
+			return
 		}
 		task, err := taskSnapshot(id)
 		if err != nil {
-			return result, err
+			recordErr(err)
+			return
 		}
-		if !dependenciesComplete(state, task) {
-			if err := update(id, func(t *TaskState) {
-				t.Status = TaskStatusWaiting
-				t.UpdatedAt = time.Now().UTC()
-			}); err != nil {
-				return result, err
-			}
-			emitTask(RunLoopProgressWaiting, id)
-			continue
-		}
-		if err := update(id, func(t *TaskState) {
+		recordErr(update(id, func(t *TaskState) {
 			now := time.Now().UTC()
 			t.Status = TaskStatusRunning
 			t.Attempts++
 			t.StartedAt = &now
 			t.UpdatedAt = now
-		}); err != nil {
-			return result, err
-		}
+			t.LastError = nil
+			t.RetryAfter = nil
+		}))
 		emitTask(RunLoopProgressStarted, id)
-		res, err := s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(sources)})
-		if err != nil {
-			res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
+		var res ExecutionResult
+		switch task.Kind {
+		case TaskKindAnalysis:
+			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source})
+			if err != nil {
+				res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
+			}
+		case TaskKindSynthesis:
+			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(sources)})
+			if err != nil {
+				res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
+			}
+		default:
+			recordErr(fmt.Errorf("unsupported task kind %q", task.Kind))
+			return
 		}
-		if err := applyExecutionResult(update, id, res); err != nil {
-			return result, err
-		}
-		if err := recordHistory(id); err != nil {
-			return result, err
-		}
+		recordErr(applyExecutionResult(update, id, res))
+		recordErr(recordHistory(id))
 		emitTask(progressEventForExecution(res), id)
+	}
+	for ctx.Err() == nil {
+		mu.Lock()
+		ids := runnableTaskIDs(state, attempted, req.Parallelism, time.Now().UTC())
+		mu.Unlock()
+		if len(ids) == 0 {
+			break
+		}
+		for _, id := range ids {
+			attempted[id] = true
+		}
+		var wg sync.WaitGroup
+		for _, id := range ids {
+			wg.Add(1)
+			go func(id string) {
+				defer wg.Done()
+				runTask(id)
+			}(id)
+		}
+		wg.Wait()
+		if firstErr != nil {
+			return result, firstErr
+		}
 	}
 
 	state.Complete = allTasksComplete(state)
@@ -307,24 +283,50 @@ func progressEventForExecution(res ExecutionResult) RunLoopProgressEvent {
 	}
 }
 
-func runnableAnalysisTaskIDs(state RunState) []string {
+func runnableTaskIDs(state RunState, attempted map[string]bool, limit int, now time.Time) []string {
+	if limit < 1 {
+		limit = 1
+	}
 	var ids []string
+	byID := map[string]TaskState{}
 	for _, task := range state.Tasks {
-		if task.Kind == TaskKindAnalysis && (task.Status == TaskStatusPending || task.Status == TaskStatusFailed || task.Status == TaskStatusCancelled) {
+		byID[task.ID] = task
+	}
+	for _, task := range state.Tasks {
+		if len(ids) >= limit {
+			return ids
+		}
+		if attempted[task.ID] || task.Kind != TaskKindSynthesis || !taskRunnable(task, now) {
+			continue
+		}
+		if dependenciesCompleteFrom(byID, task) {
 			ids = append(ids, task.ID)
 		}
+	}
+	for _, task := range state.Tasks {
+		if len(ids) >= limit {
+			return ids
+		}
+		if attempted[task.ID] || task.Kind != TaskKindAnalysis || !taskRunnable(task, now) {
+			continue
+		}
+		ids = append(ids, task.ID)
 	}
 	return ids
 }
 
-func runnableSynthesisTaskIDs(state RunState) []string {
-	var ids []string
-	for _, task := range state.Tasks {
-		if task.Kind == TaskKindSynthesis && task.Status != TaskStatusCompleted && task.Status != TaskStatusSkipped {
-			ids = append(ids, task.ID)
+func taskRunnable(task TaskState, now time.Time) bool {
+	switch task.Status {
+	case TaskStatusPending, TaskStatusFailed, TaskStatusCancelled, TaskStatusWaiting:
+		if task.RetryAfter != nil && task.RetryAfter.After(now) {
+			return false
 		}
+		return true
+	case TaskStatusRetrying:
+		return task.RetryAfter == nil || !task.RetryAfter.After(now)
+	default:
+		return false
 	}
-	return ids
 }
 
 func dependenciesComplete(state RunState, task TaskState) bool {
@@ -332,12 +334,33 @@ func dependenciesComplete(state RunState, task TaskState) bool {
 	for _, item := range state.Tasks {
 		byID[item.ID] = item
 	}
+	return dependenciesCompleteFrom(byID, task)
+}
+
+func dependenciesCompleteFrom(byID map[string]TaskState, task TaskState) bool {
 	for _, dep := range task.Dependencies {
 		if byID[dep.TaskID].Status != TaskStatusCompleted {
 			return false
 		}
 	}
 	return true
+}
+
+func readySynthesisTaskIDs(state RunState, attempted map[string]bool, now time.Time) []string {
+	byID := map[string]TaskState{}
+	for _, task := range state.Tasks {
+		byID[task.ID] = task
+	}
+	var ids []string
+	for _, task := range state.Tasks {
+		if attempted[task.ID] || task.Kind != TaskKindSynthesis || !taskRunnable(task, now) {
+			continue
+		}
+		if dependenciesCompleteFrom(byID, task) {
+			ids = append(ids, task.ID)
+		}
+	}
+	return ids
 }
 
 func applyExecutionResult(update func(string, func(*TaskState)) error, id string, res ExecutionResult) error {

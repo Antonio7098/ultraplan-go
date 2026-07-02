@@ -4,7 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 func TestRunLoopCreatesDurableStateRunsTasksAndReleasesLock(t *testing.T) {
@@ -108,6 +111,35 @@ func TestRunLoopDefaultArchivesExistingStateAndStartsFresh(t *testing.T) {
 	}
 }
 
+func TestRunLoopSynthesizesDimensionAsSoonAsItsAnalysisCompletes(t *testing.T) {
+	root, _ := executionFixture(t)
+	writeReport(t, filepath.Join(root, "studies", "demo", "dimensions", "02-runtime.md"), "# Runtime\n")
+	rt := &orderedRuntime{}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+
+	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01", "02"}, SourceRefs: []string{"repo"}, Parallelism: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunAllStatusCompleted {
+		t.Fatalf("Status = %q counts = %+v", result.Status, result.Counts)
+	}
+	want := []string{
+		"analysis:01-structure",
+		"synthesis:01-structure",
+		"analysis:02-runtime",
+		"synthesis:02-runtime",
+	}
+	if len(rt.order) != len(want) {
+		t.Fatalf("order len = %d order = %#v", len(rt.order), rt.order)
+	}
+	for i := range want {
+		if rt.order[i] != want[i] {
+			t.Fatalf("order[%d] = %q, want %q; full order %#v", i, rt.order[i], want[i], rt.order)
+		}
+	}
+}
+
 func TestRunLoopCancellationDoesNotCancelUnscheduledTasks(t *testing.T) {
 	root, st := executionFixture(t)
 	rt := &runAllRuntime{write: validSourceReport}
@@ -138,4 +170,34 @@ func TestRunLoopCancellationDoesNotCancelUnscheduledTasks(t *testing.T) {
 	if len(records) != 0 {
 		t.Fatalf("history records = %d, want 0", len(records))
 	}
+}
+
+type orderedRuntime struct {
+	mu    sync.Mutex
+	order []string
+}
+
+func (r *orderedRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
+	if ctx == nil {
+		panic("nil context")
+	}
+	kind := req.Metadata["task.kind"]
+	dimension := req.Metadata["dimension.ref"]
+	r.mu.Lock()
+	r.order = append(r.order, kind+":"+dimension)
+	r.mu.Unlock()
+	content := validSourceReport
+	if kind == string(TaskKindSynthesis) {
+		content = validFinalReport
+	}
+	if req.Validation != nil && len(req.Validation.Expectations) > 0 {
+		path := req.Validation.Expectations[0].Path
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			panic(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			panic(err)
+		}
+	}
+	return runtimepkg.Result{RunID: "ordered-run", Status: "completed"}, nil
 }
