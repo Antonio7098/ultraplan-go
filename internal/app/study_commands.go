@@ -59,6 +59,8 @@ func runStudy(deps dependencies, args []string) error {
 		return runStudyValidate(deps, root.Path, service, args[0], args[2:])
 	case len(args) >= 2 && args[1] == "status":
 		return runStudyStatus(deps, root.Path, service, args[0], args[2:])
+	case len(args) >= 2 && args[1] == "runs":
+		return runStudyRuns(deps, root.Path, service, args[0], args[2:])
 	case len(args) == 1 && args[0] == "list":
 		studies, err := service.ListStudies()
 		if err != nil {
@@ -102,7 +104,7 @@ func runStudy(deps dependencies, args []string) error {
 	case args[0] == "list":
 		return classified(ExitUsage, "study list: unknown argument %q", args[1])
 	default:
-		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> summary', '<study> validate', '<study> status', '<study> run-loop', '<study> run-all', '<study> run', '<study> synthesize', or '<study> prompt'")
+		return classified(ExitUsage, "study: expected 'init', 'list', '<study> list', '<study> summary', '<study> validate', '<study> status', '<study> runs', '<study> run-loop', '<study> run-all', '<study> run', '<study> synthesize', or '<study> prompt'")
 	}
 }
 
@@ -127,6 +129,7 @@ Usage:
   ultraplan study <study> summary
   ultraplan study <study> validate [--json]
   ultraplan study <study> status [--json]
+  ultraplan study <study> runs summary
   ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock]
   ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>]
   ultraplan study <study> run <dimension> <source>
@@ -141,6 +144,7 @@ Commands:
   <study> summary   Regenerate deterministic studies/<study>/summary.csv without runtime execution.
   <study> validate  Validate study artifacts without runtime execution.
   <study> status    Show persisted run-state status without runtime execution.
+  <study> runs      Inspect or refresh run history artifacts without runtime execution.
   <study> run-loop  Resume durable study execution with per-study locking and persisted task state.
   <study> run-all   Execute selected applicable study analysis tasks, synthesize, and write summary.csv.
   <study> run       Execute one analysis task through the configured runtime.
