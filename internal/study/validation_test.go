@@ -216,6 +216,36 @@ func hasCheck(checks []ValidationCheck, name string, status ValidationStatus) bo
 	return false
 }
 
+func TestValidateSourceReportUsesRatingSection(t *testing.T) {
+	root := t.TempDir()
+	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
+	source := Source{Name: "repo", Kind: SourceKindDirectory}
+	dimension := Dimension{Number: "01", Slug: "structure"}
+	reportPath := SourceReportPath(study, source, dimension)
+	writeReport(t, reportPath, `# Source Analysis
+
+## Source Info
+
+## Summary
+
+This is not 10/10 because there are tradeoffs.
+
+## Rating
+
+**9 / 10** - Strong, but not perfect.
+
+## Questions
+
+## Answers
+
+See main.go:42.
+`)
+	res := ValidateSourceReport(study, source, dimension)
+	if res.Status != ValidationStatusPassed {
+		t.Fatalf("Status = %q, want passed: %+v", res.Status, res.Checks)
+	}
+}
+
 func TestValidateFinalReport(t *testing.T) {
 	root := t.TempDir()
 	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
