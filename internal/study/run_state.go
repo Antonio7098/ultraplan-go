@@ -173,10 +173,12 @@ func ResumeValidateRunState(state *RunState, study Study, sources []Source, dime
 		switch task.Status {
 		case TaskStatusRunning, TaskStatusValidating, TaskStatusWaiting, TaskStatusCancelled:
 			task.Status = TaskStatusPending
+			task.RetryAfter = nil
 			task.UpdatedAt = now
 		case TaskStatusRetrying:
 			if task.RetryAfter == nil || !task.RetryAfter.After(now) {
 				task.Status = TaskStatusPending
+				task.RetryAfter = nil
 				task.UpdatedAt = now
 			}
 		case TaskStatusFailed:
@@ -185,6 +187,7 @@ func ResumeValidateRunState(state *RunState, study Study, sources []Source, dime
 					task.Status = TaskStatusRetrying
 				} else {
 					task.Status = TaskStatusPending
+					task.RetryAfter = nil
 				}
 				task.UpdatedAt = now
 			}
