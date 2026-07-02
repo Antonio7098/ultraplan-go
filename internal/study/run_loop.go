@@ -477,6 +477,7 @@ func applyExecutionResult(update func(string, func(*TaskState)) error, id string
 		switch res.Status {
 		case ExecutionStatusCompleted, ExecutionStatusSkipped:
 			t.Status = TaskStatusCompleted
+			t.RetryAfter = nil
 		case ExecutionStatusCancelled:
 			t.Status = TaskStatusCancelled
 			t.LastError = &TaskError{Code: "runtime.cancelled", Message: safeExecutionMessage(res)}
