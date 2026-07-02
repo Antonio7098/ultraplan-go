@@ -171,9 +171,23 @@ func ResumeValidateRunState(state *RunState, study Study, sources []Source, dime
 	for i := range state.Tasks {
 		task := &state.Tasks[i]
 		switch task.Status {
-		case TaskStatusRunning, TaskStatusValidating, TaskStatusWaiting, TaskStatusRetrying:
+		case TaskStatusRunning, TaskStatusValidating, TaskStatusWaiting, TaskStatusCancelled:
 			task.Status = TaskStatusPending
 			task.UpdatedAt = now
+		case TaskStatusRetrying:
+			if task.RetryAfter == nil || !task.RetryAfter.After(now) {
+				task.Status = TaskStatusPending
+				task.UpdatedAt = now
+			}
+		case TaskStatusFailed:
+			if task.RetryAfter != nil {
+				if task.RetryAfter.After(now) {
+					task.Status = TaskStatusRetrying
+				} else {
+					task.Status = TaskStatusPending
+				}
+				task.UpdatedAt = now
+			}
 		case TaskStatusCompleted:
 			var result ValidationResult
 			switch task.Kind {
