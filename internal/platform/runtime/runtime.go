@@ -25,6 +25,7 @@ type Request struct {
 	Permissions   string
 	Policy        PermissionPolicy
 	Validation    *agentwrap.ValidationSpec
+	OnEvent       func(Event)
 }
 
 type PermissionPolicy struct {
@@ -214,7 +215,11 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 	go func() {
 		events := []Event{}
 		for event := range run.Events() {
-			events = append(events, mapEvent(event))
+			mapped := mapEvent(event)
+			events = append(events, mapped)
+			if req.OnEvent != nil {
+				req.OnEvent(mapped)
+			}
 		}
 		eventsCh <- events
 	}()

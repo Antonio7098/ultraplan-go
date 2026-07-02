@@ -1,5 +1,7 @@
 package study
 
+import runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+
 type TaskKind string
 
 const (
@@ -22,6 +24,7 @@ type ExecutionRequest struct {
 	StudyRef     string
 	DimensionRef string
 	SourceRef    string
+	OnEvent      func(runtimepkg.Event)
 }
 
 type ExecutionResult struct {
@@ -48,6 +51,7 @@ type SynthesisRequest struct {
 	StudyRef     string
 	DimensionRef string
 	SourceRefs   []string
+	OnEvent      func(runtimepkg.Event)
 }
 
 type RunAllRequest struct {
@@ -115,9 +119,10 @@ type RunLoopResult struct {
 }
 
 type RunLoopProgress struct {
-	Event  RunLoopProgressEvent
-	Task   TaskState
-	Counts StatusSummary
+	Event        RunLoopProgressEvent
+	Task         TaskState
+	Counts       StatusSummary
+	RuntimeEvent *runtimepkg.Event
 }
 
 type RunLoopProgressEvent string
@@ -128,4 +133,5 @@ const (
 	RunLoopProgressFailed    RunLoopProgressEvent = "failed"
 	RunLoopProgressWaiting   RunLoopProgressEvent = "waiting"
 	RunLoopProgressCancelled RunLoopProgressEvent = "cancelled"
+	RunLoopProgressRuntime   RunLoopProgressEvent = "runtime"
 )

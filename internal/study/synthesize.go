@@ -45,7 +45,7 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 		return ExecutionResult{}, err
 	}
 	beforeFiles, snapshotErr := snapshotFiles(listing.Study.Path)
-	runtimeResult, runErr := s.startRuntime(ctx, prompt, TaskKindSynthesis, listing.Study, dimension, Source{}, listing.Study.Path, result.OutputPath)
+	runtimeResult, runErr := s.startRuntime(ctx, prompt, TaskKindSynthesis, listing.Study, dimension, Source{}, listing.Study.Path, result.OutputPath, req.OnEvent)
 	if snapshotErr != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("edit monitoring skipped before runtime: %v", snapshotErr))
 	} else if afterFiles, err := snapshotFilesSettled(listing.Study.Path); err != nil {

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 // RunLoop resumes or creates durable study execution for the selected study.
@@ -88,6 +90,18 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			return
 		}
 		req.Progress(RunLoopProgress{Event: event, Task: state.Tasks[idx], Counts: SummarizeRunState(state, result.StatePath)})
+	}
+	emitRuntime := func(id string, event runtimeEvent) {
+		if req.Progress == nil || !interestingRuntimeEvent(event.Kind) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		idx, ok := taskIndex[id]
+		if !ok {
+			return
+		}
+		req.Progress(RunLoopProgress{Event: RunLoopProgressRuntime, Task: state.Tasks[idx], Counts: SummarizeRunState(state, result.StatePath), RuntimeEvent: &event})
 	}
 	save := func() error {
 		mu.Lock()
@@ -179,12 +193,16 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		var res ExecutionResult
 		switch task.Kind {
 		case TaskKindAnalysis:
-			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source})
+			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, OnEvent: func(event runtimeEvent) {
+				emitRuntime(id, event)
+			}})
 			if err != nil {
 				res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
 			}
 		case TaskKindSynthesis:
-			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(sources)})
+			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(sources), OnEvent: func(event runtimeEvent) {
+				emitRuntime(id, event)
+			}})
 			if err != nil {
 				res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
 			}
@@ -198,10 +216,18 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	}
 	for ctx.Err() == nil {
 		mu.Lock()
-		ids := runnableTaskIDs(state, attempted, req.Parallelism, time.Now().UTC())
+		now := time.Now().UTC()
+		ids := runnableTaskIDs(state, attempted, req.Parallelism, now)
+		nextRetry := nextRetryAfter(state, now)
 		mu.Unlock()
 		if len(ids) == 0 {
-			break
+			if nextRetry == nil {
+				break
+			}
+			waitUntilRetry(ctx, *nextRetry, func() {
+				emitRetryWait(state, result.StatePath, req.Progress)
+			})
+			continue
 		}
 		for _, id := range ids {
 			attempted[id] = true
@@ -231,6 +257,40 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	result.Counts = runLoopCounts(state)
 	result.Status = runLoopStatus(state, result.Counts, ctx.Err() != nil)
 	return result, nil
+}
+
+func waitUntilRetry(ctx context.Context, retryAt time.Time, emit func()) {
+	for {
+		if emit != nil {
+			emit()
+		}
+		wait := time.Until(retryAt)
+		if wait <= 0 {
+			return
+		}
+		if wait > time.Minute {
+			wait = time.Minute
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func emitRetryWait(state RunState, statePath string, progress func(RunLoopProgress)) {
+	if progress == nil {
+		return
+	}
+	for _, task := range state.Tasks {
+		if task.Status == TaskStatusRetrying && task.RetryAfter != nil && task.RetryAfter.After(time.Now().UTC()) {
+			progress(RunLoopProgress{Event: RunLoopProgressWaiting, Task: task, Counts: SummarizeRunState(state, statePath)})
+			return
+		}
+	}
 }
 
 func loadOrCreateRunLoopState(req RunLoopRequest, study Study, sources []Source, dimensions []Dimension, workspaceRoot string) (RunState, error) {
@@ -279,7 +339,21 @@ func progressEventForExecution(res ExecutionResult) RunLoopProgressEvent {
 	case ExecutionStatusCancelled:
 		return RunLoopProgressCancelled
 	default:
+		if executionShouldRetry(res) {
+			return RunLoopProgressWaiting
+		}
 		return RunLoopProgressFailed
+	}
+}
+
+type runtimeEvent = runtimepkg.Event
+
+func interestingRuntimeEvent(kind string) bool {
+	switch kind {
+	case "rate_limit", "retry", "fallback", "lifecycle", "warning", "fatal_error":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -296,7 +370,7 @@ func runnableTaskIDs(state RunState, attempted map[string]bool, limit int, now t
 		if len(ids) >= limit {
 			return ids
 		}
-		if attempted[task.ID] || task.Kind != TaskKindSynthesis || !taskRunnable(task, now) {
+		if taskAttemptBlocked(task, attempted) || task.Kind != TaskKindSynthesis || !taskRunnable(task, now) {
 			continue
 		}
 		if dependenciesCompleteFrom(byID, task) {
@@ -307,12 +381,16 @@ func runnableTaskIDs(state RunState, attempted map[string]bool, limit int, now t
 		if len(ids) >= limit {
 			return ids
 		}
-		if attempted[task.ID] || task.Kind != TaskKindAnalysis || !taskRunnable(task, now) {
+		if taskAttemptBlocked(task, attempted) || task.Kind != TaskKindAnalysis || !taskRunnable(task, now) {
 			continue
 		}
 		ids = append(ids, task.ID)
 	}
 	return ids
+}
+
+func taskAttemptBlocked(task TaskState, attempted map[string]bool) bool {
+	return attempted[task.ID] && task.Status != TaskStatusRetrying
 }
 
 func taskRunnable(task TaskState, now time.Time) bool {
@@ -327,6 +405,20 @@ func taskRunnable(task TaskState, now time.Time) bool {
 	default:
 		return false
 	}
+}
+
+func nextRetryAfter(state RunState, now time.Time) *time.Time {
+	var next *time.Time
+	for _, task := range state.Tasks {
+		if task.Status != TaskStatusRetrying || task.RetryAfter == nil || !task.RetryAfter.After(now) {
+			continue
+		}
+		retry := *task.RetryAfter
+		if next == nil || retry.Before(*next) {
+			next = &retry
+		}
+	}
+	return next
 }
 
 func dependenciesComplete(state RunState, task TaskState) bool {
@@ -392,10 +484,34 @@ func applyExecutionResult(update func(string, func(*TaskState)) error, id string
 			t.Status = TaskStatusFailed
 			t.LastError = &TaskError{Code: "validation.failed", Message: safeExecutionMessage(res), Path: res.OutputPath}
 		default:
-			t.Status = TaskStatusFailed
+			if executionShouldRetry(res) {
+				t.Status = TaskStatusRetrying
+				if t.RetryAfter == nil {
+					retry := now.Add(defaultRuntimeRetryDelay(res))
+					t.RetryAfter = &retry
+				}
+			} else {
+				t.Status = TaskStatusFailed
+			}
 			t.LastError = &TaskError{Code: "runtime.failed", Message: safeExecutionMessage(res)}
 		}
 	})
+}
+
+func executionShouldRetry(res ExecutionResult) bool {
+	switch res.RuntimeCategory {
+	case "rate_limit", "timeout", "provider_unavailable", "runtime_unavailable":
+		return true
+	default:
+		return false
+	}
+}
+
+func defaultRuntimeRetryDelay(res ExecutionResult) time.Duration {
+	if res.RuntimeCategory == "rate_limit" {
+		return 10 * time.Minute
+	}
+	return 2 * time.Minute
 }
 
 func markTaskCancelled(update func(string, func(*TaskState)) error, id string, err error) error {

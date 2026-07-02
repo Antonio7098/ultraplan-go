@@ -43,7 +43,7 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 	}
 	workDir := listing.Study.Path
 	beforeFiles, snapshotErr := snapshotFiles(listing.Study.Path)
-	runtimeResult, runErr := s.startRuntime(ctx, prompt, TaskKindAnalysis, listing.Study, dimension, source, workDir, result.OutputPath)
+	runtimeResult, runErr := s.startRuntime(ctx, prompt, TaskKindAnalysis, listing.Study, dimension, source, workDir, result.OutputPath, req.OnEvent)
 	if snapshotErr != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("edit monitoring skipped before runtime: %v", snapshotErr))
 	} else if afterFiles, err := snapshotFilesSettled(listing.Study.Path); err != nil {
@@ -79,7 +79,7 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 	return result, nil
 }
 
-func (s Service) startRuntime(ctx context.Context, prompt PromptResult, kind TaskKind, study Study, dimension Dimension, source Source, workDir, outputPath string) (runtimepkg.Result, error) {
+func (s Service) startRuntime(ctx context.Context, prompt PromptResult, kind TaskKind, study Study, dimension Dimension, source Source, workDir, outputPath string, onEvent func(runtimepkg.Event)) (runtimepkg.Result, error) {
 	if s.runtime == nil {
 		return runtimepkg.Result{}, fmt.Errorf("runtime is required")
 	}
@@ -91,6 +91,7 @@ func (s Service) startRuntime(ctx context.Context, prompt PromptResult, kind Tas
 	req.WorkDir = workDir
 	req = withStudyRuntimeIsolation(req)
 	req.Metadata = executionMetadata(req, kind, study, dimension, source, outputPath)
+	req.OnEvent = onEvent
 	req.Validation = &agentwrap.ValidationSpec{Expectations: []agentwrap.ValidationExpectation{{
 		ID:       "expected_output",
 		Kind:     agentwrap.ExpectationFile,

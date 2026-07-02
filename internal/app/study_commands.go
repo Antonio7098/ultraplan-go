@@ -345,6 +345,15 @@ func renderRunLoopProgress(deps dependencies, root string) func(study.RunLoopPro
 	return func(progress study.RunLoopProgress) {
 		task := progress.Task
 		counts := progress.Counts
+		if progress.Event == study.RunLoopProgressRuntime && progress.RuntimeEvent != nil {
+			fmt.Fprintf(deps.stdout, "[run-loop] runtime  %-9s %s", task.Kind, task.DimensionRef)
+			if task.Source != "" {
+				fmt.Fprintf(deps.stdout, " %s", task.Source)
+			}
+			fmt.Fprintf(deps.stdout, " | %s", runtimeProgressSummary(*progress.RuntimeEvent))
+			fmt.Fprintf(deps.stdout, " | done %d/%d active %d pending %d retrying %d failed %d\n", counts.Completed, counts.Total, counts.Active, counts.Pending, counts.Retrying, counts.Failed+counts.Cancelled)
+			return
+		}
 		fmt.Fprintf(deps.stdout, "[run-loop] %-9s %-9s %s", progress.Event, task.Kind, task.DimensionRef)
 		if task.Source != "" {
 			fmt.Fprintf(deps.stdout, " %s", task.Source)
@@ -357,6 +366,30 @@ func renderRunLoopProgress(deps dependencies, root string) func(study.RunLoopPro
 			fmt.Fprintf(deps.stdout, "[run-loop] error     %s: %s\n", task.ID, config.RedactValue("task.error", task.LastError.Message))
 		}
 	}
+}
+
+func runtimeProgressSummary(event runtimepkg.Event) string {
+	parts := []string{}
+	if event.Kind != "" {
+		parts = append(parts, event.Kind)
+	} else if event.Type != "" {
+		parts = append(parts, event.Type)
+	}
+	for _, key := range []string{"provider", "model", "retry_after", "delay", "reason", "detail", "error", "state"} {
+		value, ok := event.Payload[key]
+		if !ok {
+			continue
+		}
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text == "" || text == "<nil>" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", key, config.RedactValue("runtime."+key, text)))
+	}
+	if len(parts) == 0 {
+		return "event"
+	}
+	return strings.Join(parts, " ")
 }
 
 func runLoopProgressPath(root, path string) string {
