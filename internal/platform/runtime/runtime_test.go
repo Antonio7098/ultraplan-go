@@ -165,6 +165,43 @@ func TestAdapterMapsMalformedEventFailureSafely(t *testing.T) {
 	}
 }
 
+func TestAdapterRetainsOnlyRecentRuntimeEvents(t *testing.T) {
+	events := make([]agentwrap.Event, retainedRuntimeEventLimit+5)
+	for i := range events {
+		events[i] = agentwrap.Event{
+			ID:      agentwrap.EventID("event-" + string(rune('a'+i%26))),
+			RunID:   "run-1",
+			Type:    "native.message",
+			Payload: agentwrap.EventPayloadWithKind(agentwrap.EventMessage, agentwrap.EventPayload{"index": i}),
+		}
+	}
+	adapter := NewAdapter(fakeRuntime{run: &fakeRun{
+		id:     "run-1",
+		events: events,
+		result: agentwrap.RunResult{RunID: "run-1", Status: agentwrap.StatusCompleted},
+	}})
+
+	result, err := adapter.StartRun(context.Background(), Request{Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events) != retainedRuntimeEventLimit {
+		t.Fatalf("retained events = %d, want %d", len(result.Events), retainedRuntimeEventLimit)
+	}
+	if result.EventStats.Total != int64(len(events)) || result.EventStats.Dropped != 5 || result.EventStats.Retained != retainedRuntimeEventLimit {
+		t.Fatalf("unexpected event stats: %+v", result.EventStats)
+	}
+	if result.Events[0].Payload["index"] != 5 {
+		t.Fatalf("oldest retained event = %+v", result.Events[0])
+	}
+	if result.Memory.Samples == 0 || result.Memory.PeakAllocBytes == 0 {
+		t.Fatalf("memory stats not sampled: %+v", result.Memory)
+	}
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected truncation warning: %+v", result.Warnings)
+	}
+}
+
 func TestAdapterMapsPolicyRetryFallbackAndValidationMetadata(t *testing.T) {
 	total := int64(99)
 	adapter := NewAdapter(fakeRuntime{run: &fakeRun{

@@ -45,7 +45,6 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 				Policy:  policy,
 			},
 		},
-		Store:  agentwrap.NewMemoryRunStore(),
 		Policy: agentwrap.PersistencePolicy{PersistUnsafeRawPayloads: false},
 	}
 	return Adapter{runtime: stack, health: primary}, nil

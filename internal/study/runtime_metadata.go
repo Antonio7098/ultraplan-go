@@ -54,6 +54,22 @@ func agentMetadata(result runtimepkg.Result, req runtimepkg.Request) AgentMetada
 		},
 		Warnings: append([]string(nil), result.Warnings...),
 	}
+	if result.EventStats.Total > 0 || result.EventStats.Retained > 0 || result.EventStats.Dropped > 0 || result.EventStats.Limit > 0 {
+		meta.Events = &EventMetadata{
+			Total:    result.EventStats.Total,
+			Retained: result.EventStats.Retained,
+			Dropped:  result.EventStats.Dropped,
+			Limit:    result.EventStats.Limit,
+		}
+	}
+	if result.Memory.Samples > 0 || result.Memory.StartAllocBytes > 0 || result.Memory.PeakAllocBytes > 0 || result.Memory.EndAllocBytes > 0 {
+		meta.Memory = &MemoryMetadata{
+			StartAllocBytes: result.Memory.StartAllocBytes,
+			PeakAllocBytes:  result.Memory.PeakAllocBytes,
+			EndAllocBytes:   result.Memory.EndAllocBytes,
+			Samples:         result.Memory.Samples,
+		}
+	}
 	if result.Cleanup.Error != nil {
 		meta.Cleanup.Error = result.Cleanup.Error.UserDetail
 	}
@@ -101,6 +117,9 @@ func agentMetadata(result runtimepkg.Result, req runtimepkg.Request) AgentMetada
 	}
 	if len(result.Usage.Native) > 0 {
 		meta.Omissions = append(meta.Omissions, MetadataOmission{Field: "usage.native", Reason: "native usage payload omitted from study state"})
+	}
+	if result.EventStats.Dropped > 0 {
+		meta.Omissions = append(meta.Omissions, MetadataOmission{Field: "events", Reason: fmt.Sprintf("%d runtime events omitted from study state after retaining last %d", result.EventStats.Dropped, result.EventStats.Retained)})
 	}
 	for _, event := range result.Events {
 		if event.RawOmitted {

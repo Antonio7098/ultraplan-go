@@ -12,10 +12,26 @@ type AgentMetadata struct {
 	Cleanup     CleanupMetadata    `json:"cleanup,omitempty"`
 	Repair      RepairMetadata     `json:"repair,omitempty"`
 	Usage       UsageMetadata      `json:"usage,omitempty"`
+	Events      *EventMetadata     `json:"events,omitempty"`
+	Memory      *MemoryMetadata    `json:"memory,omitempty"`
 	Cost        *CostMetadata      `json:"cost,omitempty"`
 	Artifacts   []ArtifactMetadata `json:"artifacts,omitempty"`
 	Warnings    []string           `json:"warnings,omitempty"`
 	Omissions   []MetadataOmission `json:"omissions,omitempty"`
+}
+
+type EventMetadata struct {
+	Total    int64 `json:"total,omitempty"`
+	Retained int   `json:"retained,omitempty"`
+	Dropped  int64 `json:"dropped,omitempty"`
+	Limit    int   `json:"limit,omitempty"`
+}
+
+type MemoryMetadata struct {
+	StartAllocBytes uint64 `json:"start_alloc_bytes,omitempty"`
+	PeakAllocBytes  uint64 `json:"peak_alloc_bytes,omitempty"`
+	EndAllocBytes   uint64 `json:"end_alloc_bytes,omitempty"`
+	Samples         int64  `json:"samples,omitempty"`
 }
 
 type AttemptMetadata struct {
