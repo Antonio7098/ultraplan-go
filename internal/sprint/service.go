@@ -113,6 +113,27 @@ func (s Service) ValidateSprintIndex(projectRef, sprintRef string) (ValidationRe
 	}, nil
 }
 
+func (s Service) ValidateRequirements(projectRef, sprintRef string) (ValidationResult, error) {
+	sp, _, _, err := s.resolveSprintForRequirements(projectRef, sprintRef, false)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	path := mustArtifactPath(s.root, sp, StageRequirements)
+	data, err := s.store.ReadArtifact(sp, StageRequirements)
+	var findings []ValidationFinding
+	if err != nil {
+		findings = append(findings, finding("requirements.md", "", workspace.Rel(s.root, path), "missing requirements", err.Error(), "Generate requirements.md before validation."))
+	} else {
+		findings = append(findings, ValidateRequirementsContent(data)...)
+	}
+	return ValidationResult{
+		Project:  sp.Project,
+		Sprint:   sp.Slug,
+		Artifact: workspace.Rel(s.root, path),
+		Findings: findings,
+	}, nil
+}
+
 func (s Service) ValidateTechnicalHandbook(projectRef, sprintRef string) (ValidationResult, error) {
 	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
 	if err != nil {
@@ -270,6 +291,59 @@ func (s Service) PromptPlan(projectRef, sprintRef string) (PromptPreview, error)
 		return PromptPreview{}, fmt.Errorf("plan prerequisites failed validation")
 	}
 	return RenderPlanPrompt(s.root, manifest), nil
+}
+
+func (s Service) PromptRequirements(projectRef, sprintRef string) (PromptPreview, error) {
+	sp, catalog, docs, err := s.resolveSprintForRequirements(projectRef, sprintRef, false)
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	return RenderRequirementsPrompt(s.root, sp, catalog, docs), nil
+}
+
+func (s Service) FlowRequirements(ctx context.Context, projectRef, sprintRef string, req FlowRequest) (FlowResult, error) {
+	if err := validateFlowTarget(req.To); err != nil {
+		return FlowResult{}, err
+	}
+	sp, catalog, docs, err := s.resolveSprintForRequirements(projectRef, sprintRef, !req.DryRun)
+	if err != nil {
+		return FlowResult{}, err
+	}
+	now := s.now().UTC()
+	prompt := RenderRequirementsPrompt(s.root, sp, catalog, docs)
+	if req.DryRun {
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: true, Message: prompt.Prompt}, nil
+	}
+	if s.runtime == nil {
+		err := fmt.Errorf("runtime is required for requirements flow")
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
+	}
+	runtimeResult, err := s.runtime.StartRun(ctx, s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageRequirements)}))
+	if err != nil {
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+	}
+	content, err := s.store.ReadArtifact(sp, StageRequirements)
+	if err != nil {
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+	}
+	findings := ValidateRequirementsContent(content)
+	if len(findings) > 0 {
+		err := fmt.Errorf("generated requirements.md failed validation")
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Findings: findings}, err
+	}
+	stages := flowRequirementsSuccessStages(sp, now)
+	if err := SaveFlowState(s.root, sp, NewFlowState(sp, stages, now)); err != nil {
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+	}
+	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "requirements complete"}, nil
 }
 
 func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef string, req FlowRequest) (FlowResult, error) {
@@ -538,6 +612,48 @@ func (s Service) resolveSprintInputsWithCreate(projectRef, sprintRef string, cre
 	return sp, inputs, catalog, nil
 }
 
+func (s Service) resolveSprintForRequirements(projectRef, sprintRef string, createMissing bool) (Sprint, project.ProjectIndex, []string, error) {
+	projects, err := project.DiscoverProjects(s.root)
+	if err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
+	p, err := project.ResolveProject(projects, projectRef)
+	if err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
+	sprints, err := DiscoverSprints(s.root, p)
+	if err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
+	sp, err := ResolveSprint(sprints, sprintRef)
+	if err != nil {
+		var refErr RefError
+		if !createMissing || !errors.As(err, &refErr) || refErr.Ambiguous {
+			return Sprint{}, project.ProjectIndex{}, nil, err
+		}
+		sp, err = s.createSprintSkeleton(p, sprintRef)
+		if err != nil {
+			return Sprint{}, project.ProjectIndex{}, nil, err
+		}
+	}
+	if !inside(p.Path, sp.Path) {
+		return Sprint{}, project.ProjectIndex{}, nil, fmt.Errorf("sprint path mismatch for %q", sp.Slug)
+	}
+	data, err := os.ReadFile(filepath.Join(p.Path, "project-index.md"))
+	if err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
+	catalog, parseFindings := project.ParseProjectIndex(string(data))
+	if len(parseFindings) > 0 {
+		return Sprint{}, project.ProjectIndex{}, nil, fmt.Errorf("project-index.md has malformed catalog rows")
+	}
+	files, err := project.NewFSStore(s.root).ReadProjectFiles(p)
+	if err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
+	return sp, catalog, files.MarkdownDocs, nil
+}
+
 func (s Service) createSprintSkeleton(p project.Project, sprintRef string) (Sprint, error) {
 	slug := strings.TrimSpace(sprintRef)
 	if !project.IsSafeName(slug) {
@@ -552,228 +668,7 @@ func (s Service) createSprintSkeleton(p project.Project, sprintRef string) (Spri
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return Sprint{}, fmt.Errorf("create sprint %s: %w", ArtifactRelPath(sp, ""), err)
 	}
-	reqPath, err := ArtifactPath(s.root, sp, StageRequirements)
-	if err != nil {
-		return Sprint{}, err
-	}
-	if _, err := os.Stat(reqPath); os.IsNotExist(err) {
-		if err := os.WriteFile(reqPath, []byte(defaultRequirements(p, sp)), 0o644); err != nil {
-			return Sprint{}, fmt.Errorf("create %s: %w", ArtifactRelPath(sp, StageRequirements), err)
-		}
-	} else if err != nil {
-		return Sprint{}, fmt.Errorf("stat %s: %w", ArtifactRelPath(sp, StageRequirements), err)
-	}
 	return sp, nil
-}
-
-func defaultRequirements(p project.Project, sp Sprint) string {
-	if roadmapReqs, ok := requirementsFromRoadmap(p, sp); ok {
-		return roadmapReqs
-	}
-	return fmt.Sprintf(`# Sprint Requirements: %s
-
-> Project: %s
-> Sprint: %s
-> Purpose: initial sprint contract created automatically by UltraPlan flow.
-
-## Sprint Goal
-
-Create the planning artifacts for %s and refine this requirements document with sprint-specific scope before implementation.
-
-## Required Outputs
-
-| Output | Path | Description |
-| --- | --- | --- |
-| Sprint index | %s | Selected contracts, evidence, reasoning templates, protocols, and excluded context. |
-| Technical handbook | %s | Evidence-backed technical guidance for the sprint. |
-| Sprint reasoning | %s | Final decisions, assumptions, risks, and evidence mapping. |
-| Sprint plan | %s | Ordered implementation plan derived from reasoning. |
-
-## Acceptance Criteria
-
-- [ ] The sprint index validates against the project catalog.
-- [ ] The technical handbook cites selected evidence and avoids final implementation decisions.
-- [ ] The reasoning artifact records decisions, assumptions, risks, and evidence.
-- [ ] The plan traces tasks to reasoning decisions and completion evidence.
-
-## Non-Goals
-
-- Implementation execution is not part of planning generation.
-- Smoke investigation, review automation, issue tracking, and Git mutation remain outside planning flow.
-
-## Constraints
-
-- Use workspace-relative paths.
-- Select only project-index catalog entries.
-- Keep generated artifacts editable Markdown.
-
-## Dependencies
-
-| Prior Sprint / Output | Required For | Notes |
-| --- | --- | --- |
-| Project index | Sprint planning | The project catalog must validate before flow generation. |
-
-## Review Expectations
-
-| What | How Verified |
-| --- | --- |
-| Planning artifact chain | Run stage validation commands through plan. |
-`, sp.Slug, sp.Project, sp.Slug, sp.Slug, ArtifactRelPath(sp, StageSprintIndex), ArtifactRelPath(sp, StageTechnicalHandbook), ArtifactRelPath(sp, StageReasoning), ArtifactRelPath(sp, StagePlan))
-}
-
-func requirementsFromRoadmap(p project.Project, sp Sprint) (string, bool) {
-	data, err := os.ReadFile(filepath.Join(p.Path, "roadmap.md"))
-	if err != nil {
-		return "", false
-	}
-	title, body, ok := roadmapSprintSection(string(data), sp.Slug)
-	if !ok {
-		return "", false
-	}
-	goal := roadmapSectionText(body, "Goal")
-	buildItems := roadmapListItems(body, "Build")
-	acceptanceItems := roadmapListItems(body, "Acceptance")
-	if strings.TrimSpace(goal) == "" || len(buildItems) == 0 || len(acceptanceItems) == 0 {
-		return "", false
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "# Sprint Requirements: %s\n\n", sp.Slug)
-	fmt.Fprintf(&b, "> Project: %s\n", sp.Project)
-	fmt.Fprintf(&b, "> Sprint: %s\n", sp.Slug)
-	fmt.Fprintf(&b, "> Source: projects/%s/roadmap.md, %s\n\n", p.Name, title)
-	fmt.Fprintln(&b, "## Sprint Goal")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, goal)
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "## Required Outputs")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Output | Path | Description |")
-	fmt.Fprintln(&b, "| --- | --- | --- |")
-	fmt.Fprintf(&b, "| Sprint index | %s | Selected contracts, evidence, reasoning templates, protocols, and excluded context. |\n", ArtifactRelPath(sp, StageSprintIndex))
-	fmt.Fprintf(&b, "| Technical handbook | %s | Evidence-backed technical guidance for the sprint. |\n", ArtifactRelPath(sp, StageTechnicalHandbook))
-	fmt.Fprintf(&b, "| Sprint reasoning | %s | Final decisions, assumptions, risks, and evidence mapping. |\n", ArtifactRelPath(sp, StageReasoning))
-	fmt.Fprintf(&b, "| Sprint plan | %s | Ordered implementation plan derived from reasoning. |\n", ArtifactRelPath(sp, StagePlan))
-	for _, item := range buildItems {
-		fmt.Fprintf(&b, "| %s | Sprint implementation | Roadmap build item. |\n", sentenceTitle(item))
-	}
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "## Acceptance Criteria")
-	fmt.Fprintln(&b)
-	for _, item := range acceptanceItems {
-		fmt.Fprintf(&b, "- [ ] %s\n", strings.TrimSuffix(item, ".")+".")
-	}
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "## Non-Goals")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "- Smoke investigation, automated review, issue tracking, automatic Git mutation, hosted SaaS, browser UI, multi-user collaboration, and cross-sprint scheduling remain out of scope unless this sprint's source docs explicitly revise scope.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "## Constraints")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "- Use workspace-relative paths.")
-	fmt.Fprintln(&b, "- Select only project-index catalog entries.")
-	fmt.Fprintln(&b, "- Keep generated artifacts editable Markdown.")
-	fmt.Fprintln(&b, "- Preserve package ownership and dependency direction from project architecture docs.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "## Dependencies")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Prior Sprint / Output | Required For | Notes |")
-	fmt.Fprintln(&b, "| --- | --- | --- |")
-	fmt.Fprintln(&b, "| Project index | Sprint planning | The project catalog must validate before flow generation. |")
-	fmt.Fprintln(&b, "| Project roadmap and docs | Sprint scope | Requirements are seeded from the matching roadmap sprint section. |")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "## Review Expectations")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| What | How Verified |")
-	fmt.Fprintln(&b, "| --- | --- |")
-	fmt.Fprintln(&b, "| Planning artifact chain | Run stage validation commands through plan. |")
-	return b.String(), true
-}
-
-func roadmapSprintSection(content, slug string) (string, string, bool) {
-	n := sprintNumber(slug)
-	if n == "" {
-		return "", "", false
-	}
-	lines := strings.Split(content, "\n")
-	start := -1
-	title := ""
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "### Sprint "+n+":") || strings.HasPrefix(trimmed, "## Sprint "+n+":") {
-			start = i
-			title = strings.TrimLeft(trimmed, "# ")
-			break
-		}
-	}
-	if start < 0 {
-		return "", "", false
-	}
-	end := len(lines)
-	for i := start + 1; i < len(lines); i++ {
-		trimmed := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(trimmed, "### Sprint ") || strings.HasPrefix(trimmed, "## Sprint ") || strings.HasPrefix(trimmed, "# ") {
-			end = i
-			break
-		}
-	}
-	return title, strings.Join(lines[start+1:end], "\n"), true
-}
-
-func sprintNumber(slug string) string {
-	var b strings.Builder
-	for _, r := range slug {
-		if r < '0' || r > '9' {
-			break
-		}
-		b.WriteRune(r)
-	}
-	return strings.TrimLeft(b.String(), "0")
-}
-
-func roadmapSectionText(content, heading string) string {
-	lines := strings.Split(content, "\n")
-	marker := "**" + heading + ":**"
-	for i, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-		if strings.EqualFold(trimmedLine, marker) || strings.HasPrefix(strings.ToLower(trimmedLine), strings.ToLower(marker)) {
-			var out []string
-			if after, ok := strings.CutPrefix(trimmedLine, marker); ok && strings.TrimSpace(after) != "" {
-				out = append(out, strings.TrimSpace(after))
-			}
-			for _, next := range lines[i+1:] {
-				trimmed := strings.TrimSpace(next)
-				if strings.HasPrefix(trimmed, "**") || strings.HasPrefix(trimmed, "### ") || strings.HasPrefix(trimmed, "## ") {
-					break
-				}
-				if trimmed != "" {
-					out = append(out, trimmed)
-				}
-			}
-			return strings.Join(out, "\n")
-		}
-	}
-	return ""
-}
-
-func roadmapListItems(content, heading string) []string {
-	text := roadmapSectionText(content, heading)
-	var items []string
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "- ") {
-			items = append(items, strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
-		}
-	}
-	return items
-}
-
-func sentenceTitle(s string) string {
-	s = strings.TrimSpace(strings.Trim(s, "`"))
-	if s == "" {
-		return "Roadmap output"
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func (s Service) planManifest(sp Sprint, inputs PlanningInputs, catalog project.ProjectIndex) (PlanManifest, []ValidationFinding) {

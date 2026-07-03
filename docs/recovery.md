@@ -42,6 +42,7 @@ Common missing artifacts include per-source reports, final reports, `summary.csv
 
 Planning artifacts use a separate chain under `projects/<project>/sprints/<sprint>/`. Missing planning artifacts should be repaired stage by stage:
 
+- Missing `requirements.md`: run `sprint <project> <sprint> prompt requirements` to inspect roadmap/docs context, then `sprint <project> <sprint> flow --to requirements`.
 - Missing `sprint-index.md`: run `sprint <project> <sprint> prompt sprint-index` to inspect context, then `sprint <project> <sprint> flow --to sprint-index`.
 - Missing `technical-handbook.md`: validate `sprint-index` first, then run `flow --to technical-handbook`.
 - Missing `reasoning.md`: validate area reasoning inputs if selected, then run `flow --to reasoning`.

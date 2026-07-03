@@ -35,6 +35,8 @@ ultraplan sprint <project> <sprint> flow --to plan --dry-run
 Run only when the runtime prerequisites are available:
 
 ```bash
+ultraplan sprint <project> <sprint> flow --to requirements
+ultraplan sprint <project> <sprint> validate requirements
 ultraplan sprint <project> <sprint> flow --to sprint-index
 ultraplan sprint <project> <sprint> validate sprint-index
 ultraplan sprint <project> <sprint> flow --to technical-handbook

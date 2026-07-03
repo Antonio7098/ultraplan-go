@@ -35,6 +35,8 @@ type Execution struct {
 	DefaultRetries  int    `json:"default_retries"`
 }
 type Planning struct {
+	RequirementsModel        string `json:"requirements_model"`
+	RequirementsVariant      string `json:"requirements_variant"`
 	SprintIndexModel         string `json:"sprint_index_model"`
 	SprintIndexVariant       string `json:"sprint_index_variant"`
 	TechnicalHandbookModel   string `json:"technical_handbook_model"`
@@ -106,7 +108,7 @@ func EnvOverrides() []EnvOverride {
 
 func Load(opts LoadOptions) (Effective, error) {
 	e := Effective{Config: Defaults(), Sources: map[string]string{}}
-	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
+	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
 		e.Sources[field] = "default"
 	}
 	if opts.WorkspaceRoot != "" {
@@ -260,6 +262,10 @@ func setField(c *Config, field, value string) error {
 			return fmt.Errorf("execution.default_retries: must be an integer")
 		}
 		c.Execution.DefaultRetries = n
+	case "planning.requirements_model":
+		c.Planning.RequirementsModel = value
+	case "planning.requirements_variant":
+		c.Planning.RequirementsVariant = value
 	case "planning.sprint_index_model":
 		c.Planning.SprintIndexModel = value
 	case "planning.sprint_index_variant":

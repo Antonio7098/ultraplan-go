@@ -29,6 +29,23 @@ var sprintIndexSections = map[string]string{
 	"Excluded Context":             "excluded",
 }
 
+func ValidateRequirementsContent(content string) []ValidationFinding {
+	var findings []ValidationFinding
+	if strings.TrimSpace(content) == "" {
+		return []ValidationFinding{finding("requirements.md", "", "", "empty requirements.md", "file has no content", "Generate or write sprint-specific requirements.")}
+	}
+	if containsPlaceholder(content) {
+		findings = append(findings, finding("requirements.md", "", "", "placeholder content", "file still contains placeholder markers", "Replace placeholders with concrete sprint requirements."))
+	}
+	for _, heading := range []string{"Sprint Goal", "Required Outputs", "Acceptance Criteria", "Non-Goals", "Constraints", "Dependencies", "Review Expectations"} {
+		if !markdownHeadingPresent(content, heading) {
+			findings = append(findings, finding("requirements.md", heading, "", "missing required section", "section was not found", "Add the required requirements.md section."))
+		}
+	}
+	sortSprintFindings(findings)
+	return findings
+}
+
 func ParseSprintIndex(content string) (SprintIndex, []ValidationFinding) {
 	var index SprintIndex
 	var findings []ValidationFinding
@@ -113,6 +130,16 @@ func ParseSprintIndex(content string) (SprintIndex, []ValidationFinding) {
 	}
 	sortSprintFindings(findings)
 	return index, findings
+}
+
+func markdownHeadingPresent(content, heading string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") && strings.EqualFold(strings.TrimSpace(strings.TrimPrefix(trimmed, "## ")), heading) {
+			return true
+		}
+	}
+	return false
 }
 
 func selectedFromRow(section string, headers, cells []string) (SelectedItem, error) {

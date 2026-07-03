@@ -17,6 +17,28 @@ type PromptPreview struct {
 	Prompt  string
 }
 
+func RenderRequirementsPrompt(root string, sp Sprint, catalog project.ProjectIndex, docs []string) PromptPreview {
+	sort.Strings(docs)
+	var b strings.Builder
+	fmt.Fprintln(&b, "Inputs:")
+	fmt.Fprintf(&b, "- Output: %s\n", ArtifactRelPath(sp, StageRequirements))
+	fmt.Fprintf(&b, "- Project index: %s\n", filepath.ToSlash(filepath.Join("projects", sp.Project, "project-index.md")))
+	fmt.Fprintf(&b, "- Roadmap: %s\n", filepath.ToSlash(filepath.Join("projects", sp.Project, "roadmap.md")))
+	for _, doc := range docs {
+		fmt.Fprintf(&b, "- Project doc: %s\n", filepath.ToSlash(filepath.Join("projects", sp.Project, doc)))
+	}
+	fmt.Fprintln(&b, "\nAvailable catalog entries:")
+	writeCatalog(&b, catalog)
+	appendInjectedWorkspaceFile(root, &b, "Requirements Template", "templates/requirements.md")
+	fmt.Fprintln(&b, "\nHard constraints:")
+	fmt.Fprintln(&b, "- Derive the sprint requirements from roadmap.md, project-index.md, and project docs.")
+	fmt.Fprintln(&b, "- Use workspace-relative paths.")
+	fmt.Fprintln(&b, "- Write editable Markdown only to requirements.md.")
+	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, source repositories, config, Git state, or any artifact other than requirements.md.")
+	prompt := renderPromptFromDefault(root, "prompts/create-requirements.md", sp.Project, sp.Slug, b.String())
+	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
+}
+
 func RenderSprintIndexPrompt(root string, sp Sprint, catalog project.ProjectIndex, docs []string) PromptPreview {
 	sort.Strings(docs)
 	var b strings.Builder

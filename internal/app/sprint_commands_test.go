@@ -236,6 +236,8 @@ execution:
   default_timeout: 12m
   default_retries: 1
 planning:
+  requirements_model: openai/gpt-5.5
+  requirements_variant: high
   sprint_index_model: openai/gpt-5.5
   sprint_index_variant: high
   reasoning_model: openai/gpt-5.5
@@ -267,7 +269,7 @@ agentwrap:
 		t.Fatalf("flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Result: sprint-index complete")
-	if fake.calls != 1 {
+	if fake.calls != 2 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Provider == "" || fake.request.Model == "" {
@@ -292,7 +294,7 @@ agentwrap:
 		t.Fatalf("reasoning flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Result: reasoning complete")
-	if fake.calls != 5 {
+	if fake.calls != 7 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "reasoning" {
@@ -304,7 +306,7 @@ agentwrap:
 		t.Fatalf("plan flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Result: plan complete")
-	if fake.calls != 10 {
+	if fake.calls != 13 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "plan" {
@@ -412,6 +414,48 @@ func commandValidSprintIndex() string {
 `
 }
 
+func commandValidRequirements() string {
+	return `# Sprint Requirements: 01-alpha
+
+> Project: proj
+> Sprint: 01-alpha
+
+## Sprint Goal
+
+Select sprint context for the next planning stage.
+
+## Required Outputs
+
+| Output | Path | Description |
+|---|---|---|
+| Sprint index | projects/proj/sprints/01-alpha/sprint-index.md | Selected context |
+
+## Acceptance Criteria
+
+- [ ] Requirements are specific.
+
+## Non-Goals
+
+- Smoke investigation.
+
+## Constraints
+
+- Use workspace-relative paths.
+
+## Dependencies
+
+| Prior Sprint / Output | Required For | Notes |
+|---|---|---|
+| Project index | Planning | Must validate |
+
+## Review Expectations
+
+| What | How Verified |
+|---|---|
+| Requirements | Validation |
+`
+}
+
 type sprintCommandRuntime struct {
 	calls   int
 	request runtimepkg.Request
@@ -420,6 +464,12 @@ type sprintCommandRuntime struct {
 func (f *sprintCommandRuntime) StartRun(_ context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
 	f.calls++
 	f.request = req
+	if req.Metadata["stage"] == string(sprint.StageRequirements) {
+		path := filepath.Join(req.WorkDir, "projects", req.Metadata["project"], "sprints", req.Metadata["sprint"], "requirements.md")
+		if err := os.WriteFile(path, []byte(commandValidRequirements()), 0o644); err != nil {
+			return runtimepkg.Result{}, err
+		}
+	}
 	if req.Metadata["stage"] == string(sprint.StageReasoning) {
 		path := filepath.Join(req.WorkDir, "projects", req.Metadata["project"], "sprints", req.Metadata["sprint"], "reasoning.md")
 		if err := os.WriteFile(path, []byte(commandValidReasoning()), 0o644); err != nil {

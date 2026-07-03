@@ -66,11 +66,13 @@ func runSprint(deps dependencies, args []string) error {
 		return nil
 	case "validate":
 		if len(args) != 4 {
-			return classified(ExitUsage, "sprint.validate: expected 'validate <sprint-index|technical-handbook|area-reasoning|reasoning|plan>'")
+			return classified(ExitUsage, "sprint.validate: expected 'validate <requirements|sprint-index|technical-handbook|area-reasoning|reasoning|plan>'")
 		}
 		var result sprint.ValidationResult
 		var err error
 		switch sprint.PlanningStage(args[3]) {
+		case sprint.StageRequirements:
+			result, err = service.ValidateRequirements(args[0], args[1])
 		case sprint.StageSprintIndex:
 			result, err = service.ValidateSprintIndex(args[0], args[1])
 		case sprint.StageTechnicalHandbook:
@@ -94,11 +96,13 @@ func runSprint(deps dependencies, args []string) error {
 		return nil
 	case "prompt":
 		if len(args) != 4 {
-			return classified(ExitUsage, "sprint.prompt: expected 'prompt <sprint-index|technical-handbook|area-reasoning|reasoning|plan>'")
+			return classified(ExitUsage, "sprint.prompt: expected 'prompt <requirements|sprint-index|technical-handbook|area-reasoning|reasoning|plan>'")
 		}
 		var preview sprint.PromptPreview
 		var err error
 		switch sprint.PlanningStage(args[3]) {
+		case sprint.StageRequirements:
+			preview, err = service.PromptRequirements(args[0], args[1])
 		case sprint.StageSprintIndex:
 			preview, err = service.PromptSprintIndex(args[0], args[1])
 		case sprint.StageTechnicalHandbook:
@@ -153,17 +157,19 @@ func runSprint(deps dependencies, args []string) error {
 }
 
 func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, sprintRef string, req sprint.FlowRequest) (sprint.FlowResult, error) {
-	stages := []sprint.PlanningStage{sprint.StageSprintIndex}
+	stages := []sprint.PlanningStage{sprint.StageRequirements}
 	switch req.To {
+	case sprint.StageRequirements:
 	case sprint.StageSprintIndex:
+		stages = append(stages, sprint.StageSprintIndex)
 	case sprint.StageTechnicalHandbook:
-		stages = append(stages, sprint.StageTechnicalHandbook)
+		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook)
 	case sprint.StageAreaReasoning:
-		stages = append(stages, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning)
+		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning)
 	case sprint.StageReasoning:
-		stages = append(stages, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning)
+		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning)
 	case sprint.StagePlan:
-		stages = append(stages, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan)
+		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan)
 	default:
 		return sprint.FlowResult{}, fmt.Errorf("unsupported flow target %q", req.To)
 	}
@@ -175,6 +181,8 @@ func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, spri
 		stageReq := sprint.FlowRequest{To: stage, DryRun: req.DryRun}
 		var err error
 		switch stage {
+		case sprint.StageRequirements:
+			result, err = service.FlowRequirements(ctx, projectRef, sprintRef, stageReq)
 		case sprint.StageSprintIndex:
 			result, err = service.FlowSprintIndex(ctx, projectRef, sprintRef, stageReq)
 		case sprint.StageTechnicalHandbook:
@@ -212,6 +220,10 @@ func sprintRuntimeService(deps dependencies, root workspace.Root) (sprint.Servic
 
 func planningStageRuntime(c config.Config) map[sprint.PlanningStage]sprint.StageRuntime {
 	return map[sprint.PlanningStage]sprint.StageRuntime{
+		sprint.StageRequirements: {
+			Model:   c.Planning.RequirementsModel,
+			Variant: c.Planning.RequirementsVariant,
+		},
 		sprint.StageSprintIndex: {
 			Model:   c.Planning.SprintIndexModel,
 			Variant: c.Planning.SprintIndexVariant,
@@ -267,9 +279,9 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 		}
 	}
 	if req.To == "" {
-		return req, fmt.Errorf("--to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, or --to plan is required")
+		return req, fmt.Errorf("--to requirements, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, or --to plan is required")
 	}
-	if req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan {
+	if req.To != sprint.StageRequirements && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan {
 		return req, fmt.Errorf("unsupported flow target %q", req.To)
 	}
 	return req, nil
@@ -363,16 +375,19 @@ func sprintHelp() string {
 
 Usage:
   ultraplan sprint <project> <sprint> status
+  ultraplan sprint <project> <sprint> validate requirements
   ultraplan sprint <project> <sprint> validate sprint-index
   ultraplan sprint <project> <sprint> validate technical-handbook
   ultraplan sprint <project> <sprint> validate area-reasoning
   ultraplan sprint <project> <sprint> validate reasoning
   ultraplan sprint <project> <sprint> validate plan
+  ultraplan sprint <project> <sprint> prompt requirements
   ultraplan sprint <project> <sprint> prompt sprint-index
   ultraplan sprint <project> <sprint> prompt technical-handbook
   ultraplan sprint <project> <sprint> prompt area-reasoning
   ultraplan sprint <project> <sprint> prompt reasoning
   ultraplan sprint <project> <sprint> prompt plan
+  ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
   ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
   ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
@@ -381,7 +396,7 @@ Usage:
 
 Commands:
   <project> <sprint> status  Inspect planning artifacts and refresh flow-state.json.
-  <project> <sprint> validate <stage>  Validate sprint-index.md, technical-handbook.md, area reasoning, reasoning.md, or plan.md.
+  <project> <sprint> validate <stage>  Validate requirements.md, sprint-index.md, technical-handbook.md, area reasoning, reasoning.md, or plan.md.
   <project> <sprint> prompt <stage>    Print a runtime-free stage prompt preview.
   <project> <sprint> flow --to <stage> Run or preview sprint planning flow through plan.
 
@@ -404,13 +419,14 @@ func sprintValidateHelp() string {
 	return `ultraplan sprint <project> <sprint> validate
 
 Usage:
+  ultraplan sprint <project> <sprint> validate requirements
   ultraplan sprint <project> <sprint> validate sprint-index
   ultraplan sprint <project> <sprint> validate technical-handbook
   ultraplan sprint <project> <sprint> validate area-reasoning
   ultraplan sprint <project> <sprint> validate reasoning
   ultraplan sprint <project> <sprint> validate plan
 
-Validates sprint-index.md selected context, technical-handbook.md selected evidence distillation, area reasoning, final reasoning.md, or plan.md. Validation failures exit with code 5.
+Validates requirements.md, sprint-index.md selected context, technical-handbook.md selected evidence distillation, area reasoning, final reasoning.md, or plan.md. Validation failures exit with code 5.
 `
 }
 
@@ -418,6 +434,7 @@ func sprintPromptHelp() string {
 	return `ultraplan sprint <project> <sprint> prompt
 
 Usage:
+  ultraplan sprint <project> <sprint> prompt requirements
   ultraplan sprint <project> <sprint> prompt sprint-index
   ultraplan sprint <project> <sprint> prompt technical-handbook
   ultraplan sprint <project> <sprint> prompt area-reasoning
@@ -432,6 +449,7 @@ func sprintFlowHelp() string {
 	return `ultraplan sprint <project> <sprint> flow
 
 Usage:
+  ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
   ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
   ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
