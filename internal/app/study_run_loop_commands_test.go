@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -80,7 +81,8 @@ func TestStudyRunLoopCommandLockConflictForceUnlockAndStatusMetadata(t *testing.
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(lockPath, []byte(`{"study":"demo","pid":123,"command":"existing","acquired_at":"2026-06-03T12:00:00Z"}`), 0o644); err != nil {
+	liveLock := fmt.Sprintf(`{"study":"demo","pid":%d,"command":"existing","acquired_at":"2026-06-03T12:00:00Z"}`, os.Getpid())
+	if err := os.WriteFile(lockPath, []byte(liveLock), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	fake := &commandFakeRuntime{write: validCommandSourceReport}
