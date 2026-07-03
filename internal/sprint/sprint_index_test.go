@@ -2,6 +2,7 @@ package sprint
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,10 +89,115 @@ func TestFlowSuccessAndValidationFailureUpdateState(t *testing.T) {
 	}
 }
 
+func TestFlowCreatesMissingSprintSkeletonOnlyWhenNotDryRun(t *testing.T) {
+	root := workspaceFixture(t)
+	writeFixtureProjectIndex(t, root, "proj")
+	service := NewService(root)
+
+	_, err := service.FlowRequirements(context.Background(), "proj", "23-execute-stage", FlowRequest{To: StageRequirements, DryRun: true})
+	if err == nil {
+		t.Fatal("expected dry-run missing sprint error")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "projects", "proj", "sprints", "23-execute-stage")); !os.IsNotExist(statErr) {
+		t.Fatalf("dry-run created sprint: %v", statErr)
+	}
+
+	result, err := service.FlowRequirements(context.Background(), "proj", "23-execute-stage", FlowRequest{To: StageRequirements})
+	if err == nil || !strings.Contains(err.Error(), "runtime is required") {
+		t.Fatalf("expected runtime error after skeleton creation, result=%+v err=%v", result, err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "projects", "proj", "sprints", "23-execute-stage")); statErr != nil {
+		t.Fatalf("sprint directory not created: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "projects", "proj", "sprints", "23-execute-stage", "requirements.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("requirements should be runtime-generated, stat=%v", statErr)
+	}
+}
+
+func TestFlowRequirementsGeneratesMissingSprintRequirements(t *testing.T) {
+	root := workspaceFixture(t)
+	writeFixtureProjectIndex(t, root, "proj")
+	reqPath := filepath.Join(root, "projects", "proj", "sprints", "23-execute-stage", "requirements.md")
+	service := NewService(root).WithRuntime(writeFileRuntime{Path: reqPath, Content: validRequirements("proj", "23-execute-stage")})
+
+	result, err := service.FlowRequirements(context.Background(), "proj", "23-execute-stage", FlowRequest{To: StageRequirements})
+	if err != nil {
+		t.Fatalf("flow requirements failed: result=%+v err=%v", result, err)
+	}
+	data, readErr := os.ReadFile(reqPath)
+	if readErr != nil {
+		t.Fatalf("requirements not created: %v", readErr)
+	}
+	content := string(data)
+	if !strings.Contains(content, "Execute validated plan tasks") || containsPlaceholder(content) {
+		t.Fatalf("unexpected requirements:\n%s", content)
+	}
+	if result.Stages[0].Status != StatusComplete || result.Stages[1].Status != StatusReady {
+		t.Fatalf("unexpected stages: %+v", result.Stages)
+	}
+}
+
 type fakeRuntime struct{}
 
 func (fakeRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {
 	return pruntime.Result{Status: "success", RunID: "run-1"}, nil
+}
+
+type writeFileRuntime struct {
+	Path    string
+	Content string
+}
+
+func (r writeFileRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {
+	if err := os.MkdirAll(filepath.Dir(r.Path), 0o755); err != nil {
+		return pruntime.Result{}, err
+	}
+	if err := os.WriteFile(r.Path, []byte(r.Content), 0o644); err != nil {
+		return pruntime.Result{}, err
+	}
+	return pruntime.Result{Status: "success", RunID: "run-1"}, nil
+}
+
+func validRequirements(projectName, sprintSlug string) string {
+	return fmt.Sprintf(`# Sprint Requirements: %s
+
+> Project: %s
+> Sprint: %s
+
+## Sprint Goal
+
+Execute validated plan tasks through the runtime boundary.
+
+## Required Outputs
+
+| Output | Path | Description |
+| --- | --- | --- |
+| Sprint index | projects/%s/sprints/%s/sprint-index.md | Selected context. |
+
+## Acceptance Criteria
+
+- [ ] Requirements are sprint-specific.
+
+## Non-Goals
+
+- Smoke investigation.
+
+## Constraints
+
+- Use workspace-relative paths.
+
+## Dependencies
+
+| Prior Sprint / Output | Required For | Notes |
+| --- | --- | --- |
+| Project index | Planning | Must validate. |
+
+## Review Expectations
+
+| What | How Verified |
+| --- | --- |
+| Requirements | Validate the requirements stage. |
+`, sprintSlug, projectName, sprintSlug, projectName, sprintSlug)
 }
 
 type panicRuntime struct{}

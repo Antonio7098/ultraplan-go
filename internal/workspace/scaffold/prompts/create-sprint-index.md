@@ -31,7 +31,7 @@ Use the injected sprint-index template section. Fill every section. The sprint i
 6. **Contracts**: list each selected contract by simple name (e.g. "Architecture"). The contract applies as a flat whole — no requirement ID mappings or per-clause breakdowns. If a clause is particularly important, mention it in the Why Selected column.
 7. **Selected Evidence Reports**: copy the relevant rows from the project index's "Available Evidence Reports" table. These tell the technical handbook which reports to read.
 8. **Reasoning templates**: select which area reasoning templates apply and specify their output filenames.
-9. **Excluded context**: record what is explicitly excluded and why.
+9. **Excluded context**: record what is explicitly excluded and why. The table must include explicit rows covering these known deferred behaviors when they are out of scope: implementation execution, smoke investigation, review automation, issue tracking, and Git mutation.
 10. Do not invent sections or add content outside the template.
 
 ## Skip Criteria
@@ -51,4 +51,5 @@ The sprint index must:
 - Copy the relevant evidence report rows from the project index
 - Record carry-forward decisions from prior sprints
 - Explicitly exclude non-goals and non-relevant context
+- Include explicit Excluded Context rows for implementation execution, smoke investigation, review automation, issue tracking, and Git mutation unless the sprint requirements explicitly bring one of those behaviors into scope
 - Reference only items that appear in the project index (no new items invented)

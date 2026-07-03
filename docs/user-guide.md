@@ -26,7 +26,7 @@ Preview without writing:
 ultraplan init-workspace --path . --dry-run
 ```
 
-`init-workspace` creates only the required workspace files: `ultraplan.yml` and `studies/`. Prompts and templates are built into the CLI, so a workspace can run without local `prompts/` or `templates/` directories.
+`init-workspace` creates only the required workspace files: `README.md`, `ultraplan.yml`, and `studies/`. The README includes common health, config, study, planning, and defaults commands. Prompts and templates are built into the CLI, so a workspace can run without local `prompts/` or `templates/` directories.
 
 If you want editable copies of the built-in defaults, install them:
 
@@ -218,7 +218,9 @@ Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supporte
 
 ```bash
 ultraplan sprint <project> <sprint> status
+ultraplan sprint <project> <sprint> validate requirements
 ultraplan sprint <project> <sprint> validate sprint-index
+ultraplan sprint <project> <sprint> prompt requirements
 ultraplan sprint <project> <sprint> prompt plan
 ultraplan sprint <project> <sprint> flow --to plan --dry-run
 ```
@@ -227,4 +229,4 @@ Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use 
 
 The planning flow stops at `plan.md`; it does not execute the plan or create smoke, review, issue, or Git artifacts.
 
-Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`.
+Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`.

@@ -39,7 +39,7 @@ Human-readable errors are printed to stderr. JSON commands use documented envelo
 ultraplan init-workspace [--path <dir>] [--dry-run]
 ```
 
-Creates the minimal required workspace scaffold: `ultraplan.yml` and `studies/`. `--dry-run` prints planned operations without writing files.
+Creates the minimal required workspace scaffold: `README.md`, `ultraplan.yml`, and `studies/`. The README includes common workspace commands. `--dry-run` prints planned operations without writing files.
 
 Built-in prompts and templates are embedded in the CLI and are not required in the workspace.
 
@@ -257,6 +257,7 @@ Planning prompts use the same default/override model as study prompts. The proto
 ### `ultraplan sprint <project> <sprint> flow`
 
 ```text
+ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
 ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
 ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
 ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
@@ -264,7 +265,7 @@ ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
 ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
 ```
 
-Runs or previews the planning artifact flow through the requested stage. The supported stage chain is `sprint-index`, `technical-handbook`, `area-reasoning`, `reasoning`, and `plan`. The command does not execute implementation, smoke, review, issue, Git, prompt-generation, or hosted workflows.
+Runs or previews the planning artifact flow through the requested stage. The supported stage chain is `requirements`, `sprint-index`, `technical-handbook`, `area-reasoning`, `reasoning`, and `plan`. The command does not execute implementation, smoke, review, issue, Git, prompt-generation, or hosted workflows.
 
 ### `ultraplan code`
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,6 +20,12 @@ type Service struct {
 	now           func() time.Time
 	runtime       Runtime
 	runtimeConfig pruntime.Request
+	stageRuntime  map[PlanningStage]StageRuntime
+}
+
+type StageRuntime struct {
+	Model   string
+	Variant string
 }
 
 func NewService(root string) Service {
@@ -28,6 +36,14 @@ func (s Service) WithRuntime(rt Runtime, reqs ...pruntime.Request) Service {
 	s.runtime = rt
 	if len(reqs) > 0 {
 		s.runtimeConfig = reqs[0]
+	}
+	return s
+}
+
+func (s Service) WithStageRuntime(overrides map[PlanningStage]StageRuntime) Service {
+	s.stageRuntime = map[PlanningStage]StageRuntime{}
+	for stage, override := range overrides {
+		s.stageRuntime[stage] = override
 	}
 	return s
 }
@@ -93,6 +109,27 @@ func (s Service) ValidateSprintIndex(projectRef, sprintRef string) (ValidationRe
 		Project:  sp.Project,
 		Sprint:   sp.Slug,
 		Artifact: workspace.Rel(s.root, mustArtifactPath(s.root, sp, StageSprintIndex)),
+		Findings: findings,
+	}, nil
+}
+
+func (s Service) ValidateRequirements(projectRef, sprintRef string) (ValidationResult, error) {
+	sp, _, _, err := s.resolveSprintForRequirements(projectRef, sprintRef, false)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	path := mustArtifactPath(s.root, sp, StageRequirements)
+	data, err := s.store.ReadArtifact(sp, StageRequirements)
+	var findings []ValidationFinding
+	if err != nil {
+		findings = append(findings, finding("requirements.md", "", workspace.Rel(s.root, path), "missing requirements", err.Error(), "Generate requirements.md before validation."))
+	} else {
+		findings = append(findings, ValidateRequirementsContent(data)...)
+	}
+	return ValidationResult{
+		Project:  sp.Project,
+		Sprint:   sp.Slug,
+		Artifact: workspace.Rel(s.root, path),
 		Findings: findings,
 	}, nil
 }
@@ -256,11 +293,64 @@ func (s Service) PromptPlan(projectRef, sprintRef string) (PromptPreview, error)
 	return RenderPlanPrompt(s.root, manifest), nil
 }
 
+func (s Service) PromptRequirements(projectRef, sprintRef string) (PromptPreview, error) {
+	sp, catalog, docs, err := s.resolveSprintForRequirements(projectRef, sprintRef, false)
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	return RenderRequirementsPrompt(s.root, sp, catalog, docs), nil
+}
+
+func (s Service) FlowRequirements(ctx context.Context, projectRef, sprintRef string, req FlowRequest) (FlowResult, error) {
+	if err := validateFlowTarget(req.To); err != nil {
+		return FlowResult{}, err
+	}
+	sp, catalog, docs, err := s.resolveSprintForRequirements(projectRef, sprintRef, !req.DryRun)
+	if err != nil {
+		return FlowResult{}, err
+	}
+	now := s.now().UTC()
+	prompt := RenderRequirementsPrompt(s.root, sp, catalog, docs)
+	if req.DryRun {
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: true, Message: prompt.Prompt}, nil
+	}
+	if s.runtime == nil {
+		err := fmt.Errorf("runtime is required for requirements flow")
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
+	}
+	runtimeResult, err := s.runtime.StartRun(ctx, s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageRequirements)}))
+	if err != nil {
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+	}
+	content, err := s.store.ReadArtifact(sp, StageRequirements)
+	if err != nil {
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+	}
+	findings := ValidateRequirementsContent(content)
+	if len(findings) > 0 {
+		err := fmt.Errorf("generated requirements.md failed validation")
+		stages := flowFailedStages(sp, req.To, err, now)
+		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Findings: findings}, err
+	}
+	stages := flowRequirementsSuccessStages(sp, now)
+	if err := SaveFlowState(s.root, sp, NewFlowState(sp, stages, now)); err != nil {
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+	}
+	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "requirements complete"}, nil
+}
+
 func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef string, req FlowRequest) (FlowResult, error) {
 	if err := validateFlowTarget(req.To); err != nil {
 		return FlowResult{}, err
 	}
-	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
+	sp, inputs, catalog, err := s.resolveSprintInputsForFlow(projectRef, sprintRef, !req.DryRun)
 	if err != nil {
 		return FlowResult{}, err
 	}
@@ -316,7 +406,7 @@ func (s Service) FlowPlan(ctx context.Context, projectRef, sprintRef string, req
 	if req.To != StagePlan {
 		return FlowResult{}, fmt.Errorf("unsupported plan flow target %q", req.To)
 	}
-	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
+	sp, inputs, catalog, err := s.resolveSprintInputsForFlow(projectRef, sprintRef, !req.DryRun)
 	if err != nil {
 		return FlowResult{}, err
 	}
@@ -325,7 +415,7 @@ func (s Service) FlowPlan(ctx context.Context, projectRef, sprintRef string, req
 	sortSprintFindings(findings)
 	if len(findings) > 0 {
 		err := fmt.Errorf("plan prerequisites failed validation")
-		stages := flowFailedStages(sp, req.To, err, now)
+		stages := s.flowFailedStages(sp, req.To, err, now)
 		if !req.DryRun {
 			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		}
@@ -374,7 +464,7 @@ func (s Service) FlowTechnicalHandbook(ctx context.Context, projectRef, sprintRe
 	if req.To != StageTechnicalHandbook {
 		return FlowResult{}, fmt.Errorf("unsupported technical-handbook flow target %q", req.To)
 	}
-	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
+	sp, inputs, catalog, err := s.resolveSprintInputsForFlow(projectRef, sprintRef, !req.DryRun)
 	if err != nil {
 		return FlowResult{}, err
 	}
@@ -439,7 +529,7 @@ func (s Service) FlowReasoning(ctx context.Context, projectRef, sprintRef string
 	if req.To != StageAreaReasoning && req.To != StageReasoning {
 		return FlowResult{}, fmt.Errorf("unsupported reasoning flow target %q", req.To)
 	}
-	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
+	sp, inputs, catalog, err := s.resolveSprintInputsForFlow(projectRef, sprintRef, !req.DryRun)
 	if err != nil {
 		return FlowResult{}, err
 	}
@@ -477,6 +567,14 @@ func (s Service) FlowReasoning(ctx context.Context, projectRef, sprintRef string
 }
 
 func (s Service) resolveSprintInputs(projectRef, sprintRef string) (Sprint, PlanningInputs, project.ProjectIndex, error) {
+	return s.resolveSprintInputsWithCreate(projectRef, sprintRef, false)
+}
+
+func (s Service) resolveSprintInputsForFlow(projectRef, sprintRef string, createMissing bool) (Sprint, PlanningInputs, project.ProjectIndex, error) {
+	return s.resolveSprintInputsWithCreate(projectRef, sprintRef, createMissing)
+}
+
+func (s Service) resolveSprintInputsWithCreate(projectRef, sprintRef string, createMissing bool) (Sprint, PlanningInputs, project.ProjectIndex, error) {
 	projects, err := project.DiscoverProjects(s.root)
 	if err != nil {
 		return Sprint{}, PlanningInputs{}, project.ProjectIndex{}, err
@@ -491,7 +589,14 @@ func (s Service) resolveSprintInputs(projectRef, sprintRef string) (Sprint, Plan
 	}
 	sp, err := ResolveSprint(sprints, sprintRef)
 	if err != nil {
-		return Sprint{}, PlanningInputs{}, project.ProjectIndex{}, err
+		var refErr RefError
+		if !createMissing || !errors.As(err, &refErr) || refErr.Ambiguous {
+			return Sprint{}, PlanningInputs{}, project.ProjectIndex{}, err
+		}
+		sp, err = s.createSprintSkeleton(p, sprintRef)
+		if err != nil {
+			return Sprint{}, PlanningInputs{}, project.ProjectIndex{}, err
+		}
 	}
 	if !inside(p.Path, sp.Path) {
 		return Sprint{}, PlanningInputs{}, project.ProjectIndex{}, fmt.Errorf("sprint path mismatch for %q", sp.Slug)
@@ -505,6 +610,65 @@ func (s Service) resolveSprintInputs(projectRef, sprintRef string) (Sprint, Plan
 		return Sprint{}, PlanningInputs{}, project.ProjectIndex{}, fmt.Errorf("project-index.md has malformed catalog rows")
 	}
 	return sp, inputs, catalog, nil
+}
+
+func (s Service) resolveSprintForRequirements(projectRef, sprintRef string, createMissing bool) (Sprint, project.ProjectIndex, []string, error) {
+	projects, err := project.DiscoverProjects(s.root)
+	if err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
+	p, err := project.ResolveProject(projects, projectRef)
+	if err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
+	sprints, err := DiscoverSprints(s.root, p)
+	if err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
+	sp, err := ResolveSprint(sprints, sprintRef)
+	if err != nil {
+		var refErr RefError
+		if !createMissing || !errors.As(err, &refErr) || refErr.Ambiguous {
+			return Sprint{}, project.ProjectIndex{}, nil, err
+		}
+		sp, err = s.createSprintSkeleton(p, sprintRef)
+		if err != nil {
+			return Sprint{}, project.ProjectIndex{}, nil, err
+		}
+	}
+	if !inside(p.Path, sp.Path) {
+		return Sprint{}, project.ProjectIndex{}, nil, fmt.Errorf("sprint path mismatch for %q", sp.Slug)
+	}
+	data, err := os.ReadFile(filepath.Join(p.Path, "project-index.md"))
+	if err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
+	catalog, parseFindings := project.ParseProjectIndex(string(data))
+	if len(parseFindings) > 0 {
+		return Sprint{}, project.ProjectIndex{}, nil, fmt.Errorf("project-index.md has malformed catalog rows")
+	}
+	files, err := project.NewFSStore(s.root).ReadProjectFiles(p)
+	if err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
+	return sp, catalog, files.MarkdownDocs, nil
+}
+
+func (s Service) createSprintSkeleton(p project.Project, sprintRef string) (Sprint, error) {
+	slug := strings.TrimSpace(sprintRef)
+	if !project.IsSafeName(slug) {
+		return Sprint{}, fmt.Errorf("invalid sprint reference %q: use a single safe path segment", sprintRef)
+	}
+	sprintsDir, err := workspace.ResolveInside(s.root, filepath.ToSlash(filepath.Join("projects", p.Name, "sprints")))
+	if err != nil {
+		return Sprint{}, err
+	}
+	path := filepath.Join(sprintsDir, slug)
+	sp := Sprint{Project: p.Name, Slug: slug, Path: path}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return Sprint{}, fmt.Errorf("create sprint %s: %w", ArtifactRelPath(sp, ""), err)
+	}
+	return sp, nil
 }
 
 func (s Service) planManifest(sp Sprint, inputs PlanningInputs, catalog project.ProjectIndex) (PlanManifest, []ValidationFinding) {
@@ -555,7 +719,44 @@ func (s Service) runtimeRequest(prompt string, metadata map[string]string) prunt
 	req.Prompt = prompt
 	req.WorkDir = s.root
 	req.Metadata = cloneMetadata(req.Metadata, metadata)
+	if stage := PlanningStage(metadata["stage"]); stage != "" {
+		if override, ok := s.stageRuntime[stage]; ok {
+			if override.Model != "" {
+				req.Provider, req.Model = splitProviderModel(override.Model)
+			}
+			if override.Variant != "" {
+				req.Metadata["variant"] = override.Variant
+				req.Metadata["reasoning_effort"] = override.Variant
+			}
+		}
+	}
 	return req
+}
+
+func (s Service) flowFailedStages(sp Sprint, target PlanningStage, err error, now time.Time) []StageState {
+	snap, snapErr := s.store.ReadArtifacts(sp)
+	if snapErr != nil {
+		return flowFailedStages(sp, target, err, now)
+	}
+	stages := DeriveStages(sp, snap, nil)
+	for i := range stages {
+		if stages[i].Stage == target {
+			stages[i].Status = StatusFailed
+			stages[i].LastRunAt = &now
+			stages[i].Error = err.Error()
+			break
+		}
+	}
+	return stages
+}
+
+func splitProviderModel(value string) (string, string) {
+	for i, r := range value {
+		if r == '/' {
+			return value[:i], value[i+1:]
+		}
+	}
+	return "", value
 }
 
 func cloneMetadata(base, overlay map[string]string) map[string]string {

@@ -223,6 +223,35 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 
 func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 	dir := initializedWorkspace(t)
+	writeFixtureFileContent(t, dir, `version: 1
+runtime:
+  default: opencode
+models:
+  default: minimax-coding-plan/MiniMax-M3
+  primary: minimax-coding-plan/MiniMax-M3
+  backup: minimax-coding-plan/MiniMax-M3
+execution:
+  default_variant: high
+  default_parallel: 1
+  default_timeout: 12m
+  default_retries: 1
+planning:
+  requirements_model: openai/gpt-5.5
+  requirements_variant: high
+  sprint_index_model: openai/gpt-5.5
+  sprint_index_variant: high
+  reasoning_model: openai/gpt-5.5
+  reasoning_variant: high
+  plan_model: openai/gpt-5.5
+  plan_variant: high
+logging:
+  format: text
+  level: info
+agentwrap:
+  executable: opencode
+  required_health:
+    - runtime_available
+`, "ultraplan.yml")
 	writeCommandSprintProject(t, dir, "proj", "01-alpha")
 	base := filepath.Join(dir, "projects", "proj", "sprints", "01-alpha")
 	writeFixtureFileContent(t, base, "# Requirements\n\nSelect stage.\n", "requirements.md")
@@ -240,11 +269,17 @@ func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 		t.Fatalf("flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Result: sprint-index complete")
-	if fake.calls != 1 {
+	if fake.calls != 2 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Provider == "" || fake.request.Model == "" {
 		t.Fatalf("runtime request did not include config: %+v", fake.request)
+	}
+	if fake.request.Provider != "openai" || fake.request.Model != "gpt-5.5" {
+		t.Fatalf("planning model override was not used: %+v", fake.request)
+	}
+	if fake.request.Metadata["reasoning_effort"] != "high" {
+		t.Fatalf("planning variant metadata was not used: %+v", fake.request.Metadata)
 	}
 	if fake.request.Metadata["stage"] != "sprint-index" {
 		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
@@ -259,7 +294,7 @@ func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 		t.Fatalf("reasoning flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Result: reasoning complete")
-	if fake.calls != 2 {
+	if fake.calls != 7 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "reasoning" {
@@ -271,7 +306,7 @@ func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 		t.Fatalf("plan flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Result: plan complete")
-	if fake.calls != 3 {
+	if fake.calls != 13 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "plan" {
@@ -379,6 +414,48 @@ func commandValidSprintIndex() string {
 `
 }
 
+func commandValidRequirements() string {
+	return `# Sprint Requirements: 01-alpha
+
+> Project: proj
+> Sprint: 01-alpha
+
+## Sprint Goal
+
+Select sprint context for the next planning stage.
+
+## Required Outputs
+
+| Output | Path | Description |
+|---|---|---|
+| Sprint index | projects/proj/sprints/01-alpha/sprint-index.md | Selected context |
+
+## Acceptance Criteria
+
+- [ ] Requirements are specific.
+
+## Non-Goals
+
+- Smoke investigation.
+
+## Constraints
+
+- Use workspace-relative paths.
+
+## Dependencies
+
+| Prior Sprint / Output | Required For | Notes |
+|---|---|---|
+| Project index | Planning | Must validate |
+
+## Review Expectations
+
+| What | How Verified |
+|---|---|
+| Requirements | Validation |
+`
+}
+
 type sprintCommandRuntime struct {
 	calls   int
 	request runtimepkg.Request
@@ -387,6 +464,12 @@ type sprintCommandRuntime struct {
 func (f *sprintCommandRuntime) StartRun(_ context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
 	f.calls++
 	f.request = req
+	if req.Metadata["stage"] == string(sprint.StageRequirements) {
+		path := filepath.Join(req.WorkDir, "projects", req.Metadata["project"], "sprints", req.Metadata["sprint"], "requirements.md")
+		if err := os.WriteFile(path, []byte(commandValidRequirements()), 0o644); err != nil {
+			return runtimepkg.Result{}, err
+		}
+	}
 	if req.Metadata["stage"] == string(sprint.StageReasoning) {
 		path := filepath.Join(req.WorkDir, "projects", req.Metadata["project"], "sprints", req.Metadata["sprint"], "reasoning.md")
 		if err := os.WriteFile(path, []byte(commandValidReasoning()), 0o644); err != nil {

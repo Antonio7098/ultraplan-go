@@ -29,6 +29,17 @@ type FlowResult struct {
 	Findings []ValidationFinding
 }
 
+func flowRequirementsSuccessStages(sp Sprint, now time.Time) []StageState {
+	return []StageState{
+		{Stage: StageRequirements, Status: StatusComplete, Path: ArtifactRelPath(sp, StageRequirements), LastRunAt: &now},
+		{Stage: StageSprintIndex, Status: StatusReady, Path: ArtifactRelPath(sp, StageSprintIndex)},
+		{Stage: StageTechnicalHandbook, Status: StatusMissing, Path: ArtifactRelPath(sp, StageTechnicalHandbook)},
+		{Stage: StageAreaReasoning, Status: StatusMissing, Path: ArtifactRelPath(sp, StageAreaReasoning)},
+		{Stage: StageReasoning, Status: StatusMissing, Path: ArtifactRelPath(sp, StageReasoning)},
+		{Stage: StagePlan, Status: StatusMissing, Path: ArtifactRelPath(sp, StagePlan)},
+	}
+}
+
 func flowSprintIndexSuccessStages(sp Sprint, noTemplates bool, now time.Time) []StageState {
 	stages := []StageState{
 		{Stage: StageRequirements, Status: StatusComplete, Path: ArtifactRelPath(sp, StageRequirements), LastRunAt: &now},
@@ -96,6 +107,10 @@ func flowFailedStages(sp Sprint, target PlanningStage, err error, now time.Time)
 		{Stage: StageReasoning, Status: StatusMissing, Path: ArtifactRelPath(sp, StageReasoning)},
 		{Stage: StagePlan, Status: StatusMissing, Path: ArtifactRelPath(sp, StagePlan)},
 	}
+	if target == StageRequirements {
+		stages[0] = StageState{Stage: StageRequirements, Status: StatusFailed, Path: ArtifactRelPath(sp, StageRequirements), LastRunAt: &now, Error: msg}
+		stages[1] = StageState{Stage: StageSprintIndex, Status: StatusMissing, Path: ArtifactRelPath(sp, StageSprintIndex)}
+	}
 	if target == StageTechnicalHandbook {
 		stages[1] = StageState{Stage: StageSprintIndex, Status: StatusComplete, Path: ArtifactRelPath(sp, StageSprintIndex)}
 		stages[2] = StageState{Stage: StageTechnicalHandbook, Status: StatusFailed, Path: ArtifactRelPath(sp, StageTechnicalHandbook), LastRunAt: &now, Error: msg}
@@ -136,8 +151,8 @@ func safeError(err error) string {
 }
 
 func validateFlowTarget(stage PlanningStage) error {
-	if stage != StageSprintIndex && stage != StageTechnicalHandbook && stage != StageAreaReasoning && stage != StageReasoning && stage != StagePlan {
-		return fmt.Errorf("unsupported sprint flow target %q; supports sprint-index, technical-handbook, area-reasoning, reasoning, and plan", stage)
+	if stage != StageRequirements && stage != StageSprintIndex && stage != StageTechnicalHandbook && stage != StageAreaReasoning && stage != StageReasoning && stage != StagePlan {
+		return fmt.Errorf("unsupported sprint flow target %q; supports requirements, sprint-index, technical-handbook, area-reasoning, reasoning, and plan", stage)
 	}
 	return nil
 }

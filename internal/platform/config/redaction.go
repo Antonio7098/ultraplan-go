@@ -9,13 +9,14 @@ type Redacted struct {
 	Runtime   Runtime           `json:"runtime"`
 	Models    Models            `json:"models"`
 	Execution Execution         `json:"execution"`
+	Planning  Planning          `json:"planning"`
 	Logging   Logging           `json:"logging"`
 	Agentwrap Agentwrap         `json:"agentwrap"`
 	Sources   map[string]string `json:"sources,omitempty"`
 }
 
 func Redact(e Effective) Redacted {
-	return Redacted{Version: e.Config.Version, Runtime: e.Config.Runtime, Models: redactModels(e.Config.Models), Execution: e.Config.Execution, Logging: e.Config.Logging, Agentwrap: redactAgentwrap(e.Config.Agentwrap), Sources: e.Sources}
+	return Redacted{Version: e.Config.Version, Runtime: e.Config.Runtime, Models: redactModels(e.Config.Models), Execution: e.Config.Execution, Planning: redactPlanning(e.Config.Planning), Logging: e.Config.Logging, Agentwrap: redactAgentwrap(e.Config.Agentwrap), Sources: e.Sources}
 }
 
 func Sensitive(key, value string) bool {
@@ -42,6 +43,16 @@ func RedactValue(key, value string) string {
 
 func redactModels(m Models) Models {
 	return Models{Default: RedactValue("models.default", m.Default), Primary: RedactValue("models.primary", m.Primary), Backup: RedactValue("models.backup", m.Backup)}
+}
+
+func redactPlanning(p Planning) Planning {
+	p.RequirementsModel = RedactValue("planning.requirements_model", p.RequirementsModel)
+	p.SprintIndexModel = RedactValue("planning.sprint_index_model", p.SprintIndexModel)
+	p.TechnicalHandbookModel = RedactValue("planning.technical_handbook_model", p.TechnicalHandbookModel)
+	p.AreaReasoningModel = RedactValue("planning.area_reasoning_model", p.AreaReasoningModel)
+	p.ReasoningModel = RedactValue("planning.reasoning_model", p.ReasoningModel)
+	p.PlanModel = RedactValue("planning.plan_model", p.PlanModel)
+	return p
 }
 
 func redactAgentwrap(a Agentwrap) Agentwrap {

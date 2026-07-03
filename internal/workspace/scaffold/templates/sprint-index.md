@@ -64,6 +64,8 @@ All paths must appear in the project index's "Review Protocols" table.
 | ----------- | --------------- | ------------- |
 | `[context]` | `[reason]`      | `[condition]` |
 
+Required excluded-context coverage unless explicitly in sprint scope: implementation execution, smoke investigation, review automation, issue tracking, and Git mutation.
+
 ## Next Artifacts
 
 - `technical-handbook.md` reads from the evidence reports listed above.

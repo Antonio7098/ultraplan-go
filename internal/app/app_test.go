@@ -107,8 +107,12 @@ func TestInitWorkspaceDryRunAndCreate(t *testing.T) {
 		t.Fatalf("dry-run status = %d, stderr = %q", status, stderr)
 	}
 	assertContains(t, stdout, "would create file ultraplan.yml")
+	assertContains(t, stdout, "would create file README.md")
 	if _, err := os.Stat(filepath.Join(dir, "ultraplan.yml")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run wrote config, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "README.md")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote README, stat err = %v", err)
 	}
 
 	stdout, stderr, status = runForTest([]string{"init-workspace", "--path", dir})
@@ -116,11 +120,19 @@ func TestInitWorkspaceDryRunAndCreate(t *testing.T) {
 		t.Fatalf("create status = %d, stderr = %q", status, stderr)
 	}
 	assertContains(t, stdout, "created file ultraplan.yml")
-	for _, rel := range []string{"ultraplan.yml", "studies"} {
+	assertContains(t, stdout, "created file README.md")
+	for _, rel := range []string{"ultraplan.yml", "README.md", "studies"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Fatalf("expected %s: %v", rel, err)
 		}
 	}
+	readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, string(readme), "ultraplan health")
+	assertContains(t, string(readme), "ultraplan study <study> run-loop --parallel 1")
+	assertContains(t, string(readme), "ultraplan sprint <project> <sprint> flow --to plan --dry-run")
 	for _, rel := range []string{"prompts/base.md", "templates/report.md"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); !os.IsNotExist(err) {
 			t.Fatalf("init should not materialize optional default %s: %v", rel, err)

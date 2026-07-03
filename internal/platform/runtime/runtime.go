@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	stdruntime "runtime"
 	"time"
 
 	"github.com/Antonio7098/agentwrap"
@@ -47,6 +48,8 @@ type Result struct {
 	TurnID        string
 	Status        string
 	Events        []Event
+	EventStats    EventStats
+	Memory        MemoryStats
 	Artifacts     []Artifact
 	Warnings      []string
 	Attempts      []AttemptSummary
@@ -78,6 +81,20 @@ type Event struct {
 	RawEncoding       string
 }
 
+type EventStats struct {
+	Total    int64
+	Retained int
+	Dropped  int64
+	Limit    int
+}
+
+type MemoryStats struct {
+	StartAllocBytes uint64
+	PeakAllocBytes  uint64
+	EndAllocBytes   uint64
+	Samples         int64
+}
+
 type Artifact struct {
 	ID          string
 	URI         string
@@ -85,6 +102,8 @@ type Artifact struct {
 	Description string
 	Metadata    map[string]string
 }
+
+const retainedRuntimeEventLimit = 200
 
 type Usage struct {
 	InputTokensKnown  bool
@@ -211,16 +230,17 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 		return Result{}, mapError(err)
 	}
 
-	eventsCh := make(chan []Event, 1)
+	eventsCh := make(chan eventCollection, 1)
 	go func() {
-		events := []Event{}
+		events := newEventCollection(retainedRuntimeEventLimit)
 		for event := range run.Events() {
 			mapped := mapEvent(event)
-			events = append(events, mapped)
+			events.add(mapped)
 			if req.OnEvent != nil {
 				req.OnEvent(mapped)
 			}
 		}
+		events.finish()
 		eventsCh <- events
 	}()
 
@@ -262,7 +282,12 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 	mapped := mapResult(result)
 	select {
 	case events := <-eventsCh:
-		mapped.Events = events
+		mapped.Events = events.events
+		mapped.EventStats = events.stats()
+		mapped.Memory = events.memory
+		if events.dropped > 0 {
+			mapped.Warnings = append(mapped.Warnings, fmt.Sprintf("runtime retained last %d events and dropped %d earlier events from in-memory result", events.limit, events.dropped))
+		}
 	case <-time.After(time.Second):
 	}
 	if waitErr != nil {
@@ -279,6 +304,72 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 		return mapped, mapError(result.Err)
 	}
 	return mapped, nil
+}
+
+type eventCollection struct {
+	events  []Event
+	total   int64
+	dropped int64
+	limit   int
+	memory  MemoryStats
+}
+
+func newEventCollection(limit int) eventCollection {
+	if limit < 0 {
+		limit = 0
+	}
+	var mem stdruntime.MemStats
+	stdruntime.ReadMemStats(&mem)
+	return eventCollection{
+		events: make([]Event, 0, limit),
+		limit:  limit,
+		memory: MemoryStats{
+			StartAllocBytes: mem.Alloc,
+			PeakAllocBytes:  mem.Alloc,
+			Samples:         1,
+		},
+	}
+}
+
+func (c *eventCollection) add(event Event) {
+	c.total++
+	if c.total == 1 || c.total%64 == 0 {
+		c.sampleMemory()
+	}
+	if c.limit == 0 {
+		c.dropped++
+		return
+	}
+	if len(c.events) < c.limit {
+		c.events = append(c.events, event)
+		return
+	}
+	copy(c.events, c.events[1:])
+	c.events[len(c.events)-1] = event
+	c.dropped++
+}
+
+func (c *eventCollection) finish() {
+	c.sampleMemory()
+}
+
+func (c *eventCollection) sampleMemory() {
+	var mem stdruntime.MemStats
+	stdruntime.ReadMemStats(&mem)
+	c.memory.Samples++
+	c.memory.EndAllocBytes = mem.Alloc
+	if mem.Alloc > c.memory.PeakAllocBytes {
+		c.memory.PeakAllocBytes = mem.Alloc
+	}
+}
+
+func (c eventCollection) stats() EventStats {
+	return EventStats{
+		Total:    c.total,
+		Retained: len(c.events),
+		Dropped:  c.dropped,
+		Limit:    c.limit,
+	}
 }
 
 func (a Adapter) Capabilities(ctx context.Context) (Capabilities, error) {
