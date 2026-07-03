@@ -21,6 +21,7 @@ func TestInitDryRunPlansDeterministicArtifactsAndNoMutation(t *testing.T) {
 	assertHasRel(t, root, result.Directories, "studies/go-cli-study/dimensions")
 	assertHasRel(t, root, result.Files, "studies/go-cli-study/study-init.yml")
 	assertHasRel(t, root, result.Files, "studies/go-cli-study/dimensions/01-project-structure.md")
+	assertHasRel(t, root, result.Files, "studies/go-cli-study/sources/example.ultraplan-source.yml")
 	if len(result.CloneActions) != 1 {
 		t.Fatalf("CloneActions = %+v", result.CloneActions)
 	}
@@ -59,6 +60,9 @@ func TestInitPreservesSourceApplicableDimensions(t *testing.T) {
 	assertFileContains(t, root, "studies/go-cli-study/study-init.yml", "applicable_dimensions:")
 	assertFileContains(t, root, "studies/go-cli-study/study-init.yml", `        - "01"`)
 	assertFileContains(t, root, "studies/go-cli-study/study-init.yml", `        - "02"`)
+	assertFileContains(t, root, "studies/go-cli-study/sources/example.ultraplan-source.yml", "applicable_dimensions:")
+	assertFileContains(t, root, "studies/go-cli-study/sources/example.ultraplan-source.yml", `  - "01"`)
+	assertFileContains(t, root, "studies/go-cli-study/sources/example.ultraplan-source.yml", `  - "02"`)
 }
 
 func TestInitCloneRunnerArgsAndPartialFailure(t *testing.T) {

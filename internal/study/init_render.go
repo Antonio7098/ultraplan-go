@@ -62,6 +62,22 @@ func renderReadme(def initDefinition) string {
 	return b.String()
 }
 
+func renderSourceMetadataYAML(source InitSource) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "name: %s\n", yamlQuote(source.Name))
+	if source.URL != "" {
+		fmt.Fprintf(&b, "url: %s\n", yamlQuote(source.URL))
+	}
+	if source.Path != "" {
+		fmt.Fprintf(&b, "path: %s\n", yamlQuote(source.Path))
+	}
+	fmt.Fprintf(&b, "description: %s\n", yamlQuote(source.Description))
+	if len(source.ApplicableDimensions) > 0 {
+		writeTopLevelYAMLList(&b, "applicable_dimensions", source.ApplicableDimensions)
+	}
+	return b.String()
+}
+
 func renderDimensionMarkdown(dim InitDimension) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s %s\n\n", dim.Number, dim.Title)
@@ -85,6 +101,13 @@ func writeYAMLList(b *strings.Builder, field string, values []string) {
 	fmt.Fprintf(b, "      %s:\n", field)
 	for _, value := range values {
 		fmt.Fprintf(b, "        - %s\n", yamlQuote(value))
+	}
+}
+
+func writeTopLevelYAMLList(b *strings.Builder, field string, values []string) {
+	fmt.Fprintf(b, "%s:\n", field)
+	for _, value := range values {
+		fmt.Fprintf(b, "  - %s\n", yamlQuote(value))
 	}
 }
 

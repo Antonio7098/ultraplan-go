@@ -97,23 +97,14 @@ func TestDiscoverSourcesIsSortedShallowAndIncludesMarkdown(t *testing.T) {
 	}
 }
 
-func TestDiscoverSourcesAppliesStudyInitMetadataToDirectorySources(t *testing.T) {
+func TestDiscoverSourcesAppliesSourceMetadataToDirectorySources(t *testing.T) {
 	root := t.TempDir()
 	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
 	mkdir(t, study.Path, "sources", "repo")
 	writeFileContent(t, study.Path, `name: demo
-description: Demo
-repos:
-  count: 1
-  items:
-    - name: repo
-      url: https://example.com/repo.git
-      description: Repo
-      applicable_dimensions: [2, "01"]
-dimensions:
-  count: 0
-  items: []
-`, "study-init.yml")
+description: Repo
+applicable_dimensions: [2, "01"]
+`, "sources", "repo.ultraplan-source.yml")
 
 	sources, err := DiscoverSources(study)
 	if err != nil {
@@ -125,19 +116,12 @@ dimensions:
 	assertStrings(t, sources[0].ApplicableDimensions, []string{"01", "02"})
 }
 
-func TestDiscoverSourcesReadsLegacyTopLevelSourceMetadata(t *testing.T) {
+func TestDiscoverSourcesAppliesSourceLocalMetadataToDirectorySources(t *testing.T) {
 	root := t.TempDir()
 	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
 	mkdir(t, study.Path, "sources", "repo")
-	writeFileContent(t, study.Path, `name: demo
-description: Demo
-sources:
-  - name: repo
-    repo: example/repo
-    description: Repo
-    applicable_dimensions: ["03.01"]
-dimensions: []
-`, "study-init.yml")
+	writeFileContent(t, study.Path, `applicable_dimensions: ["03.01"]
+`, "sources", "repo", ".ultraplan-source.yml")
 
 	sources, err := DiscoverSources(study)
 	if err != nil {

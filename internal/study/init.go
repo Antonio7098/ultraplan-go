@@ -121,6 +121,12 @@ func buildInitPlan(req InitRequest) (initPlan, error) {
 			content: []byte(renderDimensionMarkdown(dim)),
 		})
 	}
+	for _, source := range def.Sources {
+		files = append(files, plannedFile{
+			path:    filepath.Join(studyDir, "sources", source.Name+".ultraplan-source.yml"),
+			content: []byte(renderSourceMetadataYAML(source)),
+		})
+	}
 	var clones []CloneAction
 	for _, source := range def.Sources {
 		if source.URL == "" {

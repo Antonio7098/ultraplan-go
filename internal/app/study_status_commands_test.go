@@ -18,18 +18,22 @@ func TestStudyStatusShowsPersistedRunState(t *testing.T) {
 	writeFixtureFile(t, studyRoot, "dimensions", "01-structure.md")
 	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
 	retry := time.Date(2026, 5, 31, 13, 0, 0, 0, time.UTC)
-	state := study.RunState{
-		SchemaVersion: study.RunStateSchemaVersion,
+	st := study.Study{Name: "platform", Path: studyRoot}
+	state, err := study.NewRunState(study.NewRunStateRequest{
+		WorkspaceRoot: dir,
+		Study:         st,
+		Sources:       []study.Source{{Name: "repo", Kind: study.SourceKindDirectory, Path: filepath.Join(studyRoot, "sources", "repo")}},
+		Dimensions:    []study.Dimension{{Number: "01", Slug: "structure", Path: filepath.Join(studyRoot, "dimensions", "01-structure.md")}},
 		RunID:         "run-fixed",
-		Study:         "platform",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Tasks: []study.TaskState{
-			{ID: "a", Kind: study.TaskKindAnalysis, Status: study.TaskStatusFailed, Study: "platform", Dimension: "01", Source: "repo", SourceKind: study.SourceKindDirectory, OutputPath: "out-a", CreatedAt: now, UpdatedAt: now},
-			{ID: "b", Kind: study.TaskKindSynthesis, Status: study.TaskStatusRetrying, Study: "platform", OutputPath: "out-b", RetryAfter: &retry, CreatedAt: now, UpdatedAt: now},
-		},
+		Now:           now,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := study.SaveRunState(study.Study{Name: "platform", Path: studyRoot}, state); err != nil {
+	state.Tasks[0].Status = study.TaskStatusFailed
+	state.Tasks[1].Status = study.TaskStatusRetrying
+	state.Tasks[1].RetryAfter = &retry
+	if err := study.SaveRunState(st, state); err != nil {
 		t.Fatal(err)
 	}
 
@@ -54,23 +58,21 @@ func TestStudyStatusJSONShapeAndNoRuntime(t *testing.T) {
 	mkdirAll(t, studyRoot, "sources", "repo")
 	writeFixtureFile(t, studyRoot, "dimensions", "01-structure.md")
 	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
-	state := study.RunState{
-		SchemaVersion: study.RunStateSchemaVersion,
+	st := study.Study{Name: "platform", Path: studyRoot}
+	state, err := study.NewRunState(study.NewRunStateRequest{
+		WorkspaceRoot: dir,
+		Study:         st,
+		Sources:       []study.Source{{Name: "repo", Kind: study.SourceKindDirectory, Path: filepath.Join(studyRoot, "sources", "repo")}},
+		Dimensions:    []study.Dimension{{Number: "01", Slug: "structure", Path: filepath.Join(studyRoot, "dimensions", "01-structure.md")}},
 		RunID:         "run-fixed",
-		Study:         "platform",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Tasks: []study.TaskState{
-			{
-				ID: "a", Kind: study.TaskKindAnalysis, Status: study.TaskStatusCompleted,
-				Study: "platform", Dimension: "01", DimensionRef: "01-structure", Source: "repo",
-				SourceKind: study.SourceKindDirectory, OutputPath: filepath.Join(studyRoot, "reports", "source", "01-structure", "repo.md"),
-				CreatedAt: now, UpdatedAt: now,
-				Validation: &study.ValidationSummary{Status: study.ValidationStatusPassed, CheckedAt: now, Path: filepath.Join(studyRoot, "reports", "source", "01-structure", "repo.md"), PassedChecks: 3},
-			},
-		},
+		Now:           now,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := study.SaveRunState(study.Study{Name: "platform", Path: studyRoot}, state); err != nil {
+	state.Tasks[0].Status = study.TaskStatusCompleted
+	state.Tasks[0].Validation = &study.ValidationSummary{Status: study.ValidationStatusPassed, CheckedAt: now, Path: filepath.Join(studyRoot, "reports", "source", "01-structure", "repo.md"), PassedChecks: 3}
+	if err := study.SaveRunState(st, state); err != nil {
 		t.Fatal(err)
 	}
 	called := false
@@ -121,13 +123,13 @@ func TestStudyStatusJSONShapeAndNoRuntime(t *testing.T) {
 	if payload.SchemaVersion != 1 || payload.Command != "study.status" || payload.Status != "ok" {
 		t.Fatalf("unexpected envelope: %+v", payload)
 	}
-	if payload.Result.SchemaVersion != 1 || payload.Result.RunID != "run-fixed" || payload.Result.Counts.Total != 1 || payload.Result.Counts.Completed != 1 {
+	if payload.Result.SchemaVersion != 1 || payload.Result.RunID != "run-fixed" || payload.Result.Counts.Total != 2 || payload.Result.Counts.Completed != 1 {
 		t.Fatalf("unexpected result: %+v", payload.Result)
 	}
 	if payload.Result.Usage.Known || payload.Result.Cost.Known {
 		t.Fatalf("usage/cost should be unknown: %+v", payload.Result)
 	}
-	if len(payload.Result.Tasks) != 1 || payload.Result.Tasks[0].Validation == nil {
+	if len(payload.Result.Tasks) != 2 || payload.Result.Tasks[0].Validation == nil {
 		t.Fatalf("missing task validation: %+v", payload.Result.Tasks)
 	}
 	assertNotContains(t, stdout, studyRoot)

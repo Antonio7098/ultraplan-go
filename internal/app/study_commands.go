@@ -913,6 +913,7 @@ func runStudyStatus(deps dependencies, root string, service study.Service, study
 	if err != nil {
 		return mapStudyStatusError(root, listing.Study, err)
 	}
+	study.ReconcileRunState(&state, root, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
 	summary := study.SummarizeRunState(state, study.RunStatePath(listing.Study))
 	lock, err := study.LockInfoForStatus(listing.Study)
 	if err != nil {

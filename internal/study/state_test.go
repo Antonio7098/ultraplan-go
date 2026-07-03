@@ -97,6 +97,46 @@ func TestSaveLoadRunStateAndErrorCategories(t *testing.T) {
 	}
 }
 
+func TestReconcileRunStateUpdatesApplicabilityAndCounts(t *testing.T) {
+	root, sample := testStudyRoot(t)
+	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
+	dimensions := []Dimension{{Number: "01", Slug: "structure"}, {Number: "02", Slug: "runtime"}}
+	repo := Source{Name: "repo", Kind: SourceKindDirectory}
+	doc := Source{Name: "doc.md", Kind: SourceKindMarkdown, ApplicableDimensions: []string{"01"}}
+	state, err := NewRunState(NewRunStateRequest{
+		WorkspaceRoot: root,
+		Study:         sample,
+		Sources:       []Source{repo, doc},
+		Dimensions:    dimensions,
+		RunID:         "fixed",
+		Now:           now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range state.Tasks {
+		state.Tasks[i].Status = TaskStatusCompleted
+	}
+	before := state.ApplicabilityFingerprint
+
+	repo.ApplicableDimensions = []string{"02"}
+	doc.ApplicableDimensions = []string{"02"}
+	ReconcileRunState(&state, root, sample, []Source{repo, doc}, dimensions, now.Add(time.Hour))
+
+	if state.ApplicabilityFingerprint == before {
+		t.Fatal("fingerprint did not change after applicability update")
+	}
+	assertTaskIDs(t, state.Tasks, []string{
+		"analysis:sample:02:runtime:doc:markdown",
+		"analysis:sample:02:runtime:repo:directory",
+		"synthesis:sample:02:runtime",
+	})
+	summary := SummarizeRunState(state, RunStatePath(sample))
+	if summary.Total != 3 || summary.Completed != 1 || summary.Pending != 2 {
+		t.Fatalf("summary = %+v, want current applicable graph only", summary)
+	}
+}
+
 func TestSaveRunStateRenameFailurePreservesPriorState(t *testing.T) {
 	root, sample := testStudyRoot(t)
 	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)

@@ -181,7 +181,7 @@ Runs selected applicable analysis tasks, synthesis tasks, and summary generation
 ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock] [--reset] [--yes]
 ```
 
-Advances shared durable study progress with per-study locking and `studies/<study>/.ultraplan/run-state.json`. By default, existing progress is resumed and revalidated. `--dimension` and `--source` select the eligible slice to advance; terminal progress shows both selected-scope and whole-study counts. Use `--reset` to archive and rebuild progress, with confirmation unless `--yes` is provided. Use `--force-unlock` only for operator-confirmed stale locks.
+Advances shared durable study progress with per-study locking and `studies/<study>/.ultraplan/run-state.json`. By default, existing progress is resumed, reconciled against current source/dimension applicability metadata, and revalidated. `--dimension` and `--source` select the eligible slice to advance; terminal progress shows both selected-scope and whole-study counts. Use `--reset` to archive and rebuild progress, with confirmation unless `--yes` is provided. Use `--force-unlock` only for operator-confirmed stale locks.
 
 ### `ultraplan study <study> validate`
 
@@ -199,7 +199,7 @@ Validates study artifacts without runtime execution.
 ultraplan study <study> status [--json]
 ```
 
-Shows persisted run-state status without runtime execution.
+Shows persisted run-state status without runtime execution. Counts are reconciled against the current discovered source/dimension applicability before output, so edited source metadata is reflected without requiring `run-loop --reset`.
 
 `--json` uses the stable JSON envelope with `command: "study.status"` and `result.schema_version: 1`. The stable result includes:
 

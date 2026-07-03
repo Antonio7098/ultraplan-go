@@ -144,7 +144,7 @@ templates/
 
 If an existing workspace prompt or template differs from the built-in default, `defaults install` lists the customized file and asks before overwriting it. Use `--force` only when you intentionally want to replace customized files without confirmation.
 
-Studies live under `studies/<study>/` with editable source, dimension, report, run-state, and summary artifacts. Directory sources are analyzed by path. Source entries in `study-init.yml` can use `applicable_dimensions` to limit which dimensions apply; top-level Markdown sources can also declare the same filter in frontmatter.
+Studies live under `studies/<study>/` with editable source, dimension, report, run-state, and summary artifacts. Directory sources are analyzed by path. Live directory-source metadata is stored in `sources/<source>.ultraplan-source.yml` or `sources/<source>/.ultraplan-source.yml`; `applicable_dimensions` there limits which dimensions apply. Top-level Markdown sources can declare the same filter in frontmatter. `study-init.yml` is retained as initialization provenance, not the live applicability contract.
 
 Study reports are dimension-scoped. Per-source reports are written to `studies/<study>/reports/source/<dimension-ref>/<source>.md`, and synthesis writes `studies/<study>/reports/final/<dimension-ref>.md`.
 

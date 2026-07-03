@@ -42,7 +42,7 @@ func DiscoverSources(study Study) ([]Source, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read sources for study %q: %w", study.Name, err)
 	}
-	sourceMetadata, err := readSourceMetadata(study)
+	sourceMetadata, err := readLiveSourceMetadata(study)
 	if err != nil {
 		return nil, err
 	}
@@ -51,9 +51,17 @@ func DiscoverSources(study Study) ([]Source, error) {
 		if isHidden(entry.Name()) {
 			continue
 		}
+		if strings.HasSuffix(entry.Name(), ".ultraplan-source.yml") || strings.HasSuffix(entry.Name(), ".ultraplan-source.yaml") {
+			continue
+		}
 		sourcePath := filepath.Join(sourcesDir, entry.Name())
 		metadata := sourceMetadata[entry.Name()]
 		if entry.IsDir() {
+			localMetadata, err := readSourceMetadataFile(filepath.Join(sourcePath, ".ultraplan-source.yml"))
+			if err != nil {
+				return nil, err
+			}
+			metadata = mergeApplicableDimensions(localMetadata, metadata)
 			sources = append(sources, Source{
 				Name:                 entry.Name(),
 				Kind:                 SourceKindDirectory,
@@ -93,40 +101,55 @@ func DiscoverSources(study Study) ([]Source, error) {
 	return sources, nil
 }
 
-func readSourceMetadata(study Study) (map[string][]string, error) {
-	path := filepath.Join(study.Path, "study-init.yml")
+func readLiveSourceMetadata(study Study) (map[string][]string, error) {
+	sourcesDir := filepath.Join(study.Path, "sources")
+	entries, err := readOptionalDir(sourcesDir)
+	if err != nil {
+		return nil, fmt.Errorf("read source metadata for study %q: %w", study.Name, err)
+	}
+	metadata := map[string][]string{}
+	for _, entry := range entries {
+		name, ok := sourceMetadataBaseName(entry.Name())
+		if !ok || entry.IsDir() || isHidden(entry.Name()) {
+			continue
+		}
+		applicable, err := readSourceMetadataFile(filepath.Join(sourcesDir, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		metadata[name] = applicable
+	}
+	return metadata, nil
+}
+
+func sourceMetadataBaseName(name string) (string, bool) {
+	for _, suffix := range []string{".ultraplan-source.yml", ".ultraplan-source.yaml"} {
+		if strings.HasSuffix(name, suffix) {
+			return strings.TrimSuffix(name, suffix), true
+		}
+	}
+	return "", false
+}
+
+func readSourceMetadataFile(path string) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read study metadata %s: %w", path, err)
+		return nil, fmt.Errorf("read source metadata %s: %w", path, err)
 	}
 	var raw struct {
-		Repos struct {
-			Items []sourceYAML `yaml:"items"`
-		} `yaml:"repos"`
-		Sources []sourceYAML `yaml:"sources"`
+		ApplicableDimensions any `yaml:"applicable_dimensions"`
 	}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse study metadata %s: %w", path, err)
+		return nil, fmt.Errorf("parse source metadata %s: %w", path, err)
 	}
-	sourceItems := raw.Repos.Items
-	if len(sourceItems) == 0 && len(raw.Sources) > 0 {
-		sourceItems = raw.Sources
+	applicable, err := normalizeApplicableDimensions(raw.ApplicableDimensions)
+	if err != nil {
+		return nil, fmt.Errorf("parse source metadata %s applicable_dimensions: %w", path, err)
 	}
-	metadata := make(map[string][]string, len(sourceItems))
-	for i, item := range sourceItems {
-		if item.Name == "" || item.ApplicableDimensions == nil {
-			continue
-		}
-		applicable, err := normalizeApplicableDimensions(item.ApplicableDimensions)
-		if err != nil {
-			return nil, fmt.Errorf("parse study metadata %s repos.items[%d].applicable_dimensions: %w", path, i, err)
-		}
-		metadata[item.Name] = applicable
-	}
-	return metadata, nil
+	return applicable, nil
 }
 
 func mergeApplicableDimensions(primary, fallback []string) []string {

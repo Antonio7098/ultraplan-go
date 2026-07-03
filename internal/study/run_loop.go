@@ -51,6 +51,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	if err != nil {
 		return RunLoopResult{}, err
 	}
+	ReconcileRunState(&state, s.workspaceRoot, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
 	ResumeValidateRunState(&state, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
 	if err := SaveRunState(listing.Study, state); err != nil {
 		return RunLoopResult{}, err

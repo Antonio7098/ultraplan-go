@@ -17,15 +17,16 @@ const (
 )
 
 type RunState struct {
-	SchemaVersion int           `json:"schema_version"`
-	RunID         string        `json:"run_id"`
-	Study         string        `json:"study"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
-	Filters       RunFilters    `json:"filters"`
-	Config        ConfigSummary `json:"config_summary"`
-	Tasks         []TaskState   `json:"tasks"`
-	Complete      bool          `json:"complete"`
+	SchemaVersion            int           `json:"schema_version"`
+	RunID                    string        `json:"run_id"`
+	Study                    string        `json:"study"`
+	CreatedAt                time.Time     `json:"created_at"`
+	UpdatedAt                time.Time     `json:"updated_at"`
+	Filters                  RunFilters    `json:"filters"`
+	Config                   ConfigSummary `json:"config_summary"`
+	ApplicabilityFingerprint string        `json:"applicability_fingerprint,omitempty"`
+	Tasks                    []TaskState   `json:"tasks"`
+	Complete                 bool          `json:"complete"`
 }
 
 type RunFilters struct {

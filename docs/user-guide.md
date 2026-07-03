@@ -93,7 +93,7 @@ ultraplan study list
 ultraplan study <study> list
 ```
 
-Source listing reports directory sources and Markdown document sources. Source entries can declare `applicable_dimensions` in `study-init.yml`, and Markdown document sources can also declare it in frontmatter; if present, UltraPlan skips non-matching dimensions instead of invoking the runtime.
+Source listing reports directory sources and Markdown document sources. Directory sources can declare `applicable_dimensions` in `sources/<source>.ultraplan-source.yml` or `sources/<source>/.ultraplan-source.yml`; Markdown document sources can declare it in frontmatter. If present, UltraPlan skips non-matching dimensions instead of invoking the runtime. `study-init.yml` remains the initialization input/provenance file and is not used as the live applicability source after initialization.
 
 ## 7. Preview Prompts
 
@@ -149,7 +149,7 @@ ultraplan study <study> run-all --dimension 01 --source <source>
 ultraplan study <study> run-loop --parallel 3
 ```
 
-`run-loop` persists shared study progress in `studies/<study>/.ultraplan/run-state.json` after meaningful task transitions, prints compact task progress as it runs, and refuses concurrent invocations through a per-study lock. By default, it resumes existing progress; dimension/source filters only choose which slice of the study graph is eligible to advance.
+`run-loop` persists shared study progress in `studies/<study>/.ultraplan/run-state.json` after meaningful task transitions, prints compact task progress as it runs, and refuses concurrent invocations through a per-study lock. By default, it resumes existing progress; dimension/source filters only choose which slice of the study graph is eligible to advance. On each start, it reconciles the persisted task graph against the current discovered source/dimension applicability so status totals and scheduling follow source metadata updates.
 
 Use filters to advance a specific slice without creating a separate run:
 
@@ -172,7 +172,7 @@ ultraplan study <study> status
 ultraplan study <study> status --json
 ```
 
-Status shows run-state path, task counts, active/failed/cancelled/recent tasks, retry timing, lock diagnostics, safe runtime metadata, usage/cost when known, policy decisions, cleanup, repair, and omitted unsafe payload notes.
+Status shows run-state path, task counts, active/failed/cancelled/recent tasks, retry timing, lock diagnostics, safe runtime metadata, usage/cost when known, policy decisions, cleanup, repair, and omitted unsafe payload notes. Status reconciles counts against the current discovered source/dimension applicability before rendering.
 
 ## 13. Validate Artifacts
 

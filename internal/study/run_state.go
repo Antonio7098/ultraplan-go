@@ -1,6 +1,8 @@
 package study
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -47,8 +49,75 @@ func NewRunState(req NewRunStateRequest) (RunState, error) {
 		return sources[i].Name < sources[j].Name
 	})
 
+	tasks, fingerprint := buildCurrentTaskGraph(req.WorkspaceRoot, req.Study, sources, dimensions, now)
+	return RunState{
+		SchemaVersion:            RunStateSchemaVersion,
+		RunID:                    runID,
+		Study:                    req.Study.Name,
+		CreatedAt:                now,
+		UpdatedAt:                now,
+		Filters:                  req.Filters,
+		Config:                   req.Config,
+		ApplicabilityFingerprint: fingerprint,
+		Tasks:                    tasks,
+		Complete:                 len(tasks) == 0,
+	}, nil
+}
+
+func ReconcileRunState(state *RunState, workspaceRoot string, study Study, sources []Source, dimensions []Dimension, now time.Time) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	current, fingerprint := buildCurrentTaskGraph(workspaceRoot, study, sources, dimensions, now)
+	existing := make(map[string]TaskState, len(state.Tasks))
+	for _, task := range state.Tasks {
+		existing[task.ID] = task
+	}
+	for i := range current {
+		if prior, ok := existing[current[i].ID]; ok {
+			expected := current[i]
+			current[i] = prior
+			current[i].Dimension = expected.Dimension
+			current[i].DimensionRef = expected.DimensionRef
+			current[i].Source = expected.Source
+			current[i].SourceKind = expected.SourceKind
+			current[i].OutputPath = expected.OutputPath
+			current[i].Dependencies = expected.Dependencies
+			if current[i].Kind == TaskKindSynthesis && dependenciesChanged(prior.Dependencies, current[i].Dependencies) && prior.Status == TaskStatusCompleted {
+				current[i].Status = TaskStatusPending
+				current[i].CompletedAt = nil
+				current[i].Validation = nil
+				current[i].LastError = nil
+				current[i].UpdatedAt = now
+			}
+		}
+	}
+	sort.Slice(current, func(i, j int) bool { return current[i].ID < current[j].ID })
+	state.Tasks = current
+	state.ApplicabilityFingerprint = fingerprint
+	state.UpdatedAt = now
+	state.Complete = allTasksComplete(*state)
+}
+
+func buildCurrentTaskGraph(workspaceRoot string, study Study, sources []Source, dimensions []Dimension, now time.Time) ([]TaskState, string) {
+	dimensions = append([]Dimension(nil), dimensions...)
+	sort.Slice(dimensions, func(i, j int) bool {
+		if dimensions[i].Number == dimensions[j].Number {
+			return dimensions[i].Slug < dimensions[j].Slug
+		}
+		return dimensions[i].Number < dimensions[j].Number
+	})
+	sources = append([]Source(nil), sources...)
+	sort.Slice(sources, func(i, j int) bool {
+		if sources[i].Name == sources[j].Name {
+			return sources[i].Kind < sources[j].Kind
+		}
+		return sources[i].Name < sources[j].Name
+	})
 	var tasks []TaskState
+	var fingerprint strings.Builder
 	for _, dimension := range dimensions {
+		fmt.Fprintf(&fingerprint, "dimension:%s:%s\n", dimension.Number, dimension.Slug)
 		applicable := GetApplicableSources(sources, dimension)
 		sort.Slice(applicable, func(i, j int) bool {
 			if applicable[i].Name == applicable[j].Name {
@@ -61,13 +130,14 @@ func NewRunState(req NewRunStateRequest) (RunState, error) {
 		}
 		var deps []SynthesisDependency
 		for _, source := range applicable {
-			id := analysisTaskID(req.Study, dimension, source)
-			outputPath := relPath(req.WorkspaceRoot, SourceReportPath(req.Study, source, dimension))
+			fmt.Fprintf(&fingerprint, "source:%s:%s:%s\n", dimension.Number, source.Name, source.Kind)
+			id := analysisTaskID(study, dimension, source)
+			outputPath := relPath(workspaceRoot, SourceReportPath(study, source, dimension))
 			tasks = append(tasks, TaskState{
 				ID:           id,
 				Kind:         TaskKindAnalysis,
 				Status:       TaskStatusPending,
-				Study:        req.Study.Name,
+				Study:        study.Name,
 				Dimension:    dimension.Number,
 				DimensionRef: dimension.Ref(),
 				Source:       source.Name,
@@ -85,13 +155,13 @@ func NewRunState(req NewRunStateRequest) (RunState, error) {
 		}
 		sort.Slice(deps, func(i, j int) bool { return deps[i].TaskID < deps[j].TaskID })
 		tasks = append(tasks, TaskState{
-			ID:           synthesisTaskID(req.Study, dimension),
+			ID:           synthesisTaskID(study, dimension),
 			Kind:         TaskKindSynthesis,
 			Status:       TaskStatusPending,
-			Study:        req.Study.Name,
+			Study:        study.Name,
 			Dimension:    dimension.Number,
 			DimensionRef: dimension.Ref(),
-			OutputPath:   relPath(req.WorkspaceRoot, FinalReportPath(req.Study, dimension)),
+			OutputPath:   relPath(workspaceRoot, FinalReportPath(study, dimension)),
 			CreatedAt:    now,
 			UpdatedAt:    now,
 			Dependencies: deps,
@@ -99,17 +169,20 @@ func NewRunState(req NewRunStateRequest) (RunState, error) {
 	}
 
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
-	return RunState{
-		SchemaVersion: RunStateSchemaVersion,
-		RunID:         runID,
-		Study:         req.Study.Name,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Filters:       req.Filters,
-		Config:        req.Config,
-		Tasks:         tasks,
-		Complete:      len(tasks) == 0,
-	}, nil
+	sum := sha256.Sum256([]byte(fingerprint.String()))
+	return tasks, "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func dependenciesChanged(a, b []SynthesisDependency) bool {
+	if len(a) != len(b) {
+		return true
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return true
+		}
+	}
+	return false
 }
 
 func RunStatePath(study Study) string {
