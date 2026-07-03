@@ -557,7 +557,7 @@ func (s Service) createSprintSkeleton(p project.Project, sprintRef string) (Spri
 		return Sprint{}, err
 	}
 	if _, err := os.Stat(reqPath); os.IsNotExist(err) {
-		if err := os.WriteFile(reqPath, []byte(defaultRequirements(sp)), 0o644); err != nil {
+		if err := os.WriteFile(reqPath, []byte(defaultRequirements(p, sp)), 0o644); err != nil {
 			return Sprint{}, fmt.Errorf("create %s: %w", ArtifactRelPath(sp, StageRequirements), err)
 		}
 	} else if err != nil {
@@ -566,7 +566,10 @@ func (s Service) createSprintSkeleton(p project.Project, sprintRef string) (Spri
 	return sp, nil
 }
 
-func defaultRequirements(sp Sprint) string {
+func defaultRequirements(p project.Project, sp Sprint) string {
+	if roadmapReqs, ok := requirementsFromRoadmap(p, sp); ok {
+		return roadmapReqs
+	}
 	return fmt.Sprintf(`# Sprint Requirements: %s
 
 > Project: %s
@@ -616,6 +619,161 @@ Create the planning artifacts for %s and refine this requirements document with 
 | --- | --- |
 | Planning artifact chain | Run stage validation commands through plan. |
 `, sp.Slug, sp.Project, sp.Slug, sp.Slug, ArtifactRelPath(sp, StageSprintIndex), ArtifactRelPath(sp, StageTechnicalHandbook), ArtifactRelPath(sp, StageReasoning), ArtifactRelPath(sp, StagePlan))
+}
+
+func requirementsFromRoadmap(p project.Project, sp Sprint) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(p.Path, "roadmap.md"))
+	if err != nil {
+		return "", false
+	}
+	title, body, ok := roadmapSprintSection(string(data), sp.Slug)
+	if !ok {
+		return "", false
+	}
+	goal := roadmapSectionText(body, "Goal")
+	buildItems := roadmapListItems(body, "Build")
+	acceptanceItems := roadmapListItems(body, "Acceptance")
+	if strings.TrimSpace(goal) == "" || len(buildItems) == 0 || len(acceptanceItems) == 0 {
+		return "", false
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Sprint Requirements: %s\n\n", sp.Slug)
+	fmt.Fprintf(&b, "> Project: %s\n", sp.Project)
+	fmt.Fprintf(&b, "> Sprint: %s\n", sp.Slug)
+	fmt.Fprintf(&b, "> Source: projects/%s/roadmap.md, %s\n\n", p.Name, title)
+	fmt.Fprintln(&b, "## Sprint Goal")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, goal)
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Required Outputs")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "| Output | Path | Description |")
+	fmt.Fprintln(&b, "| --- | --- | --- |")
+	fmt.Fprintf(&b, "| Sprint index | %s | Selected contracts, evidence, reasoning templates, protocols, and excluded context. |\n", ArtifactRelPath(sp, StageSprintIndex))
+	fmt.Fprintf(&b, "| Technical handbook | %s | Evidence-backed technical guidance for the sprint. |\n", ArtifactRelPath(sp, StageTechnicalHandbook))
+	fmt.Fprintf(&b, "| Sprint reasoning | %s | Final decisions, assumptions, risks, and evidence mapping. |\n", ArtifactRelPath(sp, StageReasoning))
+	fmt.Fprintf(&b, "| Sprint plan | %s | Ordered implementation plan derived from reasoning. |\n", ArtifactRelPath(sp, StagePlan))
+	for _, item := range buildItems {
+		fmt.Fprintf(&b, "| %s | Sprint implementation | Roadmap build item. |\n", sentenceTitle(item))
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Acceptance Criteria")
+	fmt.Fprintln(&b)
+	for _, item := range acceptanceItems {
+		fmt.Fprintf(&b, "- [ ] %s\n", strings.TrimSuffix(item, ".")+".")
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Non-Goals")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "- Smoke investigation, automated review, issue tracking, automatic Git mutation, hosted SaaS, browser UI, multi-user collaboration, and cross-sprint scheduling remain out of scope unless this sprint's source docs explicitly revise scope.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Constraints")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "- Use workspace-relative paths.")
+	fmt.Fprintln(&b, "- Select only project-index catalog entries.")
+	fmt.Fprintln(&b, "- Keep generated artifacts editable Markdown.")
+	fmt.Fprintln(&b, "- Preserve package ownership and dependency direction from project architecture docs.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Dependencies")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "| Prior Sprint / Output | Required For | Notes |")
+	fmt.Fprintln(&b, "| --- | --- | --- |")
+	fmt.Fprintln(&b, "| Project index | Sprint planning | The project catalog must validate before flow generation. |")
+	fmt.Fprintln(&b, "| Project roadmap and docs | Sprint scope | Requirements are seeded from the matching roadmap sprint section. |")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Review Expectations")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "| What | How Verified |")
+	fmt.Fprintln(&b, "| --- | --- |")
+	fmt.Fprintln(&b, "| Planning artifact chain | Run stage validation commands through plan. |")
+	return b.String(), true
+}
+
+func roadmapSprintSection(content, slug string) (string, string, bool) {
+	n := sprintNumber(slug)
+	if n == "" {
+		return "", "", false
+	}
+	lines := strings.Split(content, "\n")
+	start := -1
+	title := ""
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "### Sprint "+n+":") || strings.HasPrefix(trimmed, "## Sprint "+n+":") {
+			start = i
+			title = strings.TrimLeft(trimmed, "# ")
+			break
+		}
+	}
+	if start < 0 {
+		return "", "", false
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trimmed, "### Sprint ") || strings.HasPrefix(trimmed, "## Sprint ") || strings.HasPrefix(trimmed, "# ") {
+			end = i
+			break
+		}
+	}
+	return title, strings.Join(lines[start+1:end], "\n"), true
+}
+
+func sprintNumber(slug string) string {
+	var b strings.Builder
+	for _, r := range slug {
+		if r < '0' || r > '9' {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimLeft(b.String(), "0")
+}
+
+func roadmapSectionText(content, heading string) string {
+	lines := strings.Split(content, "\n")
+	marker := "**" + heading + ":**"
+	for i, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if strings.EqualFold(trimmedLine, marker) || strings.HasPrefix(strings.ToLower(trimmedLine), strings.ToLower(marker)) {
+			var out []string
+			if after, ok := strings.CutPrefix(trimmedLine, marker); ok && strings.TrimSpace(after) != "" {
+				out = append(out, strings.TrimSpace(after))
+			}
+			for _, next := range lines[i+1:] {
+				trimmed := strings.TrimSpace(next)
+				if strings.HasPrefix(trimmed, "**") || strings.HasPrefix(trimmed, "### ") || strings.HasPrefix(trimmed, "## ") {
+					break
+				}
+				if trimmed != "" {
+					out = append(out, trimmed)
+				}
+			}
+			return strings.Join(out, "\n")
+		}
+	}
+	return ""
+}
+
+func roadmapListItems(content, heading string) []string {
+	text := roadmapSectionText(content, heading)
+	var items []string
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "- ") {
+			items = append(items, strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+		}
+	}
+	return items
+}
+
+func sentenceTitle(s string) string {
+	s = strings.TrimSpace(strings.Trim(s, "`"))
+	if s == "" {
+		return "Roadmap output"
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func (s Service) planManifest(sp Sprint, inputs PlanningInputs, catalog project.ProjectIndex) (PlanManifest, []ValidationFinding) {

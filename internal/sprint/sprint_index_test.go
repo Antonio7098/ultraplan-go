@@ -116,6 +116,54 @@ func TestFlowCreatesMissingSprintSkeletonOnlyWhenNotDryRun(t *testing.T) {
 	}
 }
 
+func TestFlowCreatesMissingSprintRequirementsFromRoadmap(t *testing.T) {
+	root := workspaceFixture(t)
+	writeFixtureProjectIndex(t, root, "proj")
+	writeFileContent(t, filepath.Join(root, "projects", "proj"), `# Roadmap
+
+### Sprint 23: Execute Stage
+
+**Goal:** execute validated plan tasks through the runtime boundary.
+
+**Build:**
+
+- execute prompt rendering
+- executable task extraction from plan.md
+- .run-state.json task state
+
+**Acceptance:**
+
+- execute requires valid prerequisites through plan.
+- tasks trace to validated plan entries.
+`, "roadmap.md")
+	service := NewService(root)
+
+	_, err := service.FlowSprintIndex(context.Background(), "proj", "23-execute-stage", FlowRequest{To: StageSprintIndex})
+	if err == nil || !strings.Contains(err.Error(), "runtime is required") {
+		t.Fatalf("expected runtime error after requirements creation: %v", err)
+	}
+
+	reqPath := filepath.Join(root, "projects", "proj", "sprints", "23-execute-stage", "requirements.md")
+	data, readErr := os.ReadFile(reqPath)
+	if readErr != nil {
+		t.Fatalf("requirements not created: %v", readErr)
+	}
+	content := string(data)
+	for _, want := range []string{
+		"Source: projects/proj/roadmap.md, Sprint 23: Execute Stage",
+		"execute validated plan tasks through the runtime boundary",
+		"Execute prompt rendering",
+		"execute requires valid prerequisites through plan.",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("requirements missing %q:\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, "initial sprint contract created automatically") {
+		t.Fatalf("requirements used fallback skeleton:\n%s", content)
+	}
+}
+
 type fakeRuntime struct{}
 
 func (fakeRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {
