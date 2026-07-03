@@ -116,6 +116,7 @@ ultraplan sprint <project> <sprint> flow --to plan --dry-run
 `init-workspace` creates the minimal required workspace:
 
 ```text
+README.md
 ultraplan.yml
 studies/
 ```

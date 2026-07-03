@@ -8,10 +8,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
 var ErrStudyLocked = errors.New("study run-loop locked")
+
+var processAlive = func(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
 
 func RunLoopLockPath(study Study) string {
 	return filepath.Join(study.Path, RunStateDirName, "run-loop.lock")
@@ -54,10 +63,28 @@ func AcquireRunLoopLock(study Study, command []string, force bool, now time.Time
 			if readErr != nil {
 				return nil, fmt.Errorf("%w: %s exists and could not be read: %v", ErrStudyLocked, path, readErr)
 			}
+			if !processAlive(existing.PID) {
+				if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return nil, fmt.Errorf("%w: stale lock %s held by dead pid %d could not be removed: %v", ErrStudyLocked, path, existing.PID, err)
+				}
+				file, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+				if err == nil {
+					goto writeLock
+				}
+				if errors.Is(err, fs.ErrExist) {
+					replaced, readErr := ReadRunLoopLock(study)
+					if readErr != nil {
+						return nil, fmt.Errorf("%w: %s exists and could not be read after stale cleanup: %v", ErrStudyLocked, path, readErr)
+					}
+					return nil, fmt.Errorf("%w: %s held by pid %d since %s command %q", ErrStudyLocked, path, replaced.PID, replaced.AcquiredAt.Format(time.RFC3339), replaced.Command)
+				}
+				return nil, fmt.Errorf("create lock %s after stale cleanup: %w", path, err)
+			}
 			return nil, fmt.Errorf("%w: %s held by pid %d since %s command %q", ErrStudyLocked, path, existing.PID, existing.AcquiredAt.Format(time.RFC3339), existing.Command)
 		}
 		return nil, fmt.Errorf("create lock %s: %w", path, err)
 	}
+writeLock:
 	if _, err := file.Write(content); err != nil {
 		_ = file.Close()
 		_ = os.Remove(path)

@@ -15,6 +15,7 @@ type Config struct {
 	Runtime   Runtime   `json:"runtime"`
 	Models    Models    `json:"models"`
 	Execution Execution `json:"execution"`
+	Planning  Planning  `json:"planning"`
 	Logging   Logging   `json:"logging"`
 	Agentwrap Agentwrap `json:"agentwrap"`
 }
@@ -32,6 +33,18 @@ type Execution struct {
 	DefaultParallel int    `json:"default_parallel"`
 	DefaultTimeout  string `json:"default_timeout"`
 	DefaultRetries  int    `json:"default_retries"`
+}
+type Planning struct {
+	SprintIndexModel         string `json:"sprint_index_model"`
+	SprintIndexVariant       string `json:"sprint_index_variant"`
+	TechnicalHandbookModel   string `json:"technical_handbook_model"`
+	TechnicalHandbookVariant string `json:"technical_handbook_variant"`
+	AreaReasoningModel       string `json:"area_reasoning_model"`
+	AreaReasoningVariant     string `json:"area_reasoning_variant"`
+	ReasoningModel           string `json:"reasoning_model"`
+	ReasoningVariant         string `json:"reasoning_variant"`
+	PlanModel                string `json:"plan_model"`
+	PlanVariant              string `json:"plan_variant"`
 }
 type Logging struct {
 	Format string `json:"format"`
@@ -93,7 +106,7 @@ func EnvOverrides() []EnvOverride {
 
 func Load(opts LoadOptions) (Effective, error) {
 	e := Effective{Config: Defaults(), Sources: map[string]string{}}
-	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
+	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
 		e.Sources[field] = "default"
 	}
 	if opts.WorkspaceRoot != "" {
@@ -122,6 +135,7 @@ func Defaults() Config {
 		Runtime:   Runtime{Default: "opencode"},
 		Models:    Models{Default: "provider/model", Primary: "provider/model", Backup: "provider/model"},
 		Execution: Execution{DefaultVariant: "high", DefaultParallel: 3, DefaultTimeout: "30m", DefaultRetries: 3},
+		Planning:  Planning{},
 		Logging:   Logging{Format: "text", Level: "info"},
 		Agentwrap: Agentwrap{Executable: "opencode", StderrLimit: 16 * 1024, RequiredHealth: []string{"runtime_available", "structured_output", "workdir"}, RequiredCapabilities: []string{"structured_events", "cancellation"}, Sandbox: "workspace_write", PermissionMode: "restricted", PermissionDefault: "ask"},
 	}
@@ -246,6 +260,26 @@ func setField(c *Config, field, value string) error {
 			return fmt.Errorf("execution.default_retries: must be an integer")
 		}
 		c.Execution.DefaultRetries = n
+	case "planning.sprint_index_model":
+		c.Planning.SprintIndexModel = value
+	case "planning.sprint_index_variant":
+		c.Planning.SprintIndexVariant = value
+	case "planning.technical_handbook_model":
+		c.Planning.TechnicalHandbookModel = value
+	case "planning.technical_handbook_variant":
+		c.Planning.TechnicalHandbookVariant = value
+	case "planning.area_reasoning_model":
+		c.Planning.AreaReasoningModel = value
+	case "planning.area_reasoning_variant":
+		c.Planning.AreaReasoningVariant = value
+	case "planning.reasoning_model":
+		c.Planning.ReasoningModel = value
+	case "planning.reasoning_variant":
+		c.Planning.ReasoningVariant = value
+	case "planning.plan_model":
+		c.Planning.PlanModel = value
+	case "planning.plan_variant":
+		c.Planning.PlanVariant = value
 	case "logging.format":
 		c.Logging.Format = value
 	case "logging.level":

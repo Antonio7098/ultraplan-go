@@ -27,6 +27,9 @@ agentwrap:
   executable: opencode
   required_health:
     - runtime_available
+planning:
+  sprint_index_model: openai/gpt-5.5
+  sprint_index_variant: high
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +55,9 @@ agentwrap:
 	}
 	if effective.Config.Logging.Format != "json" {
 		t.Fatalf("cli did not win: %+v", effective.Config.Logging)
+	}
+	if effective.Config.Planning.SprintIndexModel != "openai/gpt-5.5" || effective.Config.Planning.SprintIndexVariant != "high" {
+		t.Fatalf("planning config not loaded: %+v", effective.Config.Planning)
 	}
 }
 

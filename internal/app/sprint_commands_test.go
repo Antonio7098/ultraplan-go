@@ -223,6 +223,33 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 
 func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 	dir := initializedWorkspace(t)
+	writeFixtureFileContent(t, dir, `version: 1
+runtime:
+  default: opencode
+models:
+  default: minimax-coding-plan/MiniMax-M3
+  primary: minimax-coding-plan/MiniMax-M3
+  backup: minimax-coding-plan/MiniMax-M3
+execution:
+  default_variant: high
+  default_parallel: 1
+  default_timeout: 12m
+  default_retries: 1
+planning:
+  sprint_index_model: openai/gpt-5.5
+  sprint_index_variant: high
+  reasoning_model: openai/gpt-5.5
+  reasoning_variant: high
+  plan_model: openai/gpt-5.5
+  plan_variant: high
+logging:
+  format: text
+  level: info
+agentwrap:
+  executable: opencode
+  required_health:
+    - runtime_available
+`, "ultraplan.yml")
 	writeCommandSprintProject(t, dir, "proj", "01-alpha")
 	base := filepath.Join(dir, "projects", "proj", "sprints", "01-alpha")
 	writeFixtureFileContent(t, base, "# Requirements\n\nSelect stage.\n", "requirements.md")
@@ -246,6 +273,12 @@ func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 	if fake.request.Provider == "" || fake.request.Model == "" {
 		t.Fatalf("runtime request did not include config: %+v", fake.request)
 	}
+	if fake.request.Provider != "openai" || fake.request.Model != "gpt-5.5" {
+		t.Fatalf("planning model override was not used: %+v", fake.request)
+	}
+	if fake.request.Metadata["reasoning_effort"] != "high" {
+		t.Fatalf("planning variant metadata was not used: %+v", fake.request.Metadata)
+	}
 	if fake.request.Metadata["stage"] != "sprint-index" {
 		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
 	}
@@ -259,7 +292,7 @@ func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 		t.Fatalf("reasoning flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Result: reasoning complete")
-	if fake.calls != 2 {
+	if fake.calls != 5 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "reasoning" {
@@ -271,7 +304,7 @@ func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
 		t.Fatalf("plan flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Result: plan complete")
-	if fake.calls != 3 {
+	if fake.calls != 10 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "plan" {

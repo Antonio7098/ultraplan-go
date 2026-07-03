@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -129,18 +130,7 @@ func runSprint(deps dependencies, args []string) error {
 			}
 		}
 		var result sprint.FlowResult
-		switch req.To {
-		case sprint.StageSprintIndex:
-			result, err = flowService.FlowSprintIndex(deps.ctx, args[0], args[1], req)
-		case sprint.StageTechnicalHandbook:
-			result, err = flowService.FlowTechnicalHandbook(deps.ctx, args[0], args[1], req)
-		case sprint.StageAreaReasoning, sprint.StageReasoning:
-			result, err = flowService.FlowReasoning(deps.ctx, args[0], args[1], req)
-		case sprint.StagePlan:
-			result, err = flowService.FlowPlan(deps.ctx, args[0], args[1], req)
-		default:
-			err = fmt.Errorf("unsupported flow target %q", req.To)
-		}
+		result, err = runSprintFlow(deps.ctx, flowService, args[0], args[1], req)
 		if result.DryRun && err == nil {
 			renderSprintFlow(deps, result)
 			return nil
@@ -162,6 +152,48 @@ func runSprint(deps dependencies, args []string) error {
 	}
 }
 
+func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, sprintRef string, req sprint.FlowRequest) (sprint.FlowResult, error) {
+	stages := []sprint.PlanningStage{sprint.StageSprintIndex}
+	switch req.To {
+	case sprint.StageSprintIndex:
+	case sprint.StageTechnicalHandbook:
+		stages = append(stages, sprint.StageTechnicalHandbook)
+	case sprint.StageAreaReasoning:
+		stages = append(stages, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning)
+	case sprint.StageReasoning:
+		stages = append(stages, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning)
+	case sprint.StagePlan:
+		stages = append(stages, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan)
+	default:
+		return sprint.FlowResult{}, fmt.Errorf("unsupported flow target %q", req.To)
+	}
+	if req.DryRun {
+		stages = []sprint.PlanningStage{req.To}
+	}
+	var result sprint.FlowResult
+	for _, stage := range stages {
+		stageReq := sprint.FlowRequest{To: stage, DryRun: req.DryRun}
+		var err error
+		switch stage {
+		case sprint.StageSprintIndex:
+			result, err = service.FlowSprintIndex(ctx, projectRef, sprintRef, stageReq)
+		case sprint.StageTechnicalHandbook:
+			result, err = service.FlowTechnicalHandbook(ctx, projectRef, sprintRef, stageReq)
+		case sprint.StageAreaReasoning, sprint.StageReasoning:
+			result, err = service.FlowReasoning(ctx, projectRef, sprintRef, stageReq)
+		case sprint.StagePlan:
+			result, err = service.FlowPlan(ctx, projectRef, sprintRef, stageReq)
+		default:
+			err = fmt.Errorf("unsupported flow target %q", stage)
+		}
+		if err != nil {
+			return result, err
+		}
+	}
+	result.To = req.To
+	return result, nil
+}
+
 func sprintRuntimeService(deps dependencies, root workspace.Root) (sprint.Service, error) {
 	effective, err := loadEffectiveConfig(root, deps, config.CLIOverrides{})
 	if err != nil {
@@ -175,7 +207,32 @@ func sprintRuntimeService(deps dependencies, root workspace.Root) (sprint.Servic
 	if err != nil {
 		return sprint.Service{}, classified(ExitRuntime, "runtime.init: %w", err)
 	}
-	return sprint.NewService(root.Path).WithRuntime(rt, req), nil
+	return sprint.NewService(root.Path).WithRuntime(rt, req).WithStageRuntime(planningStageRuntime(effective.Config)), nil
+}
+
+func planningStageRuntime(c config.Config) map[sprint.PlanningStage]sprint.StageRuntime {
+	return map[sprint.PlanningStage]sprint.StageRuntime{
+		sprint.StageSprintIndex: {
+			Model:   c.Planning.SprintIndexModel,
+			Variant: c.Planning.SprintIndexVariant,
+		},
+		sprint.StageTechnicalHandbook: {
+			Model:   c.Planning.TechnicalHandbookModel,
+			Variant: c.Planning.TechnicalHandbookVariant,
+		},
+		sprint.StageAreaReasoning: {
+			Model:   c.Planning.AreaReasoningModel,
+			Variant: c.Planning.AreaReasoningVariant,
+		},
+		sprint.StageReasoning: {
+			Model:   c.Planning.ReasoningModel,
+			Variant: c.Planning.ReasoningVariant,
+		},
+		sprint.StagePlan: {
+			Model:   c.Planning.PlanModel,
+			Variant: c.Planning.PlanVariant,
+		},
+	}
 }
 
 func mapSprintError(prefix string, err error) error {
@@ -276,7 +333,21 @@ func renderSprintFlow(deps dependencies, result sprint.FlowResult) {
 	if len(result.Findings) > 0 {
 		fmt.Fprintln(deps.stdout, "Validation findings:")
 		for _, finding := range result.Findings {
-			fmt.Fprintf(deps.stdout, "- %s: %s\n", finding.Section, finding.Problem)
+			fmt.Fprintf(deps.stdout, "- %s", finding.Section)
+			if finding.EntryName != "" {
+				fmt.Fprintf(deps.stdout, " %q", finding.EntryName)
+			}
+			if finding.Path != "" {
+				fmt.Fprintf(deps.stdout, " (%s)", finding.Path)
+			}
+			fmt.Fprintf(deps.stdout, ": %s", finding.Problem)
+			if finding.Cause != "" {
+				fmt.Fprintf(deps.stdout, "; %s", finding.Cause)
+			}
+			if finding.Suggestion != "" {
+				fmt.Fprintf(deps.stdout, "; fix: %s", finding.Suggestion)
+			}
+			fmt.Fprintln(deps.stdout)
 		}
 	}
 	if len(result.Stages) > 0 {

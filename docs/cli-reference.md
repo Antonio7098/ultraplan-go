@@ -39,7 +39,7 @@ Human-readable errors are printed to stderr. JSON commands use documented envelo
 ultraplan init-workspace [--path <dir>] [--dry-run]
 ```
 
-Creates the minimal required workspace scaffold: `ultraplan.yml` and `studies/`. `--dry-run` prints planned operations without writing files.
+Creates the minimal required workspace scaffold: `README.md`, `ultraplan.yml`, and `studies/`. The README includes common workspace commands. `--dry-run` prints planned operations without writing files.
 
 Built-in prompts and templates are embedded in the CLI and are not required in the workspace.
 

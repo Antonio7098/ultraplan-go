@@ -26,7 +26,7 @@ Preview without writing:
 ultraplan init-workspace --path . --dry-run
 ```
 
-`init-workspace` creates only the required workspace files: `ultraplan.yml` and `studies/`. Prompts and templates are built into the CLI, so a workspace can run without local `prompts/` or `templates/` directories.
+`init-workspace` creates only the required workspace files: `README.md`, `ultraplan.yml`, and `studies/`. The README includes common health, config, study, planning, and defaults commands. Prompts and templates are built into the CLI, so a workspace can run without local `prompts/` or `templates/` directories.
 
 If you want editable copies of the built-in defaults, install them:
 

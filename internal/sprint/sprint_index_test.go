@@ -88,6 +88,34 @@ func TestFlowSuccessAndValidationFailureUpdateState(t *testing.T) {
 	}
 }
 
+func TestFlowCreatesMissingSprintSkeletonOnlyWhenNotDryRun(t *testing.T) {
+	root := workspaceFixture(t)
+	writeFixtureProjectIndex(t, root, "proj")
+	service := NewService(root)
+
+	_, err := service.FlowSprintIndex(context.Background(), "proj", "23-execute-stage", FlowRequest{To: StageSprintIndex, DryRun: true})
+	if err == nil {
+		t.Fatal("expected dry-run missing sprint error")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "projects", "proj", "sprints", "23-execute-stage")); !os.IsNotExist(statErr) {
+		t.Fatalf("dry-run created sprint: %v", statErr)
+	}
+
+	result, err := service.FlowSprintIndex(context.Background(), "proj", "23-execute-stage", FlowRequest{To: StageSprintIndex})
+	if err == nil || !strings.Contains(err.Error(), "runtime is required") {
+		t.Fatalf("expected runtime error after skeleton creation, result=%+v err=%v", result, err)
+	}
+	reqPath := filepath.Join(root, "projects", "proj", "sprints", "23-execute-stage", "requirements.md")
+	data, readErr := os.ReadFile(reqPath)
+	if readErr != nil {
+		t.Fatalf("requirements not created: %v", readErr)
+	}
+	content := string(data)
+	if !strings.Contains(content, "23-execute-stage") || containsPlaceholder(content) {
+		t.Fatalf("unexpected generated requirements:\n%s", content)
+	}
+}
+
 type fakeRuntime struct{}
 
 func (fakeRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {

@@ -41,3 +41,54 @@ func TestRunLoopLockConflictForceUnlockAndRelease(t *testing.T) {
 		t.Fatalf("stale release should be harmless after missing lock: %v", err)
 	}
 }
+
+func TestRunLoopLockStaleDeadPIDIsReplaced(t *testing.T) {
+	_, st := testStudyRoot(t)
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	restore := stubProcessAlive(false)
+	defer restore()
+
+	first, err := AcquireRunLoopLock(st, []string{"first"}, false, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.info.Command != "first" {
+		t.Fatalf("first lock = %#v", first.info)
+	}
+	second, err := AcquireRunLoopLock(st, []string{"second"}, false, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("stale lock should be replaced: %v", err)
+	}
+	info, err := ReadRunLoopLock(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Command != "second" {
+		t.Fatalf("lock was not replaced: %#v", info)
+	}
+	if err := second.Release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunLoopLockLivePIDStillBlocks(t *testing.T) {
+	_, st := testStudyRoot(t)
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	restore := stubProcessAlive(true)
+	defer restore()
+
+	lock, err := AcquireRunLoopLock(st, []string{"first"}, false, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	if _, err := AcquireRunLoopLock(st, []string{"second"}, false, now.Add(time.Minute)); !errors.Is(err, ErrStudyLocked) {
+		t.Fatalf("live lock acquire error = %v, want ErrStudyLocked", err)
+	}
+}
+
+func stubProcessAlive(alive bool) func() {
+	orig := processAlive
+	processAlive = func(int) bool { return alive }
+	return func() { processAlive = orig }
+}
