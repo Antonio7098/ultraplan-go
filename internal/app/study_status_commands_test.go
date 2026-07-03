@@ -15,6 +15,7 @@ func TestStudyStatusShowsPersistedRunState(t *testing.T) {
 	dir := initializedWorkspace(t)
 	studyRoot := filepath.Join(dir, "studies", "platform")
 	mkdirAll(t, studyRoot, "sources", "repo")
+	mkdirAll(t, studyRoot, "sources", "other")
 	writeFixtureFile(t, studyRoot, "dimensions", "01-structure.md")
 	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
 	retry := time.Date(2026, 5, 31, 13, 0, 0, 0, time.UTC)
@@ -22,17 +23,23 @@ func TestStudyStatusShowsPersistedRunState(t *testing.T) {
 	state, err := study.NewRunState(study.NewRunStateRequest{
 		WorkspaceRoot: dir,
 		Study:         st,
-		Sources:       []study.Source{{Name: "repo", Kind: study.SourceKindDirectory, Path: filepath.Join(studyRoot, "sources", "repo")}},
-		Dimensions:    []study.Dimension{{Number: "01", Slug: "structure", Path: filepath.Join(studyRoot, "dimensions", "01-structure.md")}},
-		RunID:         "run-fixed",
-		Now:           now,
+		Sources: []study.Source{
+			{Name: "repo", Kind: study.SourceKindDirectory, Path: filepath.Join(studyRoot, "sources", "repo")},
+			{Name: "other", Kind: study.SourceKindDirectory, Path: filepath.Join(studyRoot, "sources", "other")},
+		},
+		Dimensions: []study.Dimension{{Number: "01", Slug: "structure", Path: filepath.Join(studyRoot, "dimensions", "01-structure.md")}},
+		RunID:      "run-fixed",
+		Now:        now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	state.Tasks[0].Status = study.TaskStatusFailed
-	state.Tasks[1].Status = study.TaskStatusRetrying
-	state.Tasks[1].RetryAfter = &retry
+	state.Tasks[0].LastError = &study.TaskError{Code: "runtime.failed", Message: "opencode subprocess exited with code 1"}
+	state.Tasks[1].Status = study.TaskStatusCancelled
+	state.Tasks[1].LastError = &study.TaskError{Code: "runtime.cancelled", Message: "context cancelled"}
+	state.Tasks[2].Status = study.TaskStatusRetrying
+	state.Tasks[2].RetryAfter = &retry
 	if err := study.SaveRunState(st, state); err != nil {
 		t.Fatal(err)
 	}
@@ -45,11 +52,14 @@ func TestStudyStatusShowsPersistedRunState(t *testing.T) {
 	assertNotContains(t, stdout, studyRoot)
 	assertContains(t, stdout, "Run ID: run-fixed")
 	assertContains(t, stdout, "Complete: false")
-	assertContains(t, stdout, "Tasks: 2")
+	assertContains(t, stdout, "Tasks: 3")
 	assertContains(t, stdout, "Failed: 1")
+	assertContains(t, stdout, "Cancelled: 1")
 	assertContains(t, stdout, "Active: 1")
 	assertContains(t, stdout, "Retries: 1")
 	assertContains(t, stdout, "Next retry: 2026-05-31T13:00:00Z")
+	assertContains(t, stdout, "error: runtime.failed: opencode subprocess exited with code 1")
+	assertContains(t, stdout, "error: runtime.cancelled: context cancelled")
 }
 
 func TestStudyStatusJSONShapeAndNoRuntime(t *testing.T) {

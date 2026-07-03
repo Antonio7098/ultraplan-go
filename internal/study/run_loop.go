@@ -180,6 +180,20 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			recordErr(err)
 			return
 		}
+		if !dependenciesComplete(state, task) {
+			if dependenciesTerminal(state, task) {
+				recordErr(markSynthesisDependenciesFailed(update, id))
+				recordErr(recordHistory(id))
+				emitTask(RunLoopProgressFailed, id)
+				return
+			}
+			recordErr(update(id, func(t *TaskState) {
+				t.Status = TaskStatusWaiting
+				t.UpdatedAt = time.Now().UTC()
+			}))
+			emitTask(RunLoopProgressWaiting, id)
+			return
+		}
 		recordErr(update(id, func(t *TaskState) {
 			now := time.Now().UTC()
 			t.Status = TaskStatusRunning
@@ -380,7 +394,7 @@ func runnableTaskIDs(state RunState, scope map[string]bool, attempted map[string
 		if taskAttemptBlocked(task, attempted) || task.Kind != TaskKindSynthesis || !taskRunnable(task, now) {
 			continue
 		}
-		if dependenciesCompleteFrom(byID, task) {
+		if dependenciesCompleteFrom(byID, task) || dependenciesTerminalFrom(byID, task) {
 			ids = append(ids, task.ID)
 		}
 	}
@@ -504,6 +518,30 @@ func readySynthesisTaskIDs(state RunState, attempted map[string]bool, now time.T
 	return ids
 }
 
+func dependenciesTerminal(state RunState, task TaskState) bool {
+	byID := map[string]TaskState{}
+	for _, item := range state.Tasks {
+		byID[item.ID] = item
+	}
+	return dependenciesTerminalFrom(byID, task)
+}
+
+func dependenciesTerminalFrom(byID map[string]TaskState, task TaskState) bool {
+	for _, dep := range task.Dependencies {
+		depTask, ok := byID[dep.TaskID]
+		if !ok {
+			return true
+		}
+		switch depTask.Status {
+		case TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled, TaskStatusSkipped:
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func applyExecutionResult(update func(string, func(*TaskState)) error, id string, res ExecutionResult) error {
 	return update(id, func(t *TaskState) {
 		now := time.Now().UTC()
@@ -562,6 +600,16 @@ func defaultRuntimeRetryDelay(res ExecutionResult) time.Duration {
 		return 10 * time.Minute
 	}
 	return 2 * time.Minute
+}
+
+func markSynthesisDependenciesFailed(update func(string, func(*TaskState)) error, id string) error {
+	return update(id, func(t *TaskState) {
+		now := time.Now().UTC()
+		t.Status = TaskStatusFailed
+		t.UpdatedAt = now
+		t.CompletedAt = &now
+		t.LastError = &TaskError{Code: "synthesis.dependencies_failed", Message: "synthesis dependencies failed or were cancelled"}
+	})
 }
 
 func markTaskCancelled(update func(string, func(*TaskState)) error, id string, err error) error {

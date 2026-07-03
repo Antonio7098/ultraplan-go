@@ -2,6 +2,7 @@ package study
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -191,9 +192,49 @@ func TestRunLoopCancellationDoesNotCancelUnscheduledTasks(t *testing.T) {
 	}
 }
 
+func TestRunLoopMarksSynthesisFailedWhenDependenciesTerminal(t *testing.T) {
+	root, st := executionFixture(t)
+	service := NewService(root, WithRuntime(failingRuntime{}, runtimeRequest()))
+
+	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, Parallelism: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunAllStatusValidationFailed {
+		t.Fatalf("Status = %q counts = %+v", result.Status, result.Counts)
+	}
+
+	loaded, err := LoadRunState(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var synthesis *TaskState
+	for i := range loaded.Tasks {
+		if loaded.Tasks[i].Kind == TaskKindSynthesis {
+			synthesis = &loaded.Tasks[i]
+			break
+		}
+	}
+	if synthesis == nil {
+		t.Fatal("synthesis task missing")
+	}
+	if synthesis.Status != TaskStatusFailed {
+		t.Fatalf("synthesis status = %q, want failed", synthesis.Status)
+	}
+	if synthesis.LastError == nil || synthesis.LastError.Code != "synthesis.dependencies_failed" {
+		t.Fatalf("synthesis last error = %#v", synthesis.LastError)
+	}
+}
+
 type orderedRuntime struct {
 	mu    sync.Mutex
 	order []string
+}
+
+type failingRuntime struct{}
+
+func (failingRuntime) StartRun(context.Context, runtimepkg.Request) (runtimepkg.Result, error) {
+	return runtimepkg.Result{RunID: "failed-run", Status: "failed"}, errors.New("runtime unavailable")
 }
 
 func (r *orderedRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
