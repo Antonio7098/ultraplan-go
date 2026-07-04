@@ -81,7 +81,12 @@ func TestPlanValidationFailures(t *testing.T) {
 		"missing evidence":  strings.Replace(validPlan(), "## Evidence Checklist", "## Evidence", 1),
 		"missing risks":     strings.Replace(validPlan(), "## Risks And Blockers", "## Risks", 1),
 		"missing criteria":  strings.Replace(validPlan(), "## Completion Criteria", "## Done", 1),
-		"untraced task":     strings.Replace(validPlan(), " for Decision 1 / AC-01", "", 1),
+		"untraced task": strings.Replace(
+			strings.Replace(strings.Replace(validPlan(), " for Decision 1 / AC-01", "", 1), "  > Executes: Decision 1, AC-01\n", "", 1),
+			"Verification expectation: go test ./...",
+			"Run tests",
+			1,
+		),
 		"forbidden content": validPlan() + "\n- Run flow --to implementation.\n",
 	}
 	for name, content := range cases {
@@ -90,6 +95,18 @@ func TestPlanValidationFailures(t *testing.T) {
 				t.Fatalf("expected validation findings")
 			}
 		})
+	}
+}
+
+func TestPlanValidationAllowsNestedTaskChecklistWithoutRepeatedTrace(t *testing.T) {
+	manifest := PlanManifest{
+		OutputPath:    "projects/proj/sprints/01-alpha/plan.md",
+		ReasoningPath: "projects/proj/sprints/01-alpha/reasoning.md",
+		DecisionNames: []string{"Keep Plan Behavior In Sprint"},
+	}
+	content := strings.Replace(validPlan(), "- [ ] Verification expectation: go test ./...", "- [ ] Add parser tests\n  - [ ] Add command tests\n  - [ ] Verification expectation: go test ./...", 1)
+	if findings := ValidatePlanContent(content, manifest); len(findings) != 0 {
+		t.Fatalf("findings = %+v", findings)
 	}
 }
 

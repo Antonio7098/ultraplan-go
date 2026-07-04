@@ -113,17 +113,43 @@ func extractReasoningEvidence(content string) []string {
 }
 
 func containsTaskWithoutTrace(section string) bool {
+	var taskBlock []string
+	flush := func() bool {
+		if len(taskBlock) == 0 {
+			return false
+		}
+		lower := strings.ToLower(strings.Join(taskBlock, "\n"))
+		return !strings.Contains(lower, "decision") &&
+			!strings.Contains(lower, "ac-") &&
+			!strings.Contains(lower, "evidence") &&
+			!strings.Contains(lower, "verification") &&
+			!strings.Contains(lower, "executes:")
+	}
 	for _, line := range strings.Split(section, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(strings.ToLower(trimmed), "- [") {
+		if isTopLevelTaskCheckbox(line) {
+			if flush() {
+				return true
+			}
+			taskBlock = []string{line}
 			continue
 		}
-		lower := strings.ToLower(trimmed)
-		if !strings.Contains(lower, "decision") && !strings.Contains(lower, "ac-") && !strings.Contains(lower, "evidence") && !strings.Contains(lower, "verification") && !strings.Contains(lower, "executes:") {
-			return true
+		if len(taskBlock) > 0 {
+			taskBlock = append(taskBlock, line)
 		}
 	}
-	return false
+	return flush()
+}
+
+func isTopLevelTaskCheckbox(line string) bool {
+	if strings.TrimLeft(line, " \t") != line {
+		return false
+	}
+	trimmed := strings.TrimSpace(line)
+	if len(trimmed) < len("- [ ]") {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	return strings.HasPrefix(lower, "- [ ]") || strings.HasPrefix(lower, "- [x]")
 }
 
 func forbiddenPlanStageContent(content string) []string {
