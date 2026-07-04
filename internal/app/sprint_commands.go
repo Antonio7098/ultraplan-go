@@ -180,6 +180,16 @@ func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, spri
 	for _, stage := range stages {
 		stageReq := sprint.FlowRequest{To: stage, DryRun: req.DryRun}
 		var err error
+		if !req.DryRun {
+			valid, validateErr := sprintStageAlreadyValid(service, projectRef, sprintRef, stage)
+			if validateErr != nil {
+				return sprint.FlowResult{}, validateErr
+			}
+			if valid {
+				result = sprint.FlowResult{Project: projectRef, Sprint: sprintRef, To: stage, Message: string(stage) + " already complete"}
+				continue
+			}
+		}
 		switch stage {
 		case sprint.StageRequirements:
 			result, err = service.FlowRequirements(ctx, projectRef, sprintRef, stageReq)
@@ -200,6 +210,31 @@ func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, spri
 	}
 	result.To = req.To
 	return result, nil
+}
+
+func sprintStageAlreadyValid(service sprint.Service, projectRef, sprintRef string, stage sprint.PlanningStage) (bool, error) {
+	var result sprint.ValidationResult
+	var err error
+	switch stage {
+	case sprint.StageRequirements:
+		result, err = service.ValidateRequirements(projectRef, sprintRef)
+	case sprint.StageSprintIndex:
+		result, err = service.ValidateSprintIndex(projectRef, sprintRef)
+	case sprint.StageTechnicalHandbook:
+		result, err = service.ValidateTechnicalHandbook(projectRef, sprintRef)
+	case sprint.StageAreaReasoning:
+		result, err = service.ValidateAreaReasoning(projectRef, sprintRef)
+	case sprint.StageReasoning:
+		result, err = service.ValidateReasoning(projectRef, sprintRef)
+	case sprint.StagePlan:
+		result, err = service.ValidatePlan(projectRef, sprintRef)
+	default:
+		return false, fmt.Errorf("unsupported flow target %q", stage)
+	}
+	if err != nil {
+		return false, nil
+	}
+	return result.Valid(), nil
 }
 
 func sprintRuntimeService(deps dependencies, root workspace.Root) (sprint.Service, error) {

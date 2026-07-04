@@ -272,8 +272,8 @@ agentwrap:
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
-	assertContains(t, stdout, "Result: sprint-index complete")
-	if fake.calls != 2 {
+	assertContains(t, stdout, "Result: sprint-index already complete")
+	if fake.calls != 1 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Provider == "" || fake.request.Model == "" {
@@ -285,11 +285,11 @@ agentwrap:
 	if fake.request.Metadata["reasoning_effort"] != "high" {
 		t.Fatalf("planning variant metadata was not used: %+v", fake.request.Metadata)
 	}
-	if fake.request.Metadata["stage"] != "sprint-index" {
+	if fake.request.Metadata["stage"] != "requirements" {
 		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
 	}
-	assertContains(t, fake.request.Prompt, "# Create Sprint Index")
-	assertContains(t, fake.request.Prompt, "Prompt source: `builtin:prompts/create-sprint-index.md`")
+	assertContains(t, fake.request.Prompt, "# Create Sprint Requirements")
+	assertContains(t, fake.request.Prompt, "Prompt source: `builtin:prompts/create-requirements.md`")
 
 	writeFixtureFileContent(t, base, commandValidTechnicalHandbook(), "technical-handbook.md")
 	writeFixtureFileContent(t, base, commandValidAreaReasoning(), "reasoning", "architecture.md")
@@ -298,7 +298,7 @@ agentwrap:
 		t.Fatalf("reasoning flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Result: reasoning complete")
-	if fake.calls != 7 {
+	if fake.calls != 2 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "reasoning" {
@@ -310,7 +310,7 @@ agentwrap:
 		t.Fatalf("plan flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Result: plan complete")
-	if fake.calls != 13 {
+	if fake.calls != 3 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "plan" {
@@ -463,11 +463,13 @@ Select sprint context for the next planning stage.
 type sprintCommandRuntime struct {
 	calls   int
 	request runtimepkg.Request
+	stages  []string
 }
 
 func (f *sprintCommandRuntime) StartRun(_ context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
 	f.calls++
 	f.request = req
+	f.stages = append(f.stages, req.Metadata["stage"])
 	if req.Metadata["stage"] == string(sprint.StageRequirements) {
 		path := filepath.Join(req.WorkDir, "projects", req.Metadata["project"], "sprints", req.Metadata["sprint"], "requirements.md")
 		if err := os.WriteFile(path, []byte(commandValidRequirements()), 0o644); err != nil {
