@@ -53,6 +53,38 @@ func TestRunLoopCreatesDurableStateRunsTasksAndReleasesLock(t *testing.T) {
 	}
 }
 
+func TestRunLoopProgressUsesCountOnlySummaries(t *testing.T) {
+	root, _ := executionFixture(t)
+	rt := &runAllRuntime{write: validSourceReport}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+	events := 0
+
+	_, err := service.RunLoop(context.Background(), RunLoopRequest{
+		StudyRef:      "demo",
+		DimensionRefs: []string{"01"},
+		SourceRefs:    []string{"repo"},
+		Parallelism:   1,
+		Progress: func(progress RunLoopProgress) {
+			events++
+			if len(progress.Counts.Tasks) != 0 {
+				t.Fatalf("progress Counts.Tasks length = %d, want 0", len(progress.Counts.Tasks))
+			}
+			if len(progress.ScopeCounts.Tasks) != 0 {
+				t.Fatalf("progress ScopeCounts.Tasks length = %d, want 0", len(progress.ScopeCounts.Tasks))
+			}
+			if progress.Counts.Total == 0 || progress.ScopeCounts.Total == 0 {
+				t.Fatalf("progress counts missing totals: counts=%+v scope=%+v", progress.Counts, progress.ScopeCounts)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events == 0 {
+		t.Fatal("expected progress events")
+	}
+}
+
 func TestRunLoopContinueResumesAndRevalidatesCompletedStateBeforeScheduling(t *testing.T) {
 	root, st := executionFixture(t)
 	rt := &runAllRuntime{write: validSourceReport}

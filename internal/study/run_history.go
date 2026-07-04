@@ -72,14 +72,18 @@ func RunHistorySummaryPath(study Study) string {
 }
 
 func AppendRunHistory(study Study, state RunState, task TaskState) error {
-	if !terminalTaskStatus(task.Status) || task.CompletedAt == nil {
-		return nil
-	}
-	record := NewRunHistoryRecord(study, state, task, time.Now().UTC())
 	existing, err := readRunHistoryKeys(RunHistoryPath(study))
 	if err != nil {
 		return err
 	}
+	return appendRunHistoryWithKeys(study, state, task, existing)
+}
+
+func appendRunHistoryWithKeys(study Study, state RunState, task TaskState, existing map[string]bool) error {
+	if !terminalTaskStatus(task.Status) || task.CompletedAt == nil {
+		return nil
+	}
+	record := NewRunHistoryRecord(study, state, task, time.Now().UTC())
 	if existing[record.Key] {
 		return nil
 	}
@@ -99,12 +103,17 @@ func AppendRunHistory(study Study, state RunState, task TaskState) error {
 	if _, err := file.Write(append(data, '\n')); err != nil {
 		return err
 	}
+	existing[record.Key] = true
 	return nil
 }
 
 func SyncRunHistory(study Study, state RunState) error {
+	existing, err := readRunHistoryKeys(RunHistoryPath(study))
+	if err != nil {
+		return err
+	}
 	for _, task := range state.Tasks {
-		if err := AppendRunHistory(study, state, task); err != nil {
+		if err := appendRunHistoryWithKeys(study, state, task, existing); err != nil {
 			return err
 		}
 	}

@@ -190,42 +190,51 @@ func RunStatePath(study Study) string {
 }
 
 func SummarizeRunState(state RunState, statePath string) StatusSummary {
-	summary := StatusSummary{Total: len(state.Tasks), Complete: state.Complete, StatePath: statePath, RunID: state.RunID}
+	summary := SummarizeRunStateCounts(state, statePath)
 	summary.Tasks = append([]TaskState(nil), state.Tasks...)
+	return summary
+}
+
+func SummarizeRunStateCounts(state RunState, statePath string) StatusSummary {
+	summary := StatusSummary{Total: len(state.Tasks), Complete: state.Complete, StatePath: statePath, RunID: state.RunID}
 	for _, task := range state.Tasks {
-		switch task.Status {
-		case TaskStatusPending:
-			summary.Pending++
-		case TaskStatusRunning:
-			summary.Running++
-			summary.Active++
-		case TaskStatusValidating:
-			summary.Validating++
-			summary.Active++
-		case TaskStatusCompleted:
-			summary.Completed++
-		case TaskStatusFailed:
-			summary.Failed++
-		case TaskStatusCancelled:
-			summary.Cancelled++
-		case TaskStatusSkipped:
-			summary.Skipped++
-		case TaskStatusWaiting:
-			summary.Waiting++
-			summary.Active++
-		case TaskStatusRetrying:
-			summary.Retrying++
-			summary.Active++
-		}
-		if task.RetryAfter != nil {
-			summary.RetryCount++
-			if summary.NextRetryAt == nil || task.RetryAfter.Before(*summary.NextRetryAt) {
-				next := *task.RetryAfter
-				summary.NextRetryAt = &next
-			}
-		}
+		countTaskStatus(&summary, task)
 	}
 	return summary
+}
+
+func countTaskStatus(summary *StatusSummary, task TaskState) {
+	switch task.Status {
+	case TaskStatusPending:
+		summary.Pending++
+	case TaskStatusRunning:
+		summary.Running++
+		summary.Active++
+	case TaskStatusValidating:
+		summary.Validating++
+		summary.Active++
+	case TaskStatusCompleted:
+		summary.Completed++
+	case TaskStatusFailed:
+		summary.Failed++
+	case TaskStatusCancelled:
+		summary.Cancelled++
+	case TaskStatusSkipped:
+		summary.Skipped++
+	case TaskStatusWaiting:
+		summary.Waiting++
+		summary.Active++
+	case TaskStatusRetrying:
+		summary.Retrying++
+		summary.Active++
+	}
+	if task.RetryAfter != nil {
+		summary.RetryCount++
+		if summary.NextRetryAt == nil || task.RetryAfter.Before(*summary.NextRetryAt) {
+			next := *task.RetryAfter
+			summary.NextRetryAt = &next
+		}
+	}
 }
 
 func ResumeValidateRunState(state *RunState, study Study, sources []Source, dimensions []Dimension, now time.Time) {
