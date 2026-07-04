@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,6 +200,51 @@ func TestAdapterRetainsOnlyRecentRuntimeEvents(t *testing.T) {
 	}
 	if len(result.Warnings) != 1 {
 		t.Fatalf("expected truncation warning: %+v", result.Warnings)
+	}
+}
+
+func TestAdapterBoundsMappedEventPayloads(t *testing.T) {
+	huge := strings.Repeat("x", maxMappedPayloadStringBytes+512)
+	var forwarded Event
+	adapter := NewAdapter(fakeRuntime{run: &fakeRun{
+		id: "run-1",
+		events: []agentwrap.Event{{
+			ID:    "event-1",
+			RunID: "run-1",
+			Type:  "native.warning",
+			Payload: agentwrap.EventPayloadWithKind(agentwrap.EventWarning, agentwrap.EventPayload{
+				"detail": huge,
+				"raw":    []byte(huge),
+				"nested": map[string]any{"message": huge},
+			}),
+		}},
+		result: agentwrap.RunResult{
+			RunID:  "run-1",
+			Status: agentwrap.StatusCompleted,
+			Usage:  agentwrap.Usage{Native: map[string]any{"payload": huge}},
+		},
+	}})
+
+	result, err := adapter.StartRun(context.Background(), Request{
+		Prompt: "hello",
+		OnEvent: func(event Event) {
+			forwarded = event
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, payload := range []map[string]any{forwarded.Payload, result.Events[0].Payload, result.Usage.Native} {
+		value, ok := payload["detail"].(string)
+		if !ok {
+			value, ok = payload["payload"].(string)
+		}
+		if !ok || len(value) > maxMappedPayloadStringBytes+64 || !strings.Contains(value, "truncated") {
+			t.Fatalf("payload string not bounded: len=%d value=%q payload=%+v", len(value), value, payload)
+		}
+	}
+	if raw, ok := result.Events[0].Payload["raw"].(string); !ok || !strings.Contains(raw, "bytes omitted") {
+		t.Fatalf("raw bytes not omitted: %+v", result.Events[0].Payload["raw"])
 	}
 }
 

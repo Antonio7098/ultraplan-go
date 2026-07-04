@@ -118,9 +118,101 @@ func cloneAnyMap(src map[string]any) map[string]any {
 	if len(src) == 0 {
 		return nil
 	}
-	dst := make(map[string]any, len(src))
+	return sanitizeAnyMap(src, 0)
+}
+
+const (
+	maxMappedPayloadFields      = 32
+	maxMappedPayloadStringBytes = 4096
+	maxMappedPayloadSliceItems  = 8
+	maxMappedPayloadDepth       = 2
+)
+
+func sanitizeAnyMap(src map[string]any, depth int) map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]any, min(len(src), maxMappedPayloadFields+1))
+	count := 0
 	for k, v := range src {
-		dst[k] = v
+		if count >= maxMappedPayloadFields {
+			dst["_omitted_fields"] = len(src) - count
+			break
+		}
+		dst[k] = sanitizeAnyValue(v, depth+1)
+		count++
 	}
 	return dst
+}
+
+func sanitizeAnyValue(value any, depth int) any {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, uintptr, float32, float64:
+		return v
+	case string:
+		return truncatePayloadString(v)
+	case []byte:
+		if len(v) == 0 {
+			return ""
+		}
+		return fmt.Sprintf("[bytes omitted: %d bytes]", len(v))
+	case map[string]any:
+		if depth >= maxMappedPayloadDepth {
+			return fmt.Sprintf("[map omitted: %d fields]", len(v))
+		}
+		return sanitizeAnyMap(v, depth)
+	case map[string]string:
+		if depth >= maxMappedPayloadDepth {
+			return fmt.Sprintf("[map omitted: %d fields]", len(v))
+		}
+		out := make(map[string]any, min(len(v), maxMappedPayloadFields+1))
+		count := 0
+		for key, item := range v {
+			if count >= maxMappedPayloadFields {
+				out["_omitted_fields"] = len(v) - count
+				break
+			}
+			out[key] = truncatePayloadString(item)
+			count++
+		}
+		return out
+	case []any:
+		return sanitizeAnySlice(v, depth)
+	case []string:
+		out := make([]any, 0, min(len(v), maxMappedPayloadSliceItems+1))
+		for i, item := range v {
+			if i >= maxMappedPayloadSliceItems {
+				out = append(out, fmt.Sprintf("[omitted: %d items]", len(v)-i))
+				break
+			}
+			out = append(out, truncatePayloadString(item))
+		}
+		return out
+	default:
+		return fmt.Sprintf("[%T omitted]", value)
+	}
+}
+
+func sanitizeAnySlice(values []any, depth int) []any {
+	if depth >= maxMappedPayloadDepth {
+		return []any{fmt.Sprintf("[slice omitted: %d items]", len(values))}
+	}
+	out := make([]any, 0, min(len(values), maxMappedPayloadSliceItems+1))
+	for i, item := range values {
+		if i >= maxMappedPayloadSliceItems {
+			out = append(out, fmt.Sprintf("[omitted: %d items]", len(values)-i))
+			break
+		}
+		out = append(out, sanitizeAnyValue(item, depth+1))
+	}
+	return out
+}
+
+func truncatePayloadString(value string) string {
+	if len(value) <= maxMappedPayloadStringBytes {
+		return value
+	}
+	return value[:maxMappedPayloadStringBytes] + fmt.Sprintf("... [truncated %d bytes]", len(value)-maxMappedPayloadStringBytes)
 }
