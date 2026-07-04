@@ -81,6 +81,11 @@ func TestDiscoveryResolutionAndDerivation(t *testing.T) {
 	if derived[4].Status != StatusFailed || derived[4].Error != "runtime failed" {
 		t.Fatalf("failed state not preserved: %+v", derived[4])
 	}
+	snap.Files[StageReasoning] = true
+	derived = DeriveStages(sp, snap, prior)
+	if derived[4].Status != StatusComplete || derived[4].Error != "" {
+		t.Fatalf("stale failed state not cleared: %+v", derived[4])
+	}
 }
 
 func TestFlowStateStrictLoadingAndAtomicWritePreservesPrior(t *testing.T) {

@@ -1030,12 +1030,6 @@ func DeriveStages(sp Sprint, snap ArtifactSnapshot, prior []StageState) []StageS
 	blocked := false
 	readyAssigned := false
 	for _, stage := range PlanningStages() {
-		if priorFailed, ok := failed[stage]; ok {
-			priorFailed.Path = ArtifactRelPath(sp, stage)
-			out = append(out, priorFailed)
-			blocked = true
-			continue
-		}
 		status := StatusMissing
 		switch stage {
 		case StageAreaReasoning:
@@ -1047,6 +1041,14 @@ func DeriveStages(sp Sprint, snap ArtifactSnapshot, prior []StageState) []StageS
 		default:
 			if snap.Files[stage] {
 				status = StatusComplete
+			}
+		}
+		if status == StatusMissing {
+			if priorFailed, ok := failed[stage]; ok {
+				priorFailed.Path = ArtifactRelPath(sp, stage)
+				out = append(out, priorFailed)
+				blocked = true
+				continue
 			}
 		}
 		if status == StatusMissing && !blocked && !readyAssigned {
