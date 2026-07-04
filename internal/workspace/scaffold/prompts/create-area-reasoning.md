@@ -28,8 +28,13 @@ Only create files for areas explicitly selected in sprint-index. Do NOT create a
 2. Read the technical handbook for evidence context.
 3. Read `requirements.md` and all project docs in `docs/` for sprint-specific scope and constraints.
 4. For each selected area:
-   - Use the injected selected reasoning template section as the output format
+   - Use the injected selected reasoning template section as source material to reason through, not as the literal output structure
    - At the very top of the file, add an `> **Inputs Used:**` line listing the exact files used for that document
+   - Include these exact required `##` sections with concrete content:
+     - `## Area Decisions`
+     - `## Trade-Offs`
+     - `## Evidence`
+     - `## Risks`
    - Ground decisions in technical handbook evidence
    - Record the key conclusion and evidence basis
    - Note any open questions or risks

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Antonio7098/agentwrap"
+
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
 )
@@ -89,6 +91,34 @@ func TestFlowSuccessAndValidationFailureUpdateState(t *testing.T) {
 	}
 }
 
+func TestFlowPassesRepairableValidationSpecToRuntime(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-alpha")
+	writeFixtureProjectIndex(t, root, "proj")
+	writeFileContent(t, sp.Path, "# Requirements\n\nDo select stage.\n", "requirements.md")
+	writeFileContent(t, sp.Path, "# Sprint Index\n\nTODO\n", "sprint-index.md")
+
+	rt := &validationInspectRuntime{}
+	service := NewService(root).WithRuntime(rt)
+	_, _ = service.FlowSprintIndex(context.Background(), "proj", "01", FlowRequest{To: StageSprintIndex})
+	if rt.request.Validation == nil {
+		t.Fatal("runtime request missing validation spec")
+	}
+	if rt.request.Validation.Repair.MaxAttempts != generatedArtifactRepairAttempts {
+		t.Fatalf("repair attempts = %d", rt.request.Validation.Repair.MaxAttempts)
+	}
+	if rt.request.Validation.Repair.SessionAction != agentwrap.SessionActionContinue {
+		t.Fatalf("repair session action = %q", rt.request.Validation.Repair.SessionAction)
+	}
+	if len(rt.request.Validation.Validators) != 1 {
+		t.Fatalf("validators = %d", len(rt.request.Validation.Validators))
+	}
+	check := rt.request.Validation.Validators[0].Validate(context.Background(), agentwrap.ValidationContext{})
+	if check.Passed || !strings.Contains(check.Observed, "missing required section") || !strings.Contains(check.RepairHint, "sprint-index") {
+		t.Fatalf("validation check = %#v", check)
+	}
+}
+
 func TestFlowCreatesMissingSprintSkeletonOnlyWhenNotDryRun(t *testing.T) {
 	root := workspaceFixture(t)
 	writeFixtureProjectIndex(t, root, "proj")
@@ -140,6 +170,15 @@ func TestFlowRequirementsGeneratesMissingSprintRequirements(t *testing.T) {
 type fakeRuntime struct{}
 
 func (fakeRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {
+	return pruntime.Result{Status: "success", RunID: "run-1"}, nil
+}
+
+type validationInspectRuntime struct {
+	request pruntime.Request
+}
+
+func (r *validationInspectRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
+	r.request = req
 	return pruntime.Result{Status: "success", RunID: "run-1"}, nil
 }
 

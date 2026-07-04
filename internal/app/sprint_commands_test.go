@@ -190,6 +190,10 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	}
 	assertContains(t, stdout, "# Create Area Reasoning")
 	assertContains(t, stdout, "Prompt source: `builtin:prompts/create-area-reasoning.md`")
+	assertContains(t, stdout, "## Area Decisions")
+	assertContains(t, stdout, "## Trade-Offs")
+	assertContains(t, stdout, "## Evidence")
+	assertContains(t, stdout, "## Risks")
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "reasoning"})
 	if status != ExitOK || stderr != "" {
