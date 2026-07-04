@@ -126,6 +126,41 @@ func TestFlowReasoningDryRunSuccessAndFailure(t *testing.T) {
 	}
 }
 
+func TestFlowReasoningRepairsInvalidGeneratedArtifactInSameSession(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-alpha")
+	writeFixtureProjectIndex(t, root, "proj")
+	writeFileContent(t, root, "# Architecture Template\n", "system", "reasoning", "architecture_reasoning_template.md")
+	writeFileContent(t, root, "# Evidence\n", "studies", "go-cli-study", "reports", "final", "01-project-structure.md")
+	writeFileContent(t, sp.Path, "# Requirements\n\nDo reasoning stage.\n", "requirements.md")
+	writeFileContent(t, sp.Path, validSprintIndex(), "sprint-index.md")
+	writeFileContent(t, sp.Path, validReasoningTechnicalHandbook(), "technical-handbook.md")
+	writeFileContent(t, sp.Path, validAreaReasoning(), "reasoning", "architecture.md")
+
+	rt := &repairReasoningRuntime{sp: sp}
+	service := NewService(root).WithRuntime(rt)
+	result, err := service.FlowReasoning(context.Background(), "proj", "01", FlowRequest{To: StageReasoning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Stages[4].Status != StatusComplete {
+		t.Fatalf("stages = %+v", result.Stages)
+	}
+	if len(rt.requests) != 2 {
+		t.Fatalf("runtime starts = %d, want initial plus repair", len(rt.requests))
+	}
+	if rt.requests[1].SessionID != "session-1" || rt.requests[1].SessionAction != "continue" {
+		t.Fatalf("repair request session id=%q action=%q", rt.requests[1].SessionID, rt.requests[1].SessionAction)
+	}
+	data, err := os.ReadFile(filepath.Join(sp.Path, "reasoning.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "## Decisions") {
+		t.Fatalf("repair did not write valid decisions section:\n%s", data)
+	}
+}
+
 type writeReasoningRuntime struct {
 	root string
 	sp   Sprint
@@ -138,6 +173,23 @@ func (r writeReasoningRuntime) StartRun(_ context.Context, req pruntime.Request)
 		}
 	}
 	return pruntime.Result{Status: "success", RunID: "reason-run"}, nil
+}
+
+type repairReasoningRuntime struct {
+	sp       Sprint
+	requests []pruntime.Request
+}
+
+func (r *repairReasoningRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
+	r.requests = append(r.requests, req)
+	content := strings.Replace(validFinalReasoning(), "## Decisions", "## Final Decisions", 1)
+	if req.SessionAction == "continue" {
+		content = validFinalReasoning()
+	}
+	if err := os.WriteFile(filepath.Join(r.sp.Path, "reasoning.md"), []byte(content), 0o644); err != nil {
+		return pruntime.Result{}, err
+	}
+	return pruntime.Result{Status: "success", RunID: "reason-run", SessionID: "session-1"}, nil
 }
 
 func validReasoningTechnicalHandbook() string {

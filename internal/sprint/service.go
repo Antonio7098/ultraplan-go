@@ -336,6 +336,20 @@ func (s Service) FlowRequirements(ctx context.Context, projectRef, sprintRef str
 	}
 	findings := ValidateRequirementsContent(content)
 	if len(findings) > 0 {
+		runtimeResult, findings, err = s.repairGeneratedArtifact(ctx, runtimeReq, runtimeResult, ArtifactRelPath(sp, StageRequirements), findings, func() []ValidationFinding {
+			data, readErr := s.store.ReadArtifact(sp, StageRequirements)
+			if readErr != nil {
+				return []ValidationFinding{finding("requirements.md", "", ArtifactRelPath(sp, StageRequirements), "missing requirements", readErr.Error(), "Generate requirements.md.")}
+			}
+			return ValidateRequirementsContent(data)
+		})
+		if err != nil {
+			stages := flowFailedStages(sp, req.To, err, now)
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+			return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+		}
+	}
+	if len(findings) > 0 {
 		err := fmt.Errorf("generated requirements.md failed validation")
 		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
@@ -390,6 +404,23 @@ func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef stri
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
 	index, findings := ValidateSprintIndexContent(inputs.SprintIndex, catalog)
+	if len(findings) > 0 {
+		runtimeResult, findings, err = s.repairGeneratedArtifact(ctx, runtimeReq, runtimeResult, ArtifactRelPath(sp, StageSprintIndex), findings, func() []ValidationFinding {
+			updated, readErr := s.store.ReadPlanningInputs(sp)
+			if readErr != nil {
+				return []ValidationFinding{finding("sprint-index.md", "", ArtifactRelPath(sp, StageSprintIndex), "missing sprint index", readErr.Error(), "Generate sprint-index.md.")}
+			}
+			var updatedIndex SprintIndex
+			updatedIndex, findings = ValidateSprintIndexContent(updated.SprintIndex, catalog)
+			index = updatedIndex
+			return findings
+		})
+		if err != nil {
+			stages := flowFailedStages(sp, req.To, err, now)
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+			return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+		}
+	}
 	if len(findings) > 0 {
 		err := fmt.Errorf("generated sprint-index.md failed validation")
 		stages := flowFailedStages(sp, req.To, err, now)
@@ -450,6 +481,20 @@ func (s Service) FlowPlan(ctx context.Context, projectRef, sprintRef string, req
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
 	findings = ValidatePlanContent(data, manifest)
+	if len(findings) > 0 {
+		runtimeResult, findings, err = s.repairGeneratedArtifact(ctx, runtimeReq, runtimeResult, ArtifactRelPath(sp, StagePlan), findings, func() []ValidationFinding {
+			updated, readErr := s.store.ReadArtifact(sp, StagePlan)
+			if readErr != nil {
+				return []ValidationFinding{finding("plan.md", "", ArtifactRelPath(sp, StagePlan), "missing plan", readErr.Error(), "Generate plan.md.")}
+			}
+			return ValidatePlanContent(updated, manifest)
+		})
+		if err != nil {
+			stages := flowFailedStages(sp, req.To, err, now)
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+			return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+		}
+	}
 	if len(findings) > 0 {
 		err := fmt.Errorf("generated plan.md failed validation")
 		stages := flowFailedStages(sp, req.To, err, now)
@@ -517,6 +562,20 @@ func (s Service) FlowTechnicalHandbook(ctx context.Context, projectRef, sprintRe
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
 	findings = ValidateTechnicalHandbookContent(data, manifest)
+	if len(findings) > 0 {
+		runtimeResult, findings, err = s.repairGeneratedArtifact(ctx, runtimeReq, runtimeResult, ArtifactRelPath(sp, StageTechnicalHandbook), findings, func() []ValidationFinding {
+			updated, readErr := s.store.ReadArtifact(sp, StageTechnicalHandbook)
+			if readErr != nil {
+				return []ValidationFinding{finding("technical-handbook.md", "", ArtifactRelPath(sp, StageTechnicalHandbook), "missing technical handbook", readErr.Error(), "Generate technical-handbook.md.")}
+			}
+			return ValidateTechnicalHandbookContent(updated, manifest)
+		})
+		if err != nil {
+			stages := flowFailedStages(sp, req.To, err, now)
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+			return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+		}
+	}
 	if len(findings) > 0 {
 		err := fmt.Errorf("generated technical-handbook.md failed validation")
 		stages := flowFailedStages(sp, req.To, err, now)
@@ -741,6 +800,22 @@ func (s Service) runtimeRequest(prompt string, metadata map[string]string) prunt
 	return req
 }
 
+func (s Service) repairGeneratedArtifact(ctx context.Context, req pruntime.Request, previous pruntime.Result, path string, findings []ValidationFinding, validate func() []ValidationFinding) (pruntime.Result, []ValidationFinding, error) {
+	if len(findings) == 0 || s.runtime == nil || previous.SessionID == "" {
+		return previous, findings, nil
+	}
+	repairReq := req
+	repairReq.Prompt = buildGeneratedArtifactRepairPromptFromFindings(path, findings)
+	repairReq.SessionID = previous.SessionID
+	repairReq.SessionAction = "continue"
+	repairReq.Metadata = cloneMetadata(repairReq.Metadata, map[string]string{"repair": "validation", "repair_artifact": path})
+	repairResult, err := s.runtime.StartRun(ctx, repairReq)
+	if err != nil {
+		return repairResult, findings, err
+	}
+	return repairResult, validate(), nil
+}
+
 func (s Service) flowFailedStages(sp Sprint, target PlanningStage, err error, now time.Time) []StageState {
 	snap, snapErr := s.store.ReadArtifacts(sp)
 	if snapErr != nil {
@@ -822,6 +897,31 @@ func (s Service) flowAreaReasoning(ctx context.Context, sp Sprint, req FlowReque
 		findings = append(findings, ValidateAreaReasoningContent(data, entry, manifest)...)
 	}
 	if len(findings) > 0 {
+		runtimeResult, findings, err = s.repairGeneratedArtifact(ctx, runtimeReq, runtimeResult, manifest.SprintRoot+"/reasoning", findings, func() []ValidationFinding {
+			var updated []ValidationFinding
+			for _, entry := range manifest.ReasoningTemplates {
+				path, pathErr := workspace.ResolveInside(s.root, normalizeWorkspacePath(entry.OutputPath))
+				if pathErr != nil {
+					updated = append(updated, finding("area-reasoning", entry.Name, entry.OutputPath, "unsafe area reasoning path", pathErr.Error(), "Use a workspace-contained selected output path."))
+					continue
+				}
+				data, readErr := s.store.ReadFile(path)
+				if readErr != nil {
+					updated = append(updated, finding("area-reasoning", entry.Name, entry.OutputPath, "missing area reasoning", readErr.Error(), "Generate the selected area reasoning artifact."))
+					continue
+				}
+				updated = append(updated, ValidateAreaReasoningContent(data, entry, manifest)...)
+			}
+			sortSprintFindings(updated)
+			return updated
+		})
+		if err != nil {
+			stages := flowFailedStages(sp, req.To, err, now)
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+			return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+		}
+	}
+	if len(findings) > 0 {
 		err := fmt.Errorf("generated area reasoning failed validation")
 		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
@@ -883,6 +983,20 @@ func (s Service) flowFinalReasoning(ctx context.Context, sp Sprint, req FlowRequ
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
 	findings = ValidateFinalReasoningContent(data, manifest)
+	if len(findings) > 0 {
+		runtimeResult, findings, err = s.repairGeneratedArtifact(ctx, runtimeReq, runtimeResult, ArtifactRelPath(sp, StageReasoning), findings, func() []ValidationFinding {
+			updated, readErr := s.store.ReadArtifact(sp, StageReasoning)
+			if readErr != nil {
+				return []ValidationFinding{finding("reasoning.md", "", ArtifactRelPath(sp, StageReasoning), "missing final reasoning", readErr.Error(), "Generate reasoning.md.")}
+			}
+			return ValidateFinalReasoningContent(updated, manifest)
+		})
+		if err != nil {
+			stages := flowFailedStages(sp, req.To, err, now)
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+			return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
+		}
+	}
 	if len(findings) > 0 {
 		err := fmt.Errorf("generated reasoning.md failed validation")
 		stages := flowFailedStages(sp, req.To, err, now)

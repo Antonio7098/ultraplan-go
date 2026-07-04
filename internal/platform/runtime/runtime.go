@@ -16,6 +16,8 @@ import (
 type Request struct {
 	Prompt        string
 	WorkDir       string
+	SessionID     string
+	SessionAction string
 	Provider      string
 	Model         string
 	Timeout       time.Duration
@@ -424,6 +426,8 @@ func toAgentwrapRequest(req Request) (agentwrap.RunRequest, error) {
 	return agentwrap.RunRequest{
 		Prompt:           req.Prompt,
 		WorkDir:          req.WorkDir,
+		SessionID:        agentwrap.SessionID(req.SessionID),
+		SessionAction:    agentwrap.SessionAction(req.SessionAction),
 		Provider:         agentwrap.ProviderID(req.Provider),
 		Model:            agentwrap.ModelID(req.Model),
 		Timeout:          req.Timeout,

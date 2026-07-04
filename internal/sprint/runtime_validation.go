@@ -153,6 +153,22 @@ func buildGeneratedArtifactRepairPrompt(path string, failures []agentwrap.Valida
 	return b.String()
 }
 
+func buildGeneratedArtifactRepairPromptFromFindings(path string, findings []ValidationFinding) string {
+	failures := make([]agentwrap.ValidationFailure, 0, len(findings))
+	for _, finding := range findings {
+		failures = append(failures, agentwrap.ValidationFailure{
+			ExpectationID: finding.Section,
+			Kind:          agentwrap.ExpectationCustom,
+			Severity:      agentwrap.ExpectationRequired,
+			Expected:      "valid generated artifact",
+			Observed:      formatValidationFindings([]ValidationFinding{finding}),
+			Detail:        finding.Problem,
+			RepairHint:    finding.Suggestion,
+		})
+	}
+	return buildGeneratedArtifactRepairPrompt(path, failures)
+}
+
 func formatValidationFindings(findings []ValidationFinding) string {
 	var b strings.Builder
 	for i, finding := range findings {
