@@ -6,6 +6,18 @@ This release includes the study workflow and the planning workflow from `study -
 
 ## Install
 
+Install to your user bin directory, which keeps the `ultraplan` command in the same place for future upgrades:
+
+```bash
+./scripts/install-ultraplan.sh
+```
+
+That script installs `ultraplan` to `~/.local/bin` by default. If you prefer a different bin directory, set `GOBIN` first:
+
+```bash
+GOBIN="$HOME/bin" ./scripts/install-ultraplan.sh
+```
+
 Build from source:
 
 ```bash
