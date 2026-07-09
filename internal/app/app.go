@@ -144,6 +144,8 @@ func Run(cfg Config) int {
 		return failOrOK(stderr, runSprint(deps, args[1:]))
 	case "study":
 		return failOrOK(stderr, runStudy(deps, args[1:]))
+	case "tui":
+		return failOrOK(stderr, runTUI(deps, args[1:]))
 	case "code":
 		return failOrOK(stderr, runCode(deps, args[1:]))
 	default:
@@ -232,6 +234,7 @@ Commands:
   project          Inspect projects and validate project indexes.
   sprint           Inspect planning sprint artifact flow state.
   study            Inspect studies, sources, and dimensions.
+  tui              Open a read-only terminal dashboard.
   version          Print build metadata.
 
 Flags:
