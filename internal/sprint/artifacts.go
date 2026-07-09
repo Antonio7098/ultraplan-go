@@ -32,6 +32,10 @@ func FlowStateRelPath(s Sprint) string {
 	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "flow-state.json"))
 }
 
+func ExecuteRunStateRelPath(s Sprint) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, ".run-state.json"))
+}
+
 func ArtifactPath(root string, s Sprint, stage PlanningStage) (string, error) {
 	return resolveSprintContained(root, s, ArtifactRelPath(s, stage))
 }

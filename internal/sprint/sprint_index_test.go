@@ -255,6 +255,10 @@ func writeFixtureProjectIndex(t *testing.T, root, projectName string) {
 func testProjectIndex() string {
 	return `# Project Index
 
+## Project Scope
+
+- **Target Implementation Directory:** /home/antonioborgerees/coding/ultraplan-go
+
 ## Active Contract Pool
 
 | Contract | Path | Applies To |

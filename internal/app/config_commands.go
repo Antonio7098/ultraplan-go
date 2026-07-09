@@ -64,6 +64,8 @@ func runConfig(deps dependencies, args []string) error {
 	fmt.Fprintf(deps.stdout, "planning.reasoning_variant: %s\n", redacted.Planning.ReasoningVariant)
 	fmt.Fprintf(deps.stdout, "planning.plan_model: %s\n", redacted.Planning.PlanModel)
 	fmt.Fprintf(deps.stdout, "planning.plan_variant: %s\n", redacted.Planning.PlanVariant)
+	fmt.Fprintf(deps.stdout, "planning.execute_model: %s\n", redacted.Planning.ExecuteModel)
+	fmt.Fprintf(deps.stdout, "planning.execute_variant: %s\n", redacted.Planning.ExecuteVariant)
 	fmt.Fprintf(deps.stdout, "logging.format: %s\n", redacted.Logging.Format)
 	fmt.Fprintf(deps.stdout, "logging.level: %s\n", redacted.Logging.Level)
 	fmt.Fprintf(deps.stdout, "agentwrap.executable: %s\n", redacted.Agentwrap.Executable)

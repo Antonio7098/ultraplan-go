@@ -254,6 +254,30 @@ func (s Service) ValidatePlan(projectRef, sprintRef string) (ValidationResult, e
 	return ValidationResult{Project: sp.Project, Sprint: sp.Slug, Artifact: workspace.Rel(s.root, path), Findings: findings}, nil
 }
 
+func (s Service) ValidateExecute(projectRef, sprintRef string) (ValidationResult, error) {
+	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	manifest, findings := s.planManifest(sp, inputs, catalog)
+	path := mustArtifactPath(s.root, sp, StagePlan)
+	if len(findings) == 0 {
+		if _, targetFindings := ResolveExecuteTarget(inputs.ProjectIndex); len(targetFindings) > 0 {
+			findings = append(findings, targetFindings...)
+		}
+	}
+	if len(findings) == 0 {
+		data, err := s.store.ReadArtifact(sp, StagePlan)
+		if err != nil {
+			findings = append(findings, finding("plan.md", "", workspace.Rel(s.root, path), "missing plan", err.Error(), "Generate and validate plan.md before execute."))
+		} else {
+			_, findings = ExtractExecutePlanTasks(data, manifest)
+		}
+	}
+	sortSprintFindings(findings)
+	return ValidationResult{Project: sp.Project, Sprint: sp.Slug, Artifact: workspace.Rel(s.root, path), Findings: findings}, nil
+}
+
 func (s Service) PromptAreaReasoning(projectRef, sprintRef string) (PromptPreview, error) {
 	sp, inputs, catalog, err := s.resolveSprintInputs(projectRef, sprintRef)
 	if err != nil {
