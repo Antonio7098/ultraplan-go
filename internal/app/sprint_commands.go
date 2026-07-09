@@ -46,7 +46,7 @@ func runSprint(deps dependencies, args []string) error {
 		if len(args) == 2 {
 			return classified(ExitUsage, "sprint: expected '<project> <sprint> status'")
 		}
-		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|validate|prompt|flow>'")
+		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|validate|prompt|flow|execute>'")
 	}
 	root, err := discoverWorkspace(deps)
 	if err != nil {
@@ -83,6 +83,8 @@ func runSprint(deps dependencies, args []string) error {
 			result, err = service.ValidateReasoning(args[0], args[1])
 		case sprint.StagePlan:
 			result, err = service.ValidatePlan(args[0], args[1])
+		case sprint.StageExecute:
+			result, err = service.ValidateExecute(args[0], args[1])
 		default:
 			return classified(ExitUsage, "sprint.validate: unsupported stage %q", args[3])
 		}
@@ -113,6 +115,8 @@ func runSprint(deps dependencies, args []string) error {
 			preview, err = service.PromptReasoning(args[0], args[1])
 		case sprint.StagePlan:
 			preview, err = service.PromptPlan(args[0], args[1])
+		case sprint.StageExecute:
+			preview, err = service.PromptExecute(args[0], args[1], sprint.ExecuteRequest{})
 		default:
 			return classified(ExitUsage, "sprint.prompt: unsupported stage %q", args[3])
 		}
@@ -151,6 +155,33 @@ func runSprint(deps dependencies, args []string) error {
 		}
 		renderSprintFlow(deps, result)
 		return nil
+	case "execute":
+		req, err := parseSprintExecuteArgs(args[3:])
+		if err != nil {
+			return classified(ExitUsage, "sprint.execute: %w", err)
+		}
+		execService := service
+		if !req.DryRun {
+			execService, err = sprintRuntimeService(deps, root)
+			if err != nil {
+				return err
+			}
+		}
+		result, err := execService.Execute(deps.ctx, args[0], args[1], req)
+		renderSprintExecute(deps, result)
+		if err != nil {
+			if len(result.Findings) > 0 {
+				return classified(ExitValidation, "sprint.execute: %w", err)
+			}
+			if strings.Contains(err.Error(), "failed tasks") {
+				return classified(ExitPartial, "sprint.execute: %w", err)
+			}
+			if strings.Contains(err.Error(), "runtime") {
+				return classified(ExitRuntime, "sprint.execute: %w", err)
+			}
+			return mapSprintError("sprint.execute", err)
+		}
+		return nil
 	default:
 		return classified(ExitUsage, "sprint: unsupported command %q", args[2])
 	}
@@ -170,6 +201,8 @@ func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, spri
 		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning)
 	case sprint.StagePlan:
 		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan)
+	case sprint.StageExecute:
+		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute)
 	default:
 		return sprint.FlowResult{}, fmt.Errorf("unsupported flow target %q", req.To)
 	}
@@ -201,6 +234,10 @@ func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, spri
 			result, err = service.FlowReasoning(ctx, projectRef, sprintRef, stageReq)
 		case sprint.StagePlan:
 			result, err = service.FlowPlan(ctx, projectRef, sprintRef, stageReq)
+		case sprint.StageExecute:
+			exec, execErr := service.Execute(ctx, projectRef, sprintRef, sprint.ExecuteRequest{DryRun: req.DryRun, Resume: true})
+			result = sprint.FlowResult{Project: exec.Project, Sprint: exec.Sprint, To: sprint.StageExecute, DryRun: exec.DryRun, Message: firstNonEmpty(exec.Prompt, exec.Message), Findings: exec.Findings}
+			err = execErr
 		default:
 			err = fmt.Errorf("unsupported flow target %q", stage)
 		}
@@ -228,6 +265,8 @@ func sprintStageAlreadyValid(service sprint.Service, projectRef, sprintRef strin
 		result, err = service.ValidateReasoning(projectRef, sprintRef)
 	case sprint.StagePlan:
 		result, err = service.ValidatePlan(projectRef, sprintRef)
+	case sprint.StageExecute:
+		result, err = service.ValidateExecute(projectRef, sprintRef)
 	default:
 		return false, fmt.Errorf("unsupported flow target %q", stage)
 	}
@@ -279,6 +318,10 @@ func planningStageRuntime(c config.Config) map[sprint.PlanningStage]sprint.Stage
 			Model:   c.Planning.PlanModel,
 			Variant: c.Planning.PlanVariant,
 		},
+		sprint.StageExecute: {
+			Model:   c.Planning.ExecuteModel,
+			Variant: c.Planning.ExecuteVariant,
+		},
 	}
 }
 
@@ -314,10 +357,37 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 		}
 	}
 	if req.To == "" {
-		return req, fmt.Errorf("--to requirements, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, or --to plan is required")
+		return req, fmt.Errorf("--to requirements, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, --to plan, or --to execute is required")
 	}
-	if req.To != sprint.StageRequirements && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan {
+	if req.To != sprint.StageRequirements && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan && req.To != sprint.StageExecute {
 		return req, fmt.Errorf("unsupported flow target %q", req.To)
+	}
+	return req, nil
+}
+
+func parseSprintExecuteArgs(args []string) (sprint.ExecuteRequest, error) {
+	req := sprint.ExecuteRequest{}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--task":
+			if i+1 >= len(args) {
+				return req, fmt.Errorf("--task requires an id")
+			}
+			req.TaskID = args[i+1]
+			i++
+		case "--dry-run", "--prompt":
+			req.DryRun = true
+		case "--resume":
+			req.Resume = true
+		case "--model":
+			if i+1 >= len(args) {
+				return req, fmt.Errorf("--model requires a provider/model value")
+			}
+			req.ModelOverride = args[i+1]
+			i++
+		default:
+			return req, fmt.Errorf("unsupported argument %q", args[i])
+		}
 	}
 	return req, nil
 }
@@ -403,6 +473,47 @@ func renderSprintFlow(deps dependencies, result sprint.FlowResult) {
 			fmt.Fprintf(deps.stdout, "  %s: %s\n", stage.Stage, stage.Status)
 		}
 	}
+}
+
+func renderSprintExecute(deps dependencies, result sprint.ExecuteResult) {
+	fmt.Fprintf(deps.stdout, "Project: %s\n", result.Project)
+	fmt.Fprintf(deps.stdout, "Sprint: %s\n", result.Sprint)
+	if result.DryRun {
+		fmt.Fprintln(deps.stdout, "Dry run: true")
+		fmt.Fprintln(deps.stdout, result.Prompt)
+		return
+	}
+	if result.Message != "" {
+		fmt.Fprintf(deps.stdout, "Result: %s\n", result.Message)
+	}
+	if result.RunStatePath != "" {
+		fmt.Fprintf(deps.stdout, "Run state: %s\n", result.RunStatePath)
+	}
+	if result.SummaryPath != "" {
+		fmt.Fprintf(deps.stdout, "Summary: %s\n", result.SummaryPath)
+	}
+	for _, task := range result.Tasks {
+		fmt.Fprintf(deps.stdout, "- %s %s attempts=%d\n", task.ID, task.Status, task.Attempts)
+	}
+	if len(result.Findings) > 0 {
+		fmt.Fprintln(deps.stdout, "Validation findings:")
+		for _, finding := range result.Findings {
+			fmt.Fprintf(deps.stdout, "- %s: %s", finding.Section, finding.Problem)
+			if finding.Cause != "" {
+				fmt.Fprintf(deps.stdout, "; %s", finding.Cause)
+			}
+			fmt.Fprintln(deps.stdout)
+		}
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func sprintHelp() string {

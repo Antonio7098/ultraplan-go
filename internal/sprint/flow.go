@@ -151,8 +151,8 @@ func safeError(err error) string {
 }
 
 func validateFlowTarget(stage PlanningStage) error {
-	if stage != StageRequirements && stage != StageSprintIndex && stage != StageTechnicalHandbook && stage != StageAreaReasoning && stage != StageReasoning && stage != StagePlan {
-		return fmt.Errorf("unsupported sprint flow target %q; supports requirements, sprint-index, technical-handbook, area-reasoning, reasoning, and plan", stage)
+	if stage != StageRequirements && stage != StageSprintIndex && stage != StageTechnicalHandbook && stage != StageAreaReasoning && stage != StageReasoning && stage != StagePlan && stage != StageExecute {
+		return fmt.Errorf("unsupported sprint flow target %q; supports requirements, sprint-index, technical-handbook, area-reasoning, reasoning, plan, and execute", stage)
 	}
 	return nil
 }
