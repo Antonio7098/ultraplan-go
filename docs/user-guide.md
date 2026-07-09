@@ -214,19 +214,23 @@ Project validation checks that the project catalog resolves selected contracts, 
 
 ## 17. Work Through Sprint Planning
 
-Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, and `plan`.
+Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, `plan`, and controlled `execute`.
 
 ```bash
 ultraplan sprint <project> <sprint> status
 ultraplan sprint <project> <sprint> validate requirements
 ultraplan sprint <project> <sprint> validate sprint-index
+ultraplan sprint <project> <sprint> validate execute
 ultraplan sprint <project> <sprint> prompt requirements
 ultraplan sprint <project> <sprint> prompt plan
+ultraplan sprint <project> <sprint> prompt execute
 ultraplan sprint <project> <sprint> flow --to plan --dry-run
+ultraplan sprint <project> <sprint> flow --to execute --dry-run
+ultraplan sprint <project> <sprint> execute --resume
 ```
 
 Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use `flow --to <stage> --dry-run` to preview planned stage execution. Non-dry-run flow can generate planning artifacts when runtime prerequisites are available.
 
-The planning flow stops at `plan.md`; it does not execute the plan or create smoke, review, issue, or Git artifacts.
+The planning flow continues through controlled execute from validated `plan.md` tasks. Execute writes `.run-state.json` and `execute.md`; it does not create smoke, review, issue, Git, TUI, hosted/browser, or cross-sprint scheduling artifacts.
 
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`.

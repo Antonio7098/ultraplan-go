@@ -142,6 +142,9 @@ type StatusSummary struct {
 	SprintRoot    string
 	FlowStatePath string
 	Stages        []StageState
+	ExecuteState  *ExecuteRunState
+	ExecutePath   string
+	RunStatePath  string
 }
 
 type ValidationFinding struct {

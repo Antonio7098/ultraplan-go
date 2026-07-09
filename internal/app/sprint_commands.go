@@ -266,7 +266,7 @@ func sprintStageAlreadyValid(service sprint.Service, projectRef, sprintRef strin
 	case sprint.StagePlan:
 		result, err = service.ValidatePlan(projectRef, sprintRef)
 	case sprint.StageExecute:
-		result, err = service.ValidateExecute(projectRef, sprintRef)
+		return false, nil
 	default:
 		return false, fmt.Errorf("unsupported flow target %q", stage)
 	}
@@ -330,6 +330,8 @@ func mapSprintError(prefix string, err error) error {
 	var sprintRef sprint.RefError
 	switch {
 	case errors.Is(err, sprint.ErrFlowStateMalformed), errors.Is(err, sprint.ErrFlowStateUnsupported):
+		return classified(ExitValidation, "%s: %w", prefix, err)
+	case errors.Is(err, sprint.ErrExecuteRunStateMissing), errors.Is(err, sprint.ErrExecuteRunStateMalformed), errors.Is(err, sprint.ErrExecuteRunStateUnsupported):
 		return classified(ExitValidation, "%s: %w", prefix, err)
 	case strings.Contains(err.Error(), "validation failed"):
 		return classified(ExitValidation, "%s: %w", prefix, err)
@@ -404,6 +406,20 @@ func renderSprintStatus(deps dependencies, status sprint.StatusSummary) {
 			fmt.Fprintf(deps.stdout, " error=%q", stage.Error)
 		}
 		fmt.Fprintln(deps.stdout)
+	}
+	fmt.Fprintln(deps.stdout, "Execute:")
+	fmt.Fprintf(deps.stdout, "  summary: %s\n", status.ExecutePath)
+	fmt.Fprintf(deps.stdout, "  run state: %s\n", status.RunStatePath)
+	if status.ExecuteState == nil {
+		fmt.Fprintln(deps.stdout, "  status: not started")
+		return
+	}
+	counts := map[sprint.ExecuteTaskStatus]int{}
+	for _, task := range status.ExecuteState.Tasks {
+		counts[task.Status]++
+	}
+	for _, state := range sprint.ExecuteTaskStatuses() {
+		fmt.Fprintf(deps.stdout, "  %s: %d\n", state, counts[state])
 	}
 }
 
@@ -527,27 +543,33 @@ Usage:
   ultraplan sprint <project> <sprint> validate area-reasoning
   ultraplan sprint <project> <sprint> validate reasoning
   ultraplan sprint <project> <sprint> validate plan
+  ultraplan sprint <project> <sprint> validate execute
   ultraplan sprint <project> <sprint> prompt requirements
   ultraplan sprint <project> <sprint> prompt sprint-index
   ultraplan sprint <project> <sprint> prompt technical-handbook
   ultraplan sprint <project> <sprint> prompt area-reasoning
   ultraplan sprint <project> <sprint> prompt reasoning
   ultraplan sprint <project> <sprint> prompt plan
+  ultraplan sprint <project> <sprint> prompt execute
   ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
   ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
   ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
   ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
   ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
+  ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
+  execute <project> <sprint> is available as the sprint execute action above.
 
 Commands:
   <project> <sprint> status  Inspect planning artifacts and refresh flow-state.json.
-  <project> <sprint> validate <stage>  Validate requirements.md, sprint-index.md, technical-handbook.md, area reasoning, reasoning.md, or plan.md.
+  <project> <sprint> validate <stage>  Validate requirements.md, sprint-index.md, technical-handbook.md, area reasoning, reasoning.md, plan.md, or execute readiness.
   <project> <sprint> prompt <stage>    Print a runtime-free stage prompt preview.
-  <project> <sprint> flow --to <stage> Run or preview sprint planning flow through plan.
+  <project> <sprint> flow --to <stage> Run or preview sprint planning and execute flow.
+  <project> <sprint> execute           Execute validated plan tasks through the generic runtime boundary.
 
 Scope:
-  Supports planning stages through plan.md only. It does not execute implementation, smoke, review, issue, Git, prompt-generation, or runtime workflows.
+  Supports governed planning through plan.md and controlled execute from validated plan tasks. It does not run smoke, review automation, issue tracking, Git mutation, TUI, hosted/browser, or cross-sprint scheduling workflows.
 `
 }
 
@@ -557,7 +579,7 @@ func sprintStatusHelp() string {
 Usage:
   ultraplan sprint <project> <sprint> status
 
-Shows deterministic planning-stage status for requirements.md, sprint-index.md, technical-handbook.md, reasoning/*.md, reasoning.md, and plan.md. Missing or valid flow state is refreshed; invalid flow-state.json fails without repair.
+Shows deterministic planning-stage status for requirements.md, sprint-index.md, technical-handbook.md, reasoning/*.md, reasoning.md, plan.md, and execute run state when present. Missing or valid flow state is refreshed; invalid state fails without repair.
 `
 }
 
@@ -571,8 +593,9 @@ Usage:
   ultraplan sprint <project> <sprint> validate area-reasoning
   ultraplan sprint <project> <sprint> validate reasoning
   ultraplan sprint <project> <sprint> validate plan
+  ultraplan sprint <project> <sprint> validate execute
 
-Validates requirements.md, sprint-index.md selected context, technical-handbook.md selected evidence distillation, area reasoning, final reasoning.md, or plan.md. Validation failures exit with code 5.
+Validates requirements.md, sprint-index.md selected context, technical-handbook.md selected evidence distillation, area reasoning, final reasoning.md, plan.md, or execute readiness. Validation failures exit with code 5.
 `
 }
 
@@ -586,8 +609,9 @@ Usage:
   ultraplan sprint <project> <sprint> prompt area-reasoning
   ultraplan sprint <project> <sprint> prompt reasoning
   ultraplan sprint <project> <sprint> prompt plan
+  ultraplan sprint <project> <sprint> prompt execute
 
-Prints a deterministic runtime-free prompt preview. It does not invoke the runtime and does not write artifacts.
+Prints a deterministic runtime-free prompt preview. Execute prompts are rendered from validated plan tasks and target safety policy. It does not invoke the runtime and does not write artifacts.
 `
 }
 
@@ -601,7 +625,8 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
   ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
   ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
 
-Dry-run prints planned prompt inputs without mutation. Non-dry-run validates prerequisites, invokes the generic runtime boundary, validates the generated artifact, and updates flow-state.json after all gates pass.
+Dry-run prints planned prompt inputs without mutation. Non-dry-run validates prerequisites, invokes the generic runtime boundary, validates the generated artifact or execute evidence, and updates durable state after all gates pass.
 `
 }

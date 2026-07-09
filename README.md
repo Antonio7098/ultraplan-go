@@ -98,8 +98,11 @@ ultraplan project <project> validate
 ultraplan sprint <project> <sprint> status
 ultraplan sprint <project> <sprint> validate requirements
 ultraplan sprint <project> <sprint> validate sprint-index
+ultraplan sprint <project> <sprint> validate execute
 ultraplan sprint <project> <sprint> flow --to requirements --dry-run
 ultraplan sprint <project> <sprint> flow --to plan --dry-run
+ultraplan sprint <project> <sprint> flow --to execute --dry-run
+ultraplan sprint <project> <sprint> execute --resume
 ```
 
 ## Documentation

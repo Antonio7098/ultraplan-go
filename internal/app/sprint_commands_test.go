@@ -18,6 +18,11 @@ func TestSprintHelpIsRegistered(t *testing.T) {
 		t.Fatalf("status = %d stderr = %q", status, stderr)
 	}
 	assertContains(t, stdout, "sprint")
+	stdout, stderr, status = runForTest([]string{"sprint", "--help"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("sprint help status = %d stderr = %q", status, stderr)
+	}
+	assertContains(t, stdout, "execute")
 	for _, args := range [][]string{
 		{"sprint", "--help"},
 		{"sprint", "proj", "01", "status", "--help"},
@@ -184,6 +189,12 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	}
 	assertContains(t, stdout, "plan.md")
 
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "execute"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("execute validate status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Validation: ok")
+
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "area-reasoning"})
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("area prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
@@ -210,6 +221,14 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	assertContains(t, stdout, "Prompt source: `builtin:prompts/plan-sprint.md`")
 	assertContains(t, stdout, "Do not execute implementation tasks")
 
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "execute"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("execute prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "# Execute Sprint Task")
+	assertContains(t, stdout, "Approved target")
+	assertContains(t, stdout, "Do not run or request Git mutation")
+
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "reasoning", "--dry-run"})
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("reasoning dry-run status=%d stdout=%q stderr=%q", status, stdout, stderr)
@@ -223,6 +242,13 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	}
 	assertContains(t, stdout, "Flow target: plan")
 	assertContains(t, stdout, "Dry run: true")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "execute", "--dry-run"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("execute dry-run status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Flow target: execute")
+	assertContains(t, stdout, "# Execute Sprint Task")
 }
 
 func TestSprintFlowNonDryRunUsesConfiguredRuntime(t *testing.T) {
@@ -316,6 +342,18 @@ agentwrap:
 	if fake.request.Metadata["stage"] != "plan" {
 		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
 	}
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "execute"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("execute flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "Result: execute complete")
+	if fake.calls != 4 {
+		t.Fatalf("runtime calls = %d", fake.calls)
+	}
+	if fake.request.Metadata["stage"] != "execute" {
+		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
+	}
 }
 
 func TestSprintValidateFailuresAndUnsupportedStages(t *testing.T) {
@@ -352,6 +390,10 @@ func writeCommandSprintProject(t *testing.T, root, projectName, sprintSlug strin
 
 func commandProjectIndex() string {
 	return `# Project Index
+
+## Project Scope
+
+- **Target Implementation Directory:** /home/antonioborgerees/coding/ultraplan-go
 
 ## Active Contract Pool
 
@@ -487,6 +529,9 @@ func (f *sprintCommandRuntime) StartRun(_ context.Context, req runtimepkg.Reques
 		if err := os.WriteFile(path, []byte(commandValidPlan()), 0o644); err != nil {
 			return runtimepkg.Result{}, err
 		}
+	}
+	if req.Metadata["stage"] == string(sprint.StageExecute) {
+		return runtimepkg.Result{RunID: "execute-run", Status: "completed", Artifacts: []runtimepkg.Artifact{{ID: "execute-evidence", Kind: "test", Description: "execute fake runtime evidence"}}}, nil
 	}
 	return runtimepkg.Result{RunID: "sprint-run", Status: "completed"}, nil
 }

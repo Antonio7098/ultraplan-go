@@ -28,6 +28,7 @@ ultraplan sprint <project> <sprint> prompt area-reasoning
 ultraplan sprint <project> <sprint> prompt reasoning
 ultraplan sprint <project> <sprint> prompt plan
 ultraplan sprint <project> <sprint> flow --to plan --dry-run
+ultraplan sprint <project> <sprint> flow --to execute --dry-run
 ```
 
 ## Runtime Planning Smoke
@@ -45,6 +46,7 @@ ultraplan sprint <project> <sprint> flow --to reasoning
 ultraplan sprint <project> <sprint> validate reasoning
 ultraplan sprint <project> <sprint> flow --to plan
 ultraplan sprint <project> <sprint> validate plan
+ultraplan sprint <project> <sprint> validate execute
 ```
 
 Use `area-reasoning` only when the selected sprint-index includes reasoning templates that require area artifacts.

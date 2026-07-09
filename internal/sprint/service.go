@@ -90,12 +90,27 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 	if err != nil {
 		return StatusSummary{}, err
 	}
+	var executeState *ExecuteRunState
+	loadedExecute, executeErr := LoadExecuteRunState(s.root, sp)
+	if executeErr != nil && !errors.Is(executeErr, ErrExecuteRunStateMissing) {
+		return StatusSummary{}, executeErr
+	}
+	if executeErr == nil {
+		executeState = &loadedExecute
+	}
+	runStatePath, err := ExecuteRunStatePath(s.root, sp)
+	if err != nil {
+		return StatusSummary{}, err
+	}
 	return StatusSummary{
 		Project:       sp.Project,
 		Sprint:        sp.Slug,
 		SprintRoot:    workspace.Rel(s.root, sp.Path),
 		FlowStatePath: workspace.Rel(s.root, flowPath),
 		Stages:        stages,
+		ExecuteState:  executeState,
+		ExecutePath:   ArtifactRelPath(sp, StageExecute),
+		RunStatePath:  workspace.Rel(s.root, runStatePath),
 	}, nil
 }
 

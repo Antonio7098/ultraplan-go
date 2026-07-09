@@ -236,9 +236,10 @@ ultraplan sprint <project> <sprint> validate technical-handbook
 ultraplan sprint <project> <sprint> validate area-reasoning
 ultraplan sprint <project> <sprint> validate reasoning
 ultraplan sprint <project> <sprint> validate plan
+ultraplan sprint <project> <sprint> validate execute
 ```
 
-Validates one planning stage artifact without executing implementation work. `sprint-index` references must be a subset of `project-index.md`. Plan validation checks traceability to `reasoning.md` and task/evidence checklist structure.
+Validates one planning or execute stage artifact without invoking runtime. `sprint-index` references must be a subset of `project-index.md`. Plan validation checks traceability to `reasoning.md` and task/evidence checklist structure. Execute validation checks plan task extraction and target safety.
 
 ### `ultraplan sprint <project> <sprint> prompt`
 
@@ -248,9 +249,10 @@ ultraplan sprint <project> <sprint> prompt technical-handbook
 ultraplan sprint <project> <sprint> prompt area-reasoning
 ultraplan sprint <project> <sprint> prompt reasoning
 ultraplan sprint <project> <sprint> prompt plan
+ultraplan sprint <project> <sprint> prompt execute
 ```
 
-Prints runtime-free prompt previews for planning stages. Prompt previews are for inspection and do not call agentwrap, OpenCode, providers, subprocesses, or the network.
+Prints runtime-free prompt previews for planning and execute stages. Prompt previews are for inspection and do not call agentwrap, OpenCode, providers, subprocesses, or the network.
 
 Planning prompts use the same default/override model as study prompts. The prototype markdown prompt is the instruction source; UltraPlan appends a runtime manifest with concrete project, sprint, path, and selection data.
 
@@ -263,9 +265,18 @@ ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
 ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
 ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
 ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
+ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
 ```
 
-Runs or previews the planning artifact flow through the requested stage. The supported stage chain is `requirements`, `sprint-index`, `technical-handbook`, `area-reasoning`, `reasoning`, and `plan`. The command does not execute implementation, smoke, review, issue, Git, prompt-generation, or hosted workflows.
+Runs or previews the planning artifact flow through the requested stage, including controlled execute from validated `plan.md` tasks. The supported stage chain is `requirements`, `sprint-index`, `technical-handbook`, `area-reasoning`, `reasoning`, `plan`, and `execute`. The command does not run smoke, review automation, issue tracking, Git mutation, TUI, hosted/browser, or cross-sprint scheduling workflows.
+
+### `ultraplan sprint <project> <sprint> execute`
+
+```text
+ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
+```
+
+Executes validated top-level `plan.md` task checkboxes through the generic runtime boundary. It writes `.run-state.json` and `execute.md`, requires runtime evidence or a safe diagnostic before marking a task complete, and constrains work to the project index target implementation directory.
 
 ### `ultraplan code`
 

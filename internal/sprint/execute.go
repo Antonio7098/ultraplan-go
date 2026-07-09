@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
@@ -124,14 +125,14 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 		switch {
 		case ctx.Err() != nil:
 			task.Status = ExecuteTaskCancelled
-			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "cancelled", Message: ctx.Err().Error(), At: finish})
+			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "cancelled", Message: safeExecuteText("execute.cancelled", ctx.Err().Error()), At: finish})
 		case runErr != nil:
 			task.Status = ExecuteTaskFailed
-			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "runtime-failed", Message: safeError(runErr), At: finish})
+			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "runtime-failed", Message: safeExecuteText("execute.runtime_error", safeError(runErr)), At: finish})
 		case len(run.Artifacts) > 0:
 			task.Status = ExecuteTaskComplete
 			for _, artifact := range run.Artifacts {
-				task.Evidence = append(task.Evidence, ExecuteEvidence{Kind: artifact.Kind, Summary: firstNonEmptyString(artifact.Description, artifact.ID), Path: safeArtifactPath(artifact.URI)})
+				task.Evidence = append(task.Evidence, ExecuteEvidence{Kind: artifact.Kind, Summary: safeExecuteText("execute.evidence", firstNonEmptyString(artifact.Description, artifact.ID)), Path: safeArtifactPath(artifact.URI)})
 			}
 		case hasDiagnosticOnlyCompletion(run):
 			task.Status = ExecuteTaskComplete
@@ -340,7 +341,7 @@ func (s Service) executeModelSelection(override string) ExecuteModelSelection {
 	if model := joinProviderModel(s.runtimeConfig.Provider, s.runtimeConfig.Model); model != "" {
 		return ExecuteModelSelection{Model: model, Source: "runtime.config"}
 	}
-	return ExecuteModelSelection{Model: "provider/model", Source: "default"}
+	return ExecuteModelSelection{Model: "unresolved", Source: "unresolved"}
 }
 
 func joinProviderModel(provider, model string) string {
@@ -351,6 +352,10 @@ func joinProviderModel(provider, model string) string {
 		return model
 	}
 	return provider + "/" + model
+}
+
+func safeExecuteText(key, value string) string {
+	return config.RedactValue(key, safeError(fmt.Errorf("%s", value)))
 }
 
 func hasFailedExecuteTask(tasks []ExecuteTaskRecord) bool {
