@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/Antonio7098/ultraplan-go/internal/app"
 )
 
 func Render(m Model, width int) string {
@@ -11,7 +13,7 @@ func Render(m Model, width int) string {
 
 func RenderWithSize(m Model, width, height int) string {
 	var header strings.Builder
-	fmt.Fprintf(&header, "UltraPlan TUI - read-only dashboard\n")
+	fmt.Fprintf(&header, "UltraPlan TUI - operational dashboard\n")
 	fmt.Fprintf(&header, "%s\n", renderTabs(m))
 	fmt.Fprintf(&header, "%s\n", m.breadcrumb())
 	if m.Loading {
@@ -22,7 +24,13 @@ func RenderWithSize(m Model, width, height int) string {
 	}
 	var body strings.Builder
 	selectedStart, selectedEnd := -1, -1
-	if m.Preview != nil {
+	if m.Confirmation != nil {
+		renderConfirmation(&body, *m.Confirmation)
+	} else if m.Operation != nil {
+		renderOperation(&body, *m.Operation, m.Events)
+	} else if m.Validation != nil {
+		renderValidation(&body, *m.Validation)
+	} else if m.Preview != nil {
 		renderPreview(&body, m, width)
 	} else {
 		selectedStart, selectedEnd = renderNavItems(&body, m)
@@ -34,6 +42,46 @@ func RenderWithSize(m Model, width, height int) string {
 		offset = m.PreviewOffset
 	}
 	return renderFrame(header.String(), body.String(), HelpText(), selectedStart, selectedEnd, offset, mode, height)
+}
+
+func renderConfirmation(b *strings.Builder, c app.Confirmation) {
+	fmt.Fprintf(b, "CONFIRM OPERATION\nSubject: %s\nWarning: %s\nRuntime: %t  Mutates: %t\n", c.Subject, c.Warning, c.Runtime, c.Mutates)
+	for _, s := range c.Scope {
+		fmt.Fprintf(b, "Scope: %s\n", s)
+	}
+	for _, p := range c.Paths {
+		fmt.Fprintf(b, "Affected path: %s\n", p)
+	}
+	fmt.Fprintln(b, "Press y to confirm; esc to cancel without changes.")
+}
+func renderOperation(b *strings.Builder, r app.OperationResult, events []app.OperationEvent) {
+	fmt.Fprintf(b, "Operation result: %s\nSubject: %s\n%s\n", r.State, r.Subject, r.Message)
+	if r.Truncated {
+		fmt.Fprintln(b, "Truncated: true")
+	}
+	if r.Content != "" {
+		fmt.Fprintln(b, r.Content)
+	}
+	if r.Error != nil {
+		fmt.Fprintf(b, "Error code: %s (%s)\nComponent: %s\nRetryable: %t\nGuidance: %s\n", r.Error.Code, r.Error.Category, r.Error.Component, r.Error.Retryable, r.Error.Guidance)
+	}
+	for _, e := range events {
+		fmt.Fprintf(b, "[%s] %s %s\n", e.State, e.Stage, e.Message)
+	}
+}
+
+func renderValidation(b *strings.Builder, result app.ValidationOperationResult) {
+	fmt.Fprintf(b, "Validation: %s\nStatus: %s\n", result.Subject, result.Status)
+	if len(result.Findings) == 0 {
+		fmt.Fprintln(b, "No findings.")
+		return
+	}
+	for _, f := range result.Findings {
+		fmt.Fprintf(b, "- [%s] %s: %s\n", f.Severity, f.Path, f.Problem)
+		if f.Suggestion != "" {
+			fmt.Fprintf(b, "  Guidance: %s\n", f.Suggestion)
+		}
+	}
 }
 
 func renderTabs(m Model) string {

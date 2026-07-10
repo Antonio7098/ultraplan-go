@@ -64,6 +64,53 @@ func TestModelTabsRoutesPreviewAndQuit(t *testing.T) {
 	}
 }
 
+func TestModelValidationResultAndBack(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Loading = true
+	m.Routes = []Route{{Kind: RouteProject, Project: "alpha"}}
+	m = m.Update(ValidationMsg{Route: m.currentRoute(), Result: app.ValidationOperationResult{
+		Operation: "validate", Subject: "alpha", Status: "invalid",
+		Findings: []app.DisplayFinding{{Severity: "error", Path: "projects/alpha/roadmap.md", Problem: "missing roadmap", Suggestion: "create roadmap.md"}},
+	}})
+	if m.Loading || m.Validation == nil || m.Validation.Status != "invalid" {
+		t.Fatalf("validation state = %+v", m)
+	}
+	view := Render(m, 80)
+	for _, want := range []string{"Validation: alpha", "Status: invalid", "missing roadmap", "Guidance: create roadmap.md"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+	m = m.Update(KeyMsg("esc"))
+	if m.Validation != nil {
+		t.Fatal("validation pane remained after back")
+	}
+}
+
+func TestOperationConfirmationProgressBoundAndTerminal(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Routes = []Route{{Kind: RouteSprint, Project: "alpha", Sprint: "01"}}
+	req := app.OperationRequest{Kind: app.OperationExecuteStart, Project: "alpha", Sprint: "01", Stage: "execute"}
+	m = m.Update(ConfirmationMsg{Route: m.currentRoute(), Result: app.Confirmation{Request: req, Subject: "alpha/01", Runtime: true, Mutates: true, Warning: "RUNTIME + APPROVED TARGET MUTATION", Paths: []string{"projects/alpha/sprints/01"}}})
+	view := Render(m, 80)
+	for _, want := range []string{"CONFIRM OPERATION", "Runtime: true", "Mutates: true", "Affected path:", "Press y to confirm"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("confirmation missing %q:\n%s", want, view)
+		}
+	}
+	m.Running = true
+	for i := 0; i < 120; i++ {
+		m = m.Update(OperationEventMsg{Event: app.OperationEvent{State: app.OperationRunning, Task: "task"}})
+	}
+	if len(m.Events) != 100 {
+		t.Fatalf("events=%d want 100", len(m.Events))
+	}
+	m = m.Update(OperationMsg{Route: m.currentRoute(), Result: app.OperationResult{State: app.OperationComplete, Subject: "alpha/01", Message: "done"}})
+	if m.Running || m.Operation == nil || m.Confirmation != nil {
+		t.Fatalf("terminal state=%+v", m)
+	}
+}
+
 func TestFocusAndTabControls(t *testing.T) {
 	model := NewModel(nil)
 	model = model.Update(KeyMsg("tab"))

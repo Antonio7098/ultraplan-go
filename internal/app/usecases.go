@@ -59,7 +59,8 @@ type ArtifactPreviewResult struct {
 }
 
 type dashboardUseCases struct {
-	root string
+	root   string
+	runner func(context.Context, OperationRequest, func(OperationEvent)) (OperationResult, error)
 }
 
 func NewReadOnlyUseCases(root string) ReadOnlyUseCases {

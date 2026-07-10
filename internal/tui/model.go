@@ -44,7 +44,7 @@ type Route struct {
 }
 
 type Model struct {
-	UseCases      app.ReadOnlyUseCases
+	UseCases      app.OperationalUseCases
 	Data          app.DashboardResult
 	ActiveTab     Tab
 	Focus         FocusArea
@@ -56,6 +56,11 @@ type Model struct {
 	Loading       bool
 	Quit          bool
 	PreviewOffset int
+	Validation    *app.ValidationOperationResult
+	Confirmation  *app.Confirmation
+	Operation     *app.OperationResult
+	Events        []app.OperationEvent
+	Running       bool
 }
 
 type Message interface{}
@@ -75,14 +80,33 @@ type PreviewMsg struct {
 	Title  string
 }
 type KeyMsg string
+type ValidationMsg struct {
+	Result app.ValidationOperationResult
+	Err    error
+	Route  Route
+}
+type ConfirmationMsg struct {
+	Result app.Confirmation
+	Err    error
+	Route  Route
+}
+type OperationMsg struct {
+	Result app.OperationResult
+	Err    error
+	Route  Route
+	Events []app.OperationEvent
+}
+type OperationEventMsg struct{ Event app.OperationEvent }
 
 type navItem struct {
-	Label string
-	Route *Route
-	Path  string
+	Label      string
+	Route      *Route
+	Path       string
+	Validation *app.ValidationRequest
+	Operation  *app.OperationRequest
 }
 
-func NewModel(useCases app.ReadOnlyUseCases) Model {
+func NewModel(useCases app.OperationalUseCases) Model {
 	return Model{
 		UseCases:  useCases,
 		ActiveTab: TabProjects,
@@ -145,6 +169,47 @@ func (m Model) Update(msg Message) Model {
 		m.PreviewTitle = v.Title
 		m.Error = ""
 		m.PreviewOffset = 0
+	case ValidationMsg:
+		m.Loading = false
+		if v.Route != m.currentRoute() {
+			return m
+		}
+		if v.Err != nil {
+			m.Error = v.Err.Error()
+			return m
+		}
+		m.Validation = &v.Result
+		m.Error = ""
+	case ConfirmationMsg:
+		m.Loading = false
+		if v.Route != m.currentRoute() {
+			return m
+		}
+		if v.Err != nil {
+			m.Error = v.Err.Error()
+			return m
+		}
+		m.Confirmation = &v.Result
+	case OperationEventMsg:
+		if !m.Running {
+			return m
+		}
+		m.Events = append(m.Events, v.Event)
+		if len(m.Events) > 100 {
+			m.Events = m.Events[len(m.Events)-100:]
+		}
+	case OperationMsg:
+		m.Running = false
+		m.Loading = false
+		m.Confirmation = nil
+		m.Operation = &v.Result
+		m.Events = append(m.Events, v.Events...)
+		if len(m.Events) > 100 {
+			m.Events = m.Events[len(m.Events)-100:]
+		}
+		if v.Err != nil {
+			m.Error = v.Err.Error()
+		}
 	case KeyMsg:
 		switch KeyToAction(string(v)) {
 		case ActionQuit:
@@ -156,7 +221,16 @@ func (m Model) Update(msg Message) Model {
 				m.Focus = FocusTabs
 			}
 		case ActionBack:
-			if m.Preview != nil {
+			if m.Running {
+				return m
+			} else if m.Confirmation != nil {
+				m.Confirmation = nil
+			} else if m.Operation != nil {
+				m.Operation = nil
+				m.Events = nil
+			} else if m.Validation != nil {
+				m.Validation = nil
+			} else if m.Preview != nil {
 				m.Preview = nil
 				m.PreviewOffset = 0
 			} else if m.Focus == FocusContent && len(m.Routes) > 1 {
@@ -267,6 +341,7 @@ func (m Model) navItems() []navItem {
 			{Label: "Docs", Route: &Route{Kind: RouteProjectDocs, Project: route.Project}},
 			{Label: "Project Index", Path: projectArtifactPath(m.Data.Projects, route.Project, "project-index")},
 			{Label: "Roadmap", Path: projectArtifactPath(m.Data.Projects, route.Project, "roadmap")},
+			{Label: "Validate Project", Validation: &app.ValidationRequest{Subject: app.ValidationProject, Project: route.Project}},
 		}
 	case RouteProjectSprints:
 		var items []navItem
@@ -289,7 +364,7 @@ func (m Model) navItems() []navItem {
 		}
 	case RouteSprint:
 		if s, ok := findSprint(m.Data.Sprints, route.Project, route.Sprint); ok {
-			return []navItem{
+			items := []navItem{
 				{Label: "Requirements", Path: artifactByLabel(s.Artifacts, "requirements")},
 				{Label: "Sprint Index", Path: artifactByLabel(s.Artifacts, "sprint-index")},
 				{Label: "Technical Handbook", Path: artifactByLabel(s.Artifacts, "technical-handbook")},
@@ -299,6 +374,18 @@ func (m Model) navItems() []navItem {
 				{Label: "Flow State", Path: artifactByLabel(s.Artifacts, "flow-state")},
 				{Label: "Run State", Path: artifactByLabel(s.Artifacts, "run-state")},
 			}
+			for _, stage := range []string{"requirements", "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "execute"} {
+				items = append(items, navItem{Label: "Validate " + stage, Validation: &app.ValidationRequest{Subject: app.ValidationSprint, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
+				items = append(items, navItem{Label: "Preview " + stage + " Prompt", Operation: &app.OperationRequest{Kind: app.OperationPrompt, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
+			}
+			items = append(items,
+				navItem{Label: "Dry Run Plan Flow", Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "plan"}},
+				navItem{Label: "Run Planning Flow [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: "plan"}},
+				navItem{Label: "Execute Status", Operation: &app.OperationRequest{Kind: app.OperationExecuteStatus, Project: route.Project, Sprint: route.Sprint, Stage: "execute"}},
+				navItem{Label: "Execute Dry Run", Operation: &app.OperationRequest{Kind: app.OperationExecuteDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "execute"}},
+				navItem{Label: "Execute Start [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationExecuteStart, Project: route.Project, Sprint: route.Sprint, Stage: "execute"}},
+				navItem{Label: "Execute Resume [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationExecuteResume, Project: route.Project, Sprint: route.Sprint, Stage: "execute"}})
+			return items
 		}
 	case RouteStudies:
 		items := make([]navItem, 0, len(m.Data.Studies))
@@ -311,6 +398,9 @@ func (m Model) navItems() []navItem {
 			{Label: "Dimensions", Route: &Route{Kind: RouteStudyDims, Study: route.Study}},
 			{Label: "Sources", Route: &Route{Kind: RouteStudySources, Study: route.Study}},
 			{Label: "Run State", Path: studyArtifactPath(m.Data.Studies, route.Study, "run-state")},
+			{Label: "Validate Study", Validation: &app.ValidationRequest{Subject: app.ValidationStudy, Study: route.Study}},
+			{Label: "Start Run Loop [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationStudyStart, Study: route.Study, Parallelism: 1}},
+			{Label: "Resume Run Loop [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationStudyResume, Study: route.Study, Parallelism: 1}},
 		}
 	case RouteStudyDims:
 		if s, ok := findStudy(m.Data.Studies, route.Study); ok {

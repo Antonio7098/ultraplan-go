@@ -131,6 +131,8 @@ func validateSprintStage(service sprint.Service, projectRef, sprintRef string, s
 		return service.ValidateSprintIndex(projectRef, sprintRef)
 	case sprint.StageTechnicalHandbook:
 		return service.ValidateTechnicalHandbook(projectRef, sprintRef)
+	case sprint.StageAreaReasoning:
+		return service.ValidateAreaReasoning(projectRef, sprintRef)
 	case sprint.StageReasoning:
 		return service.ValidateReasoning(projectRef, sprintRef)
 	case sprint.StagePlan:
