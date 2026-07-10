@@ -33,7 +33,7 @@ func mapArtifacts(values []agentwrap.ArtifactRef) []Artifact {
 			ID:          string(value.ID),
 			URI:         value.URI,
 			Kind:        value.Kind,
-			Description: value.Description,
+			Description: truncateDiagnosticString(value.Description),
 			Metadata:    cloneStringMap(value.Metadata),
 		})
 	}
@@ -74,15 +74,15 @@ func mapPolicy(value agentwrap.PolicyMetadata) PolicySummary {
 		FinalAttempt:     value.FinalAttempt,
 		FinalTargetIndex: value.FinalTargetIndex,
 		Exhausted:        value.Exhausted,
-		ExhaustedReason:  value.ExhaustedReason,
+		ExhaustedReason:  truncateDiagnosticString(value.ExhaustedReason),
 	}
 	for _, decision := range value.Decisions {
 		out.Decisions = append(out.Decisions, PolicyDecision{
 			Attempt:     decision.Attempt,
 			TargetIndex: decision.TargetIndex,
 			Kind:        string(decision.Kind),
-			Reason:      decision.Reason,
-			Detail:      decision.Detail,
+			Reason:      truncateDiagnosticString(decision.Reason),
+			Detail:      truncateDiagnosticString(decision.Detail),
 			Delay:       decision.Delay,
 		})
 	}
@@ -108,7 +108,7 @@ func mapPermissions(value agentwrap.PermissionMetadata) PermissionSummary {
 	}
 	for _, unsupported := range value.Unsupported {
 		if unsupported.Reason != "" {
-			out.UnsupportedReasons = append(out.UnsupportedReasons, unsupported.Reason)
+			out.UnsupportedReasons = append(out.UnsupportedReasons, truncateDiagnosticString(unsupported.Reason))
 		}
 	}
 	return out

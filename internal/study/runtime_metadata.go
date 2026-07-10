@@ -134,6 +134,7 @@ func agentMetadata(result runtimepkg.Result, req runtimepkg.Request) AgentMetada
 			meta.Omissions = append(meta.Omissions, MetadataOmission{Field: field, Reason: reason})
 		}
 	}
+	compactAgentMetadata(&meta)
 	return meta
 }
 

@@ -442,13 +442,17 @@ func toAgentwrapRequest(req Request) (agentwrap.RunRequest, error) {
 }
 
 func mapResult(result agentwrap.RunResult) Result {
+	warnings := make([]string, 0, len(result.Warnings))
+	for _, warning := range result.Warnings {
+		warnings = append(warnings, truncateDiagnosticString(warning))
+	}
 	return Result{
 		RunID:         string(result.RunID),
 		SessionID:     string(result.SessionID),
 		TurnID:        string(result.TurnID),
 		Status:        string(result.Status),
 		Artifacts:     mapArtifacts(result.Artifacts),
-		Warnings:      append([]string(nil), result.Warnings...),
+		Warnings:      warnings,
 		Attempts:      mapAttempts(result.Metadata.Attempts),
 		Usage:         mapUsage(result.Usage),
 		EstimatedCost: mapCost(result.Metadata.EstimatedCost),
@@ -506,7 +510,21 @@ func mapError(err error) error {
 	}
 	var sdk *agentwrap.SDKError
 	if errors.As(err, &sdk) {
-		return sdk
+		bounded := *sdk
+		bounded.UserDetail = truncateDiagnosticString(sdk.UserDetail)
+		bounded.DebugDetail = truncateDiagnosticString(sdk.DebugDetail)
+		bounded.ResponseBody = truncateDiagnosticString(sdk.ResponseBody)
+		bounded.ResponseHeaders = cloneStringMap(sdk.ResponseHeaders)
+		bounded.Metadata = cloneStringMap(sdk.Metadata)
+		switch {
+		case errors.Is(err, context.Canceled):
+			bounded.Cause = context.Canceled
+		case errors.Is(err, context.DeadlineExceeded):
+			bounded.Cause = context.DeadlineExceeded
+		default:
+			bounded.Cause = nil
+		}
+		return &bounded
 	}
 	return err
 }
@@ -518,7 +536,7 @@ func mapSDKError(err *agentwrap.SDKError) *Error {
 	return &Error{
 		Category:    string(err.Category),
 		Operation:   err.Operation,
-		UserDetail:  err.UserDetail,
+		UserDetail:  truncateDiagnosticString(err.UserDetail),
 		Provider:    string(err.Provider),
 		Model:       string(err.Model),
 		RuntimeKind: string(err.RuntimeKind),

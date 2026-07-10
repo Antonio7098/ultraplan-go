@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -94,6 +95,63 @@ func TestSaveLoadRunStateAndErrorCategories(t *testing.T) {
 	}
 	if _, err := LoadRunState(sample); !errors.Is(err, ErrRunStateUnsupported) {
 		t.Fatalf("unsupported error = %v", err)
+	}
+}
+
+func TestLoadAndSaveRunStateCompactsOversizedDiagnostics(t *testing.T) {
+	root, sample := testStudyRoot(t)
+	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
+	state, err := NewRunState(NewRunStateRequest{
+		WorkspaceRoot: root,
+		Study:         sample,
+		Sources:       []Source{{Name: "repo", Kind: SourceKindDirectory}},
+		Dimensions:    []Dimension{{Number: "01", Slug: "structure"}},
+		RunID:         "fixed",
+		Now:           now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	huge := strings.Repeat("diagnostic\n", maxDurableDiagnosticBytes)
+	state.Tasks[0].Status = TaskStatusFailed
+	state.Tasks[0].LastError = &TaskError{Code: "runtime.failed", Message: huge}
+	state.Tasks[0].Agent.Policy.Decisions = []PolicyDecisionMetadata{{Kind: "retry", Detail: huge}}
+
+	path := RunStatePath(sample)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacySize := len(raw)
+
+	loaded, err := LoadRunState(sample)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Tasks[0].Status != TaskStatusFailed {
+		t.Fatalf("task status changed: %s", loaded.Tasks[0].Status)
+	}
+	if got := loaded.Tasks[0].LastError.Message; len(got) > maxDurableDiagnosticBytes+64 || !strings.Contains(got, "truncated") {
+		t.Fatalf("last error not compacted: len=%d", len(got))
+	}
+	if got := loaded.Tasks[0].Agent.Policy.Decisions[0].Detail; len(got) > maxDurableDiagnosticBytes+64 || !strings.Contains(got, "truncated") {
+		t.Fatalf("policy detail not compacted: len=%d", len(got))
+	}
+	if err := SaveRunState(sample, loaded); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() >= int64(legacySize/2) {
+		t.Fatalf("compacted state size = %d, legacy size = %d", info.Size(), legacySize)
 	}
 }
 

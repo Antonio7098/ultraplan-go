@@ -7,8 +7,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
+
+const legacyRunStateGCThreshold = 64 * 1024 * 1024
 
 var (
 	ErrRunStateMissing     = errors.New("run state missing")
@@ -36,6 +39,11 @@ func LoadRunState(study Study) (RunState, error) {
 	if err := ValidateRunState(state, path); err != nil {
 		return RunState{}, err
 	}
+	compactRunStateDiagnostics(&state)
+	if len(content) >= legacyRunStateGCThreshold {
+		content = nil
+		runtime.GC()
+	}
 	return state, nil
 }
 
@@ -45,18 +53,15 @@ func SaveRunState(study Study, state RunState) error {
 
 func saveRunStateWithHooks(study Study, state RunState, hooks atomicWriteHooks) error {
 	path := RunStatePath(study)
+	state = cloneRunState(state)
 	state.UpdatedAt = time.Now().UTC()
+	compactRunStateDiagnostics(&state)
 	if err := ValidateRunState(state, path); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create run state directory %s: %w", filepath.Dir(path), err)
 	}
-	content, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal run state %s: %w", path, err)
-	}
-	content = append(content, '\n')
 	temp, err := os.CreateTemp(filepath.Dir(path), "."+RunStateFileName+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temporary run state %s: %w", path, err)
@@ -68,9 +73,11 @@ func saveRunStateWithHooks(study Study, state RunState, hooks atomicWriteHooks) 
 			_ = os.Remove(tempPath)
 		}
 	}()
-	if _, err := temp.Write(content); err != nil {
+	encoder := json.NewEncoder(temp)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(state); err != nil {
 		_ = temp.Close()
-		return fmt.Errorf("write temporary run state %s: %w", tempPath, err)
+		return fmt.Errorf("encode temporary run state %s: %w", tempPath, err)
 	}
 	if err := temp.Sync(); err != nil {
 		_ = temp.Close()

@@ -151,6 +151,8 @@ ultraplan study <study> run-loop --parallel 3
 
 `run-loop` persists shared study progress in `studies/<study>/.ultraplan/run-state.json` after meaningful task transitions, prints compact task progress as it runs, and refuses concurrent invocations through a per-study lock. By default, it resumes existing progress; dimension/source filters only choose which slice of the study graph is eligible to advance. On each start, it reconciles the persisted task graph against the current discovered source/dimension applicability so status totals and scheduling follow source metadata updates.
 
+Memory diagnostics are appended to `studies/<study>/.ultraplan/diagnostics/run-loop-memory.jsonl`. Samples are written at state load/save and runtime boundaries and every five seconds, and include Go heap usage, process RSS/high-water/swap, state-file size, task ID, and phase duration. The file rotates to `.1` at 8 MiB so diagnostics cannot grow without bound.
+
 Use filters to advance a specific slice without creating a separate run:
 
 ```bash

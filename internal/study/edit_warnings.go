@@ -21,6 +21,9 @@ func snapshotFiles(root string) (fileSnapshot, error) {
 			return err
 		}
 		if entry.IsDir() {
+			if path != root && (entry.Name() == RunStateDirName || entry.Name() == ".git") {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		hash, err := hashFile(path)

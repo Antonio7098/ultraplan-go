@@ -47,13 +47,23 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		return RunLoopResult{}, err
 	}
 
+	diagnostics := newRunLoopDiagnostics(listing.Study, "")
+	diagnostics.sample("state.load.start", "", 0, nil)
+	loadStarted := time.Now()
 	state, err := loadOrCreateRunLoopState(req, listing.Study, listing.Sources, listing.Dimensions, s.workspaceRoot)
+	diagnostics.sample("state.load.end", "", time.Since(loadStarted), err)
 	if err != nil {
 		return RunLoopResult{}, err
 	}
+	diagnostics.runID = state.RunID
+	stopDiagnostics := diagnostics.start(ctx)
+	defer stopDiagnostics()
 	ReconcileRunState(&state, s.workspaceRoot, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
 	ResumeValidateRunState(&state, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
-	if err := SaveRunState(listing.Study, state); err != nil {
+	initialSaveStarted := time.Now()
+	err = SaveRunState(listing.Study, state)
+	diagnostics.sample("state.save.end", "", time.Since(initialSaveStarted), err)
+	if err != nil {
 		return RunLoopResult{}, err
 	}
 	if err := SyncRunHistory(listing.Study, state); err != nil {
@@ -116,12 +126,19 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 		req.Progress(progressFor(RunLoopProgressRuntime, state.Tasks[idx], &event))
 	}
-	save := func() error {
+	var saveMu sync.Mutex
+	persist := func(taskID string) error {
+		saveMu.Lock()
+		defer saveMu.Unlock()
 		mu.Lock()
 		stateCopy := cloneRunState(state)
 		mu.Unlock()
-		return SaveRunState(listing.Study, stateCopy)
+		started := time.Now()
+		err := SaveRunState(listing.Study, stateCopy)
+		diagnostics.sample("state.save.end", taskID, time.Since(started), err)
+		return err
 	}
+	save := func() error { return persist("") }
 	update := func(id string, fn func(*TaskState)) error {
 		mu.Lock()
 		idx, ok := taskIndex[id]
@@ -131,9 +148,8 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 		fn(&state.Tasks[idx])
 		state.UpdatedAt = time.Now().UTC()
-		stateCopy := cloneRunState(state)
 		mu.Unlock()
-		return SaveRunState(listing.Study, stateCopy)
+		return persist(id)
 	}
 	taskSnapshot := func(id string) (TaskState, error) {
 		mu.Lock()
@@ -214,6 +230,8 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			t.RetryAfter = nil
 		}))
 		emitTask(RunLoopProgressStarted, id)
+		diagnostics.sample("runtime.start", id, 0, nil)
+		runtimeStarted := time.Now()
 		var res ExecutionResult
 		switch task.Kind {
 		case TaskKindAnalysis:
@@ -234,6 +252,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			recordErr(fmt.Errorf("unsupported task kind %q", task.Kind))
 			return
 		}
+		diagnostics.sample("runtime.end", id, time.Since(runtimeStarted), err)
 		recordErr(applyExecutionResult(update, id, res))
 		recordErr(recordHistory(id))
 		emitTask(progressEventForExecution(res), id)
@@ -654,13 +673,13 @@ func markTaskCancelled(update func(string, func(*TaskState)) error, id string, e
 
 func safeExecutionMessage(res ExecutionResult) string {
 	if res.RuntimeError != "" {
-		return res.RuntimeError
+		return compactDiagnostic(res.RuntimeError)
 	}
 	if len(res.Blockers) > 0 {
 		return "blocked by invalid or missing reports"
 	}
 	if res.SkippedReason != "" {
-		return res.SkippedReason
+		return compactDiagnostic(res.SkippedReason)
 	}
 	return string(res.Status)
 }
@@ -720,6 +739,15 @@ func cloneRunState(state RunState) RunState {
 	out.Tasks = append([]TaskState(nil), state.Tasks...)
 	for i := range out.Tasks {
 		out.Tasks[i].Dependencies = append([]SynthesisDependency(nil), state.Tasks[i].Dependencies...)
+		if state.Tasks[i].LastError != nil {
+			lastError := *state.Tasks[i].LastError
+			out.Tasks[i].LastError = &lastError
+		}
+		if state.Tasks[i].Validation != nil {
+			validation := *state.Tasks[i].Validation
+			out.Tasks[i].Validation = &validation
+		}
+		out.Tasks[i].Agent = cloneAgentMetadata(state.Tasks[i].Agent)
 	}
 	return out
 }

@@ -126,6 +126,7 @@ const (
 	maxMappedPayloadStringBytes = 4096
 	maxMappedPayloadSliceItems  = 8
 	maxMappedPayloadDepth       = 2
+	maxMappedDiagnosticBytes    = 4096
 )
 
 func sanitizeAnyMap(src map[string]any, depth int) map[string]any {
@@ -211,8 +212,16 @@ func sanitizeAnySlice(values []any, depth int) []any {
 }
 
 func truncatePayloadString(value string) string {
-	if len(value) <= maxMappedPayloadStringBytes {
+	return truncateString(value, maxMappedPayloadStringBytes)
+}
+
+func truncateDiagnosticString(value string) string {
+	return truncateString(value, maxMappedDiagnosticBytes)
+}
+
+func truncateString(value string, limit int) string {
+	if limit < 0 || len(value) <= limit {
 		return value
 	}
-	return value[:maxMappedPayloadStringBytes] + fmt.Sprintf("... [truncated %d bytes]", len(value)-maxMappedPayloadStringBytes)
+	return value[:limit] + fmt.Sprintf("... [truncated %d bytes]", len(value)-limit)
 }

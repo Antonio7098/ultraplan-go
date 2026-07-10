@@ -64,6 +64,42 @@ func TestAdapterPreservesSDKErrorClassification(t *testing.T) {
 	}
 }
 
+func TestAdapterBoundsSDKErrorAndPolicyDiagnostics(t *testing.T) {
+	huge := strings.Repeat("log line\n", maxMappedDiagnosticBytes)
+	sdkErr := agentwrap.NewError(agentwrap.ErrorRateLimit, "fake wait", huge, errors.New(huge), agentwrap.WithRetryAfter(time.Second))
+	adapter := NewAdapter(fakeRuntime{run: &fakeRun{
+		id: "run-1",
+		result: agentwrap.RunResult{
+			RunID:  "run-1",
+			Status: agentwrap.StatusFailed,
+			Err:    sdkErr,
+			Metadata: agentwrap.RunMetadata{Policy: agentwrap.PolicyMetadata{Decisions: []agentwrap.PolicyDecisionRecord{{
+				Kind:   agentwrap.PolicyDecisionRetry,
+				Detail: huge,
+			}}}},
+		},
+		err: sdkErr,
+	}})
+
+	result, err := adapter.StartRun(context.Background(), Request{Prompt: "hello"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var got *agentwrap.SDKError
+	if !errors.As(err, &got) || got.Category != agentwrap.ErrorRateLimit || got.RetryAfter != time.Second {
+		t.Fatalf("classification not preserved: %#v", err)
+	}
+	for label, value := range map[string]string{
+		"returned error": got.UserDetail,
+		"mapped error":   result.Error.UserDetail,
+		"policy detail":  result.Policy.Decisions[0].Detail,
+	} {
+		if len(value) > maxMappedDiagnosticBytes+64 || !strings.Contains(value, "truncated") {
+			t.Fatalf("%s not bounded: len=%d", label, len(value))
+		}
+	}
+}
+
 func TestAdapterMapsAllCanonicalEventKinds(t *testing.T) {
 	kinds := []agentwrap.EventKind{
 		agentwrap.EventLifecycle,
