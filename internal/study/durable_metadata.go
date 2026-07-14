@@ -66,6 +66,14 @@ func cloneAgentMetadata(meta AgentMetadata) AgentMetadata {
 		cost := *meta.Cost
 		out.Cost = &cost
 	}
+	if meta.StartedAt != nil {
+		started := *meta.StartedAt
+		out.StartedAt = &started
+	}
+	if meta.FinishedAt != nil {
+		finished := *meta.FinishedAt
+		out.FinishedAt = &finished
+	}
 	return out
 }
 

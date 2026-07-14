@@ -225,9 +225,11 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			t.Status = TaskStatusRunning
 			t.Attempts++
 			t.StartedAt = &now
+			t.CompletedAt = nil
 			t.UpdatedAt = now
 			t.LastError = nil
 			t.RetryAfter = nil
+			t.Agent = AgentMetadata{}
 		}))
 		emitTask(RunLoopProgressStarted, id)
 		diagnostics.sample("runtime.start", id, 0, nil)

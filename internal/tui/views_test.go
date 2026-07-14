@@ -47,6 +47,68 @@ func TestRenderSprintArtifactsByNameOnly(t *testing.T) {
 	}
 }
 
+func TestRenderStudySummaryAboveNavigation(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Loading = false
+	m.ActiveTab = TabStudies
+	m.Routes = []Route{{Kind: RouteStudy, Study: "demo"}}
+	m.Data.Studies = []app.StudySummary{{Name: "demo", Dimensions: []string{"01-a", "02-b"}, Sources: []string{"repo", "notes.md", "api.md"}, Total: 7, Completed: 4, ActiveTasks: 1, RunActive: true, RunStatus: "active", Tasks: []app.RunTaskSummary{{ID: "analysis-active", Status: "running", Dimension: "02-b", Source: "repo", Attempts: 2, Duration: "5s", DurationMS: 5000}, {ID: "analysis-01-repo", Status: "completed", Dimension: "01-a", Source: "repo", Attempts: 1, Tokens: 1234, TokensKnown: true, Duration: "42s", DurationMS: 42000, Events: 8, Provider: "opencode", Model: "demo-model", Cost: "0.01 USD"}}}}
+	view := Render(m, 80)
+	for _, want := range []string{"Study summary", "Dimensions: 2", "Sources: 3", "Planned runs: 7", "Done so far: 4", "Run status: active (4/7 done)", "> View Run [ACTIVE]"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("study view missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Index(view, "Study summary") > strings.Index(view, "> View Run [ACTIVE]") {
+		t.Fatalf("summary was not above navigation:\n%s", view)
+	}
+	if !strings.Contains(view, "View Run [ACTIVE]") || strings.Contains(view, "Run Loop [RUNTIME]") {
+		t.Fatalf("active run actions incorrect:\n%s", view)
+	}
+	m.RunViewStudy = "demo"
+	view = Render(m, 80)
+	for _, want := range []string{"Run summary — demo", "Total: 7  Completed: 4  Remaining: 3  Active: 1", "Total tokens: 1234 (known tasks)", "Total runtime: 47s", "Press c to cancel this run.", "Currently running (1)", "analysis-active [running]", "> See More (1 previous runs)"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("live run view missing %q:\n%s", want, view)
+		}
+	}
+	m.RunViewShowPrevious = true
+	view = Render(m, 100)
+	for _, want := range []string{"Previous runs (1) — Enter: Show Less", "analysis-01-repo [completed]", "workflow_attempts=1 runtime_attempts=0 agent_turns=n/a tokens=1234"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expanded previous missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestInactiveStudyHasOneUnifiedRunLoopAction(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Loading = false
+	m.ActiveTab = TabStudies
+	m.Routes = []Route{{Kind: RouteStudy, Study: "demo"}}
+	m.Data.Studies = []app.StudySummary{{Name: "demo", Total: 3}}
+	view := Render(m, 80)
+	if strings.Count(view, "Run Loop [RUNTIME]") != 1 || strings.Contains(view, "Start Run Loop") || strings.Contains(view, "Resume Run Loop") || strings.Contains(view, "View Run") {
+		t.Fatalf("unified run-loop action incorrect:\n%s", view)
+	}
+	if !strings.Contains(view, "> Run Loop [RUNTIME]") || strings.Index(view, "> Run Loop [RUNTIME]") > strings.Index(view, "\n  Dimensions >") {
+		t.Fatalf("run loop was not first:\n%s", view)
+	}
+}
+
+func TestRenderRunLoopParallelForm(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	req := app.OperationRequest{Kind: app.OperationStudyResume, Study: "demo"}
+	m.ParallelForm = &req
+	m.ParallelValue = "8"
+	view := Render(m, 80)
+	for _, want := range []string{"Run-loop parameters", "Study: demo", "Parallel workers (1-64): 8", "Enter to review and confirm"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("parallel form missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestRenderPreviewErrorsAndTruncation(t *testing.T) {
 	preview := app.ArtifactPreviewResult{Path: "projects/a/sprints/b/.run-state.json", Kind: "json", Error: "invalid JSON preview", Invalid: true, Truncated: true, Content: "{bad"}
 	out := Render(Model{ActiveTab: TabProjects, Focus: FocusContent, Routes: []Route{{Kind: RouteProjects}}, Preview: &preview, PreviewTitle: "Run State"}, 100)

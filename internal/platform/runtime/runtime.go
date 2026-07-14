@@ -108,13 +108,21 @@ type Artifact struct {
 const retainedRuntimeEventLimit = 200
 
 type Usage struct {
-	InputTokensKnown  bool
-	InputTokens       int64
-	OutputTokensKnown bool
-	OutputTokens      int64
-	TotalTokensKnown  bool
-	TotalTokens       int64
-	Native            map[string]any
+	InputTokensKnown      bool
+	InputTokens           int64
+	OutputTokensKnown     bool
+	OutputTokens          int64
+	TotalTokensKnown      bool
+	TotalTokens           int64
+	ReasoningTokensKnown  bool
+	ReasoningTokens       int64
+	CacheReadTokensKnown  bool
+	CacheReadTokens       int64
+	CacheWriteTokensKnown bool
+	CacheWriteTokens      int64
+	TurnsKnown            bool
+	Turns                 int64
+	Native                map[string]any
 }
 
 type CostEstimate struct {
@@ -500,6 +508,22 @@ func mapUsage(usage agentwrap.Usage) Usage {
 	if usage.TotalTokens != nil {
 		out.TotalTokensKnown = true
 		out.TotalTokens = *usage.TotalTokens
+	}
+	if usage.ReasoningTokens != nil {
+		out.ReasoningTokensKnown = true
+		out.ReasoningTokens = *usage.ReasoningTokens
+	}
+	if usage.CacheReadTokens != nil {
+		out.CacheReadTokensKnown = true
+		out.CacheReadTokens = *usage.CacheReadTokens
+	}
+	if usage.CacheWriteTokens != nil {
+		out.CacheWriteTokensKnown = true
+		out.CacheWriteTokens = *usage.CacheWriteTokens
+	}
+	if usage.Turns != nil {
+		out.TurnsKnown = true
+		out.Turns = *usage.Turns
 	}
 	return out
 }

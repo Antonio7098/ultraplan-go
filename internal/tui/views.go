@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
 )
@@ -13,26 +14,38 @@ func Render(m Model, width int) string {
 
 func RenderWithSize(m Model, width, height int) string {
 	var header strings.Builder
-	fmt.Fprintf(&header, "UltraPlan TUI - operational dashboard\n")
-	fmt.Fprintf(&header, "%s\n", renderTabs(m))
-	fmt.Fprintf(&header, "%s\n", m.breadcrumb())
+	fmt.Fprintf(&header, "%s\n", fullWidth(tuiStyles.title, "UltraPlan  ·  operational dashboard", width))
+	fmt.Fprintf(&header, "%s\n", renderTabs(m, width))
+	fmt.Fprintf(&header, "%s\n", fullWidth(tuiStyles.breadcrumb, m.breadcrumb(), width))
 	if m.Loading {
-		fmt.Fprintf(&header, "Loading workspace status...\n")
+		fmt.Fprintf(&header, "%s\n", fullWidth(tuiStyles.notice, "Loading workspace status...", width))
 	}
 	if m.Error != "" {
-		fmt.Fprintf(&header, "Error: %s\n", m.Error)
+		fmt.Fprintf(&header, "%s\n", fullWidth(tuiStyles.err, "Error: "+m.Error, width))
+	}
+	if m.Running && m.OperationHidden {
+		fmt.Fprintln(&header, fullWidth(tuiStyles.notice, "Run continues in background — c cancel | select View Run for status", width))
 	}
 	var body strings.Builder
 	selectedStart, selectedEnd := -1, -1
-	if m.Confirmation != nil {
+	if m.ParallelForm != nil {
+		renderParallelForm(&body, m)
+	} else if m.RunViewStudy != "" {
+		renderRunView(&body, m)
+	} else if m.Confirmation != nil {
 		renderConfirmation(&body, *m.Confirmation)
-	} else if m.Operation != nil {
-		renderOperation(&body, *m.Operation, m.Events)
+	} else if m.Operation != nil && !m.OperationHidden {
+		if m.ActiveOperation.Kind == app.OperationStudyStart || m.ActiveOperation.Kind == app.OperationStudyResume {
+			renderForegroundRun(&body, *m.Operation, m.Events, m.OperationShowPrevious)
+		} else {
+			renderOperation(&body, *m.Operation, m.Events)
+		}
 	} else if m.Validation != nil {
 		renderValidation(&body, *m.Validation)
 	} else if m.Preview != nil {
 		renderPreview(&body, m, width)
 	} else {
+		renderRouteSummary(&body, m)
 		selectedStart, selectedEnd = renderNavItems(&body, m)
 	}
 	mode := viewportSelection
@@ -41,7 +54,228 @@ func RenderWithSize(m Model, width, height int) string {
 		mode = viewportOffset
 		offset = m.PreviewOffset
 	}
-	return renderFrame(header.String(), body.String(), HelpText(), selectedStart, selectedEnd, offset, mode, height)
+	return renderFrame(header.String(), body.String(), HelpText(), selectedStart, selectedEnd, offset, mode, width, height)
+}
+
+func renderParallelForm(b *strings.Builder, m Model) {
+	fmt.Fprintln(b, "Run-loop parameters")
+	fmt.Fprintf(b, "Study: %s\nParallel workers (1-64): %s\n", m.ParallelForm.Study, m.ParallelValue)
+	if m.ParallelValue == "" {
+		fmt.Fprintln(b, "Default: 3")
+	}
+	if m.ParallelError != "" {
+		fmt.Fprintf(b, "Error: %s\n", m.ParallelError)
+	}
+	fmt.Fprintln(b, "Type a number, Enter to review and confirm, Esc to cancel.")
+}
+
+func renderForegroundRun(b *strings.Builder, r app.OperationResult, events []app.OperationEvent, showPrevious bool) {
+	latest := map[string]app.OperationEvent{}
+	order := []string{}
+	completed, total := 0, 0
+	for _, e := range events {
+		if e.Total > 0 {
+			completed, total = e.Completed, e.Total
+		}
+		if e.Task != "" {
+			if _, ok := latest[e.Task]; !ok {
+				order = append(order, e.Task)
+			}
+			latest[e.Task] = e
+		}
+	}
+	remaining := total - completed
+	if remaining < 0 {
+		remaining = 0
+	}
+	var active, previous []app.OperationEvent
+	var tokens int64
+	known := 0
+	var duration time.Duration
+	for _, id := range order {
+		e := latest[id]
+		if e.TokensKnown {
+			tokens += e.Tokens
+			known++
+		}
+		if d, err := time.ParseDuration(e.Duration); err == nil {
+			duration += d
+		}
+		if e.Stage == "started" || e.Stage == "runtime" || e.Stage == "waiting" {
+			active = append(active, e)
+		} else {
+			previous = append(previous, e)
+		}
+	}
+	tokenText := "n/a"
+	if known > 0 {
+		tokenText = fmt.Sprintf("%d", tokens)
+	}
+	fmt.Fprintf(b, "Run summary — %s\nStatus: %s\nTotal: %d  Completed: %d  Remaining: %d  Active: %d\nTotal tokens: %s  Total runtime: %s\n\nCurrently running (%d)\n", r.Subject, r.State, total, completed, remaining, len(active), tokenText, duration.Round(time.Second), len(active))
+	if len(active) == 0 {
+		fmt.Fprintln(b, "(waiting for active task events)")
+	}
+	for _, e := range active {
+		renderOperationTask(b, e)
+	}
+	if len(previous) > 0 {
+		if showPrevious {
+			fmt.Fprintf(b, "\nPrevious runs (%d) — Enter: Show Less\n", len(previous))
+			for _, e := range previous {
+				renderOperationTask(b, e)
+			}
+		} else {
+			fmt.Fprintf(b, "\n> See More (%d previous runs) — press Enter\n", len(previous))
+		}
+	}
+	fmt.Fprintln(b, "\nPress c or q to cancel this run.")
+}
+
+func renderOperationTask(b *strings.Builder, e app.OperationEvent) {
+	tokens := "n/a"
+	if e.TokensKnown {
+		tokens = fmt.Sprintf("%d", e.Tokens)
+	}
+	turns := "n/a"
+	if e.TurnsKnown {
+		turns = fmt.Sprintf("%d", e.Turns)
+	}
+	duration := e.Duration
+	if duration == "" {
+		duration = "n/a"
+	}
+	provider := e.Provider
+	if provider == "" {
+		provider = "n/a"
+	}
+	model := e.Model
+	if model == "" {
+		model = "n/a"
+	}
+	cost := e.Cost
+	if cost == "" {
+		cost = "n/a"
+	}
+	fmt.Fprintf(b, "- %s [%s] %s\n  workflow_attempts=%d runtime_attempts=%d agent_turns=%s tokens=%s input=%d output=%d reasoning=%d cache_read=%d cache_write=%d time=%s events=%d provider=%s model=%s cost=%s\n", e.Task, e.Stage, e.Message, e.Attempt, e.RuntimeAttempts, turns, tokens, e.InputTokens, e.OutputTokens, e.ReasoningTokens, e.CacheReadTokens, e.CacheWriteTokens, duration, e.RuntimeEvents, provider, model, cost)
+}
+
+func renderRunView(b *strings.Builder, m Model) {
+	s, ok := findStudy(m.Data.Studies, m.RunViewStudy)
+	if !ok {
+		fmt.Fprintln(b, "Run status unavailable")
+		return
+	}
+	remaining := s.Total - s.Completed
+	if remaining < 0 {
+		remaining = 0
+	}
+	var totalTokens, totalDuration int64
+	knownTokens := 0
+	for _, task := range s.Tasks {
+		if task.TokensKnown {
+			totalTokens += task.Tokens
+			knownTokens++
+		}
+		totalDuration += task.DurationMS
+	}
+	tokenText := "n/a"
+	if knownTokens > 0 {
+		tokenText = fmt.Sprintf("%d", totalTokens)
+		if knownTokens < len(s.Tasks) {
+			tokenText += " (known tasks)"
+		}
+	}
+	timeText := (time.Duration(totalDuration) * time.Millisecond).Round(time.Second).String()
+	if totalDuration == 0 {
+		timeText = "0s"
+	}
+	fmt.Fprintf(b, "Run summary — %s\nStatus: %s\nTotal: %d  Completed: %d  Remaining: %d  Active: %d\nFailed: %d  Cancelled: %d  Pending: %d\nTotal tokens: %s  Total runtime: %s\n", s.Name, s.RunStatus, s.Total, s.Completed, remaining, s.ActiveTasks, s.Failed, s.Cancelled, s.Pending, tokenText, timeText)
+	if s.RunActive {
+		fmt.Fprintln(b, "\nPress c to cancel this run.")
+	} else {
+		fmt.Fprintln(b, "\nRun is no longer active. Press esc to return.")
+	}
+	var active, previous []app.RunTaskSummary
+	for _, task := range s.Tasks {
+		if activeRunTask(task.Status) {
+			active = append(active, task)
+		} else {
+			previous = append(previous, task)
+		}
+	}
+	fmt.Fprintf(b, "\nCurrently running (%d)\n", len(active))
+	if len(active) == 0 {
+		fmt.Fprintln(b, "(none)")
+	}
+	for _, task := range active {
+		renderRunTask(b, task)
+	}
+	if len(previous) > 0 {
+		if m.RunViewShowPrevious {
+			fmt.Fprintf(b, "\nPrevious runs (%d) — Enter: Show Less\n", len(previous))
+			for _, task := range previous {
+				renderRunTask(b, task)
+			}
+		} else {
+			fmt.Fprintf(b, "\n> See More (%d previous runs) — press Enter\n", len(previous))
+		}
+	}
+}
+
+func activeRunTask(status string) bool {
+	return status == "running" || status == "validating" || status == "retrying"
+}
+
+func renderRunTask(b *strings.Builder, task app.RunTaskSummary) {
+	tokens := "n/a"
+	if task.TokensKnown {
+		tokens = fmt.Sprintf("%d", task.Tokens)
+	}
+	identity := task.Dimension
+	if task.Source != "" {
+		identity += " / " + task.Source
+	}
+	model := task.Model
+	if model == "" {
+		model = "n/a"
+	}
+	provider := task.Provider
+	if provider == "" {
+		provider = "n/a"
+	}
+	turns := "n/a"
+	if task.TurnsKnown {
+		turns = fmt.Sprintf("%d", task.Turns)
+	}
+	fmt.Fprintf(b, "- %s [%s] %s\n", task.ID, task.Status, identity)
+	fmt.Fprintf(b, "  workflow_attempts=%d runtime_attempts=%d agent_turns=%s tokens=%s input=%d output=%d reasoning=%d cache_read=%d cache_write=%d time=%s events=%d provider=%s model=%s cost=%s\n", task.Attempts, task.RuntimeAttempts, turns, tokens, task.InputTokens, task.OutputTokens, task.ReasoningTokens, task.CacheReadTokens, task.CacheWriteTokens, task.Duration, task.Events, provider, model, task.Cost)
+}
+
+func renderRouteSummary(b *strings.Builder, m Model) {
+	route := m.currentRoute()
+	if route.Kind != RouteStudy {
+		return
+	}
+	study, ok := findStudy(m.Data.Studies, route.Study)
+	if !ok {
+		return
+	}
+	fmt.Fprintln(b, "Study summary")
+	fmt.Fprintf(b, "  Dimensions: %d\n", len(study.Dimensions))
+	fmt.Fprintf(b, "  Sources: %d\n", len(study.Sources))
+	fmt.Fprintf(b, "  Planned runs: %d\n", study.Total)
+	fmt.Fprintf(b, "  Done so far: %d\n", study.Completed)
+	if study.RunActive {
+		status := study.RunStatus
+		if status == "" {
+			status = "active"
+		}
+		fmt.Fprintf(b, "  Run status: %s (%d/%d done)\n", status, study.Completed, study.Total)
+	}
+	if study.Failed > 0 {
+		fmt.Fprintf(b, "  Failed: %d\n", study.Failed)
+	}
+	fmt.Fprintln(b)
 }
 
 func renderConfirmation(b *strings.Builder, c app.Confirmation) {
@@ -49,10 +283,13 @@ func renderConfirmation(b *strings.Builder, c app.Confirmation) {
 	for _, s := range c.Scope {
 		fmt.Fprintf(b, "Scope: %s\n", s)
 	}
+	if c.Request.Kind == app.OperationStudyStart || c.Request.Kind == app.OperationStudyResume {
+		fmt.Fprintf(b, "Parallel workers: %d\n", c.Request.Parallelism)
+	}
 	for _, p := range c.Paths {
 		fmt.Fprintf(b, "Affected path: %s\n", p)
 	}
-	fmt.Fprintln(b, "Press y to confirm; esc to cancel without changes.")
+	fmt.Fprintln(b, "Press Enter to confirm; Esc to cancel without changes.")
 }
 func renderOperation(b *strings.Builder, r app.OperationResult, events []app.OperationEvent) {
 	fmt.Fprintf(b, "Operation result: %s\nSubject: %s\n%s\n", r.State, r.Subject, r.Message)
@@ -66,7 +303,41 @@ func renderOperation(b *strings.Builder, r app.OperationResult, events []app.Ope
 		fmt.Fprintf(b, "Error code: %s (%s)\nComponent: %s\nRetryable: %t\nGuidance: %s\n", r.Error.Code, r.Error.Category, r.Error.Component, r.Error.Retryable, r.Error.Guidance)
 	}
 	for _, e := range events {
-		fmt.Fprintf(b, "[%s] %s %s\n", e.State, e.Stage, e.Message)
+		fmt.Fprintf(b, "[%s] %s %s", e.State, e.Stage, e.Message)
+		if e.Total > 0 {
+			fmt.Fprintf(b, " | %d/%d", e.Completed, e.Total)
+		}
+		if e.Task != "" {
+			fmt.Fprintf(b, " | %s", e.Task)
+		}
+		fmt.Fprintln(b)
+		if e.Task != "" {
+			tokens := "n/a"
+			if e.TokensKnown {
+				tokens = fmt.Sprintf("%d", e.Tokens)
+			}
+			duration := e.Duration
+			if duration == "" {
+				duration = "n/a"
+			}
+			provider := e.Provider
+			if provider == "" {
+				provider = "n/a"
+			}
+			model := e.Model
+			if model == "" {
+				model = "n/a"
+			}
+			cost := e.Cost
+			if cost == "" {
+				cost = "n/a"
+			}
+			turns := "n/a"
+			if e.TurnsKnown {
+				turns = fmt.Sprintf("%d", e.Turns)
+			}
+			fmt.Fprintf(b, "  workflow_attempts=%d runtime_attempts=%d agent_turns=%s tokens=%s input=%d output=%d reasoning=%d cache_read=%d cache_write=%d time=%s events=%d provider=%s model=%s cost=%s\n", e.Attempt, e.RuntimeAttempts, turns, tokens, e.InputTokens, e.OutputTokens, e.ReasoningTokens, e.CacheReadTokens, e.CacheWriteTokens, duration, e.RuntimeEvents, provider, model, cost)
+		}
 	}
 }
 
@@ -84,19 +355,30 @@ func renderValidation(b *strings.Builder, result app.ValidationOperationResult) 
 	}
 }
 
-func renderTabs(m Model) string {
-	project := " Projects "
-	study := " Studies "
+func renderTabs(m Model, width int) string {
+	project := "Projects"
+	study := "Studies"
 	if m.ActiveTab == TabProjects {
-		project = "[" + strings.TrimSpace(project) + "]"
+		project = "[Projects]"
 	}
 	if m.ActiveTab == TabStudies {
-		study = "[" + strings.TrimSpace(study) + "]"
+		study = "[Studies]"
 	}
-	if m.Focus == FocusTabs {
-		return "Tabs: > " + project + " " + study
+	projectStyle, studyStyle := tuiStyles.tab, tuiStyles.tab
+	if m.ActiveTab == TabProjects {
+		projectStyle = tuiStyles.activeTab
 	}
-	return "Tabs:   " + project + " " + study
+	if m.ActiveTab == TabStudies {
+		studyStyle = tuiStyles.activeTab
+	}
+	if m.Focus == FocusTabs && m.ActiveTab == TabProjects {
+		projectStyle = tuiStyles.focusedTab
+	}
+	if m.Focus == FocusTabs && m.ActiveTab == TabStudies {
+		studyStyle = tuiStyles.focusedTab
+	}
+	row := " " + projectStyle.Render(project) + "  " + studyStyle.Render(study)
+	return fullWidth(tuiStyles.body, row, width)
 }
 
 func renderNavItems(b *strings.Builder, m Model) (int, int) {
@@ -185,10 +467,10 @@ const (
 	viewportOffset
 )
 
-func renderFrame(header, body, help string, selectedStart, selectedEnd, offset int, mode viewportMode, height int) string {
+func renderFrame(header, body, help string, selectedStart, selectedEnd, offset int, mode viewportMode, width, height int) string {
 	headerLines := splitLines(header)
 	bodyLines := splitLines(body)
-	footerLines := []string{help}
+	footerLines := []string{renderHelp(help, width)}
 	if height <= 0 {
 		height = 40
 	}
@@ -207,13 +489,23 @@ func renderFrame(header, body, help string, selectedStart, selectedEnd, offset i
 	for _, line := range headerLines {
 		fmt.Fprintln(&out, line)
 	}
-	for _, line := range bodyLines[vp.offset:vp.End()] {
-		fmt.Fprintln(&out, line)
+	for i, line := range bodyLines[vp.offset:vp.End()] {
+		absolute := vp.offset + i
+		switch {
+		case absolute >= selectedStart && absolute <= selectedEnd:
+			fmt.Fprintln(&out, fullWidth(tuiStyles.selected, line, width))
+		case isSectionLine(line):
+			fmt.Fprintln(&out, fullWidth(tuiStyles.section, line, width))
+		case strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "  "):
+			fmt.Fprintln(&out, fullWidth(tuiStyles.metadata, line, width))
+		default:
+			fmt.Fprintln(&out, fullWidth(tuiStyles.body, line, width))
+		}
 	}
 	if len(bodyLines) > bodyHeight {
-		fmt.Fprintf(&out, "scroll %d/%d\n", vp.offset+1, vp.MaxOffset()+1)
+		fmt.Fprintln(&out, fullWidth(tuiStyles.scroll, fmt.Sprintf("scroll %d/%d", vp.offset+1, vp.MaxOffset()+1), width))
 	} else {
-		fmt.Fprintln(&out)
+		fmt.Fprintln(&out, fullWidth(tuiStyles.body, "", width))
 	}
 	for _, line := range footerLines {
 		fmt.Fprintln(&out, line)

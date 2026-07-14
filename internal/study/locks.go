@@ -126,6 +126,38 @@ func ReadRunLoopLock(study Study) (LockInfo, error) {
 	return readLockPath(RunLoopLockPath(study))
 }
 
+// RunLoopActive reports whether the study lock belongs to a live process.
+// A missing, malformed, or stale lock is not presented as an active run.
+func RunLoopActive(study Study) (bool, LockInfo, error) {
+	info, err := ReadRunLoopLock(study)
+	if err != nil {
+		return false, LockInfo{}, err
+	}
+	return processAlive(info.PID), info, nil
+}
+
+// CancelRunLoop asks the live lock owner to cancel gracefully. The owner
+// persists terminal state and releases the lock through its normal context path.
+func CancelRunLoop(study Study) (LockInfo, error) {
+	active, info, err := RunLoopActive(study)
+	if err != nil {
+		return LockInfo{}, fmt.Errorf("inspect run-loop lock: %w", err)
+	}
+	if !active {
+		return info, fmt.Errorf("study run-loop is not active")
+	}
+	if info.Study != "" && info.Study != study.Name {
+		return info, fmt.Errorf("run-loop lock belongs to study %q", info.Study)
+	}
+	if info.PID == os.Getpid() {
+		return info, fmt.Errorf("cannot signal the current process; use its operation context")
+	}
+	if err := syscall.Kill(info.PID, syscall.SIGINT); err != nil {
+		return info, fmt.Errorf("request run-loop cancellation from pid %d: %w", info.PID, err)
+	}
+	return info, nil
+}
+
 func ForceUnlockRunLoop(study Study) error {
 	path := RunLoopLockPath(study)
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {

@@ -1,5 +1,7 @@
 package study
 
+import "time"
+
 type AgentMetadata struct {
 	Runtime     string             `json:"runtime,omitempty"`
 	RunID       string             `json:"run_id,omitempty"`
@@ -18,6 +20,9 @@ type AgentMetadata struct {
 	Artifacts   []ArtifactMetadata `json:"artifacts,omitempty"`
 	Warnings    []string           `json:"warnings,omitempty"`
 	Omissions   []MetadataOmission `json:"omissions,omitempty"`
+	StartedAt   *time.Time         `json:"started_at,omitempty"`
+	FinishedAt  *time.Time         `json:"finished_at,omitempty"`
+	DurationMS  int64              `json:"duration_ms,omitempty"`
 }
 
 type EventMetadata struct {
@@ -92,13 +97,21 @@ type RepairMetadata struct {
 }
 
 type UsageMetadata struct {
-	InputTokensKnown  bool  `json:"input_tokens_known"`
-	InputTokens       int64 `json:"input_tokens,omitempty"`
-	OutputTokensKnown bool  `json:"output_tokens_known"`
-	OutputTokens      int64 `json:"output_tokens,omitempty"`
-	TotalTokensKnown  bool  `json:"total_tokens_known"`
-	TotalTokens       int64 `json:"total_tokens,omitempty"`
-	NativeOmitted     bool  `json:"native_omitted,omitempty"`
+	InputTokensKnown      bool  `json:"input_tokens_known"`
+	InputTokens           int64 `json:"input_tokens,omitempty"`
+	OutputTokensKnown     bool  `json:"output_tokens_known"`
+	OutputTokens          int64 `json:"output_tokens,omitempty"`
+	TotalTokensKnown      bool  `json:"total_tokens_known"`
+	TotalTokens           int64 `json:"total_tokens,omitempty"`
+	ReasoningTokensKnown  bool  `json:"reasoning_tokens_known"`
+	ReasoningTokens       int64 `json:"reasoning_tokens,omitempty"`
+	CacheReadTokensKnown  bool  `json:"cache_read_tokens_known"`
+	CacheReadTokens       int64 `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokensKnown bool  `json:"cache_write_tokens_known"`
+	CacheWriteTokens      int64 `json:"cache_write_tokens,omitempty"`
+	TurnsKnown            bool  `json:"turns_known"`
+	Turns                 int64 `json:"turns,omitempty"`
+	NativeOmitted         bool  `json:"native_omitted,omitempty"`
 }
 
 type CostMetadata struct {

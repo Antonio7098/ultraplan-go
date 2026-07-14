@@ -44,23 +44,31 @@ type Route struct {
 }
 
 type Model struct {
-	UseCases      app.OperationalUseCases
-	Data          app.DashboardResult
-	ActiveTab     Tab
-	Focus         FocusArea
-	Routes        []Route
-	Selected      int
-	Preview       *app.ArtifactPreviewResult
-	PreviewTitle  string
-	Error         string
-	Loading       bool
-	Quit          bool
-	PreviewOffset int
-	Validation    *app.ValidationOperationResult
-	Confirmation  *app.Confirmation
-	Operation     *app.OperationResult
-	Events        []app.OperationEvent
-	Running       bool
+	UseCases              app.OperationalUseCases
+	Data                  app.DashboardResult
+	ActiveTab             Tab
+	Focus                 FocusArea
+	Routes                []Route
+	Selected              int
+	Preview               *app.ArtifactPreviewResult
+	PreviewTitle          string
+	Error                 string
+	Loading               bool
+	Quit                  bool
+	PreviewOffset         int
+	Validation            *app.ValidationOperationResult
+	Confirmation          *app.Confirmation
+	Operation             *app.OperationResult
+	Events                []app.OperationEvent
+	Running               bool
+	RunViewStudy          string
+	RunViewShowPrevious   bool
+	ActiveOperation       app.OperationRequest
+	OperationShowPrevious bool
+	OperationHidden       bool
+	ParallelForm          *app.OperationRequest
+	ParallelValue         string
+	ParallelError         string
 }
 
 type Message interface{}
@@ -104,6 +112,7 @@ type navItem struct {
 	Path       string
 	Validation *app.ValidationRequest
 	Operation  *app.OperationRequest
+	ViewRun    string
 }
 
 func NewModel(useCases app.OperationalUseCases) Model {
@@ -215,19 +224,30 @@ func (m Model) Update(msg Message) Model {
 		case ActionQuit:
 			m.Quit = true
 		case ActionFocusNext:
-			if m.Focus == FocusTabs {
-				m.Focus = FocusContent
+			if m.ActiveTab == TabProjects {
+				m.setTab(TabStudies)
 			} else {
-				m.Focus = FocusTabs
+				m.setTab(TabProjects)
 			}
 		case ActionBack:
-			if m.Running {
+			if m.Running && !m.OperationHidden {
 				return m
-			} else if m.Confirmation != nil {
-				m.Confirmation = nil
-			} else if m.Operation != nil {
+			} else if m.ParallelForm != nil {
+				m.ParallelForm = nil
+				m.ParallelValue = ""
+				m.ParallelError = ""
+			} else if m.RunViewStudy != "" {
+				m.RunViewStudy = ""
+				m.RunViewShowPrevious = false
 				m.Operation = nil
 				m.Events = nil
+			} else if m.Confirmation != nil {
+				m.Confirmation = nil
+			} else if m.Operation != nil && !m.OperationHidden {
+				m.Operation = nil
+				m.Events = nil
+				m.ActiveOperation = app.OperationRequest{}
+				m.OperationShowPrevious = false
 			} else if m.Validation != nil {
 				m.Validation = nil
 			} else if m.Preview != nil {
@@ -245,10 +265,14 @@ func (m Model) Update(msg Message) Model {
 				}
 			} else if m.Focus == FocusContent && m.Selected > 0 {
 				m.Selected--
+			} else if m.Focus == FocusContent && m.Selected == 0 {
+				m.Focus = FocusTabs
 			}
 		case ActionDown:
 			if m.Preview != nil {
 				m.PreviewOffset++
+			} else if m.Focus == FocusTabs {
+				m.Focus = FocusContent
 			} else if m.Focus == FocusContent {
 				m.Selected++
 				m.clampSelection()
@@ -260,8 +284,12 @@ func (m Model) Update(msg Message) Model {
 			}
 		case ActionRight:
 			if m.Focus == FocusTabs {
-				m.setTab(TabStudies)
-				m.Focus = FocusTabs
+				if m.ActiveTab == TabProjects {
+					m.setTab(TabStudies)
+					m.Focus = FocusTabs
+				} else {
+					m.Focus = FocusContent
+				}
 			}
 		case ActionProjects:
 			m.setTab(TabProjects)
@@ -394,14 +422,19 @@ func (m Model) navItems() []navItem {
 		}
 		return items
 	case RouteStudy:
-		return []navItem{
-			{Label: "Dimensions", Route: &Route{Kind: RouteStudyDims, Study: route.Study}},
-			{Label: "Sources", Route: &Route{Kind: RouteStudySources, Study: route.Study}},
-			{Label: "Run State", Path: studyArtifactPath(m.Data.Studies, route.Study, "run-state")},
-			{Label: "Validate Study", Validation: &app.ValidationRequest{Subject: app.ValidationStudy, Study: route.Study}},
-			{Label: "Start Run Loop [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationStudyStart, Study: route.Study, Parallelism: 1}},
-			{Label: "Resume Run Loop [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationStudyResume, Study: route.Study, Parallelism: 1}},
+		var items []navItem
+		if summary, ok := findStudy(m.Data.Studies, route.Study); ok && summary.RunActive {
+			items = append(items, navItem{Label: "View Run [ACTIVE]", ViewRun: route.Study})
+		} else {
+			items = append(items, navItem{Label: "Run Loop [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationStudyResume, Study: route.Study, Parallelism: 3}})
 		}
+		items = append(items,
+			navItem{Label: "Dimensions", Route: &Route{Kind: RouteStudyDims, Study: route.Study}},
+			navItem{Label: "Sources", Route: &Route{Kind: RouteStudySources, Study: route.Study}},
+			navItem{Label: "Run State", Path: studyArtifactPath(m.Data.Studies, route.Study, "run-state")},
+			navItem{Label: "Validate Study", Validation: &app.ValidationRequest{Subject: app.ValidationStudy, Study: route.Study}},
+		)
+		return items
 	case RouteStudyDims:
 		if s, ok := findStudy(m.Data.Studies, route.Study); ok {
 			return artifactItemsByLabel(s.Artifacts, "dimension")

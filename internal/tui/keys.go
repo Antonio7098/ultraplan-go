@@ -17,6 +17,7 @@ const (
 	ActionLeft         KeyAction = "left"
 	ActionRight        KeyAction = "right"
 	ActionConfirm      KeyAction = "confirm"
+	ActionCancel       KeyAction = "cancel"
 )
 
 func KeyToAction(key string) KeyAction {
@@ -41,8 +42,8 @@ func KeyToAction(key string) KeyAction {
 		return ActionStudies
 	case "r":
 		return ActionRefresh
-	case "y":
-		return ActionConfirm
+	case "c":
+		return ActionCancel
 	case "enter", "o":
 		return ActionOpen
 	default:
@@ -51,5 +52,5 @@ func KeyToAction(key string) KeyAction {
 }
 
 func HelpText() string {
-	return "q quit | tab focus | arrows select | enter open | y confirm | esc back | r refresh"
+	return "q quit | tab switch Projects/Studies | arrows navigate | enter open/confirm | c cancel active run | esc back | r refresh"
 }

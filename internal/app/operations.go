@@ -33,6 +33,7 @@ const (
 	OperationExecuteResume OperationKind = "execute-resume"
 	OperationStudyStart    OperationKind = "study-start"
 	OperationStudyResume   OperationKind = "study-resume"
+	OperationStudyCancel   OperationKind = "study-cancel"
 )
 
 type OperationState string
@@ -60,9 +61,17 @@ type Confirmation struct {
 	Warning, ModelSource, Permission string
 }
 type OperationEvent struct {
-	State                     OperationState
-	Stage, Task, Message      string
-	Completed, Total, Attempt int
+	State                                                                         OperationState
+	Stage, Task, Message                                                          string
+	Completed, Total, Attempt                                                     int
+	RuntimeAttempts                                                               int
+	Turns                                                                         int64
+	TurnsKnown                                                                    bool
+	Tokens                                                                        int64
+	TokensKnown                                                                   bool
+	InputTokens, OutputTokens, ReasoningTokens, CacheReadTokens, CacheWriteTokens int64
+	Duration, Provider, Model, Cost                                               string
+	RuntimeEvents                                                                 int64
 }
 type OperationResult struct {
 	State                     OperationState
@@ -101,8 +110,12 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		}
 		c.Runtime = true
 		c.Mutates = true
-		c.Scope = []string{"study run-loop"}
+		c.Scope = []string{fmt.Sprintf("study run-loop with %d parallel workers", req.Parallelism)}
 		c.Warning = "RUNTIME + STUDY STATE MUTATION"
+	case OperationStudyCancel:
+		c.Mutates = true
+		c.Scope = []string{"active study run-loop"}
+		c.Warning = "CANCEL ACTIVE RUN LOOP"
 	default:
 		return c, fmt.Errorf("unsupported operation %q", req.Kind)
 	}

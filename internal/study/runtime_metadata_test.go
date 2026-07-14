@@ -3,11 +3,14 @@ package study
 import (
 	"strings"
 	"testing"
+	"time"
 
 	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 func TestAgentMetadataIncludesRuntimeObservability(t *testing.T) {
+	started := time.Now().Add(-3 * time.Second).UTC()
+	finished := time.Now().UTC()
 	meta := agentMetadata(runtimepkg.Result{
 		RunID:  "run-1",
 		Status: "completed",
@@ -23,6 +26,8 @@ func TestAgentMetadataIncludesRuntimeObservability(t *testing.T) {
 			EndAllocBytes:   300,
 			Samples:         206,
 		},
+		StartedAt: started, FinishedAt: finished,
+		Usage: runtimepkg.Usage{TurnsKnown: true, Turns: 5, TotalTokensKnown: true, TotalTokens: 100, CacheReadTokensKnown: true, CacheReadTokens: 80},
 	}, runtimepkg.Request{Provider: "openrouter", Model: "model"})
 
 	if meta.Events == nil || meta.Events.Total != 205 || meta.Events.Retained != 200 || meta.Events.Dropped != 5 || meta.Events.Limit != 200 {
@@ -33,5 +38,8 @@ func TestAgentMetadataIncludesRuntimeObservability(t *testing.T) {
 	}
 	if len(meta.Omissions) != 1 || meta.Omissions[0].Field != "events" || !strings.Contains(meta.Omissions[0].Reason, "5 runtime events omitted") {
 		t.Fatalf("omissions = %+v", meta.Omissions)
+	}
+	if !meta.Usage.TurnsKnown || meta.Usage.Turns != 5 || meta.DurationMS < 2900 || meta.StartedAt == nil || meta.FinishedAt == nil {
+		t.Fatalf("runtime metrics=%+v", meta)
 	}
 }

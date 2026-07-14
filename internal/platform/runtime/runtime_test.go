@@ -286,12 +286,13 @@ func TestAdapterBoundsMappedEventPayloads(t *testing.T) {
 
 func TestAdapterMapsPolicyRetryFallbackAndValidationMetadata(t *testing.T) {
 	total := int64(99)
+	turns, reasoning, cacheRead := int64(4), int64(7), int64(88)
 	adapter := NewAdapter(fakeRuntime{run: &fakeRun{
 		id: "run-1",
 		result: agentwrap.RunResult{
 			RunID:  "run-1",
 			Status: agentwrap.StatusFailed,
-			Usage:  agentwrap.Usage{TotalTokens: &total},
+			Usage:  agentwrap.Usage{TotalTokens: &total, Turns: &turns, ReasoningTokens: &reasoning, CacheReadTokens: &cacheRead},
 			Metadata: agentwrap.RunMetadata{
 				Attempts: []agentwrap.AttemptSummary{{
 					Attempt:         1,
@@ -358,6 +359,9 @@ func TestAdapterMapsPolicyRetryFallbackAndValidationMetadata(t *testing.T) {
 	}
 	if !result.Usage.TotalTokensKnown || result.Usage.TotalTokens != 99 || result.EstimatedCost == nil || result.EstimatedCost.Amount != 0.25 {
 		t.Fatalf("usage/cost metadata not mapped: usage=%+v cost=%+v", result.Usage, result.EstimatedCost)
+	}
+	if !result.Usage.TurnsKnown || result.Usage.Turns != 4 || !result.Usage.ReasoningTokensKnown || result.Usage.ReasoningTokens != 7 || !result.Usage.CacheReadTokensKnown || result.Usage.CacheReadTokens != 88 {
+		t.Fatalf("extended usage=%+v", result.Usage)
 	}
 	if !result.Validation.Configured || result.Validation.Passed || result.Validation.Failures != 1 || result.Validation.Errors != 1 {
 		t.Fatalf("validation metadata not mapped: %+v", result.Validation)

@@ -44,15 +44,33 @@ func agentMetadata(result runtimepkg.Result, req runtimepkg.Request) AgentMetada
 			UnsupportedSameSession: result.Repair.UnsupportedSameSession,
 		},
 		Usage: UsageMetadata{
-			InputTokensKnown:  result.Usage.InputTokensKnown,
-			InputTokens:       result.Usage.InputTokens,
-			OutputTokensKnown: result.Usage.OutputTokensKnown,
-			OutputTokens:      result.Usage.OutputTokens,
-			TotalTokensKnown:  result.Usage.TotalTokensKnown,
-			TotalTokens:       result.Usage.TotalTokens,
-			NativeOmitted:     len(result.Usage.Native) > 0,
+			InputTokensKnown:     result.Usage.InputTokensKnown,
+			InputTokens:          result.Usage.InputTokens,
+			OutputTokensKnown:    result.Usage.OutputTokensKnown,
+			OutputTokens:         result.Usage.OutputTokens,
+			TotalTokensKnown:     result.Usage.TotalTokensKnown,
+			TotalTokens:          result.Usage.TotalTokens,
+			NativeOmitted:        len(result.Usage.Native) > 0,
+			ReasoningTokensKnown: result.Usage.ReasoningTokensKnown, ReasoningTokens: result.Usage.ReasoningTokens,
+			CacheReadTokensKnown: result.Usage.CacheReadTokensKnown, CacheReadTokens: result.Usage.CacheReadTokens,
+			CacheWriteTokensKnown: result.Usage.CacheWriteTokensKnown, CacheWriteTokens: result.Usage.CacheWriteTokens,
+			TurnsKnown: result.Usage.TurnsKnown, Turns: result.Usage.Turns,
 		},
 		Warnings: append([]string(nil), result.Warnings...),
+	}
+	if !result.StartedAt.IsZero() {
+		started := result.StartedAt.UTC()
+		meta.StartedAt = &started
+	}
+	if !result.FinishedAt.IsZero() {
+		finished := result.FinishedAt.UTC()
+		meta.FinishedAt = &finished
+	}
+	if meta.StartedAt != nil && meta.FinishedAt != nil {
+		d := meta.FinishedAt.Sub(*meta.StartedAt)
+		if d > 0 {
+			meta.DurationMS = d.Milliseconds()
+		}
 	}
 	if result.EventStats.Total > 0 || result.EventStats.Retained > 0 || result.EventStats.Dropped > 0 || result.EventStats.Limit > 0 {
 		meta.Events = &EventMetadata{

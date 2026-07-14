@@ -9,7 +9,7 @@
 // product packages.
 //
 // The dashboard supports validation, bounded prompt previews and dry runs, and
-// explicitly confirmed sprint flow, execute, and study run-loop operations.
+// explicitly confirmed sprint flow, execute, and resumable study run-loop operations.
 // Runtime operations are single-owner and cancellable; product services retain
 // durable-state ownership. The package does not call CLI handlers, parse their
 // output, invoke ultraplan as a subprocess, mutate Git, launch plugins, create
