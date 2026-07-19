@@ -129,11 +129,12 @@ type ExecuteRunState struct {
 }
 
 type FlowState struct {
-	SchemaVersion int          `json:"schemaVersion"`
-	Project       string       `json:"project"`
-	Sprint        string       `json:"sprint"`
-	UpdatedAt     time.Time    `json:"updatedAt"`
-	Stages        []StageState `json:"stages"`
+	SchemaVersion int               `json:"schemaVersion"`
+	Project       string            `json:"project"`
+	Sprint        string            `json:"sprint"`
+	UpdatedAt     time.Time         `json:"updatedAt"`
+	Stages        []StageState      `json:"stages"`
+	Review        *ReviewStageState `json:"review,omitempty"`
 }
 
 type StatusSummary struct {
@@ -145,6 +146,8 @@ type StatusSummary struct {
 	ExecuteState  *ExecuteRunState
 	ExecutePath   string
 	RunStatePath  string
+	Review        *ReviewStageState
+	ReviewPath    string
 }
 
 type ValidationFinding struct {

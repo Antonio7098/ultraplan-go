@@ -180,6 +180,9 @@ ultraplan sprint <project> <sprint> prompt requirements
 ultraplan sprint <project> <sprint> prompt sprint-index
 ultraplan sprint <project> <sprint> flow --to requirements --dry-run
 ultraplan sprint <project> <sprint> flow --to plan --dry-run
+ultraplan sprint <project> <sprint> review --dry-run
+ultraplan sprint <project> <sprint> review
+ultraplan sprint <project> <sprint> validate review
 ` + "```" + `
 
 ## Defaults

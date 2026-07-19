@@ -142,6 +142,11 @@ func ValidateFlowState(root string, s Sprint, state FlowState, path string) erro
 			return fmt.Errorf("%w: %s: missing stage %q", ErrFlowStateMalformed, path, expected)
 		}
 	}
+	if state.Review != nil {
+		if err := validateReviewStageState(root, s, *state.Review, path); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -64,6 +64,21 @@ func TestModelTabsRoutesPreviewAndQuit(t *testing.T) {
 	}
 }
 
+func TestSprintNavigationExposesFullReviewOperation(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Data = fixtureDashboard()
+	m.Routes = []Route{{Kind: RouteSprint, Project: "alpha", Sprint: "01"}}
+	labels := map[string]bool{}
+	for _, item := range m.navItems() {
+		labels[item.Label] = true
+	}
+	for _, want := range []string{"Review", "Validate review", "Preview review Prompt", "Review Status", "Review Dry Run", "Run Review [RUNTIME]"} {
+		if !labels[want] {
+			t.Fatalf("missing review navigation %q", want)
+		}
+	}
+}
+
 func TestModelValidationResultAndBack(t *testing.T) {
 	m := NewModel(&fakeUseCases{})
 	m.Loading = true

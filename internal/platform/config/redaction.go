@@ -54,6 +54,8 @@ func redactPlanning(p Planning) Planning {
 	p.PlanModel = RedactValue("planning.plan_model", p.PlanModel)
 	p.ExecuteModel = RedactValue("planning.execute_model", p.ExecuteModel)
 	p.ExecuteVariant = RedactValue("planning.execute_variant", p.ExecuteVariant)
+	p.ReviewModel = RedactValue("planning.review_model", p.ReviewModel)
+	p.ReviewVariant = RedactValue("planning.review_variant", p.ReviewVariant)
 	return p
 }
 

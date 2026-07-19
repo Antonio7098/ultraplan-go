@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -46,13 +47,17 @@ func runSprint(deps dependencies, args []string) error {
 		if len(args) == 2 {
 			return classified(ExitUsage, "sprint: expected '<project> <sprint> status'")
 		}
-		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|validate|prompt|flow|execute>'")
+		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|validate|prompt|flow|execute|review>'")
 	}
 	root, err := discoverWorkspace(deps)
 	if err != nil {
 		return err
 	}
-	service := sprint.NewService(root.Path)
+	effective, err := loadEffectiveConfig(root, deps, config.CLIOverrides{})
+	if err != nil {
+		return err
+	}
+	service := sprint.NewService(root.Path).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel)
 	switch args[2] {
 	case "status":
 		if len(args) != 3 {
@@ -85,6 +90,8 @@ func runSprint(deps dependencies, args []string) error {
 			result, err = service.ValidatePlan(args[0], args[1])
 		case sprint.StageExecute:
 			result, err = service.ValidateExecute(args[0], args[1])
+		case sprint.StageReview:
+			result, err = service.ValidateReview(args[0], args[1])
 		default:
 			return classified(ExitUsage, "sprint.validate: unsupported stage %q", args[3])
 		}
@@ -117,6 +124,8 @@ func runSprint(deps dependencies, args []string) error {
 			preview, err = service.PromptPlan(args[0], args[1])
 		case sprint.StageExecute:
 			preview, err = service.PromptExecute(args[0], args[1], sprint.ExecuteRequest{})
+		case sprint.StageReview:
+			preview, err = service.PromptReview(args[0], args[1], sprint.ReviewRequest{})
 		default:
 			return classified(ExitUsage, "sprint.prompt: unsupported stage %q", args[3])
 		}
@@ -182,6 +191,37 @@ func runSprint(deps dependencies, args []string) error {
 			return mapSprintError("sprint.execute", err)
 		}
 		return nil
+	case "review":
+		req, jsonOut, err := parseSprintReviewArgs(args[3:])
+		if err != nil {
+			return classified(ExitUsage, "sprint.review: %w", err)
+		}
+		reviewService := service
+		if !req.DryRun {
+			reviewService, err = sprintRuntimeService(deps, root)
+			if err != nil {
+				return err
+			}
+		}
+		result, runErr := reviewService.Review(deps.ctx, args[0], args[1], req)
+		if jsonOut {
+			_ = json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.review", "status": result.Status, "result": result})
+		} else {
+			renderSprintReview(deps, result)
+		}
+		if runErr != nil {
+			if result.Verdict == sprint.ReviewFail {
+				return classified(ExitValidation, "sprint.review: %w", runErr)
+			}
+			if result.Status == sprint.ReviewBlocked {
+				return classified(ExitValidation, "sprint.review: %w", runErr)
+			}
+			if strings.Contains(runErr.Error(), "runtime") {
+				return classified(ExitRuntime, "sprint.review: %w", runErr)
+			}
+			return mapSprintError("sprint.review", runErr)
+		}
+		return nil
 	default:
 		return classified(ExitUsage, "sprint: unsupported command %q", args[2])
 	}
@@ -203,6 +243,8 @@ func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, spri
 		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan)
 	case sprint.StageExecute:
 		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute)
+	case sprint.StageReview:
+		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview)
 	default:
 		return sprint.FlowResult{}, fmt.Errorf("unsupported flow target %q", req.To)
 	}
@@ -238,6 +280,10 @@ func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, spri
 			exec, execErr := service.Execute(ctx, projectRef, sprintRef, sprint.ExecuteRequest{DryRun: req.DryRun, Resume: true})
 			result = sprint.FlowResult{Project: exec.Project, Sprint: exec.Sprint, To: sprint.StageExecute, DryRun: exec.DryRun, Message: firstNonEmpty(exec.Prompt, exec.Message), Findings: exec.Findings}
 			err = execErr
+		case sprint.StageReview:
+			review, reviewErr := service.Review(ctx, projectRef, sprintRef, sprint.ReviewRequest{DryRun: req.DryRun})
+			result = sprint.FlowResult{Project: review.Project, Sprint: review.Sprint, To: sprint.StageReview, DryRun: review.DryRun, Message: firstNonEmpty(review.Prompt, review.Message)}
+			err = reviewErr
 		default:
 			err = fmt.Errorf("unsupported flow target %q", stage)
 		}
@@ -267,6 +313,8 @@ func sprintStageAlreadyValid(service sprint.Service, projectRef, sprintRef strin
 		result, err = service.ValidatePlan(projectRef, sprintRef)
 	case sprint.StageExecute:
 		return false, nil
+	case sprint.StageReview:
+		result, err = service.ValidateReview(projectRef, sprintRef)
 	default:
 		return false, fmt.Errorf("unsupported flow target %q", stage)
 	}
@@ -289,7 +337,7 @@ func sprintRuntimeService(deps dependencies, root workspace.Root) (sprint.Servic
 	if err != nil {
 		return sprint.Service{}, classified(ExitRuntime, "runtime.init: %w", err)
 	}
-	return sprint.NewService(root.Path).WithRuntime(rt, req).WithStageRuntime(planningStageRuntime(effective.Config)), nil
+	return sprint.NewService(root.Path).WithRuntime(rt, req).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel), nil
 }
 
 func planningStageRuntime(c config.Config) map[sprint.PlanningStage]sprint.StageRuntime {
@@ -322,6 +370,7 @@ func planningStageRuntime(c config.Config) map[sprint.PlanningStage]sprint.Stage
 			Model:   c.Planning.ExecuteModel,
 			Variant: c.Planning.ExecuteVariant,
 		},
+		sprint.StageReview: {Model: c.Planning.ReviewModel, Variant: c.Planning.ReviewVariant},
 	}
 }
 
@@ -359,12 +408,44 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 		}
 	}
 	if req.To == "" {
-		return req, fmt.Errorf("--to requirements, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, --to plan, or --to execute is required")
+		return req, fmt.Errorf("--to requirements, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, --to plan, --to execute, or --to review is required")
 	}
-	if req.To != sprint.StageRequirements && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan && req.To != sprint.StageExecute {
+	if req.To != sprint.StageRequirements && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan && req.To != sprint.StageExecute && req.To != sprint.StageReview {
 		return req, fmt.Errorf("unsupported flow target %q", req.To)
 	}
 	return req, nil
+}
+
+func parseSprintReviewArgs(args []string) (sprint.ReviewRequest, bool, error) {
+	req := sprint.ReviewRequest{}
+	jsonOut := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--dry-run", "--prompt":
+			req.DryRun = true
+		case "--json":
+			jsonOut = true
+		case "--model":
+			if i+1 >= len(args) {
+				return req, jsonOut, fmt.Errorf("--model requires a provider/model value")
+			}
+			i++
+			req.ModelOverride = args[i]
+		case "--parallel":
+			if i+1 >= len(args) {
+				return req, jsonOut, fmt.Errorf("--parallel requires a number")
+			}
+			i++
+			var n int
+			if _, err := fmt.Sscanf(args[i], "%d", &n); err != nil || n < 1 {
+				return req, jsonOut, fmt.Errorf("--parallel must be positive")
+			}
+			req.Concurrency = n
+		default:
+			return req, jsonOut, fmt.Errorf("unsupported argument %q", args[i])
+		}
+	}
+	return req, jsonOut, nil
 }
 
 func parseSprintExecuteArgs(args []string) (sprint.ExecuteRequest, error) {
@@ -412,14 +493,21 @@ func renderSprintStatus(deps dependencies, status sprint.StatusSummary) {
 	fmt.Fprintf(deps.stdout, "  run state: %s\n", status.RunStatePath)
 	if status.ExecuteState == nil {
 		fmt.Fprintln(deps.stdout, "  status: not started")
-		return
+	} else {
+		counts := map[sprint.ExecuteTaskStatus]int{}
+		for _, task := range status.ExecuteState.Tasks {
+			counts[task.Status]++
+		}
+		for _, state := range sprint.ExecuteTaskStatuses() {
+			fmt.Fprintf(deps.stdout, "  %s: %d\n", state, counts[state])
+		}
 	}
-	counts := map[sprint.ExecuteTaskStatus]int{}
-	for _, task := range status.ExecuteState.Tasks {
-		counts[task.Status]++
-	}
-	for _, state := range sprint.ExecuteTaskStatuses() {
-		fmt.Fprintf(deps.stdout, "  %s: %d\n", state, counts[state])
+	fmt.Fprintln(deps.stdout, "Review:")
+	fmt.Fprintf(deps.stdout, "  artifact: %s\n", status.ReviewPath)
+	if status.Review == nil {
+		fmt.Fprintln(deps.stdout, "  status: not started")
+	} else {
+		fmt.Fprintf(deps.stdout, "  status: %s\n  verdict: %s\n  stale: %t\n  progress: %d/%d\n", status.Review.Status, status.Review.Verdict, status.Review.Stale, status.Review.Completed, status.Review.Total)
 	}
 }
 
@@ -523,6 +611,24 @@ func renderSprintExecute(deps dependencies, result sprint.ExecuteResult) {
 	}
 }
 
+func renderSprintReview(deps dependencies, result sprint.ReviewResult) {
+	fmt.Fprintf(deps.stdout, "Project: %s\nSprint: %s\nReview status: %s\nVerdict: %s\nFingerprint: %s\n", result.Project, result.Sprint, result.Status, result.Verdict, result.Fingerprint)
+	if result.DryRun {
+		fmt.Fprintln(deps.stdout, "Dry run: true")
+		fmt.Fprintln(deps.stdout, result.Prompt)
+		return
+	}
+	if result.Artifact != "" {
+		fmt.Fprintf(deps.stdout, "Artifact: %s\n", result.Artifact)
+	}
+	for _, f := range result.Findings {
+		fmt.Fprintf(deps.stdout, "- [%s] %s: %s\n", f.Severity, f.Title, f.Detail)
+	}
+	for _, d := range result.Diagnostics {
+		fmt.Fprintf(deps.stdout, "- diagnostic %s: %s\n", d.Code, d.Message)
+	}
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -544,6 +650,7 @@ Usage:
   ultraplan sprint <project> <sprint> validate reasoning
   ultraplan sprint <project> <sprint> validate plan
   ultraplan sprint <project> <sprint> validate execute
+  ultraplan sprint <project> <sprint> validate review
   ultraplan sprint <project> <sprint> prompt requirements
   ultraplan sprint <project> <sprint> prompt sprint-index
   ultraplan sprint <project> <sprint> prompt technical-handbook
@@ -551,6 +658,7 @@ Usage:
   ultraplan sprint <project> <sprint> prompt reasoning
   ultraplan sprint <project> <sprint> prompt plan
   ultraplan sprint <project> <sprint> prompt execute
+  ultraplan sprint <project> <sprint> prompt review
   ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
   ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
@@ -558,7 +666,9 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
   ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
   ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to review [--dry-run]
   ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
+  ultraplan sprint <project> <sprint> review [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
   execute <project> <sprint> is available as the sprint execute action above.
 
 Commands:
@@ -567,9 +677,10 @@ Commands:
   <project> <sprint> prompt <stage>    Print a runtime-free stage prompt preview.
   <project> <sprint> flow --to <stage> Run or preview sprint planning and execute flow.
   <project> <sprint> execute           Execute validated plan tasks through the generic runtime boundary.
+  <project> <sprint> review            Run bounded read-only reviewers and atomically write review.md.
 
 Scope:
-  Supports governed planning through plan.md and controlled execute from validated plan tasks. It does not run smoke, review automation, issue tracking, Git mutation, TUI, hosted/browser, or cross-sprint scheduling workflows.
+  Supports governed planning, controlled execute, and automated review. It does not run smoke, issue tracking, Git mutation, hosted/browser, or cross-sprint scheduling workflows.
 `
 }
 
@@ -594,6 +705,7 @@ Usage:
   ultraplan sprint <project> <sprint> validate reasoning
   ultraplan sprint <project> <sprint> validate plan
   ultraplan sprint <project> <sprint> validate execute
+  ultraplan sprint <project> <sprint> validate review
 
 Validates requirements.md, sprint-index.md selected context, technical-handbook.md selected evidence distillation, area reasoning, final reasoning.md, plan.md, or execute readiness. Validation failures exit with code 5.
 `
@@ -610,6 +722,7 @@ Usage:
   ultraplan sprint <project> <sprint> prompt reasoning
   ultraplan sprint <project> <sprint> prompt plan
   ultraplan sprint <project> <sprint> prompt execute
+  ultraplan sprint <project> <sprint> prompt review
 
 Prints a deterministic runtime-free prompt preview. Execute prompts are rendered from validated plan tasks and target safety policy. It does not invoke the runtime and does not write artifacts.
 `
@@ -626,6 +739,7 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
   ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
   ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to review [--dry-run]
 
 Dry-run prints planned prompt inputs without mutation. Non-dry-run validates prerequisites, invokes the generic runtime boundary, validates the generated artifact or execute evidence, and updates durable state after all gates pass.
 `

@@ -46,10 +46,11 @@ func runTUI(deps dependencies, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := loadEffectiveConfig(root, deps, config.CLIOverrides{}); err != nil {
+	effective, err := loadEffectiveConfig(root, deps, config.CLIOverrides{})
+	if err != nil {
 		return err
 	}
-	useCases := dashboardUseCases{root: root.Path}
+	useCases := dashboardUseCases{root: root.Path, stageRuntime: planningStageRuntime(effective.Config), reviewConcurrency: effective.Config.Execution.DefaultParallel}
 	useCases.runner = func(ctx context.Context, req OperationRequest, emit func(OperationEvent)) (OperationResult, error) {
 		result := OperationResult{State: OperationComplete, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study)}
 		switch req.Kind {
@@ -70,6 +71,21 @@ func runTUI(deps dependencies, args []string) error {
 			}
 			r, e := service.Execute(ctx, req.Project, req.Sprint, sprint.ExecuteRequest{TaskID: req.Task, Resume: req.Kind == OperationExecuteResume})
 			result.Message = r.Message
+			if e != nil {
+				return failedOperation(result, e)
+			}
+		case OperationReviewStart:
+			service, e := sprintRuntimeService(deps, root)
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			r, e := service.Review(ctx, req.Project, req.Sprint, sprint.ReviewRequest{Concurrency: req.Parallelism, Progress: func(p sprint.ReviewProgress) {
+				emit(OperationEvent{State: OperationRunning, Stage: "review", Task: p.CoverageID, Message: p.Message, Completed: p.Completed, Total: p.Total})
+			}})
+			result.Message = fmt.Sprintf("%s verdict=%s", r.Status, r.Verdict)
+			for _, f := range r.Findings {
+				result.Findings = append(result.Findings, DisplayFinding{Severity: f.Severity, Section: "review", Problem: f.Title, Cause: f.Detail, Suggestion: f.Action})
+			}
 			if e != nil {
 				return failedOperation(result, e)
 			}

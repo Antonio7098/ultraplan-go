@@ -31,6 +31,9 @@ const (
 	OperationExecuteDryRun OperationKind = "execute-dry-run"
 	OperationExecuteStart  OperationKind = "execute-start"
 	OperationExecuteResume OperationKind = "execute-resume"
+	OperationReviewStatus  OperationKind = "review-status"
+	OperationReviewDryRun  OperationKind = "review-dry-run"
+	OperationReviewStart   OperationKind = "review-start"
 	OperationStudyStart    OperationKind = "study-start"
 	OperationStudyResume   OperationKind = "study-resume"
 	OperationStudyCancel   OperationKind = "study-cancel"
@@ -89,9 +92,12 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	if err := ctx.Err(); err != nil {
 		return Confirmation{}, err
 	}
+	if (req.Kind == OperationReviewStart || req.Kind == OperationReviewDryRun) && req.Parallelism <= 0 {
+		req.Parallelism = u.reviewConcurrency
+	}
 	c := Confirmation{Request: req, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study), Permission: "workspace policy enforced"}
 	switch req.Kind {
-	case OperationPrompt, OperationFlowDryRun, OperationExecuteDryRun, OperationExecuteStatus:
+	case OperationPrompt, OperationFlowDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus:
 		c.Scope = []string{req.Stage}
 		c.Warning = "runtime-free; no runtime-backed writes"
 	case OperationFlow:
@@ -104,6 +110,11 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Mutates = true
 		c.Scope = []string{"execute tasks"}
 		c.Warning = "RUNTIME + APPROVED TARGET MUTATION"
+	case OperationReviewStart:
+		c.Runtime = true
+		c.Mutates = true
+		c.Scope = []string{"one read-only reviewer per selected contract plus handbook", fmt.Sprintf("bounded parallelism: %d", req.Parallelism)}
+		c.Warning = "RUNTIME + REVIEW ARTIFACT WRITE (TARGET READ-ONLY)"
 	case OperationStudyStart, OperationStudyResume:
 		if req.Parallelism < 1 || req.Parallelism > 64 {
 			return c, fmt.Errorf("parallelism must be between 1 and 64")
@@ -135,7 +146,7 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 	if err := ctx.Err(); err != nil {
 		return OperationResult{State: OperationCancelled}, err
 	}
-	ss := sprint.NewService(u.root)
+	ss := u.sprintService()
 	result := OperationResult{State: OperationComplete, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study)}
 	stage := sprint.PlanningStage(req.Stage)
 	switch req.Kind {
@@ -164,6 +175,23 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 			return failedOperation(result, err)
 		}
 		result.Message = summarizeExecute(r.ExecuteState).Message
+	case OperationReviewDryRun:
+		r, err := ss.Review(ctx, req.Project, req.Sprint, sprint.ReviewRequest{DryRun: true, Concurrency: req.Parallelism})
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Content, result.Truncated = boundContent(r.Prompt)
+		result.Message = r.Message
+	case OperationReviewStatus:
+		r, err := ss.Status(req.Project, req.Sprint)
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		if r.Review == nil {
+			result.Message = "review not started"
+		} else {
+			result.Message = fmt.Sprintf("%s verdict=%s stale=%t progress=%d/%d", r.Review.Status, r.Review.Verdict, r.Review.Stale, r.Review.Completed, r.Review.Total)
+		}
 	default:
 		if u.runner == nil {
 			return failedOperation(result, fmt.Errorf("runtime-backed operation is unavailable without configured composition"))
@@ -223,6 +251,8 @@ func promptSprintStage(s sprint.Service, p, sp string, stage sprint.PlanningStag
 		return s.PromptPlan(p, sp)
 	case sprint.StageExecute:
 		return s.PromptExecute(p, sp, sprint.ExecuteRequest{})
+	case sprint.StageReview:
+		return s.PromptReview(p, sp, sprint.ReviewRequest{})
 	default:
 		return sprint.PromptPreview{}, fmt.Errorf("unsupported prompt stage %q", stage)
 	}
@@ -292,7 +322,7 @@ func (u dashboardUseCases) Validate(ctx context.Context, req ValidationRequest) 
 		}
 	case ValidationSprint:
 		stage := sprint.PlanningStage(strings.TrimSpace(req.Stage))
-		validation, err := validateSprintStage(sprint.NewService(u.root), req.Project, req.Sprint, stage)
+		validation, err := validateSprintStage(u.sprintService(), req.Project, req.Sprint, stage)
 		if err != nil {
 			return result, mapSprintError("sprint.validate", err)
 		}

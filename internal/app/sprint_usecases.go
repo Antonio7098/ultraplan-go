@@ -15,12 +15,21 @@ type SprintSummary struct {
 	FlowStatePath     string
 	ExecutePath       string
 	RunStatePath      string
+	ReviewPath        string
 	Stages            []StageSummary
 	Execute           ExecuteSummary
+	Review            ReviewSummary
 	Findings          []DisplayFinding
 	Artifacts         []DisplayArtifact
 	RefreshMayWrite   bool
 	RefreshActionNote string
+}
+
+type ReviewSummary struct {
+	Available        bool
+	Status, Verdict  string
+	Stale            bool
+	Completed, Total int
 }
 
 type StageSummary struct {
@@ -49,7 +58,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 	if err != nil {
 		return nil, mapProjectError("project.list", err)
 	}
-	service := sprint.NewService(u.root)
+	service := u.sprintService()
 	var out []SprintSummary
 	for _, p := range projects {
 		sprints, err := sprint.DiscoverSprints(u.root, p)
@@ -76,6 +85,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 						{Label: "reasoning", Path: sprint.ArtifactRelPath(sp, sprint.StageReasoning), Kind: "markdown"},
 						{Label: "plan", Path: sprint.ArtifactRelPath(sp, sprint.StagePlan), Kind: "markdown"},
 						{Label: "execute", Path: sprint.ArtifactRelPath(sp, sprint.StageExecute), Kind: "markdown"},
+						{Label: "review", Path: sprint.ArtifactRelPath(sp, sprint.StageReview), Kind: "markdown"},
 						{Label: "flow-state", Path: sprint.FlowStateRelPath(sp), Kind: "json"},
 						{Label: "run-state", Path: sprint.ExecuteRunStateRelPath(sp), Kind: "json"},
 					},
@@ -90,9 +100,11 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				FlowStatePath:     status.FlowStatePath,
 				ExecutePath:       status.ExecutePath,
 				RunStatePath:      status.RunStatePath,
+				ReviewPath:        status.ReviewPath,
 				RefreshMayWrite:   true,
 				RefreshActionNote: "refresh recomputes deterministic flow-state.json status",
 				Execute:           summarizeExecute(status.ExecuteState),
+				Review:            summarizeReview(status.Review),
 			}
 			for _, stage := range status.Stages {
 				summary.Stages = append(summary.Stages, StageSummary{Name: string(stage.Stage), Status: string(stage.Status), Path: stage.Path, Error: displaySafe(stage.Error)})
@@ -104,10 +116,11 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				DisplayArtifact{Label: "reasoning", Path: sprint.ArtifactRelPath(sp, sprint.StageReasoning), Kind: "markdown"},
 				DisplayArtifact{Label: "plan", Path: sprint.ArtifactRelPath(sp, sprint.StagePlan), Kind: "markdown"},
 				DisplayArtifact{Label: "execute", Path: sprint.ArtifactRelPath(sp, sprint.StageExecute), Kind: "markdown"},
+				DisplayArtifact{Label: "review", Path: sprint.ArtifactRelPath(sp, sprint.StageReview), Kind: "markdown"},
 				DisplayArtifact{Label: "flow-state", Path: sprint.FlowStateRelPath(sp), Kind: "json"},
 				DisplayArtifact{Label: "run-state", Path: sprint.ExecuteRunStateRelPath(sp), Kind: "json"},
 			)
-			for _, stage := range []sprint.PlanningStage{sprint.StageRequirements, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute} {
+			for _, stage := range []sprint.PlanningStage{sprint.StageRequirements, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview} {
 				result, err := validateSprintStage(service, p.Name, sp.Slug, stage)
 				if err != nil {
 					continue
@@ -139,9 +152,18 @@ func validateSprintStage(service sprint.Service, projectRef, sprintRef string, s
 		return service.ValidatePlan(projectRef, sprintRef)
 	case sprint.StageExecute:
 		return service.ValidateExecute(projectRef, sprintRef)
+	case sprint.StageReview:
+		return service.ValidateReview(projectRef, sprintRef)
 	default:
 		return sprint.ValidationResult{}, fmt.Errorf("unsupported validation stage %q", stage)
 	}
+}
+
+func summarizeReview(state *sprint.ReviewStageState) ReviewSummary {
+	if state == nil {
+		return ReviewSummary{}
+	}
+	return ReviewSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), Stale: state.Stale, Completed: state.Completed, Total: state.Total}
 }
 
 func summarizeExecute(state *sprint.ExecuteRunState) ExecuteSummary {

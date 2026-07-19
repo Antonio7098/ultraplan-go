@@ -15,13 +15,16 @@ import (
 )
 
 type Service struct {
-	root          string
-	store         FSStore
-	now           func() time.Time
-	runtime       Runtime
-	runtimeConfig pruntime.Request
-	stageRuntime  map[PlanningStage]StageRuntime
+	root              string
+	store             FSStore
+	now               func() time.Time
+	runtime           Runtime
+	runtimeConfig     pruntime.Request
+	stageRuntime      map[PlanningStage]StageRuntime
+	reviewConcurrency int
 }
+
+func (s Service) WithReviewConcurrency(n int) Service { s.reviewConcurrency = n; return s }
 
 type StageRuntime struct {
 	Model   string
@@ -83,6 +86,17 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 	}
 	stages := DeriveStages(sp, snap, prior)
 	refreshed := NewFlowState(sp, stages, s.now())
+	if stateLoaded {
+		refreshed.Review = state.Review
+		if refreshed.Review != nil && refreshed.Review.Fingerprint != "" {
+			manifest, reviewFindings, reviewErr := s.PrepareReview(projectRef, sprintRef, ReviewRequest{})
+			refreshed.Review.Stale = reviewErr != nil || len(reviewFindings) > 0 || manifest.Fingerprint != refreshed.Review.Fingerprint
+			if !refreshed.Review.Stale {
+				content, readErr := s.store.ReadArtifact(sp, StageReview)
+				refreshed.Review.Stale = readErr != nil || len(ValidateReviewContent(content, manifest)) > 0
+			}
+		}
+	}
 	if err := SaveFlowState(s.root, sp, refreshed); err != nil {
 		return StatusSummary{}, err
 	}
@@ -111,6 +125,8 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 		ExecuteState:  executeState,
 		ExecutePath:   ArtifactRelPath(sp, StageExecute),
 		RunStatePath:  workspace.Rel(s.root, runStatePath),
+		Review:        refreshed.Review,
+		ReviewPath:    ArtifactRelPath(sp, StageReview),
 	}, nil
 }
 

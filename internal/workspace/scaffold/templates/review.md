@@ -1,61 +1,30 @@
-# Sprint Review: [Sprint Name]
+# Sprint Review
 
-> Project: `[project-slug]`
-> Sprint: `[sprint-slug]`
-> Plan: `plan.md`
-> Reasoning: `sprint-reasoning.md`
+Review status: `[ready/running/completed/failed/cancelled/blocked]`
+Verdict: `[pass/pass_with_findings/fail/blocked]`
+Input fingerprint: `[sha256]`
+Model: `[provider/model]`
+Model source: `[configuration source]`
+Target: `[approved target]`
 
-This review checks conformance after implementation. It does not introduce new scope or architecture.
+## Review Context
 
-## Review Inputs
-
-- `sprint-index.md`
-- `technical-handbook.md`
-- `reasoning/*.md` where created
-- `sprint-reasoning.md`
-- `plan.md`
-- Required protocols from `sprint-index.md`
-- Implementation diff / changed files
-- Test, build, lint, runtime, or manual verification evidence
+## Input Fingerprint And Scope
 
 ## Decision Conformance
 
-| Decision From `sprint-reasoning.md` | Implemented? | Evidence | Notes |
-| --- | --- | --- | --- |
-| `[decision]` | `[yes/no/partial]` | `[path/test/log]` | `[notes]` |
-
-## Contract Conformance
-
-| Contract / Requirement | Satisfied? | Evidence | Deviations |
-| --- | --- | --- | --- |
-| `[contract or ID]` | `[yes/no/partial]` | `[evidence]` | `[none or details]` |
-
 ## Plan Execution
-
-| Plan Task | Status | Evidence |
-| --- | --- | --- |
-| `[task]` | `[done/partial/skipped]` | `[evidence]` |
 
 ## Verification Evidence
 
-| Check | Command / Method | Result | Notes |
-| --- | --- | --- | --- |
-| `[check]` | `[command]` | `[pass/fail/not run]` | `[notes]` |
+## Contract Conformance
+
+## Technical Handbook Conformance
+
+## Applicability And Deferred Scope
+
+## Findings
 
 ## Deviations
 
-| Deviation | Reason | Risk | Follow-Up |
-| --- | --- | --- | --- |
-| `[deviation]` | `[reason]` | `[risk]` | `[action]` |
-
-## Review Protocol Results
-
-| Protocol | Applied? | Findings |
-| --- | --- | --- |
-| `[protocol]` | `[yes/no]` | `[findings]` |
-
 ## Final Assessment
-
-- **Status:** `[accepted / accepted with follow-ups / blocked / rejected]`
-- **Residual Risks:** `[risks]`
-- **Required Follow-Ups:** `[follow-ups]`

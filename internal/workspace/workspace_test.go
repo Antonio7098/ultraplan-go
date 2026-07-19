@@ -142,3 +142,23 @@ func TestEmbeddedPromptsDoNotRequireManualPromptOrTemplateReads(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewDefaultsAreEmbeddedAndNotInitializedAsOverrides(t *testing.T) {
+	prompt, ok := DefaultOverrideFile("prompts/review.md")
+	if !ok || !strings.Contains(prompt, "Automated Sprint Review") {
+		t.Fatal("embedded review prompt missing")
+	}
+	template, ok := DefaultOverrideFile("templates/review.md")
+	if !ok || !strings.Contains(template, "## Final Assessment") {
+		t.Fatal("embedded review template missing")
+	}
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"prompts/review.md", "templates/review.md"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("init materialized optional override %s: %v", rel, err)
+		}
+	}
+}

@@ -206,8 +206,11 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			recordErr(err)
 			return
 		}
-		if !dependenciesComplete(state, task) {
-			if dependenciesTerminal(state, task) {
+		mu.Lock()
+		dependencyState := cloneRunState(state)
+		mu.Unlock()
+		if !dependenciesComplete(dependencyState, task) {
+			if dependenciesTerminal(dependencyState, task) {
 				recordErr(markSynthesisDependenciesFailed(update, id))
 				recordErr(recordHistory(id))
 				emitTask(RunLoopProgressFailed, id)

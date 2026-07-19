@@ -371,11 +371,26 @@ func TestSprintValidateFailuresAndUnsupportedStages(t *testing.T) {
 	assertContains(t, stdout, "Validation: failed")
 	assertContains(t, stderr, "sprint-index validation failed")
 
-	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "review"})
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "smoke"})
 	if status != ExitUsage || stdout != "" {
 		t.Fatalf("unsupported status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stderr, "unsupported flow target")
+}
+
+func TestParseSprintReviewArgs(t *testing.T) {
+	req, jsonOut, err := parseSprintReviewArgs([]string{"--dry-run", "--model", "openai/gpt-5.6", "--parallel", "4", "--json"})
+	if err != nil || !req.DryRun || req.ModelOverride != "openai/gpt-5.6" || req.Concurrency != 4 || !jsonOut {
+		t.Fatalf("req=%+v json=%t err=%v", req, jsonOut, err)
+	}
+	if _, _, err := parseSprintReviewArgs([]string{"--parallel", "0"}); err == nil {
+		t.Fatal("expected invalid parallelism")
+	}
+	for _, want := range []string{"validate review", "prompt review", "flow --to review", "review [--dry-run]"} {
+		if !strings.Contains(sprintHelp(), want) {
+			t.Fatalf("help missing %q", want)
+		}
+	}
 }
 
 func writeCommandSprintProject(t *testing.T, root, projectName, sprintSlug string) {
