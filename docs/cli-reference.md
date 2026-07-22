@@ -29,7 +29,7 @@ The CLI uses numeric process statuses:
 - `7`: cancellation.
 - `8`: partial completion.
 
-Human-readable errors are printed to stderr. JSON commands use documented envelopes or deterministic command-specific JSON described below.
+Human-readable errors are printed to stderr. JSON commands use documented envelopes or deterministic command-specific JSON described below. Runtime-backed study and sprint commands also stream sanitized progress while preserving final result output. Standalone, run-all, and sprint progress uses stderr so stdout remains machine-readable; the durable study run-loop retains its task-progress stream on stdout. Progress includes lifecycle, provider progress, tool, validation, retry/fallback, permission, warning, and terminal events; message bodies and raw provider payloads are not printed.
 
 ## Commands
 
@@ -272,7 +272,7 @@ ultraplan sprint <project> <sprint> flow --to review [--dry-run]
 ultraplan sprint <project> <sprint> flow --to smoke --dry-run
 ```
 
-Runs or previews the governed stage flow through review. `flow --to smoke --dry-run` exposes the shared guarded smoke preview, but mutating smoke remains an explicit confirmed `smoke` action; integrated review-to-smoke execution is deferred to Sprint 28.
+Runs or previews the governed stage flow through review. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. `flow --to smoke --dry-run` exposes the shared guarded smoke preview, but mutating smoke remains an explicit confirmed `smoke` action; integrated review-to-smoke execution is deferred to Sprint 28.
 
 ### `ultraplan sprint <project> <sprint> execute`
 

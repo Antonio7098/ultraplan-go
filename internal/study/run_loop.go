@@ -422,10 +422,10 @@ type runtimeEvent = runtimepkg.Event
 
 func interestingRuntimeEvent(kind string) bool {
 	switch kind {
-	case "rate_limit", "retry", "fallback", "lifecycle", "warning", "fatal_error":
-		return true
-	default:
+	case "", "message", "session", "native_extension":
 		return false
+	default:
+		return true
 	}
 }
 

@@ -55,18 +55,20 @@ func runTUI(deps dependencies, args []string) error {
 		result := OperationResult{State: OperationComplete, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study)}
 		switch req.Kind {
 		case OperationFlow:
-			service, e := sprintRuntimeService(deps, root)
+			service, e := sprintRuntimeService(deps, root, tuiSprintRuntimeProgress(emit))
 			if e != nil {
 				return failedOperation(result, e)
 			}
-			r, e := runSprintFlow(ctx, service, req.Project, req.Sprint, sprint.FlowRequest{To: sprint.PlanningStage(req.Stage)})
+			r, e := runSprintFlow(ctx, service, req.Project, req.Sprint, sprint.FlowRequest{To: sprint.PlanningStage(req.Stage), Progress: func(progress sprint.FlowProgress) {
+				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Message: progress.State + ": " + displaySafe(progress.Message)})
+			}})
 			result.Message = r.Message
 			result = operationWithSprintFindings(result, r.Findings)
 			if e != nil {
 				return failedOperation(result, e)
 			}
 		case OperationExecuteStart, OperationExecuteResume:
-			service, e := sprintRuntimeService(deps, root)
+			service, e := sprintRuntimeService(deps, root, tuiSprintRuntimeProgress(emit))
 			if e != nil {
 				return failedOperation(result, e)
 			}
@@ -77,7 +79,7 @@ func runTUI(deps dependencies, args []string) error {
 				return failedOperation(result, e)
 			}
 		case OperationReviewStart:
-			service, e := sprintRuntimeService(deps, root)
+			service, e := sprintRuntimeService(deps, root, tuiSprintRuntimeProgress(emit))
 			if e != nil {
 				return failedOperation(result, e)
 			}
@@ -145,6 +147,16 @@ func runTUI(deps dependencies, args []string) error {
 		return classified(ExitError, "tui.start: %w", err)
 	}
 	return nil
+}
+
+func tuiSprintRuntimeProgress(emit func(OperationEvent)) func(sprint.RuntimeProgress) {
+	return func(progress sprint.RuntimeProgress) {
+		if !runtimeEventIsProgress(progress.Event) {
+			return
+		}
+		task := operationFirstNonEmpty(progress.Task, progress.CoverageID)
+		emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Task: task, Message: runtimeProgressSummary(progress.Event), RuntimeEvents: 1})
+	}
 }
 
 func operationTaskStats(task study.TaskState, now time.Time) RunTaskSummary {

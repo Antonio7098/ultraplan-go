@@ -14,8 +14,15 @@ type Runtime interface {
 }
 
 type FlowRequest struct {
-	To     PlanningStage
-	DryRun bool
+	To       PlanningStage
+	DryRun   bool
+	Progress func(FlowProgress)
+}
+
+type FlowProgress struct {
+	Stage   PlanningStage
+	State   string
+	Message string
 }
 
 type FlowResult struct {

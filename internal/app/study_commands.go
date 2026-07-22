@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
@@ -384,12 +385,12 @@ func renderRunLoopProgress(deps dependencies, root string) func(study.RunLoopPro
 
 func runtimeProgressSummary(event runtimepkg.Event) string {
 	parts := []string{}
-	if event.Kind != "" {
-		parts = append(parts, event.Kind)
-	} else if event.Type != "" {
+	if event.Type != "" {
 		parts = append(parts, event.Type)
+	} else if event.Kind != "" {
+		parts = append(parts, event.Kind)
 	}
-	for _, key := range []string{"provider", "model", "retry_after", "delay", "reason", "detail", "error", "state"} {
+	for _, key := range []string{"state", "phase", "status", "tool", "name", "attempt", "provider", "model", "retry_after", "delay", "reason", "detail", "error"} {
 		value, ok := event.Payload[key]
 		if !ok {
 			continue
@@ -404,6 +405,44 @@ func runtimeProgressSummary(event runtimepkg.Event) string {
 		return "event"
 	}
 	return strings.Join(parts, " ")
+}
+
+func runtimeEventIsProgress(event runtimepkg.Event) bool {
+	switch event.Kind {
+	case "message", "session", "native_extension":
+		return false
+	default:
+		return event.Kind != "" || event.Type != ""
+	}
+}
+
+func renderStudyRuntimeProgress(deps dependencies, taskKind, dimensionRef, sourceRef string) func(runtimepkg.Event) {
+	return func(event runtimepkg.Event) {
+		if !runtimeEventIsProgress(event) {
+			return
+		}
+		fmt.Fprintf(deps.stderr, "[runtime] %-9s %s", taskKind, dimensionRef)
+		if sourceRef != "" {
+			fmt.Fprintf(deps.stderr, " %s", sourceRef)
+		}
+		fmt.Fprintf(deps.stderr, " | %s\n", runtimeProgressSummary(event))
+	}
+}
+
+func renderRunAllRuntimeProgress(deps dependencies) func(study.RunAllProgress) {
+	var mu sync.Mutex
+	return func(progress study.RunAllProgress) {
+		if !runtimeEventIsProgress(progress.Event) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(deps.stderr, "[runtime] %-9s %s", progress.TaskKind, progress.DimensionRef)
+		if progress.SourceRef != "" {
+			fmt.Fprintf(deps.stderr, " %s", progress.SourceRef)
+		}
+		fmt.Fprintf(deps.stderr, " | %s\n", runtimeProgressSummary(progress.Event))
+	}
 }
 
 func runLoopProgressPath(root, path string) string {
@@ -431,6 +470,7 @@ func runStudyRunAll(deps dependencies, root workspace.Root, studyRef string, arg
 		DimensionRefs: flags.dimensions,
 		SourceRefs:    flags.sources,
 		Parallelism:   parallelism,
+		Progress:      renderRunAllRuntimeProgress(deps),
 	})
 	if err != nil {
 		return mapStudyExecutionError("study.run-all", err)
@@ -654,7 +694,7 @@ func runStudyRun(deps dependencies, root workspace.Root, studyRef string, args [
 	if err != nil {
 		return err
 	}
-	result, err := service.RunAnalysis(deps.ctx, study.ExecutionRequest{StudyRef: studyRef, DimensionRef: args[0], SourceRef: args[1]})
+	result, err := service.RunAnalysis(deps.ctx, study.ExecutionRequest{StudyRef: studyRef, DimensionRef: args[0], SourceRef: args[1], OnEvent: renderStudyRuntimeProgress(deps, "analysis", args[0], args[1])})
 	if err != nil {
 		return mapStudyExecutionError("study.run", err)
 	}
@@ -674,7 +714,7 @@ func runStudySynthesize(deps dependencies, root workspace.Root, studyRef string,
 	if err != nil {
 		return err
 	}
-	result, err := service.Synthesize(deps.ctx, study.SynthesisRequest{StudyRef: studyRef, DimensionRef: args[0]})
+	result, err := service.Synthesize(deps.ctx, study.SynthesisRequest{StudyRef: studyRef, DimensionRef: args[0], OnEvent: renderStudyRuntimeProgress(deps, "synthesis", args[0], "")})
 	if err != nil {
 		return mapStudyExecutionError("study.synthesize", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
@@ -160,6 +161,7 @@ func runSprint(deps dependencies, args []string) error {
 		}
 		flowService := service
 		if !req.DryRun {
+			req.Progress = renderSprintFlowProgress(deps)
 			flowService, err = sprintRuntimeService(deps, root)
 			if err != nil {
 				return err
@@ -217,6 +219,13 @@ func runSprint(deps dependencies, args []string) error {
 		}
 		reviewService := service
 		if !req.DryRun {
+			req.Progress = func(progress sprint.ReviewProgress) {
+				fmt.Fprintf(deps.stderr, "[sprint] review coverage %d/%d", progress.Completed, progress.Total)
+				if progress.CoverageID != "" {
+					fmt.Fprintf(deps.stderr, " %s", progress.CoverageID)
+				}
+				fmt.Fprintf(deps.stderr, ": %s\n", progress.Message)
+			}
 			reviewService, err = sprintRuntimeService(deps, root)
 			if err != nil {
 				return err
@@ -248,6 +257,20 @@ func runSprint(deps dependencies, args []string) error {
 		}
 		if !req.DryRun && !req.NonInteractive {
 			return classified(ExitUsage, "sprint.smoke: --yes is required for non-interactive external harness execution")
+		}
+		if !req.DryRun {
+			req.Progress = func(progress sprint.SmokeProgress) {
+				fmt.Fprintf(deps.stderr, "[smoke] %-20s", progress.Phase)
+				if progress.Test != "" {
+					fmt.Fprintf(deps.stderr, " test=%s", progress.Test)
+				} else if progress.Suite != "" {
+					fmt.Fprintf(deps.stderr, " suite=%s", progress.Suite)
+				}
+				if progress.Total > 0 {
+					fmt.Fprintf(deps.stderr, " %d/%d", progress.Completed, progress.Total)
+				}
+				fmt.Fprintf(deps.stderr, " | %s\n", config.RedactValue("smoke.progress", progress.Message))
+			}
 		}
 		result, runErr := service.RunSmoke(deps.ctx, args[0], args[1], req)
 		if jsonOut {
@@ -295,6 +318,9 @@ func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, spri
 	}
 	var result sprint.FlowResult
 	for _, stage := range stages {
+		if req.Progress != nil {
+			req.Progress(sprint.FlowProgress{Stage: stage, State: "checking", Message: "checking prerequisites and existing artifact"})
+		}
 		stageReq := sprint.FlowRequest{To: stage, DryRun: req.DryRun}
 		var err error
 		if !req.DryRun {
@@ -304,8 +330,14 @@ func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, spri
 			}
 			if valid {
 				result = sprint.FlowResult{Project: projectRef, Sprint: sprintRef, To: stage, Message: string(stage) + " already complete"}
+				if req.Progress != nil {
+					req.Progress(sprint.FlowProgress{Stage: stage, State: "skipped", Message: "already complete"})
+				}
 				continue
 			}
+		}
+		if req.Progress != nil && !req.DryRun {
+			req.Progress(sprint.FlowProgress{Stage: stage, State: "running", Message: "starting runtime-backed stage"})
 		}
 		switch stage {
 		case sprint.StageRequirements:
@@ -334,7 +366,13 @@ func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, spri
 			err = fmt.Errorf("unsupported flow target %q", stage)
 		}
 		if err != nil {
+			if req.Progress != nil {
+				req.Progress(sprint.FlowProgress{Stage: stage, State: "failed", Message: err.Error()})
+			}
 			return result, err
+		}
+		if req.Progress != nil {
+			req.Progress(sprint.FlowProgress{Stage: stage, State: "complete", Message: firstNonEmpty(result.Message, "stage complete")})
 		}
 	}
 	result.To = req.To
@@ -372,7 +410,7 @@ func sprintStageAlreadyValid(service sprint.Service, projectRef, sprintRef strin
 	return result.Valid(), nil
 }
 
-func sprintRuntimeService(deps dependencies, root workspace.Root) (sprint.Service, error) {
+func sprintRuntimeService(deps dependencies, root workspace.Root, observers ...func(sprint.RuntimeProgress)) (sprint.Service, error) {
 	effective, err := loadEffectiveConfig(root, deps, config.CLIOverrides{})
 	if err != nil {
 		return sprint.Service{}, err
@@ -385,7 +423,36 @@ func sprintRuntimeService(deps dependencies, root workspace.Root) (sprint.Servic
 	if err != nil {
 		return sprint.Service{}, classified(ExitRuntime, "runtime.init: %w", err)
 	}
-	return sprint.NewService(root.Path).WithRuntime(rt, req).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env))), nil
+	progress := renderSprintRuntimeProgress(deps)
+	if len(observers) > 0 {
+		progress = observers[0]
+	}
+	return sprint.NewService(root.Path).WithRuntime(rt, req).WithRuntimeProgress(progress).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env))), nil
+}
+
+func renderSprintFlowProgress(deps dependencies) func(sprint.FlowProgress) {
+	return func(progress sprint.FlowProgress) {
+		fmt.Fprintf(deps.stderr, "[sprint] %-18s %-8s %s\n", progress.Stage, progress.State, config.RedactValue("sprint.progress", progress.Message))
+	}
+}
+
+func renderSprintRuntimeProgress(deps dependencies) func(sprint.RuntimeProgress) {
+	var mu sync.Mutex
+	return func(progress sprint.RuntimeProgress) {
+		if !runtimeEventIsProgress(progress.Event) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(deps.stderr, "[runtime] %-18s", progress.Stage)
+		if progress.Task != "" {
+			fmt.Fprintf(deps.stderr, " task=%s", progress.Task)
+		}
+		if progress.CoverageID != "" {
+			fmt.Fprintf(deps.stderr, " coverage=%s", progress.CoverageID)
+		}
+		fmt.Fprintf(deps.stderr, " | %s\n", runtimeProgressSummary(progress.Event))
+	}
 }
 
 func smokeSettings(e config.Effective, lookups ...func(string) string) sprint.SmokeSettings {

@@ -21,6 +21,7 @@ type Service struct {
 	now               func() time.Time
 	runtime           Runtime
 	runtimeConfig     pruntime.Request
+	runtimeProgress   func(RuntimeProgress)
 	stageRuntime      map[PlanningStage]StageRuntime
 	reviewConcurrency int
 	processRunner     pprocess.Runner
@@ -53,6 +54,20 @@ func (s Service) WithRuntime(rt Runtime, reqs ...pruntime.Request) Service {
 	if len(reqs) > 0 {
 		s.runtimeConfig = reqs[0]
 	}
+	return s
+}
+
+type RuntimeProgress struct {
+	Stage      PlanningStage
+	Task       string
+	CoverageID string
+	Event      pruntime.Event
+}
+
+// WithRuntimeProgress observes bounded, sanitized runtime events for every
+// runtime-backed sprint operation created by this service.
+func (s Service) WithRuntimeProgress(progress func(RuntimeProgress)) Service {
+	s.runtimeProgress = progress
 	return s
 }
 
@@ -875,6 +890,18 @@ func (s Service) runtimeRequest(prompt string, metadata map[string]string) prunt
 				req.Metadata["variant"] = override.Variant
 				req.Metadata["reasoning_effort"] = override.Variant
 			}
+		}
+	}
+	if s.runtimeProgress != nil {
+		configured := req.OnEvent
+		stage := PlanningStage(metadata["stage"])
+		task := metadata["task"]
+		coverageID := metadata["coverage"]
+		req.OnEvent = func(event pruntime.Event) {
+			if configured != nil {
+				configured(event)
+			}
+			s.runtimeProgress(RuntimeProgress{Stage: stage, Task: task, CoverageID: coverageID, Event: event})
 		}
 	}
 	return req

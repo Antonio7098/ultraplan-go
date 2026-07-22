@@ -296,9 +296,13 @@ agentwrap:
 	defer restore()
 
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "sprint-index"})
-	if status != ExitOK || stderr != "" {
+	if status != ExitOK {
 		t.Fatalf("flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
+	assertContains(t, stderr, "[sprint] requirements")
+	assertContains(t, stderr, "running  starting runtime-backed stage")
+	assertContains(t, stderr, "[runtime] requirements")
+	assertContains(t, stderr, "lifecycle.transition state=running")
 	assertContains(t, stdout, "Result: sprint-index already complete")
 	if fake.calls != 1 {
 		t.Fatalf("runtime calls = %d", fake.calls)
@@ -321,9 +325,10 @@ agentwrap:
 	writeFixtureFileContent(t, base, commandValidTechnicalHandbook(), "technical-handbook.md")
 	writeFixtureFileContent(t, base, commandValidAreaReasoning(), "reasoning", "architecture.md")
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "reasoning"})
-	if status != ExitOK || stderr != "" {
+	if status != ExitOK {
 		t.Fatalf("reasoning flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
+	assertContains(t, stderr, "[runtime] reasoning")
 	assertContains(t, stdout, "Result: reasoning complete")
 	if fake.calls != 2 {
 		t.Fatalf("runtime calls = %d", fake.calls)
@@ -333,9 +338,10 @@ agentwrap:
 	}
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "plan"})
-	if status != ExitOK || stderr != "" {
+	if status != ExitOK {
 		t.Fatalf("plan flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
+	assertContains(t, stderr, "[runtime] plan")
 	assertContains(t, stdout, "Result: plan complete")
 	if fake.calls != 3 {
 		t.Fatalf("runtime calls = %d", fake.calls)
@@ -345,9 +351,10 @@ agentwrap:
 	}
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "execute"})
-	if status != ExitOK || stderr != "" {
+	if status != ExitOK {
 		t.Fatalf("execute flow status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
+	assertContains(t, stderr, "[runtime] execute")
 	assertContains(t, stdout, "Result: execute complete")
 	if fake.calls != 4 {
 		t.Fatalf("runtime calls = %d", fake.calls)
@@ -543,6 +550,9 @@ func (f *sprintCommandRuntime) StartRun(_ context.Context, req runtimepkg.Reques
 	f.calls++
 	f.request = req
 	f.stages = append(f.stages, req.Metadata["stage"])
+	if req.OnEvent != nil {
+		req.OnEvent(runtimepkg.Event{Type: "lifecycle.transition", Kind: "lifecycle", Payload: map[string]any{"state": "running"}})
+	}
 	if req.Metadata["stage"] == string(sprint.StageRequirements) {
 		path := filepath.Join(req.WorkDir, "projects", req.Metadata["project"], "sprints", req.Metadata["sprint"], "requirements.md")
 		if err := os.WriteFile(path, []byte(commandValidRequirements()), 0o644); err != nil {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 type analysisTask struct {
@@ -43,7 +45,12 @@ func (s Service) RunAll(ctx context.Context, req RunAllRequest) (RunAllResult, e
 					result.Analysis[idx] = pendingAnalysisResult(listing.Study, task)
 					continue
 				}
-				res, err := s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.dimension.Ref(), SourceRef: task.source.Name})
+				onEvent := func(event runtimepkg.Event) {
+					if req.Progress != nil {
+						req.Progress(RunAllProgress{TaskKind: TaskKindAnalysis, DimensionRef: task.dimension.Ref(), SourceRef: task.source.Name, Event: event})
+					}
+				}
+				res, err := s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.dimension.Ref(), SourceRef: task.source.Name, OnEvent: onEvent})
 				if err != nil {
 					res = failedAnalysisResult(listing.Study, task, err)
 				}
@@ -73,7 +80,12 @@ func (s Service) RunAll(ctx context.Context, req RunAllRequest) (RunAllResult, e
 			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusPreflightBlocked, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study, dimension), Blockers: blockers})
 			continue
 		}
-		res, err := s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: dimension.Ref(), SourceRefs: selectedSourceNames(sources)})
+		onEvent := func(event runtimepkg.Event) {
+			if req.Progress != nil {
+				req.Progress(RunAllProgress{TaskKind: TaskKindSynthesis, DimensionRef: dimension.Ref(), Event: event})
+			}
+		}
+		res, err := s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: dimension.Ref(), SourceRefs: selectedSourceNames(sources), OnEvent: onEvent})
 		if err != nil {
 			res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study, dimension), RuntimeError: safeError(err), RuntimeErr: err}
 		}

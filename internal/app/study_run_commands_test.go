@@ -22,6 +22,9 @@ type commandFakeRuntime struct {
 
 func (f *commandFakeRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
 	f.calls++
+	if req.OnEvent != nil {
+		req.OnEvent(runtimepkg.Event{Type: "lifecycle.transition", Kind: "lifecycle", Payload: map[string]any{"state": "running"}})
+	}
 	if f.write != "" && req.Validation != nil && len(req.Validation.Expectations) > 0 {
 		path := req.Validation.Expectations[0].Path
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -66,9 +69,8 @@ func TestStudyRunCommandSuccessSkipAndDiagnostics(t *testing.T) {
 		t.Fatalf("status = %d stdout = %q stderr = %q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Completed analysis: demo 01-structure repo")
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want empty", stderr)
-	}
+	assertContains(t, stderr, "[runtime] analysis")
+	assertContains(t, stderr, "lifecycle.transition state=running")
 	if fake.calls != 1 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
@@ -132,9 +134,8 @@ func TestStudySynthesizeCommandPreflightAndValidationExit(t *testing.T) {
 		t.Fatalf("status = %d stdout = %q stderr = %q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Completed synthesis: demo 01-structure")
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want empty", stderr)
-	}
+	assertContains(t, stderr, "[runtime] synthesis")
+	assertContains(t, stderr, "lifecycle.transition state=running")
 
 	if err := os.Remove(filepath.Join(studyRoot, "reports", "source", "01-structure", "repo.md")); err != nil {
 		t.Fatal(err)
@@ -172,6 +173,20 @@ func TestStudyRunCommandUsage(t *testing.T) {
 		t.Fatalf("help status = %d stdout = %q stderr = %q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "ultraplan study <study> run <dimension> <source>")
+}
+
+func TestRuntimeProgressSummaryIsUsefulAndOmitsMessages(t *testing.T) {
+	event := runtimepkg.Event{Type: "tool.completed", Kind: "tool", Payload: map[string]any{"tool": "read", "status": "completed"}}
+	if !runtimeEventIsProgress(event) {
+		t.Fatal("tool event should be progress")
+	}
+	summary := runtimeProgressSummary(event)
+	for _, want := range []string{"tool.completed", "status=completed", "tool=read"} {
+		assertContains(t, summary, want)
+	}
+	if runtimeEventIsProgress(runtimepkg.Event{Type: "message.part", Kind: "message"}) {
+		t.Fatal("message bodies must not be streamed as progress")
+	}
 }
 
 func stubStudyRuntime(t *testing.T, rt study.Runtime) func() {

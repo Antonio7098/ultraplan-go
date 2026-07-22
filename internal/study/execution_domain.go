@@ -59,6 +59,14 @@ type RunAllRequest struct {
 	DimensionRefs []string
 	SourceRefs    []string
 	Parallelism   int
+	Progress      func(RunAllProgress)
+}
+
+type RunAllProgress struct {
+	TaskKind     TaskKind
+	DimensionRef string
+	SourceRef    string
+	Event        runtimepkg.Event
 }
 
 type RunAllStatus string

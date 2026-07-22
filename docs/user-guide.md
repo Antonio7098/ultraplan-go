@@ -231,7 +231,7 @@ ultraplan sprint <project> <sprint> flow --to execute --dry-run
 ultraplan sprint <project> <sprint> execute --resume
 ```
 
-Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use `flow --to <stage> --dry-run` to preview planned stage execution. Non-dry-run flow can generate planning artifacts when runtime prerequisites are available.
+Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use `flow --to <stage> --dry-run` to preview planned stage execution. Non-dry-run flow can generate planning artifacts when runtime prerequisites are available. While it runs, the CLI prints stage transitions and sanitized runtime progress to stderr, leaving the final result on stdout. The TUI shows the same stage and runtime events in the active operation view for sprint flow, execute, and review.
 
 The planning flow continues through controlled execute from validated `plan.md` tasks. Execute writes `.run-state.json` and `execute.md`; automated review then writes the current `review.md`.
 

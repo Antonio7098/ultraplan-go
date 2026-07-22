@@ -27,9 +27,8 @@ func TestStudyRunAllCommandHelpSuccessAndSummary(t *testing.T) {
 	assertContains(t, stdout, "Run-all: completed")
 	assertContains(t, stdout, "Completed: 2")
 	assertContains(t, stdout, "Summary: summary.csv")
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want empty", stderr)
-	}
+	assertContains(t, stderr, "[runtime] analysis")
+	assertContains(t, stderr, "[runtime] synthesis")
 	if fake.calls != 2 {
 		t.Fatalf("runtime calls = %d, want analysis + synthesis", fake.calls)
 	}
