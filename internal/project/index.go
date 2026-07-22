@@ -3,6 +3,7 @@ package project
 import (
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strings"
 )
 
@@ -12,6 +13,7 @@ var recognizedSections = map[string]CatalogSection{
 	string(SectionAvailableEvidenceReports):   SectionAvailableEvidenceReports,
 	string(SectionAvailableReasoningTemplate): SectionAvailableReasoningTemplate,
 	string(SectionReviewProtocols):            SectionReviewProtocols,
+	string(SectionSmokeHarnesses):             SectionSmokeHarnesses,
 }
 
 func ParseProjectIndex(content string) (ProjectIndex, []ValidationFinding) {
@@ -62,7 +64,7 @@ func entryFromRow(section CatalogSection, headers, cells []string) (CatalogEntry
 			row[strings.ToLower(strings.TrimSpace(h))] = cells[i]
 		}
 	}
-	name := firstNonEmpty(row["document"], row["contract"], row["report"], row["template"], row["protocol"], row["decision"])
+	name := firstNonEmpty(row["document"], row["contract"], row["report"], row["template"], row["protocol"], row["decision"], row["harness"])
 	path := firstNonEmpty(row["path"], row["output path"])
 	if name == "" {
 		return CatalogEntry{}, fmt.Errorf("missing entry name")
@@ -76,7 +78,20 @@ func entryFromRow(section CatalogSection, headers, cells []string) (CatalogEntry
 		Path:        trimInlineCode(path),
 		Description: firstNonEmpty(row["summary"], row["covers"], row["applies to"], row["useful for"], row["required when"], row["why selected"]),
 	}
-	entry.External = isExternalPath(entry.Path)
+	entry.Manifest = trimInlineCode(row["manifest"])
+	entry.Status = trimInlineCode(row["status"])
+	if evidence := trimInlineCode(row["evidence"]); evidence != "" {
+		for _, value := range strings.Split(evidence, " and ") {
+			value = strings.TrimSpace(strings.Trim(value, "`"))
+			if value != "" {
+				entry.Evidence = append(entry.Evidence, value)
+			}
+		}
+	}
+	entry.External = isExternalPath(entry.Path) || (section == SectionSmokeHarnesses && filepath.IsAbs(entry.Path))
+	if section == SectionSmokeHarnesses && entry.Manifest == "" {
+		return CatalogEntry{}, fmt.Errorf("missing manifest")
+	}
 	return entry, nil
 }
 

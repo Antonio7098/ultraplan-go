@@ -50,7 +50,7 @@ func runTUI(deps dependencies, args []string) error {
 	if err != nil {
 		return err
 	}
-	useCases := dashboardUseCases{root: root.Path, stageRuntime: planningStageRuntime(effective.Config), reviewConcurrency: effective.Config.Execution.DefaultParallel}
+	useCases := dashboardUseCases{root: root.Path, stageRuntime: planningStageRuntime(effective.Config), reviewConcurrency: effective.Config.Execution.DefaultParallel, smokeSettings: smokeSettings(effective, envLookup(deps.env))}
 	useCases.runner = func(ctx context.Context, req OperationRequest, emit func(OperationEvent)) (OperationResult, error) {
 		result := OperationResult{State: OperationComplete, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study)}
 		switch req.Kind {
@@ -87,6 +87,24 @@ func runTUI(deps dependencies, args []string) error {
 			result.Message = fmt.Sprintf("%s verdict=%s", r.Status, r.Verdict)
 			for _, f := range r.Findings {
 				result.Findings = append(result.Findings, DisplayFinding{Severity: f.Severity, Section: "review", Problem: f.Title, Cause: f.Detail, Suggestion: f.Action})
+			}
+			if e != nil {
+				return failedOperation(result, e)
+			}
+		case OperationSmokeStart:
+			service := sprint.NewService(root.Path).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env)))
+			var timeout time.Duration
+			if req.Timeout != "" {
+				timeout, _ = time.ParseDuration(req.Timeout)
+			}
+			r, e := service.RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, Timeout: timeout, ForceReview: req.ForceReview, Progress: func(p sprint.SmokeProgress) {
+				emit(OperationEvent{State: OperationRunning, Stage: string(p.Phase), Task: operationFirstNonEmpty(p.Test, p.Suite), Message: p.Message, Completed: p.Completed, Total: p.Total})
+			}})
+			result.Message = fmt.Sprintf("%s verdict=%s run=%s next=%s", r.Status, r.Verdict, r.RunID, r.NextAction)
+			if r.Artifact != "" {
+				if preview, readErr := useCases.PreviewArtifact(ctx, r.Artifact); readErr == nil {
+					result.Content, result.Truncated = boundContent(preview.Content)
+				}
 			}
 			if e != nil {
 				return failedOperation(result, e)
@@ -140,7 +158,8 @@ Usage:
   ultraplan [--workspace <path>] tui
 
 Starts an operational terminal dashboard for workspace, project, study, and
-sprint state. Every sprint status, validation, prompt, flow, execute, and review
+sprint state. Every sprint status, validation, prompt, flow, execute, and review,
+plus review-gated smoke,
 operation is available. Runtime-backed or mutating actions require confirmation;
 validation, prompt previews, and dry runs do not invoke the runtime. Refresh and
 sprint status may recompute deterministic sprint flow-state.json status.

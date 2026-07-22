@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
@@ -22,9 +23,21 @@ type Service struct {
 	runtimeConfig     pruntime.Request
 	stageRuntime      map[PlanningStage]StageRuntime
 	reviewConcurrency int
+	processRunner     pprocess.Runner
+	smokeSettings     SmokeSettings
 }
 
 func (s Service) WithReviewConcurrency(n int) Service { s.reviewConcurrency = n; return s }
+
+func (s Service) WithProcessRunner(runner pprocess.Runner) Service {
+	s.processRunner = runner
+	return s
+}
+
+func (s Service) WithSmokeSettings(settings SmokeSettings) Service {
+	s.smokeSettings = settings
+	return s
+}
 
 type StageRuntime struct {
 	Model   string
@@ -32,7 +45,7 @@ type StageRuntime struct {
 }
 
 func NewService(root string) Service {
-	return Service{root: root, store: NewFSStore(root), now: func() time.Time { return time.Now().UTC() }}
+	return Service{root: root, store: NewFSStore(root), now: func() time.Time { return time.Now().UTC() }, processRunner: pprocess.DirectRunner{}, smokeSettings: DefaultSmokeSettings()}
 }
 
 func (s Service) WithRuntime(rt Runtime, reqs ...pruntime.Request) Service {
@@ -88,6 +101,7 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 	refreshed := NewFlowState(sp, stages, s.now())
 	if stateLoaded {
 		refreshed.Review = state.Review
+		refreshed.Smoke = state.Smoke
 		if refreshed.Review != nil && refreshed.Review.Fingerprint != "" {
 			manifest, reviewFindings, reviewErr := s.PrepareReview(projectRef, sprintRef, ReviewRequest{})
 			refreshed.Review.Stale = reviewErr != nil || len(reviewFindings) > 0 || manifest.Fingerprint != refreshed.Review.Fingerprint
@@ -95,6 +109,15 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 				content, readErr := s.store.ReadArtifact(sp, StageReview)
 				refreshed.Review.Stale = readErr != nil || len(ValidateReviewContent(content, manifest)) > 0
 			}
+		}
+		if refreshed.Smoke != nil {
+			smokePath, pathErr := ArtifactPath(s.root, sp, StageSmoke)
+			data, readErr := os.ReadFile(smokePath)
+			invalid := pathErr != nil || readErr != nil || len(ValidateSmokeContent(string(data))) > 0
+			fingerprintMismatch := readErr == nil && refreshed.Smoke.SmokeFingerprint != "" && refreshed.Smoke.SmokeFingerprint != hashBytes(data)
+			reviewMismatch := refreshed.Review == nil || refreshed.Review.Stale || refreshed.Smoke.ReviewFingerprint != refreshed.Review.Fingerprint
+			refreshed.Smoke.Stale = invalid || fingerprintMismatch || reviewMismatch
+			refreshed.Smoke.Reconciliation = fingerprintMismatch || (readErr == nil && refreshed.Smoke.SmokeFingerprint == "")
 		}
 	}
 	if err := SaveFlowState(s.root, sp, refreshed); err != nil {
@@ -127,6 +150,8 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 		RunStatePath:  workspace.Rel(s.root, runStatePath),
 		Review:        refreshed.Review,
 		ReviewPath:    ArtifactRelPath(sp, StageReview),
+		Smoke:         refreshed.Smoke,
+		SmokePath:     ArtifactRelPath(sp, StageSmoke),
 	}, nil
 }
 

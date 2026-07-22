@@ -1,6 +1,6 @@
 # CLI Reference
 
-This release includes study commands and planning commands through `plan.md`. Sprint implementation execution, smoke investigation execution, review automation, issue tracking, Git mutation, hosted services, and browser UI are deferred.
+This release includes study commands and governed sprint planning, execute, automated review, and review-gated deep smoke. Integrated `verify`, focused rerun recovery, issue management, Git mutation, hosted services, and browser UI remain deferred.
 
 ## Global Usage
 
@@ -114,7 +114,7 @@ Shows project docs, roadmap, `project-index.md`, sprints, and catalog health wit
 ultraplan project <project> validate
 ```
 
-Validates required project files and `project-index.md` catalog references for contracts, evidence reports, reasoning templates, and review protocols.
+Validates required project files and `project-index.md` catalog references for contracts, evidence reports, reasoning templates, review protocols, and the external smoke harness manifest.
 
 ### `ultraplan study init`
 
@@ -223,10 +223,10 @@ Regenerates deterministic `studies/<study>/summary.csv` from existing reports wi
 ### `ultraplan sprint <project> <sprint> status`
 
 ```text
-ultraplan sprint <project> <sprint> status
+ultraplan sprint <project> <sprint> status [--json]
 ```
 
-Inspects planning artifacts and refreshes `projects/<project>/sprints/<sprint>/flow-state.json`.
+Inspects planning, execute, review, and smoke state and refreshes `projects/<project>/sprints/<sprint>/flow-state.json`. Static smoke readiness validates the catalog, manifest, review gate, artifact, fingerprint, and evidence paths without launching discovery or a run.
 
 ### `ultraplan sprint <project> <sprint> validate`
 
@@ -237,6 +237,8 @@ ultraplan sprint <project> <sprint> validate area-reasoning
 ultraplan sprint <project> <sprint> validate reasoning
 ultraplan sprint <project> <sprint> validate plan
 ultraplan sprint <project> <sprint> validate execute
+ultraplan sprint <project> <sprint> validate review
+ultraplan sprint <project> <sprint> validate smoke
 ```
 
 Validates one planning or execute stage artifact without invoking runtime. `sprint-index` references must be a subset of `project-index.md`. Plan validation checks traceability to `reasoning.md` and task/evidence checklist structure. Execute validation checks plan task extraction and target safety.
@@ -266,9 +268,11 @@ ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
 ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
 ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
 ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
+ultraplan sprint <project> <sprint> flow --to review [--dry-run]
+ultraplan sprint <project> <sprint> flow --to smoke --dry-run
 ```
 
-Runs or previews the planning artifact flow through the requested stage, including controlled execute from validated `plan.md` tasks. The supported stage chain is `requirements`, `sprint-index`, `technical-handbook`, `area-reasoning`, `reasoning`, `plan`, and `execute`. The command does not run smoke, review automation, issue tracking, Git mutation, TUI, hosted/browser, or cross-sprint scheduling workflows.
+Runs or previews the governed stage flow through review. `flow --to smoke --dry-run` exposes the shared guarded smoke preview, but mutating smoke remains an explicit confirmed `smoke` action; integrated review-to-smoke execution is deferred to Sprint 28.
 
 ### `ultraplan sprint <project> <sprint> execute`
 
@@ -277,6 +281,22 @@ ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume]
 ```
 
 Executes validated top-level `plan.md` task checkboxes through the generic runtime boundary. It writes `.run-state.json` and `execute.md`, requires runtime evidence or a safe diagnostic before marking a task complete, and constrains work to the project index target implementation directory.
+
+### `ultraplan sprint <project> <sprint> review`
+
+```text
+ultraplan sprint <project> <sprint> review [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
+```
+
+Runs the current automated conformance review and atomically writes `review.md`.
+
+### `ultraplan sprint <project> <sprint> smoke`
+
+```text
+ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review] [--dry-run] [--yes] [--json]
+```
+
+Discovers the cataloged protocol-v1 harness, gates on the current review fingerprint, selects sufficient scope, invokes direct bounded argv, validates external evidence, and atomically writes `smoke.md` before smoke flow state. Raw streams and run/issue evidence remain external. Timeout, cancellation, malformed evidence, path escape, and uncertain cleanup never replace a valid summary.
 
 ### `ultraplan code`
 
@@ -300,4 +320,4 @@ The compatibility-sensitive JSON surfaces in this release are:
 - `study <study> status --json`
 - `code --json` deterministic extraction result
 
-Project and sprint planning commands currently expose text output only. Other text output is intended for humans unless a future release explicitly promotes it to stable JSON.
+Sprint `status --json`, `review --json`, and `smoke --json` also expose schema-versioned envelopes. Other text output is intended for humans unless explicitly promoted to stable JSON.

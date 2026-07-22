@@ -13,6 +13,7 @@ const (
 	SectionAvailableEvidenceReports   CatalogSection = "Available Evidence Reports"
 	SectionAvailableReasoningTemplate CatalogSection = "Available Reasoning Templates"
 	SectionReviewProtocols            CatalogSection = "Review Protocols"
+	SectionSmokeHarnesses             CatalogSection = "Smoke Harnesses"
 )
 
 type ProjectIndex struct {
@@ -25,6 +26,9 @@ type CatalogEntry struct {
 	Path        string
 	Description string
 	External    bool
+	Manifest    string
+	Evidence    []string
+	Status      string
 }
 
 type StatusState string

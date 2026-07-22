@@ -35,6 +35,9 @@ const (
 	OperationReviewStatus  OperationKind = "review-status"
 	OperationReviewDryRun  OperationKind = "review-dry-run"
 	OperationReviewStart   OperationKind = "review-start"
+	OperationSmokeStatus   OperationKind = "smoke-status"
+	OperationSmokeDryRun   OperationKind = "smoke-dry-run"
+	OperationSmokeStart    OperationKind = "smoke-start"
 	OperationStudyStart    OperationKind = "study-start"
 	OperationStudyResume   OperationKind = "study-resume"
 	OperationStudyCancel   OperationKind = "study-cancel"
@@ -54,6 +57,9 @@ const (
 type OperationRequest struct {
 	Kind                                OperationKind
 	Project, Sprint, Study, Stage, Task string
+	Level, Suite, Test                  string
+	Timeout                             string
+	ForceReview                         bool
 	Sources, Dimensions                 []string
 	Parallelism                         int
 }
@@ -98,7 +104,7 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	}
 	c := Confirmation{Request: req, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study), Permission: "workspace policy enforced"}
 	switch req.Kind {
-	case OperationPrompt, OperationFlowDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus:
+	case OperationPrompt, OperationFlowDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus, OperationSmokeStatus:
 		c.Scope = []string{req.Stage}
 		c.Warning = "runtime-free; no runtime-backed writes"
 	case OperationSprintStatus:
@@ -120,6 +126,15 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Mutates = true
 		c.Scope = []string{"one read-only reviewer per selected contract plus handbook", fmt.Sprintf("bounded parallelism: %d", req.Parallelism)}
 		c.Warning = "RUNTIME + REVIEW ARTIFACT WRITE (TARGET READ-ONLY)"
+	case OperationSmokeDryRun, OperationSmokeStart:
+		preview, err := u.sprintService().RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, ForceReview: req.ForceReview, DryRun: true})
+		if err != nil {
+			return c, err
+		}
+		c.Runtime = true
+		c.Mutates = req.Kind == OperationSmokeStart
+		c.Scope = []string{fmt.Sprintf("%s %s", preview.ScopeKind, preview.Scope), preview.ScopeRationale, "prerequisites: " + strings.Join(preview.Prerequisites, ", "), "duration/cost: " + preview.DurationClass + "/" + preview.CostClass, "safe command: " + preview.SafeArgv, "evidence roots: " + strings.Join(preview.EvidenceRoots, ", ")}
+		c.Warning = "EXTERNAL HARNESS + SMOKE ARTIFACT WRITE; RAW EVIDENCE REMAINS EXTERNAL"
 	case OperationStudyStart, OperationStudyResume:
 		if req.Parallelism < 1 || req.Parallelism > 64 {
 			return c, fmt.Errorf("parallelism must be between 1 and 64")
@@ -211,6 +226,19 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 		} else {
 			result.Message = fmt.Sprintf("%s verdict=%s stale=%t progress=%d/%d", r.Review.Status, r.Review.Verdict, r.Review.Stale, r.Review.Completed, r.Review.Total)
 		}
+	case OperationSmokeStatus:
+		r, err := ss.SmokeStatus(req.Project, req.Sprint)
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Message = fmt.Sprintf("%s verdict=%s stale=%t run=%s next=%s", r.Status, r.Verdict, r.Stale, r.RunID, r.NextAction)
+	case OperationSmokeDryRun:
+		r, err := ss.RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, ForceReview: req.ForceReview, DryRun: true})
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Message = fmt.Sprintf("%s %s: %s", r.ScopeKind, r.Scope, r.ScopeRationale)
+		result.Content, result.Truncated = boundContent(sprint.RenderSmoke(r))
 	default:
 		if u.runner == nil {
 			return failedOperation(result, fmt.Errorf("runtime-backed operation is unavailable without configured composition"))
@@ -237,6 +265,11 @@ func summarizeSprintStatus(status sprint.StatusSummary) string {
 	} else {
 		parts = append(parts, fmt.Sprintf("review=%s verdict=%s stale=%t", status.Review.Status, status.Review.Verdict, status.Review.Stale))
 	}
+	if status.Smoke == nil {
+		parts = append(parts, "smoke=not started")
+	} else {
+		parts = append(parts, fmt.Sprintf("smoke=%s verdict=%s stale=%t", status.Smoke.Status, status.Smoke.Verdict, status.Smoke.Stale))
+	}
 	return strings.Join(parts, "\n")
 }
 
@@ -254,6 +287,11 @@ func failedOperation(r OperationResult, err error) (OperationResult, error) {
 	}
 	r.Message = displaySafe(err.Error())
 	code, category, guidance := "internal.error", "internal", "Inspect durable state and retry after correcting the reported cause."
+	if smokeErr, ok := sprint.AsSmokeError(err); ok {
+		code, category, guidance = smokeErr.Code, smokeErr.Category, smokeErr.Guidance
+		r.Error = &OperationError{Code: code, Category: category, Operation: "smoke", Component: "sprint", Message: r.Message, Cause: r.Message, Guidance: guidance, Retryable: category == "process" || category == "timeout"}
+		return r, err
+	}
 	s := strings.ToLower(err.Error())
 	switch {
 	case errors.Is(err, context.Canceled):

@@ -16,6 +16,7 @@ type Config struct {
 	Models    Models    `json:"models"`
 	Execution Execution `json:"execution"`
 	Planning  Planning  `json:"planning"`
+	Smoke     Smoke     `json:"smoke"`
 	Logging   Logging   `json:"logging"`
 	Agentwrap Agentwrap `json:"agentwrap"`
 }
@@ -55,6 +56,14 @@ type Planning struct {
 type Logging struct {
 	Format string `json:"format"`
 	Level  string `json:"level"`
+}
+type Smoke struct {
+	DiscoveryTimeout string   `json:"discovery_timeout"`
+	RunTimeout       string   `json:"run_timeout"`
+	StdoutLimit      int      `json:"stdout_limit"`
+	StderrLimit      int      `json:"stderr_limit"`
+	CleanupGrace     string   `json:"cleanup_grace"`
+	Environment      []string `json:"environment"`
 }
 type Agentwrap struct {
 	Executable                    string   `json:"executable"`
@@ -101,6 +110,11 @@ func EnvOverrides() []EnvOverride {
 		{Key: "ULTRAPLAN_DEFAULT_PARALLEL", Field: "execution.default_parallel"},
 		{Key: "ULTRAPLAN_DEFAULT_TIMEOUT", Field: "execution.default_timeout"},
 		{Key: "ULTRAPLAN_DEFAULT_RETRIES", Field: "execution.default_retries"},
+		{Key: "ULTRAPLAN_SMOKE_DISCOVERY_TIMEOUT", Field: "smoke.discovery_timeout"},
+		{Key: "ULTRAPLAN_SMOKE_RUN_TIMEOUT", Field: "smoke.run_timeout"},
+		{Key: "ULTRAPLAN_SMOKE_STDOUT_LIMIT", Field: "smoke.stdout_limit"},
+		{Key: "ULTRAPLAN_SMOKE_STDERR_LIMIT", Field: "smoke.stderr_limit"},
+		{Key: "ULTRAPLAN_SMOKE_CLEANUP_GRACE", Field: "smoke.cleanup_grace"},
 		{Key: "ULTRAPLAN_LOG_FORMAT", Field: "logging.format"},
 		{Key: "ULTRAPLAN_LOG_LEVEL", Field: "logging.level"},
 		{Key: "ULTRAPLAN_AGENTWRAP_EXECUTABLE", Field: "agentwrap.executable"},
@@ -112,7 +126,7 @@ func EnvOverrides() []EnvOverride {
 
 func Load(opts LoadOptions) (Effective, error) {
 	e := Effective{Config: Defaults(), Sources: map[string]string{}}
-	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "planning.execute_model", "planning.execute_variant", "planning.review_model", "planning.review_variant", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
+	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "planning.execute_model", "planning.execute_variant", "planning.review_model", "planning.review_variant", "smoke.discovery_timeout", "smoke.run_timeout", "smoke.stdout_limit", "smoke.stderr_limit", "smoke.cleanup_grace", "smoke.environment", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
 		e.Sources[field] = "default"
 	}
 	if opts.WorkspaceRoot != "" {
@@ -142,6 +156,7 @@ func Defaults() Config {
 		Models:    Models{Default: "provider/model", Primary: "provider/model", Backup: "provider/model"},
 		Execution: Execution{DefaultVariant: "high", DefaultParallel: 3, DefaultTimeout: "30m", DefaultRetries: 3},
 		Planning:  Planning{},
+		Smoke:     Smoke{DiscoveryTimeout: "30s", RunTimeout: "30m", StdoutLimit: 4 << 20, StderrLimit: 1 << 20, CleanupGrace: "5s", Environment: []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"}},
 		Logging:   Logging{Format: "text", Level: "info"},
 		Agentwrap: Agentwrap{Executable: "opencode", StderrLimit: 16 * 1024, RequiredHealth: []string{"runtime_available", "structured_output", "workdir"}, RequiredCapabilities: []string{"structured_events", "cancellation"}, Sandbox: "workspace_write", PermissionMode: "restricted", PermissionDefault: "ask"},
 	}
@@ -189,6 +204,9 @@ func loadFile(path string, e *Effective) error {
 				e.Sources[listField] = "workspace"
 			case "agentwrap.env":
 				e.Config.Agentwrap.Env = append(e.Config.Agentwrap.Env, item)
+				e.Sources[listField] = "workspace"
+			case "smoke.environment":
+				e.Config.Smoke.Environment = append(e.Config.Smoke.Environment, item)
 				e.Sources[listField] = "workspace"
 			}
 			continue
@@ -298,6 +316,24 @@ func setField(c *Config, field, value string) error {
 		c.Planning.ReviewModel = value
 	case "planning.review_variant":
 		c.Planning.ReviewVariant = value
+	case "smoke.discovery_timeout":
+		c.Smoke.DiscoveryTimeout = value
+	case "smoke.run_timeout":
+		c.Smoke.RunTimeout = value
+	case "smoke.cleanup_grace":
+		c.Smoke.CleanupGrace = value
+	case "smoke.stdout_limit":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("smoke.stdout_limit: must be an integer")
+		}
+		c.Smoke.StdoutLimit = n
+	case "smoke.stderr_limit":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("smoke.stderr_limit: must be an integer")
+		}
+		c.Smoke.StderrLimit = n
 	case "logging.format":
 		c.Logging.Format = value
 	case "logging.level":
@@ -349,6 +385,33 @@ func Validate(c Config) error {
 	if err != nil || d <= 0 {
 		return fmt.Errorf("execution.default_timeout: must be a positive duration")
 	}
+	for field, value := range map[string]string{"smoke.discovery_timeout": c.Smoke.DiscoveryTimeout, "smoke.run_timeout": c.Smoke.RunTimeout, "smoke.cleanup_grace": c.Smoke.CleanupGrace} {
+		duration, parseErr := time.ParseDuration(value)
+		if parseErr != nil || duration <= 0 {
+			return fmt.Errorf("%s: must be a positive duration", field)
+		}
+		max := 24 * time.Hour
+		if field == "smoke.discovery_timeout" {
+			max = 5 * time.Minute
+		}
+		if field == "smoke.cleanup_grace" {
+			max = 30 * time.Second
+		}
+		if duration > max {
+			return fmt.Errorf("%s: exceeds maximum %s", field, max)
+		}
+	}
+	if c.Smoke.StdoutLimit <= 0 || c.Smoke.StdoutLimit > 64<<20 {
+		return fmt.Errorf("smoke.stdout_limit: must be between 1 and 67108864")
+	}
+	if c.Smoke.StderrLimit <= 0 || c.Smoke.StderrLimit > 16<<20 {
+		return fmt.Errorf("smoke.stderr_limit: must be between 1 and 16777216")
+	}
+	for _, name := range c.Smoke.Environment {
+		if !validEnvName(name) {
+			return fmt.Errorf("smoke.environment: invalid environment name %q", name)
+		}
+	}
 	if c.Logging.Format != "text" && c.Logging.Format != "json" {
 		return fmt.Errorf("logging.format: must be text or json")
 	}
@@ -385,7 +448,7 @@ func Validate(c Config) error {
 
 func listConfigField(field string) bool {
 	switch field {
-	case "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.extra_args", "agentwrap.env":
+	case "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.extra_args", "agentwrap.env", "smoke.environment":
 		return true
 	default:
 		return false
@@ -402,7 +465,21 @@ func clearListField(c *Config, field string) {
 		c.Agentwrap.ExtraArgs = nil
 	case "agentwrap.env":
 		c.Agentwrap.Env = nil
+	case "smoke.environment":
+		c.Smoke.Environment = nil
 	}
+}
+
+func validEnvName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i, r := range value {
+		if !(r == '_' || r >= 'A' && r <= 'Z' || i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func knownHealth(value string) bool {

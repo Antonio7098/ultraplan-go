@@ -75,6 +75,9 @@ var defaultRequirementsTemplate string
 //go:embed scaffold/templates/review.md
 var defaultReviewTemplate string
 
+//go:embed scaffold/templates/smoke.md
+var defaultSmokeTemplate string
+
 //go:embed scaffold/templates/sprint-index.md
 var defaultSprintIndexTemplate string
 
@@ -112,6 +115,7 @@ var defaultOverrideFiles = map[string]string{
 	"templates/report.md":                  defaultReportTemplate,
 	"templates/requirements.md":            defaultRequirementsTemplate,
 	"templates/review.md":                  defaultReviewTemplate,
+	"templates/smoke.md":                   defaultSmokeTemplate,
 	"templates/sprint-index.md":            defaultSprintIndexTemplate,
 	"templates/sprint-plan.md":             defaultSprintPlanTemplate,
 	"templates/sprint-reasoning.md":        defaultSprintReasoningTemplate,
@@ -130,6 +134,18 @@ execution:
   default_parallel: 3
   default_timeout: 30m
   default_retries: 3
+smoke:
+  discovery_timeout: 30s
+  run_timeout: 30m
+  stdout_limit: 4194304
+  stderr_limit: 1048576
+  cleanup_grace: 5s
+  environment:
+    - PATH
+    - HOME
+    - TMPDIR
+    - LANG
+    - LC_ALL
 logging:
   format: text
   level: info
@@ -183,6 +199,9 @@ ultraplan sprint <project> <sprint> flow --to plan --dry-run
 ultraplan sprint <project> <sprint> review --dry-run
 ultraplan sprint <project> <sprint> review
 ultraplan sprint <project> <sprint> validate review
+ultraplan sprint <project> <sprint> smoke --dry-run
+ultraplan sprint <project> <sprint> smoke --yes
+ultraplan sprint <project> <sprint> validate smoke
 ` + "```" + `
 
 ## Defaults

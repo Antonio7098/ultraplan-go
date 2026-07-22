@@ -144,6 +144,23 @@ func TestParseProjectIndexRecognizesCatalogSectionsAndExternalURLs(t *testing.T)
 	}
 }
 
+func TestParseProjectIndexRecognizesAbsoluteSmokeHarnessContract(t *testing.T) {
+	index, findings := ParseProjectIndex(`# Project Index
+
+## Smoke Harnesses
+| Harness | Path | Manifest | Evidence | Useful For | Status |
+|---|---|---|---|---|---|
+| smoke | /opt/ultraplan-smoke | /opt/ultraplan-smoke/manifest.json | runs/ and issues/ | runtime | current |
+`)
+	if len(findings) != 0 || len(index.Entries) != 1 {
+		t.Fatalf("index=%+v findings=%+v", index, findings)
+	}
+	entry := index.Entries[0]
+	if entry.Section != SectionSmokeHarnesses || !entry.External || entry.Manifest != "/opt/ultraplan-smoke/manifest.json" || len(entry.Evidence) != 2 {
+		t.Fatalf("entry=%+v", entry)
+	}
+}
+
 func workspaceFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

@@ -147,6 +147,11 @@ func ValidateFlowState(root string, s Sprint, state FlowState, path string) erro
 			return err
 		}
 	}
+	if state.Smoke != nil {
+		if err := validateSmokeStageState(root, s, *state.Smoke, path); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

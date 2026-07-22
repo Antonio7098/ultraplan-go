@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
 	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
@@ -388,6 +389,21 @@ func TestParseSprintReviewArgs(t *testing.T) {
 	}
 	for _, want := range []string{"validate review", "prompt review", "flow --to review", "review [--dry-run]"} {
 		if !strings.Contains(sprintHelp(), want) {
+			t.Fatalf("help missing %q", want)
+		}
+	}
+}
+
+func TestParseSprintSmokeArgsAndHelp(t *testing.T) {
+	req, jsonOut, err := parseSprintSmokeArgs([]string{"--suite", "sprint-27", "--timeout", "2m", "--force-review", "--dry-run", "--yes", "--json"})
+	if err != nil || req.Suite != "sprint-27" || req.Timeout != 2*time.Minute || !req.ForceReview || !req.DryRun || !req.NonInteractive || !jsonOut {
+		t.Fatalf("req=%+v json=%t err=%v", req, jsonOut, err)
+	}
+	if _, _, err := parseSprintSmokeArgs([]string{"--suite", "a", "--test", "b"}); err == nil {
+		t.Fatal("expected exclusive scope error")
+	}
+	for _, want := range []string{"validate smoke", "smoke [--level", "--force-review", "--dry-run"} {
+		if !strings.Contains(sprintHelp()+sprintSmokeHelp(), want) {
 			t.Fatalf("help missing %q", want)
 		}
 	}

@@ -1,4 +1,4 @@
-# Gated Planning Smoke
+# Gated Planning And Deep Smoke
 
 The normal release gates are offline and do not require OpenCode, provider credentials, network access, or real subprocess smoke fixtures. This smoke is optional and gated for machines that have a real runtime environment and a prepared planning project.
 
@@ -51,6 +51,32 @@ ultraplan sprint <project> <sprint> validate execute
 
 Use `area-reasoning` only when the selected sprint-index includes reasoning templates that require area artifacts.
 
+## Review-Gated Deep Smoke
+
+The project catalog must contain one `Smoke Harnesses` row with an absolute harness root and a manifest contained by that root. The manifest is strict protocol v1 and supplies direct executable/argv forms, discovery/run commands, evidence roots, capabilities, and environment names.
+
+```bash
+ultraplan sprint <project> <sprint> review
+ultraplan sprint <project> <sprint> smoke --dry-run
+ultraplan sprint <project> <sprint> smoke --yes
+ultraplan sprint <project> <sprint> validate smoke
+ultraplan sprint <project> <sprint> status --json
+```
+
+A current `pass` or `pass_with_findings` review runs normally. A current `fail` or `blocked` review requires an explicitly confirmed `--force-review` diagnostic run; missing, malformed, or stale review evidence cannot be overridden. Use only one of `--level`, `--suite`, or `--test`. A narrow diagnostic test does not replace required containing-suite evidence unless discovery declares complete equivalence.
+
+Cancellation terminates the owned process group, waits for cleanup, and escalates within the configured grace period. Timeout, cancellation, malformed output, missing evidence, path escape, hash mismatch, or uncertain cleanup never creates a passing summary and does not replace the last valid `smoke.md`.
+
+Raw JSON, stdout/stderr, per-test artifacts, and issues remain in the manifest-declared harness `runs/` and `issues/` roots. The sprint owns only `smoke.md` and smoke flow state.
+
+The real harness lane is explicit:
+
+```bash
+ULTRAPLAN_REAL_SMOKE=1 go test ./internal/sprint -run TestRealSmokeHarness -v
+```
+
+Without the gate, harness, current review, runtime, credentials, or network, record the exact skipped/blocked prerequisite; never report a pass.
+
 ## Expected Artifacts
 
 - `projects/<project>/sprints/<sprint>/sprint-index.md`
@@ -60,7 +86,7 @@ Use `area-reasoning` only when the selected sprint-index includes reasoning temp
 - `projects/<project>/sprints/<sprint>/plan.md`
 - `projects/<project>/sprints/<sprint>/flow-state.json`
 
-No implementation, smoke, review, issue, or Git mutation artifacts are expected from this release.
+Deep smoke may write only the current sprint `smoke.md`, smoke flow state, and manifest-declared external run/issue evidence. It never mutates product source/tests, governed planning inputs, harness maintenance files, or Git state.
 
 ## Skip Path
 

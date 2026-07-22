@@ -1,6 +1,6 @@
 # UltraPlan User Guide
 
-This guide covers the current study and planning release. Planning supports project and sprint artifacts through `plan.md`. Sprint implementation execution, smoke investigation execution, review automation, issue tracking, hosted services, browser UI, multi-user collaboration, and automatic Git mutation are not part of this release.
+This guide covers study workflows and governed sprint planning through execute, automated review, and review-gated deep smoke. Integrated verification/recovery, issue management, hosted services, browser UI, multi-user collaboration, and automatic Git mutation are not part of this release.
 
 ## 1. Build Or Install
 
@@ -233,6 +233,17 @@ ultraplan sprint <project> <sprint> execute --resume
 
 Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use `flow --to <stage> --dry-run` to preview planned stage execution. Non-dry-run flow can generate planning artifacts when runtime prerequisites are available.
 
-The planning flow continues through controlled execute from validated `plan.md` tasks. Execute writes `.run-state.json` and `execute.md`; it does not create smoke, review, issue, Git, TUI, hosted/browser, or cross-sprint scheduling artifacts.
+The planning flow continues through controlled execute from validated `plan.md` tasks. Execute writes `.run-state.json` and `execute.md`; automated review then writes the current `review.md`.
+
+Run deep smoke only after review:
+
+```bash
+ultraplan sprint <project> <sprint> review
+ultraplan sprint <project> <sprint> smoke --dry-run
+ultraplan sprint <project> <sprint> smoke --yes
+ultraplan sprint <project> <sprint> validate smoke
+```
+
+The smoke preview shows the review gate, sufficient scope, prerequisites, duration/cost class where supplied, safe argv, and external evidence roots. `--force-review` is diagnostic-only after a current failed/blocked review; it cannot override stale or malformed review evidence. Raw harness evidence stays in its `runs/` and `issues/` directories, while the sprint stores only `smoke.md` and flow state.
 
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`.

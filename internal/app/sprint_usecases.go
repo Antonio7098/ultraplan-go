@@ -16,9 +16,11 @@ type SprintSummary struct {
 	ExecutePath       string
 	RunStatePath      string
 	ReviewPath        string
+	SmokePath         string
 	Stages            []StageSummary
 	Execute           ExecuteSummary
 	Review            ReviewSummary
+	Smoke             SmokeSummary
 	Findings          []DisplayFinding
 	Artifacts         []DisplayArtifact
 	RefreshMayWrite   bool
@@ -30,6 +32,12 @@ type ReviewSummary struct {
 	Status, Verdict  string
 	Stale            bool
 	Completed, Total int
+}
+
+type SmokeSummary struct {
+	Available              bool
+	Status, Verdict, RunID string
+	Stale, Reconciliation  bool
 }
 
 type StageSummary struct {
@@ -86,6 +94,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 						{Label: "plan", Path: sprint.ArtifactRelPath(sp, sprint.StagePlan), Kind: "markdown"},
 						{Label: "execute", Path: sprint.ArtifactRelPath(sp, sprint.StageExecute), Kind: "markdown"},
 						{Label: "review", Path: sprint.ArtifactRelPath(sp, sprint.StageReview), Kind: "markdown"},
+						{Label: "smoke", Path: sprint.ArtifactRelPath(sp, sprint.StageSmoke), Kind: "markdown"},
 						{Label: "flow-state", Path: sprint.FlowStateRelPath(sp), Kind: "json"},
 						{Label: "run-state", Path: sprint.ExecuteRunStateRelPath(sp), Kind: "json"},
 					},
@@ -101,10 +110,12 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				ExecutePath:       status.ExecutePath,
 				RunStatePath:      status.RunStatePath,
 				ReviewPath:        status.ReviewPath,
+				SmokePath:         status.SmokePath,
 				RefreshMayWrite:   true,
 				RefreshActionNote: "refresh recomputes deterministic flow-state.json status",
 				Execute:           summarizeExecute(status.ExecuteState),
 				Review:            summarizeReview(status.Review),
+				Smoke:             summarizeSmoke(status.Smoke),
 			}
 			for _, stage := range status.Stages {
 				summary.Stages = append(summary.Stages, StageSummary{Name: string(stage.Stage), Status: string(stage.Status), Path: stage.Path, Error: displaySafe(stage.Error)})
@@ -117,10 +128,11 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				DisplayArtifact{Label: "plan", Path: sprint.ArtifactRelPath(sp, sprint.StagePlan), Kind: "markdown"},
 				DisplayArtifact{Label: "execute", Path: sprint.ArtifactRelPath(sp, sprint.StageExecute), Kind: "markdown"},
 				DisplayArtifact{Label: "review", Path: sprint.ArtifactRelPath(sp, sprint.StageReview), Kind: "markdown"},
+				DisplayArtifact{Label: "smoke", Path: sprint.ArtifactRelPath(sp, sprint.StageSmoke), Kind: "markdown"},
 				DisplayArtifact{Label: "flow-state", Path: sprint.FlowStateRelPath(sp), Kind: "json"},
 				DisplayArtifact{Label: "run-state", Path: sprint.ExecuteRunStateRelPath(sp), Kind: "json"},
 			)
-			for _, stage := range []sprint.PlanningStage{sprint.StageRequirements, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview} {
+			for _, stage := range []sprint.PlanningStage{sprint.StageRequirements, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview, sprint.StageSmoke} {
 				result, err := validateSprintStage(service, p.Name, sp.Slug, stage)
 				if err != nil {
 					continue
@@ -154,9 +166,18 @@ func validateSprintStage(service sprint.Service, projectRef, sprintRef string, s
 		return service.ValidateExecute(projectRef, sprintRef)
 	case sprint.StageReview:
 		return service.ValidateReview(projectRef, sprintRef)
+	case sprint.StageSmoke:
+		return service.ValidateSmoke(projectRef, sprintRef)
 	default:
 		return sprint.ValidationResult{}, fmt.Errorf("unsupported validation stage %q", stage)
 	}
+}
+
+func summarizeSmoke(state *sprint.SmokeStageState) SmokeSummary {
+	if state == nil {
+		return SmokeSummary{}
+	}
+	return SmokeSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), RunID: state.RunID, Stale: state.Stale, Reconciliation: state.Reconciliation}
 }
 
 func summarizeReview(state *sprint.ReviewStageState) ReviewSummary {

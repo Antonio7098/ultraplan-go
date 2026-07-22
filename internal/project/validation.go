@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
@@ -39,6 +40,12 @@ func ValidateProject(root string, p Project, files ProjectFiles) ValidationResul
 		index, parseFindings := ParseProjectIndex(files.IndexContent)
 		findings = append(findings, parseFindings...)
 		for _, entry := range index.Entries {
+			if entry.Section == SectionSmokeHarnesses {
+				if err := validateSmokeHarnessEntry(entry); err != nil {
+					findings = append(findings, catalogFinding(entry, "invalid smoke harness catalog entry", err.Error(), "Use an absolute existing harness root and a manifest contained by that root.", err))
+				}
+				continue
+			}
 			if entry.External {
 				continue
 			}
@@ -62,6 +69,36 @@ func ValidateProject(root string, p Project, files ProjectFiles) ValidationResul
 		status = StatusInvalid
 	}
 	return ValidationResult{Project: p, Status: status, Findings: findings}
+}
+
+func validateSmokeHarnessEntry(entry CatalogEntry) error {
+	if !filepath.IsAbs(entry.Path) {
+		return fmt.Errorf("harness path must be absolute")
+	}
+	root, err := filepath.EvalSymlinks(filepath.Clean(entry.Path))
+	if err != nil {
+		return fmt.Errorf("resolve harness root: %w", err)
+	}
+	manifest := entry.Manifest
+	if !filepath.IsAbs(manifest) {
+		manifest = filepath.Join(root, filepath.FromSlash(manifest))
+	}
+	manifest, err = filepath.EvalSymlinks(filepath.Clean(manifest))
+	if err != nil {
+		return fmt.Errorf("resolve harness manifest: %w", err)
+	}
+	rel, err := filepath.Rel(root, manifest)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("manifest escapes harness root")
+	}
+	info, err := os.Stat(manifest)
+	if err != nil {
+		return fmt.Errorf("read harness manifest: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("harness manifest is a directory")
+	}
+	return nil
 }
 
 func StatusFromValidation(p Project, files ProjectFiles, validation ValidationResult) ProjectStatus {

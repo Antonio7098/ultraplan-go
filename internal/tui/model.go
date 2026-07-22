@@ -400,6 +400,7 @@ func (m Model) navItems() []navItem {
 				{Label: "Plan", Path: artifactByLabel(s.Artifacts, "plan")},
 				{Label: "Execute", Path: artifactByLabel(s.Artifacts, "execute")},
 				{Label: "Review", Path: artifactByLabel(s.Artifacts, "review")},
+				{Label: "Smoke", Path: artifactByLabel(s.Artifacts, "smoke")},
 				{Label: "Flow State", Path: artifactByLabel(s.Artifacts, "flow-state")},
 				{Label: "Run State", Path: artifactByLabel(s.Artifacts, "run-state")},
 			}
@@ -423,6 +424,12 @@ func (m Model) navItems() []navItem {
 				navItem{Label: "Review Status", Operation: &app.OperationRequest{Kind: app.OperationReviewStatus, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
 				navItem{Label: "Review Dry Run", Operation: &app.OperationRequest{Kind: app.OperationReviewDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
 				navItem{Label: "Run Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationReviewStart, Project: route.Project, Sprint: route.Sprint, Stage: "review"}})
+			items = append(items,
+				navItem{Label: "Validate smoke", Validation: &app.ValidationRequest{Subject: app.ValidationSprint, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
+				navItem{Label: "Smoke Status", Operation: &app.OperationRequest{Kind: app.OperationSmokeStatus, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
+				navItem{Label: "Smoke Preview", Operation: &app.OperationRequest{Kind: app.OperationSmokeDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
+				navItem{Label: "Run Smoke [EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationSmokeStart, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
+				navItem{Label: "Run Smoke Diagnostic Override [EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationSmokeStart, Project: route.Project, Sprint: route.Sprint, Stage: "smoke", ForceReview: true}})
 			return items
 		}
 	case RouteStudies:

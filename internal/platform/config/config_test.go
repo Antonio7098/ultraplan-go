@@ -123,6 +123,19 @@ func TestValidateRejectsBadConfig(t *testing.T) {
 	}
 }
 
+func TestSmokeConfigBoundsAndEnvironment(t *testing.T) {
+	c := Defaults()
+	c.Smoke.RunTimeout = "25h"
+	if err := Validate(c); err == nil {
+		t.Fatal("expected bounded run timeout error")
+	}
+	c = Defaults()
+	c.Smoke.Environment = []string{"PATH", "bad-name"}
+	if err := Validate(c); err == nil {
+		t.Fatal("expected environment-name error")
+	}
+}
+
 func TestValidateRejectsRuntimeMappingValues(t *testing.T) {
 	for name, mutate := range map[string]func(*Config){
 		"health":     func(c *Config) { c.Agentwrap.RequiredHealth = []string{"bad"} },

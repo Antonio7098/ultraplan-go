@@ -49,7 +49,16 @@ Planning artifacts use a separate chain under `projects/<project>/sprints/<sprin
 - Missing `plan.md`: validate `reasoning`, then run `flow --to plan`.
 - Missing `flow-state.json`: run `sprint <project> <sprint> status` to refresh artifact state.
 
-Planning flow stops at `plan.md`; do not expect implementation, smoke, review, issue, or Git artifacts from this release.
+The governed sprint chain continues through execute and review. Smoke is a separate guarded action; it does not authorize issue management, remediation, or Git mutation.
+
+## Smoke Recovery
+
+- `smoke review_gate`: regenerate a missing, malformed, or stale review. Use `--force-review` only for a current fail/blocked diagnostic run.
+- `smoke protocol` or `containment`: repair the cataloged protocol-v1 manifest, executable, cwd, or evidence roots; never infer commands from README prose.
+- `smoke timeout`, `cancellation`, or `cleanup`: inspect external evidence, confirm owned descendants are gone, and retry with a bounded timeout. The previous valid `smoke.md` remains current until validation marks it stale.
+- `smoke evidence`: restore immutable run/issue evidence or rerun the sufficient suite. Do not copy raw evidence into the sprint.
+- `reconciliation required`: `smoke.md` committed but flow state did not. Validate both files and rerun smoke to reconcile; automatic recovery is deferred.
+- stale or missing evidence: `sprint status` and `validate smoke` must be treated as non-passing until a new evidence-backed run is committed.
 
 ## Stale Running Tasks
 

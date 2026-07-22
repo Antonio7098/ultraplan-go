@@ -135,19 +135,22 @@ type FlowState struct {
 	UpdatedAt     time.Time         `json:"updatedAt"`
 	Stages        []StageState      `json:"stages"`
 	Review        *ReviewStageState `json:"review,omitempty"`
+	Smoke         *SmokeStageState  `json:"smoke,omitempty"`
 }
 
 type StatusSummary struct {
-	Project       string
-	Sprint        string
-	SprintRoot    string
-	FlowStatePath string
-	Stages        []StageState
-	ExecuteState  *ExecuteRunState
-	ExecutePath   string
-	RunStatePath  string
-	Review        *ReviewStageState
-	ReviewPath    string
+	Project       string            `json:"project"`
+	Sprint        string            `json:"sprint"`
+	SprintRoot    string            `json:"sprint_root"`
+	FlowStatePath string            `json:"flow_state_path"`
+	Stages        []StageState      `json:"stages"`
+	ExecuteState  *ExecuteRunState  `json:"execute_state,omitempty"`
+	ExecutePath   string            `json:"execute_path"`
+	RunStatePath  string            `json:"run_state_path"`
+	Review        *ReviewStageState `json:"review,omitempty"`
+	ReviewPath    string            `json:"review_path"`
+	Smoke         *SmokeStageState  `json:"smoke,omitempty"`
+	SmokePath     string            `json:"smoke_path"`
 }
 
 type ValidationFinding struct {

@@ -1,0 +1,511 @@
+package sprint
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
+)
+
+func (s Service) RunSmoke(ctx context.Context, projectRef, sprintRef string, req SmokeRequest) (SmokeResult, error) {
+	result := SmokeResult{Project: projectRef, Sprint: sprintRef, Status: SmokeReady, DryRun: req.DryRun}
+	emit := func(p SmokeProgress) {
+		if req.Progress != nil {
+			req.Progress(p)
+		}
+	}
+	emit(SmokeProgress{Phase: SmokePhasePreflight, Message: "validating review gate and harness manifest"})
+	prepared, err := s.prepareSmokeStatic(projectRef, sprintRef, req)
+	if err != nil {
+		return smokeFailedResult(result, err)
+	}
+	result.Project, result.Sprint = prepared.Sprint.Project, prepared.Sprint.Slug
+	result.Harness, result.Protocol = prepared.Manifest.Harness.ID, prepared.Manifest.ProtocolVersion
+	result.Artifact = ArtifactRelPath(prepared.Sprint, StageSmoke)
+	result.ReviewVerdict, result.ReviewFingerprint = prepared.Review.Verdict, prepared.Review.Fingerprint
+	result.ReviewOverride = req.ForceReview
+	result.Ready = true
+	result.EffectiveTimeout, result.TimeoutSource = smokeTimeout(s.smokeSettings, prepared.Manifest, req)
+
+	getenv := s.smokeSettings.Getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	env := smokeEnvironment(s.smokeSettings, prepared.Manifest, getenv)
+	discoveryArgs := append(append([]string{}, prepared.Manifest.Args...), prepared.Manifest.Commands.Discover...)
+	discoveryArgs = append(discoveryArgs, "--target", prepared.Target)
+	emit(SmokeProgress{Phase: SmokePhaseDiscovery, Message: "discovering machine-readable smoke scopes"})
+	discoveryProcess, discoveryErr := s.processRunner.Run(ctx, pprocess.Request{Executable: prepared.Executable, Args: discoveryArgs, Dir: prepared.CWD, Env: env, Timeout: s.smokeSettings.DiscoveryTimeout, StdoutLimit: s.smokeSettings.StdoutLimit, StderrLimit: s.smokeSettings.StderrLimit, CleanupGrace: s.smokeSettings.CleanupGrace})
+	if discoveryErr != nil {
+		return smokeFailedResult(result, classifyProcessSmokeError("discovery", discoveryProcess, discoveryErr))
+	}
+	if discoveryProcess.StdoutTruncated {
+		return smokeFailedResult(result, smokeError("smoke_discovery_truncated", "protocol", "discovery output exceeded the configured bound", "Increase the bounded capture limit or reduce discovery output.", nil))
+	}
+	var discovery smokeDiscovery
+	if err := decodeOneJSON(discoveryProcess.Stdout, &discovery); err != nil {
+		return smokeFailedResult(result, smokeError("smoke_discovery_malformed", "protocol", "discovery did not return one valid JSON object", "Fix the harness discovery command.", err))
+	}
+	if err := validateSmokeDiscovery(discovery, prepared.Manifest); err != nil {
+		return smokeFailedResult(result, err)
+	}
+	emit(SmokeProgress{Phase: SmokePhaseSelection, Message: "selecting narrowest sufficient scope"})
+	selection, err := selectSmoke(discovery, prepared.Sprint.Slug, req)
+	if err != nil {
+		return smokeFailedResult(result, err)
+	}
+	result.ScopeKind, result.Scope, result.ScopeRationale = selection.Kind, strings.Join(selection.IDs, ","), selection.Rationale
+	result.DurationClass, result.CostClass = selection.DurationClass, selection.CostClass
+	if result.DurationClass == "" {
+		result.DurationClass = prepared.Manifest.Defaults.DurationClass
+	}
+	if result.CostClass == "" {
+		result.CostClass = prepared.Manifest.Defaults.CostClass
+	}
+	result.EvidenceRoots = []string{prepared.RunsRoot, prepared.IssuesRoot}
+	result.Prerequisites = selection.Prerequisites
+	result.DiagnosticOnly = selection.DiagnosticOnly || (req.ForceReview && (prepared.Review.Verdict == ReviewFail || prepared.Review.Verdict == ReviewVerdictBlocked))
+	if selection.Verdict == SmokeBlockedVerdict || selection.Verdict == SmokeNotApplicable {
+		result.Status, result.Verdict, result.NextAction = SmokeCompleted, selection.Verdict, selection.NextAction
+		if req.DryRun {
+			return result, nil
+		}
+		return s.commitSmoke(prepared, result)
+	}
+	if selection.DiagnosticOnly {
+		result.Diagnostics = append(result.Diagnostics, "selected diagnostic scope does not replace required containing-suite evidence")
+		result.NextAction = "Run the complete containing suite before treating smoke as current."
+	}
+	runArgs := append(append([]string{}, prepared.Manifest.Args...), prepared.Manifest.Commands.Run...)
+	runArgs = append(runArgs, "--project", prepared.Sprint.Project, "--sprint", prepared.Sprint.Slug, "--target", prepared.Target, "--scope-kind", selection.Kind, "--scope", strings.Join(selection.IDs, ","))
+	result.SafeArgv = safeArgv(prepared.Executable, runArgs)
+	if req.DryRun {
+		result.Status = SmokeReady
+		result.NextAction = "Confirm and run the selected smoke scope."
+		return result, nil
+	}
+	result.Status = SmokeRunning
+	emit(SmokeProgress{Phase: SmokePhaseRunning, Message: "running external smoke harness"})
+	runProcess, runErr := s.processRunner.Run(ctx, pprocess.Request{Executable: prepared.Executable, Args: runArgs, Dir: prepared.CWD, Env: env, Timeout: result.EffectiveTimeout, StdoutLimit: s.smokeSettings.StdoutLimit, StderrLimit: s.smokeSettings.StderrLimit, CleanupGrace: s.smokeSettings.CleanupGrace, Progress: func(event pprocess.Event) { emit(SmokeProgress{Phase: SmokePhaseRunning, Message: "harness progress"}) }})
+	if runProcess.DroppedEvents > 0 {
+		result.Diagnostics = append(result.Diagnostics, fmt.Sprintf("%d progress events were dropped", runProcess.DroppedEvents))
+	}
+	if runProcess.StdoutTruncated {
+		return smokeFailedResult(result, smokeError("smoke_run_truncated", "process", "run response exceeded the configured stdout bound", "Increase the bounded capture limit or reduce run output.", nil))
+	}
+	var response smokeRunResponse
+	decodeErr := decodeOneJSON(runProcess.Stdout, &response)
+	if decodeErr != nil {
+		if runErr != nil {
+			return smokeFailedResult(result, classifyProcessSmokeError("run", runProcess, runErr))
+		}
+		return smokeFailedResult(result, smokeError("smoke_run_malformed", "protocol", "run did not return one valid JSON object", "Inspect external harness evidence and fix its protocol output.", decodeErr))
+	}
+	if runProcess.TimedOut || runProcess.Cancelled || !runProcess.CleanupComplete {
+		return smokeFailedResult(result, classifyProcessSmokeError("run", runProcess, runErr))
+	}
+	emit(SmokeProgress{Phase: SmokePhaseValidatingEvidence, Message: "validating external evidence identity"})
+	validated, issues, err := validateSmokeRun(prepared, selection, response, runProcess)
+	if err != nil {
+		return smokeFailedResult(result, err)
+	}
+	result.RunID, result.Runtime, result.Model = response.RunID, response.Runtime, response.Model
+	result.Duration = time.Duration(response.DurationMs) * time.Millisecond
+	result.Counts = SmokeCounts{Total: response.Counts.Total, Passed: response.Counts.Passed, Failed: response.Counts.Failed, Skipped: response.Counts.Skipped, Errors: response.Counts.Errors}
+	result.Evidence, result.Issues = validated, issues
+	result.Verdict = synthesizeSmokeVerdict(result.Counts, issues)
+	result.Status = SmokeCompleted
+	result.NextAction = nextSmokeAction(result)
+	if selection.DiagnosticOnly {
+		return result, nil
+	}
+	emit(SmokeProgress{Phase: SmokePhaseWritingArtifact, Message: "writing validated smoke summary"})
+	committed, commitErr := s.commitSmoke(prepared, result)
+	if commitErr == nil {
+		emit(SmokeProgress{Phase: SmokePhaseCompleted, Message: "smoke complete"})
+	}
+	return committed, commitErr
+}
+
+func (s Service) SmokeStatus(projectRef, sprintRef string) (SmokeResult, error) {
+	result := SmokeResult{Project: projectRef, Sprint: sprintRef, Artifact: "smoke.md"}
+	prepared, err := s.prepareSmokeStatic(projectRef, sprintRef, SmokeRequest{})
+	if err != nil {
+		result.Diagnostics = []string{safeError(err)}
+		return result, err
+	}
+	result.Project, result.Sprint, result.Harness, result.Protocol = prepared.Sprint.Project, prepared.Sprint.Slug, prepared.Manifest.Harness.ID, prepared.Manifest.ProtocolVersion
+	result.Artifact, result.Ready = ArtifactRelPath(prepared.Sprint, StageSmoke), true
+	result.ReviewVerdict, result.ReviewFingerprint = prepared.Review.Verdict, prepared.Review.Fingerprint
+	state, err := LoadFlowState(s.root, prepared.Sprint)
+	if err == nil && state.Smoke != nil {
+		result.Status, result.Verdict, result.RunID, result.Stale, result.Reconciliation = state.Smoke.Status, state.Smoke.Verdict, state.Smoke.RunID, state.Smoke.Stale, state.Smoke.Reconciliation
+		result.Diagnostics = append(result.Diagnostics, state.Smoke.Diagnostics...)
+	}
+	if result.Status == "" {
+		result.Status = SmokeReady
+		result.NextAction = "Run smoke preview to discover the effective scope."
+	}
+	return result, nil
+}
+
+func (s Service) ValidateSmoke(projectRef, sprintRef string) (ValidationResult, error) {
+	sp, _, _, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	path, err := ArtifactPath(s.root, sp, StageSmoke)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	data, readErr := os.ReadFile(path)
+	var findings []ValidationFinding
+	if readErr != nil {
+		findings = append(findings, finding("smoke.md", "", ArtifactRelPath(sp, StageSmoke), "missing smoke summary", safeError(readErr), "Run sprint smoke after a current review."))
+	} else {
+		findings = append(findings, ValidateSmokeContent(string(data))...)
+	}
+	state, stateErr := LoadFlowState(s.root, sp)
+	if stateErr != nil {
+		findings = append(findings, finding("Smoke state", "", FlowStateRelPath(sp), "flow state unavailable", safeError(stateErr), "Restore valid flow state."))
+	} else if state.Smoke == nil {
+		findings = append(findings, finding("Smoke state", "", FlowStateRelPath(sp), "smoke state missing", "smoke.md and flow state are not reconciled", "Rerun smoke after reviewing the committed summary."))
+	} else if data != nil {
+		fingerprint := hashBytes(data)
+		if state.Smoke.SmokeFingerprint != fingerprint {
+			findings = append(findings, finding("Smoke state", "", FlowStateRelPath(sp), "artifact/state mismatch", "smoke fingerprint differs from flow state", "Reconcile by rerunning smoke; automated recovery is deferred."))
+		}
+	}
+	return ValidationResult{Project: sp.Project, Sprint: sp.Slug, Artifact: ArtifactRelPath(sp, StageSmoke), Findings: findings}, nil
+}
+
+func validateSmokeRun(p smokePrepared, selection smokeSelection, response smokeRunResponse, proc pprocess.Result) ([]SmokeEvidence, []SmokeIssue, error) {
+	if response.SchemaVersion != 1 || response.ProtocolVersion != p.Manifest.ProtocolVersion || response.HarnessID != p.Manifest.Harness.ID || response.RunID == "" {
+		return nil, nil, smokeError("smoke_evidence_identity", "evidence", "run identity does not match manifest/discovery", "Inspect the external run response.", nil)
+	}
+	if response.ScopeKind != selection.Kind || strings.Join(response.Scope, ",") != strings.Join(selection.IDs, ",") {
+		return nil, nil, smokeError("smoke_evidence_scope", "evidence", "reported scope does not match the request", "Fix the harness scope identity.", nil)
+	}
+	c := response.Counts
+	if c.Total < 0 || c.Passed < 0 || c.Failed < 0 || c.Skipped < 0 || c.Errors < 0 || c.Passed+c.Failed+c.Skipped+c.Errors != c.Total {
+		return nil, nil, smokeError("smoke_evidence_counts", "evidence", "result counts are inconsistent", "Fix the harness count summary.", nil)
+	}
+	if response.DurationMs < 0 || len(response.Evidence) == 0 {
+		return nil, nil, smokeError("smoke_evidence_missing", "evidence", "duration or evidence identity is missing", "Emit complete protocol-v1 evidence.", nil)
+	}
+	var evidence []SmokeEvidence
+	for _, item := range response.Evidence {
+		root := p.RunsRoot
+		if item.Kind == "issue" {
+			root = p.IssuesRoot
+		}
+		full := item.Path
+		if !filepath.IsAbs(full) {
+			full = filepath.Join(p.HarnessRoot, filepath.FromSlash(full))
+		}
+		resolved, err := canonicalFileInside(root, full)
+		if err != nil {
+			return nil, nil, smokeError("smoke_evidence_path", "evidence", "evidence path escapes or is missing", "Keep evidence inside declared roots.", err)
+		}
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return nil, nil, err
+		}
+		hash, err := hashFile(resolved)
+		if err != nil {
+			return nil, nil, err
+		}
+		if item.SHA256 != "" && !strings.EqualFold(item.SHA256, hash) {
+			return nil, nil, smokeError("smoke_evidence_hash", "evidence", "evidence hash mismatch", "Restore immutable run evidence or rerun smoke.", nil)
+		}
+		if !strings.Contains(filepath.Base(resolved), response.RunID) && item.Kind != "issue" {
+			return nil, nil, smokeError("smoke_evidence_run", "evidence", "evidence path does not identify the reported run", "Use run-ID-addressed evidence.", nil)
+		}
+		evidence = append(evidence, SmokeEvidence{Kind: item.Kind, Path: resolved, SHA256: hash, Size: info.Size(), ModifiedAt: info.ModTime().UTC()})
+	}
+	issues := append([]SmokeIssue(nil), response.Issues...)
+	for i := range issues {
+		if issues[i].ID == "" || (issues[i].Status != "open" && issues[i].Status != "resolved") {
+			return nil, nil, smokeError("smoke_issue_identity", "evidence", "issue identity/status is invalid", "Emit open or resolved issue metadata.", nil)
+		}
+		full := issues[i].Path
+		if !filepath.IsAbs(full) {
+			full = filepath.Join(p.HarnessRoot, filepath.FromSlash(full))
+		}
+		resolved, err := canonicalFileInside(p.IssuesRoot, full)
+		if err != nil || !strings.Contains(filepath.Base(resolved), issues[i].ID) {
+			return nil, nil, smokeError("smoke_issue_path", "evidence", "issue path is missing, escaping, or mismatched", "Use an issue-ID-addressed file under the issues root.", err)
+		}
+		issues[i].Path = resolved
+	}
+	if proc.ExitCode != 0 && c.Failed+c.Errors == 0 {
+		return nil, nil, smokeError("smoke_process_unexplained", "process", "non-zero process exit has no matching failed evidence", "Inspect external evidence before retrying.", nil)
+	}
+	return evidence, issues, nil
+}
+
+func (s Service) commitSmoke(p smokePrepared, result SmokeResult) (SmokeResult, error) {
+	content := RenderSmoke(result)
+	if findings := ValidateSmokeContent(content); len(findings) > 0 {
+		return smokeFailedResult(result, smokeError("smoke_artifact_validation", "validation", findings[0].Problem, findings[0].Suggestion, nil))
+	}
+	path, err := ArtifactPath(s.root, p.Sprint, StageSmoke)
+	if err != nil {
+		return smokeFailedResult(result, err)
+	}
+	if err := atomicWriteFile(path, []byte(content)); err != nil {
+		return smokeFailedResult(result, smokeError("smoke_persistence", "persistence", "smoke summary could not be committed", "The previous valid summary was preserved.", err))
+	}
+	state, err := LoadFlowState(s.root, p.Sprint)
+	if err != nil {
+		result.Reconciliation = true
+		return result, smokeError("smoke_reconciliation", "reconciliation", "smoke.md committed but flow state could not be loaded", "Reconcile flow state by rerunning smoke.", err)
+	}
+	now := s.now().UTC()
+	evidenceID := ""
+	if len(result.Evidence) > 0 {
+		evidenceID = result.Evidence[0].SHA256
+	}
+	state.Smoke = &SmokeStageState{Status: result.Status, Verdict: result.Verdict, Path: ArtifactRelPath(p.Sprint, StageSmoke), LastRunAt: &now, ReviewFingerprint: result.ReviewFingerprint, SmokeFingerprint: hashBytes([]byte(content)), RunID: result.RunID, EvidenceID: evidenceID, ReviewOverride: result.ReviewOverride, Diagnostics: result.Diagnostics}
+	if err := SaveFlowState(s.root, p.Sprint, state); err != nil {
+		result.Reconciliation = true
+		return result, smokeError("smoke_reconciliation", "reconciliation", "smoke.md committed but flow state update failed", "Reconcile flow state by rerunning smoke.", err)
+	}
+	return result, nil
+}
+
+func RenderSmoke(r SmokeResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Sprint Smoke\n\nSmoke status: `%s`\nVerdict: `%s`\nDate: `%s`\n\n", r.Status, r.Verdict, time.Now().UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "## Smoke Context\n\nProject: `%s`\nSprint: `%s`\nArtifact: `%s`\n\n", r.Project, r.Sprint, r.Artifact)
+	fmt.Fprintf(&b, "## Review Gate\n\nReview verdict: `%s`\nReview fingerprint: `%s`\nDiagnostic override: `%t`\n\n", r.ReviewVerdict, r.ReviewFingerprint, r.ReviewOverride)
+	fmt.Fprintf(&b, "## Harness And Protocol\n\nHarness: `%s`\nProtocol: `%s`\n\n", r.Harness, r.Protocol)
+	fmt.Fprintf(&b, "## Selected Scope And Rationale\n\nScope kind: `%s`\nScope: `%s`\nRationale: %s\nDuration class: `%s`\nCost class: `%s`\nDiagnostic only: `%t`\n\n", printable(r.ScopeKind), printable(r.Scope), printable(r.ScopeRationale), printable(r.DurationClass), printable(r.CostClass), r.DiagnosticOnly)
+	fmt.Fprintf(&b, "## Preconditions And Environment\n\nPrerequisites: %s\nEnvironment: bounded allowlist; values not persisted\nEvidence roots: `%s`\nEffective timeout: `%s` (source `%s`)\n\n", printable(strings.Join(r.Prerequisites, "; ")), printable(strings.Join(r.EvidenceRoots, ", ")), r.EffectiveTimeout, printable(r.TimeoutSource))
+	fmt.Fprintf(&b, "## Safe Invocation\n\nArgv: `%s`\n\n", printable(r.SafeArgv))
+	fmt.Fprintf(&b, "## Run Evidence\n\nRun ID: `%s`\nTotal: `%d`\nPassed: `%d`\nFailed: `%d`\nSkipped: `%d`\nErrors: `%d`\nDuration: `%s`\nRuntime: `%s`\nModel: `%s`\n\n", printable(r.RunID), r.Counts.Total, r.Counts.Passed, r.Counts.Failed, r.Counts.Skipped, r.Counts.Errors, r.Duration, printable(r.Runtime), printable(r.Model))
+	b.WriteString("### External Evidence Identity And Links\n\n")
+	if len(r.Evidence) == 0 {
+		b.WriteString("- none (preflight classification)\n")
+	} else {
+		for _, e := range r.Evidence {
+			fmt.Fprintf(&b, "- `%s` `%s` sha256 `%s` size `%d` modified `%s`\n", e.Kind, e.Path, e.SHA256, e.Size, e.ModifiedAt.Format(time.RFC3339))
+		}
+	}
+	b.WriteString("\n## Findings\n\n")
+	if len(r.Diagnostics) == 0 {
+		b.WriteString("- none\n")
+	} else {
+		for _, diagnostic := range r.Diagnostics {
+			fmt.Fprintf(&b, "- %s\n", printable(diagnostic))
+		}
+	}
+	b.WriteString("\n## Open Issues\n\n")
+	open := false
+	for _, issue := range r.Issues {
+		if issue.Status == "open" {
+			open = true
+			fmt.Fprintf(&b, "- `%s` `%s`\n", issue.ID, issue.Path)
+		}
+	}
+	if !open {
+		b.WriteString("- none\n")
+	}
+	b.WriteString("\n## Resolved Issues\n\n")
+	resolved := false
+	for _, issue := range r.Issues {
+		if issue.Status == "resolved" {
+			resolved = true
+			fmt.Fprintf(&b, "- `%s` `%s`\n", issue.ID, issue.Path)
+		}
+	}
+	if !resolved {
+		b.WriteString("- none\n")
+	}
+	b.WriteString("\n## Mutation And Safety Check\n\nOnly smoke.md, flow-state.json, and manifest-declared external evidence roots were approved for mutation.\n\n")
+	fmt.Fprintf(&b, "## Verdict And Next Action\n\nVerdict: `%s`\nNext action: %s\n", r.Verdict, printable(r.NextAction))
+	return b.String()
+}
+
+func ValidateSmokeContent(content string) []ValidationFinding {
+	var findings []ValidationFinding
+	if strings.TrimSpace(content) == "" || containsPlaceholder(content) {
+		findings = append(findings, finding("smoke.md", "", "", "empty or placeholder smoke summary", "summary is incomplete", "Generate a complete evidence-backed summary."))
+	}
+	for _, heading := range []string{"Smoke Context", "Review Gate", "Harness And Protocol", "Selected Scope And Rationale", "Preconditions And Environment", "Safe Invocation", "Run Evidence", "Findings", "Open Issues", "Resolved Issues", "Mutation And Safety Check", "Verdict And Next Action"} {
+		if !markdownHeadingPresent(content, heading) {
+			findings = append(findings, finding("smoke.md", heading, "", "missing required section", "section was not found", "Regenerate smoke.md."))
+		}
+	}
+	verdict := SmokeVerdict(fieldBacktick(content, "Verdict:"))
+	if !validSmokeVerdict(verdict) {
+		findings = append(findings, finding("smoke.md", "Verdict", "", "invalid verdict", string(verdict), "Use one of the five smoke verdicts."))
+	}
+	for _, forbidden := range []string{"-----BEGIN", "Authorization: Bearer", "\"stdout\":", "\"stderr\":"} {
+		if strings.Contains(content, forbidden) {
+			findings = append(findings, finding("smoke.md", "Safety", "", "raw or secret-bearing content detected", forbidden, "Keep raw streams and secrets in external evidence only."))
+		}
+	}
+	if !strings.Contains(content, "Next action:") {
+		findings = append(findings, finding("smoke.md", "Next Action", "", "next action is missing", "no actionable terminal guidance", "Record the required next action."))
+	}
+	sortSprintFindings(findings)
+	return findings
+}
+
+func classifyProcessSmokeError(stage string, result pprocess.Result, err error) error {
+	switch {
+	case result.TimedOut:
+		return smokeError("smoke_timeout", "timeout", stage+" timed out", "Inspect external evidence and retry with a bounded timeout.", err)
+	case result.Cancelled || errors.Is(err, context.Canceled):
+		return smokeError("smoke_cancelled", "cancellation", stage+" was cancelled", "Confirm cleanup before retrying.", err)
+	case !result.CleanupComplete:
+		return smokeError("smoke_cleanup", "cleanup", stage+" cleanup is uncertain", "Terminate owned descendants before retrying.", err)
+	default:
+		return smokeError("smoke_process", "process", stage+" process failed", "Inspect the safe diagnostic and external harness logs.", err)
+	}
+}
+func smokeFailedResult(result SmokeResult, err error) (SmokeResult, error) {
+	result.Status = SmokeFailed
+	if errors.Is(err, context.Canceled) {
+		result.Status = SmokeCancelled
+	}
+	if se, ok := AsSmokeError(err); ok {
+		result.Diagnostics = append(result.Diagnostics, se.Code+": "+se.Message)
+	}
+	return result, err
+}
+func decodeOneJSON(value string, target any) error {
+	dec := json.NewDecoder(strings.NewReader(strings.TrimSpace(value)))
+	if err := dec.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err == nil {
+		return fmt.Errorf("multiple JSON values")
+	} else if !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}
+func safeArgv(executable string, args []string) string {
+	values := append([]string{executable}, args...)
+	redactNext := false
+	for i, value := range values {
+		lower := strings.ToLower(value)
+		if redactNext {
+			values[i] = "[REDACTED]"
+			redactNext = false
+			continue
+		}
+		if strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "password") || strings.Contains(lower, "api-key") {
+			if strings.Contains(value, "=") {
+				values[i] = strings.SplitN(value, "=", 2)[0] + "=[REDACTED]"
+			} else {
+				redactNext = true
+			}
+		}
+	}
+	for i, value := range values {
+		values[i] = fmt.Sprintf("%q", value)
+	}
+	return strings.Join(values, " ")
+}
+func hasOpenSmokeIssues(issues []SmokeIssue) bool {
+	for _, issue := range issues {
+		if issue.Status == "open" {
+			return true
+		}
+	}
+	return false
+}
+func synthesizeSmokeVerdict(counts SmokeCounts, issues []SmokeIssue) SmokeVerdict {
+	if counts.Failed > 0 || counts.Errors > 0 {
+		return SmokeFailVerdict
+	}
+	if hasOpenSmokeIssues(issues) {
+		return SmokePassWithOpenIssues
+	}
+	return SmokePass
+}
+func nextSmokeAction(r SmokeResult) string {
+	switch r.Verdict {
+	case SmokePass:
+		return "Proceed to integrated verification when Sprint 28 is available."
+	case SmokePassWithOpenIssues:
+		return "Review the linked open issues before proceeding."
+	case SmokeFailVerdict:
+		return "Inspect linked evidence, fix the selected-smoke failures, and rerun the containing suite."
+	case SmokeBlockedVerdict:
+		return "Satisfy the blocked prerequisite or coverage requirement and rerun smoke."
+	case SmokeNotApplicable:
+		return "No smoke action is required for this sprint."
+	}
+	return "Inspect smoke diagnostics."
+}
+func fieldBacktick(content, prefix string) string {
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			return strings.Trim(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), prefix)), "`")
+		}
+	}
+	return ""
+}
+func printable(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "none"
+	}
+	value = strings.ReplaceAll(value, "`", "'")
+	return value
+}
+func hashBytes(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
+func hashFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return hashBytes(data), nil
+}
+func atomicWriteFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(path), ".smoke.*.tmp")
+	if err != nil {
+		return err
+	}
+	temp := file.Name()
+	keep := true
+	defer func() {
+		if keep {
+			_ = os.Remove(temp)
+		}
+	}()
+	if _, err = file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err = file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(temp, path); err != nil {
+		return err
+	}
+	keep = false
+	syncDir(filepath.Dir(path))
+	return nil
+}
