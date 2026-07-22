@@ -61,6 +61,7 @@ func runTUI(deps dependencies, args []string) error {
 			}
 			r, e := runSprintFlow(ctx, service, req.Project, req.Sprint, sprint.FlowRequest{To: sprint.PlanningStage(req.Stage)})
 			result.Message = r.Message
+			result = operationWithSprintFindings(result, r.Findings)
 			if e != nil {
 				return failedOperation(result, e)
 			}
@@ -71,6 +72,7 @@ func runTUI(deps dependencies, args []string) error {
 			}
 			r, e := service.Execute(ctx, req.Project, req.Sprint, sprint.ExecuteRequest{TaskID: req.Task, Resume: req.Kind == OperationExecuteResume})
 			result.Message = r.Message
+			result = operationWithSprintFindings(result, r.Findings)
 			if e != nil {
 				return failedOperation(result, e)
 			}
@@ -137,9 +139,10 @@ func tuiHelp() string {
 Usage:
   ultraplan [--workspace <path>] tui
 
-Starts a read-only terminal dashboard with validation controls for workspace,
-project, study, and sprint state. Validation actions and artifact previews do not
-run workflows. Refresh may
-recompute deterministic sprint flow-state.json status.
+Starts an operational terminal dashboard for workspace, project, study, and
+sprint state. Every sprint status, validation, prompt, flow, execute, and review
+operation is available. Runtime-backed or mutating actions require confirmation;
+validation, prompt previews, and dry runs do not invoke the runtime. Refresh and
+sprint status may recompute deterministic sprint flow-state.json status.
 `
 }

@@ -830,7 +830,7 @@ func extractReviewValue(v any, out *ReviewCoverageResult) bool {
 			*out = candidate
 			return true
 		}
-		for _, k := range []string{"review_result", "structured_output", "output", "content", "text", "message"} {
+		for _, k := range []string{"review_result", "structured_output", "output", "content", "text", "message", "part"} {
 			if y, ok := x[k]; ok && extractReviewValue(y, out) {
 				return true
 			}

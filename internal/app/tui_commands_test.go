@@ -11,7 +11,8 @@ func TestTUICommandHelpAndRunner(t *testing.T) {
 	if status != ExitOK {
 		t.Fatalf("status = %d stderr = %q", status, stderr)
 	}
-	assertContains(t, stdout, "read-only terminal dashboard")
+	assertContains(t, stdout, "operational terminal dashboard")
+	assertContains(t, stdout, "Every sprint status, validation, prompt, flow, execute, and review")
 	assertContains(t, stdout, "flow-state.json")
 
 	dir := initializedWorkspace(t)

@@ -24,6 +24,7 @@ type OperationalUseCases interface {
 type OperationKind string
 
 const (
+	OperationSprintStatus  OperationKind = "sprint-status"
 	OperationPrompt        OperationKind = "sprint-prompt"
 	OperationFlowDryRun    OperationKind = "sprint-flow-dry-run"
 	OperationFlow          OperationKind = "sprint-flow"
@@ -100,6 +101,10 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	case OperationPrompt, OperationFlowDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus:
 		c.Scope = []string{req.Stage}
 		c.Warning = "runtime-free; no runtime-backed writes"
+	case OperationSprintStatus:
+		c.Mutates = true
+		c.Scope = []string{"all sprint stages", "execute and review state"}
+		c.Warning = "RUNTIME-FREE; MAY REFRESH FLOW-STATE.JSON"
 	case OperationFlow:
 		c.Runtime = true
 		c.Mutates = true
@@ -150,6 +155,12 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 	result := OperationResult{State: OperationComplete, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study)}
 	stage := sprint.PlanningStage(req.Stage)
 	switch req.Kind {
+	case OperationSprintStatus:
+		r, err := ss.Status(req.Project, req.Sprint)
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Message = summarizeSprintStatus(r)
 	case OperationPrompt:
 		p, err := promptSprintStage(ss, req.Project, req.Sprint, stage)
 		if err != nil {
@@ -159,12 +170,15 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 	case OperationFlowDryRun:
 		r, err := runSprintFlow(ctx, ss, req.Project, req.Sprint, sprint.FlowRequest{To: stage, DryRun: true})
 		if err != nil {
+			result = operationWithSprintFindings(result, r.Findings)
 			return failedOperation(result, err)
 		}
-		result.Message = r.Message
+		result.Content, result.Truncated = boundContent(r.Message)
+		result.Message = fmt.Sprintf("flow to %s dry run", stage)
 	case OperationExecuteDryRun:
 		r, err := ss.Execute(ctx, req.Project, req.Sprint, sprint.ExecuteRequest{DryRun: true, TaskID: req.Task})
 		if err != nil {
+			result = operationWithSprintFindings(result, r.Findings)
 			return failedOperation(result, err)
 		}
 		result.Content, result.Truncated = boundContent(r.Prompt)
@@ -174,7 +188,12 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 		if err != nil {
 			return failedOperation(result, err)
 		}
-		result.Message = summarizeExecute(r.ExecuteState).Message
+		execute := summarizeExecute(r.ExecuteState)
+		if !execute.Available {
+			result.Message = execute.Message
+		} else {
+			result.Message = fmt.Sprintf("%d total: %d pending, %d running, %d complete, %d failed, %d cancelled", execute.Total, execute.Pending, execute.Running, execute.Complete, execute.Failed, execute.Cancelled)
+		}
 	case OperationReviewDryRun:
 		r, err := ss.Review(ctx, req.Project, req.Sprint, sprint.ReviewRequest{DryRun: true, Concurrency: req.Parallelism})
 		if err != nil {
@@ -200,6 +219,32 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 	}
 	emit(OperationEvent{State: OperationComplete, Stage: req.Stage, Message: operationFirstNonEmpty(result.Message, "operation complete")})
 	return result, nil
+}
+
+func summarizeSprintStatus(status sprint.StatusSummary) string {
+	parts := make([]string, 0, len(status.Stages)+2)
+	for _, stage := range status.Stages {
+		parts = append(parts, fmt.Sprintf("%s=%s", stage.Stage, stage.Status))
+	}
+	execute := summarizeExecute(status.ExecuteState)
+	if execute.Available {
+		parts = append(parts, fmt.Sprintf("execute=%d/%d complete (%d failed, %d cancelled)", execute.Complete, execute.Total, execute.Failed, execute.Cancelled))
+	} else {
+		parts = append(parts, "execute=not started")
+	}
+	if status.Review == nil {
+		parts = append(parts, "review=not started")
+	} else {
+		parts = append(parts, fmt.Sprintf("review=%s verdict=%s stale=%t", status.Review.Status, status.Review.Verdict, status.Review.Stale))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func operationWithSprintFindings(result OperationResult, findings []sprint.ValidationFinding) OperationResult {
+	for _, finding := range findings {
+		result.Findings = append(result.Findings, sprintFinding(finding))
+	}
+	return result
 }
 func failedOperation(r OperationResult, err error) (OperationResult, error) {
 	if errors.Is(err, context.Canceled) {

@@ -145,6 +145,18 @@ func TestReviewVerdictAndCitationValidation(t *testing.T) {
 	}
 }
 
+func TestExtractReviewResultReadsOpenCodeTextPart(t *testing.T) {
+	data, _ := json.Marshal(ReviewCoverageResult{SchemaVersion: 1, CoverageID: "contract-testing", Applicability: "direct", Summary: "checked"})
+	r := pruntime.Result{Events: []pruntime.Event{{Type: "text", Payload: map[string]any{"part": map[string]any{"type": "text", "text": string(data)}}}}}
+	var out ReviewCoverageResult
+	if !extractReviewResult(r, &out) {
+		t.Fatal("expected review result from OpenCode part.text")
+	}
+	if out.CoverageID != "contract-testing" || out.Summary != "checked" {
+		t.Fatalf("unexpected result: %+v", out)
+	}
+}
+
 func TestAtomicReviewWritePreservesPriorArtifactOnRenameFailure(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "review.md")
 	if err := os.WriteFile(path, []byte("prior\n"), 0644); err != nil {

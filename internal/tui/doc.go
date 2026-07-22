@@ -8,10 +8,11 @@
 // UI-local error panes belong here and must not leak into internal/app or
 // product packages.
 //
-// The dashboard supports validation, bounded prompt previews and dry runs, and
-// explicitly confirmed sprint flow, execute, and resumable study run-loop operations.
+// The dashboard supports every sprint status, validation, prompt, flow, execute,
+// and review operation, plus resumable study run-loop operations. Prompt previews
+// and dry runs are bounded, and runtime-backed or mutating actions are confirmed.
 // Runtime operations are single-owner and cancellable; product services retain
 // durable-state ownership. The package does not call CLI handlers, parse their
 // output, invoke ultraplan as a subprocess, mutate Git, launch plugins, create
-// smoke/review/issue artifacts, or persist TUI-specific state.
+// smoke/issue artifacts, or persist TUI-specific state.
 package tui

@@ -403,13 +403,18 @@ func (m Model) navItems() []navItem {
 				{Label: "Flow State", Path: artifactByLabel(s.Artifacts, "flow-state")},
 				{Label: "Run State", Path: artifactByLabel(s.Artifacts, "run-state")},
 			}
-			for _, stage := range []string{"requirements", "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "execute", "review"} {
+			stages := []string{"requirements", "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "execute", "review"}
+			items = append(items, navItem{Label: "Sprint Status", Operation: &app.OperationRequest{Kind: app.OperationSprintStatus, Project: route.Project, Sprint: route.Sprint}})
+			for _, stage := range stages {
 				items = append(items, navItem{Label: "Validate " + stage, Validation: &app.ValidationRequest{Subject: app.ValidationSprint, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
 				items = append(items, navItem{Label: "Preview " + stage + " Prompt", Operation: &app.OperationRequest{Kind: app.OperationPrompt, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
 			}
+			for _, stage := range stages {
+				items = append(items,
+					navItem{Label: "Dry Run Flow to " + stage, Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: stage}},
+					navItem{Label: "Run Flow to " + stage + " [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
+			}
 			items = append(items,
-				navItem{Label: "Dry Run Plan Flow", Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "plan"}},
-				navItem{Label: "Run Planning Flow [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: "plan"}},
 				navItem{Label: "Execute Status", Operation: &app.OperationRequest{Kind: app.OperationExecuteStatus, Project: route.Project, Sprint: route.Sprint, Stage: "execute"}},
 				navItem{Label: "Execute Dry Run", Operation: &app.OperationRequest{Kind: app.OperationExecuteDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "execute"}},
 				navItem{Label: "Execute Start [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationExecuteStart, Project: route.Project, Sprint: route.Sprint, Stage: "execute"}},

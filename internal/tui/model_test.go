@@ -64,17 +64,51 @@ func TestModelTabsRoutesPreviewAndQuit(t *testing.T) {
 	}
 }
 
-func TestSprintNavigationExposesFullReviewOperation(t *testing.T) {
+func TestSprintNavigationExposesAllSprintOperations(t *testing.T) {
 	m := NewModel(&fakeUseCases{})
 	m.Data = fixtureDashboard()
 	m.Routes = []Route{{Kind: RouteSprint, Project: "alpha", Sprint: "01"}}
 	labels := map[string]bool{}
-	for _, item := range m.navItems() {
+	items := m.navItems()
+	for _, item := range items {
 		labels[item.Label] = true
 	}
-	for _, want := range []string{"Review", "Validate review", "Preview review Prompt", "Review Status", "Review Dry Run", "Run Review [RUNTIME]"} {
+	for _, want := range []string{"Sprint Status", "Review", "Validate review", "Preview review Prompt", "Review Status", "Review Dry Run", "Run Review [RUNTIME]"} {
 		if !labels[want] {
 			t.Fatalf("missing review navigation %q", want)
+		}
+	}
+	for _, stage := range []string{"requirements", "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "execute", "review"} {
+		for _, want := range []string{"Validate " + stage, "Preview " + stage + " Prompt", "Dry Run Flow to " + stage, "Run Flow to " + stage + " [RUNTIME]"} {
+			if !labels[want] {
+				t.Fatalf("missing %q", want)
+			}
+		}
+	}
+	assertSprintOperation := func(label string, kind app.OperationKind, stage string) {
+		t.Helper()
+		for _, item := range items {
+			if item.Label == label && item.Operation != nil {
+				if item.Operation.Kind != kind || item.Operation.Stage != stage || item.Operation.Project != "alpha" || item.Operation.Sprint != "01" {
+					t.Fatalf("%s request = %+v", label, item.Operation)
+				}
+				return
+			}
+		}
+		t.Fatalf("operation %q not found", label)
+	}
+	assertSprintOperation("Sprint Status", app.OperationSprintStatus, "")
+	assertSprintOperation("Dry Run Flow to requirements", app.OperationFlowDryRun, "requirements")
+	assertSprintOperation("Run Flow to review [RUNTIME]", app.OperationFlow, "review")
+}
+
+func TestOperationViewRendersSprintFindings(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Operation = &app.OperationResult{State: app.OperationFailed, Subject: "alpha/01", Findings: []app.DisplayFinding{{Severity: "error", Section: "plan", Problem: "missing task", Cause: "empty tasks", Suggestion: "add a task"}}}
+	view := Render(m, 80)
+	for _, want := range []string{"Findings:", "[error] plan: missing task", "Cause: empty tasks", "Guidance: add a task"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("operation view missing %q:\n%s", want, view)
 		}
 	}
 }

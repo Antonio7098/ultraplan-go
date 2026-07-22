@@ -302,6 +302,18 @@ func renderOperation(b *strings.Builder, r app.OperationResult, events []app.Ope
 	if r.Error != nil {
 		fmt.Fprintf(b, "Error code: %s (%s)\nComponent: %s\nRetryable: %t\nGuidance: %s\n", r.Error.Code, r.Error.Category, r.Error.Component, r.Error.Retryable, r.Error.Guidance)
 	}
+	if len(r.Findings) > 0 {
+		fmt.Fprintln(b, "Findings:")
+		for _, finding := range r.Findings {
+			fmt.Fprintf(b, "- [%s] %s: %s\n", finding.Severity, finding.Section, finding.Problem)
+			if finding.Cause != "" {
+				fmt.Fprintf(b, "  Cause: %s\n", finding.Cause)
+			}
+			if finding.Suggestion != "" {
+				fmt.Fprintf(b, "  Guidance: %s\n", finding.Suggestion)
+			}
+		}
+	}
 	for _, e := range events {
 		fmt.Fprintf(b, "[%s] %s %s", e.State, e.Stage, e.Message)
 		if e.Total > 0 {
