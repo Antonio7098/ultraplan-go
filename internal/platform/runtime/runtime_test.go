@@ -284,6 +284,31 @@ func TestAdapterBoundsMappedEventPayloads(t *testing.T) {
 	}
 }
 
+func TestAdapterPreservesBoundedTerminalOutputApartFromMappedEvents(t *testing.T) {
+	full := strings.Repeat("x", maxMappedPayloadStringBytes+512)
+	adapter := NewAdapter(fakeRuntime{run: &fakeRun{
+		id: "run-1",
+		events: []agentwrap.Event{{
+			ID:      "event-1",
+			RunID:   "run-1",
+			Type:    "text",
+			Payload: agentwrap.EventPayloadWithKind(agentwrap.EventMessage, agentwrap.EventPayload{"text": full}),
+		}},
+		result: agentwrap.RunResult{RunID: "run-1", Status: agentwrap.StatusCompleted},
+	}})
+
+	result, err := adapter.StartRun(context.Background(), Request{Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TerminalOutput != full {
+		t.Fatalf("terminal output length = %d, want %d", len(result.TerminalOutput), len(full))
+	}
+	if mapped, _ := result.Events[0].Payload["text"].(string); len(mapped) >= len(full) || !strings.Contains(mapped, "truncated") {
+		t.Fatalf("mapped event payload was not independently bounded: %q", mapped)
+	}
+}
+
 func TestAdapterMapsPolicyRetryFallbackAndValidationMetadata(t *testing.T) {
 	total := int64(99)
 	turns, reasoning, cacheRead := int64(4), int64(7), int64(88)

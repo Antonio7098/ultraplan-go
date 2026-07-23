@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -55,6 +56,8 @@ type SmokeRequest struct {
 	Level, Suite, Test string
 	Timeout            time.Duration
 	ForceReview        bool
+	OverrideConfirmed  bool
+	OverrideRationale  string
 	DryRun             bool
 	NonInteractive     bool
 	Progress           func(SmokeProgress)
@@ -103,6 +106,7 @@ type SmokeResult struct {
 	Ready             bool                 `json:"ready"`
 	Stale             bool                 `json:"stale"`
 	ReviewOverride    bool                 `json:"review_override"`
+	OverrideRationale string               `json:"override_rationale,omitempty"`
 	ReviewVerdict     ReviewVerdict        `json:"review_verdict"`
 	ReviewFingerprint string               `json:"review_fingerprint"`
 	ScopeKind         string               `json:"scope_kind,omitempty"`
@@ -142,6 +146,27 @@ type SmokeStageState struct {
 	Stale             bool                 `json:"stale"`
 	Reconciliation    bool                 `json:"reconciliationRequired"`
 	Diagnostics       []string             `json:"diagnostics,omitempty"`
+	ArtifactDigest    string               `json:"artifactDigest,omitempty"`
+	InputFingerprint  string               `json:"inputFingerprint,omitempty"`
+	Issues            []SmokeIssue         `json:"issues,omitempty"`
+	Evidence          []EvidenceReference  `json:"evidence,omitempty"`
+	Override          *DiagnosticOverride  `json:"override,omitempty"`
+	ActiveAttempt     *VerificationAttempt `json:"activeAttempt,omitempty"`
+	LastAttempt       *VerificationAttempt `json:"lastAttempt,omitempty"`
+	LastComplete      *SmokeCompletion     `json:"lastComplete,omitempty"`
+}
+
+type SmokeCompletion struct {
+	Verdict          SmokeVerdict        `json:"verdict"`
+	Artifact         string              `json:"artifact"`
+	ArtifactDigest   string              `json:"artifactDigest"`
+	InputFingerprint string              `json:"inputFingerprint"`
+	CompletedAt      time.Time           `json:"completedAt"`
+	RunID            string              `json:"runId,omitempty"`
+	EvidenceID       string              `json:"evidenceId,omitempty"`
+	Evidence         []EvidenceReference `json:"evidence,omitempty"`
+	Issues           []SmokeIssue        `json:"issues,omitempty"`
+	Override         *DiagnosticOverride `json:"override,omitempty"`
 }
 
 type SmokeError struct {
@@ -201,6 +226,27 @@ func validateSmokeStageState(root string, sp Sprint, state SmokeStageState, path
 	for _, d := range state.Diagnostics {
 		if len(d) > 240 {
 			return fmt.Errorf("%w: %s: smoke diagnostic too long", ErrFlowStateMalformed, path)
+		}
+	}
+	if err := validateAttempt(state.ActiveAttempt, true); err != nil {
+		return fmt.Errorf("%w: %s: smoke active attempt: %v", ErrFlowStateMalformed, path, err)
+	}
+	if err := validateAttempt(state.LastAttempt, false); err != nil {
+		return fmt.Errorf("%w: %s: smoke last attempt: %v", ErrFlowStateMalformed, path, err)
+	}
+	if state.Override != nil {
+		if !state.Override.Requested || !state.Override.Confirmed || strings.TrimSpace(state.Override.Rationale) == "" || len(state.Override.Rationale) > 240 || strings.ContainsAny(state.Override.Rationale, "\x00\r\n") {
+			return fmt.Errorf("%w: %s: invalid diagnostic override", ErrFlowStateMalformed, path)
+		}
+	}
+	for _, issue := range state.Issues {
+		if issue.ID == "" || (issue.Status != "open" && issue.Status != "resolved") {
+			return fmt.Errorf("%w: %s: invalid smoke issue", ErrFlowStateMalformed, path)
+		}
+	}
+	if state.LastComplete != nil {
+		if state.LastComplete.Artifact != ArtifactRelPath(sp, StageSmoke) || state.LastComplete.CompletedAt.IsZero() || state.LastComplete.InputFingerprint == "" || state.LastComplete.ArtifactDigest == "" {
+			return fmt.Errorf("%w: %s: invalid smoke lastComplete", ErrFlowStateMalformed, path)
 		}
 	}
 	return nil

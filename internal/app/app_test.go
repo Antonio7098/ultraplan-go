@@ -269,6 +269,8 @@ func runForTestWithInput(args []string, env map[string]string, input string) (st
 		Stdin:  strings.NewReader(input),
 		Stdout: &stdout,
 		Stderr: &stderr,
+		TUIRunner: testTUIRunner,
+		SprintRuntimeFactory: testSprintRuntimeFactory,
 		Version: Version{
 			Version:   "1.2.3-test",
 			Commit:    "abc123",

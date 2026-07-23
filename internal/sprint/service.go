@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
@@ -26,6 +27,7 @@ type Service struct {
 	reviewConcurrency int
 	processRunner     pprocess.Runner
 	smokeSettings     SmokeSettings
+	mutations         *sync.Map
 }
 
 func (s Service) WithReviewConcurrency(n int) Service { s.reviewConcurrency = n; return s }
@@ -46,7 +48,24 @@ type StageRuntime struct {
 }
 
 func NewService(root string) Service {
-	return Service{root: root, store: NewFSStore(root), now: func() time.Time { return time.Now().UTC() }, processRunner: pprocess.DirectRunner{}, smokeSettings: DefaultSmokeSettings()}
+	return Service{root: root, store: NewFSStore(root), now: func() time.Time { return time.Now().UTC() }, processRunner: pprocess.DirectRunner{}, smokeSettings: DefaultSmokeSettings(), mutations: &sync.Map{}}
+}
+
+var ErrVerificationConflict = errors.New("verification mutation already in progress")
+
+func (s Service) acquireMutation(projectRef, sprintRef string) (func(), error) {
+	sp, _, _, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return nil, err
+	}
+	key := filepath.Clean(sp.Path)
+	if s.mutations == nil {
+		s.mutations = &sync.Map{}
+	}
+	if _, loaded := s.mutations.LoadOrStore(key, struct{}{}); loaded {
+		return nil, fmt.Errorf("%w for %s/%s; wait for the active attempt or cancel it", ErrVerificationConflict, sp.Project, sp.Slug)
+	}
+	return func() { s.mutations.Delete(key) }, nil
 }
 
 func (s Service) WithRuntime(rt Runtime, reqs ...pruntime.Request) Service {
@@ -135,8 +154,10 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 			refreshed.Smoke.Reconciliation = fingerprintMismatch || (readErr == nil && refreshed.Smoke.SmokeFingerprint == "")
 		}
 	}
-	if err := SaveFlowState(s.root, sp, refreshed); err != nil {
-		return StatusSummary{}, err
+	if !stateLoaded {
+		if err := SaveFlowState(s.root, sp, refreshed); err != nil {
+			return StatusSummary{}, err
+		}
 	}
 	flowPath, err := FlowStatePath(s.root, sp)
 	if err != nil {
@@ -154,6 +175,10 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 	if err != nil {
 		return StatusSummary{}, err
 	}
+	verification, verificationErr := s.VerificationStatus(projectRef, sprintRef)
+	if verificationErr != nil && !errors.Is(verificationErr, ErrFlowStateMissing) {
+		return StatusSummary{}, verificationErr
+	}
 	return StatusSummary{
 		Project:       sp.Project,
 		Sprint:        sp.Slug,
@@ -167,6 +192,7 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 		ReviewPath:    ArtifactRelPath(sp, StageReview),
 		Smoke:         refreshed.Smoke,
 		SmokePath:     ArtifactRelPath(sp, StageSmoke),
+		Verification:  verification,
 	}, nil
 }
 

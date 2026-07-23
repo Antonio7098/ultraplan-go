@@ -7,6 +7,9 @@ import (
 	"testing"
 )
 
+var testTUIRunner TUIRunner
+var testSprintRuntimeFactory SprintRuntimeFactory
+
 func TestTUICommandHelpAndRunner(t *testing.T) {
 	stdout, stderr, status := runForTest([]string{"tui", "--help"})
 	if status != ExitOK {
@@ -18,15 +21,15 @@ func TestTUICommandHelpAndRunner(t *testing.T) {
 
 	dir := initializedWorkspace(t)
 	called := false
-	SetTUIRunner(func(ctx context.Context, opts TUIRunOptions) error {
+	testTUIRunner = func(ctx context.Context, opts TUIRunOptions) error {
 		called = true
 		if opts.UseCases == nil {
 			t.Fatalf("missing use cases")
 		}
 		_, _ = fmt.Fprint(opts.Stdout, "tui started\n")
 		return nil
-	})
-	defer SetTUIRunner(nil)
+	}
+	defer func() { testTUIRunner = nil }()
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "tui"})
 	if status != ExitOK {
@@ -55,7 +58,7 @@ func TestTUISprintFlowRunsAndStreamsProgress(t *testing.T) {
 	defer restoreRuntime()
 
 	var events []OperationEvent
-	SetTUIRunner(func(ctx context.Context, opts TUIRunOptions) error {
+	testTUIRunner = func(ctx context.Context, opts TUIRunOptions) error {
 		req := OperationRequest{Kind: OperationFlow, Project: "proj", Sprint: "01", Stage: "requirements"}
 		confirmation, err := opts.UseCases.PrepareOperation(ctx, req)
 		if err != nil {
@@ -74,8 +77,8 @@ func TestTUISprintFlowRunsAndStreamsProgress(t *testing.T) {
 			t.Fatalf("flow result = %+v", result)
 		}
 		return nil
-	})
-	defer SetTUIRunner(nil)
+	}
+	defer func() { testTUIRunner = nil }()
 
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "tui"})
 	if status != ExitOK {

@@ -25,6 +25,8 @@ type SprintSummary struct {
 	Artifacts         []DisplayArtifact
 	RefreshMayWrite   bool
 	RefreshActionNote string
+	Assessment        string
+	NextAction        string
 }
 
 type ReviewSummary struct {
@@ -32,12 +34,18 @@ type ReviewSummary struct {
 	Status, Verdict  string
 	Stale            bool
 	Completed, Total int
+	Artifact, Digest string
+	FreshnessReasons []string
 }
 
 type SmokeSummary struct {
-	Available              bool
-	Status, Verdict, RunID string
-	Stale, Reconciliation  bool
+	Available                    bool
+	Status, Verdict, RunID       string
+	Stale, Reconciliation        bool
+	Artifact, Digest, NextAction string
+	FreshnessReasons             []string
+	Issues                       []sprint.SmokeIssue
+	Override                     *sprint.DiagnosticOverride
 }
 
 type StageSummary struct {
@@ -112,11 +120,18 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				ReviewPath:        status.ReviewPath,
 				SmokePath:         status.SmokePath,
 				RefreshMayWrite:   true,
-				RefreshActionNote: "refresh recomputes deterministic flow-state.json status",
+				RefreshActionNote: "refresh derives verification freshness and assessment from current evidence without caching them as authoritative state",
 				Execute:           summarizeExecute(status.ExecuteState),
 				Review:            summarizeReview(status.Review),
 				Smoke:             summarizeSmoke(status.Smoke),
+				Assessment:        string(status.Verification.Assessment),
+				NextAction:        status.Verification.NextAction,
 			}
+			summary.Review.Artifact, summary.Review.Digest, summary.Review.FreshnessReasons = status.Verification.Review.Artifact, status.Verification.Review.ArtifactDigest, append([]string(nil), status.Verification.Review.FreshnessReasons...)
+			summary.Review.Stale = !status.Verification.Review.Fresh
+			summary.Smoke.Artifact, summary.Smoke.Digest, summary.Smoke.NextAction = status.Verification.Smoke.Artifact, status.Verification.Smoke.ArtifactDigest, status.Verification.Smoke.NextAction
+			summary.Smoke.FreshnessReasons, summary.Smoke.Issues, summary.Smoke.Override = append([]string(nil), status.Verification.Smoke.FreshnessReasons...), append([]sprint.SmokeIssue(nil), status.Verification.Smoke.Issues...), status.Verification.Smoke.Override
+			summary.Smoke.Stale = !status.Verification.Smoke.Fresh
 			for _, stage := range status.Stages {
 				summary.Stages = append(summary.Stages, StageSummary{Name: string(stage.Stage), Status: string(stage.Status), Path: stage.Path, Error: displaySafe(stage.Error)})
 			}

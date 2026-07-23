@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,12 +28,17 @@ func TestSprintHelpIsRegistered(t *testing.T) {
 	for _, args := range [][]string{
 		{"sprint", "--help"},
 		{"sprint", "proj", "01", "status", "--help"},
+		{"sprint", "proj", "01", "execute", "--help"},
+		{"sprint", "proj", "01", "review", "--help"},
 	} {
 		stdout, stderr, status = runForTest(args)
 		if status != ExitOK || stderr != "" {
 			t.Fatalf("%v status = %d stderr = %q", args, status, stderr)
 		}
 		assertContains(t, stdout, "ultraplan sprint")
+		if len(args) > 3 && args[2] == "01" && args[3] == "review" {
+			assertContains(t, stdout, "--focus <coverage-id>")
+		}
 	}
 }
 
@@ -61,6 +67,35 @@ func TestSprintStatusRefreshesStateAndRendersDeterministically(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(base, "flow-state.json")); err != nil {
 		t.Fatalf("flow state not written: %v", err)
+	}
+}
+
+func TestSprintFailureJSONIsOneStructuredDocument(t *testing.T) {
+	dir := initializedWorkspace(t)
+	writeCommandSprintProject(t, dir, "proj", "01-alpha")
+	for _, args := range [][]string{
+		{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "plan", "--dry-run", "--json"},
+		{"--workspace", dir, "sprint", "proj", "01", "verify", "--to", "review", "--json"},
+	} {
+		stdout, _, status := runForTest(args)
+		if status == ExitOK {
+			t.Fatalf("expected failed command: %v stdout=%s", args, stdout)
+		}
+		decoder := json.NewDecoder(strings.NewReader(stdout))
+		var payload map[string]any
+		if err := decoder.Decode(&payload); err != nil {
+			t.Fatalf("invalid JSON for %v: %v\n%s", args, err, stdout)
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err == nil {
+			t.Fatalf("trailing JSON/output for %v: %s", args, stdout)
+		}
+		if payload["status"] == "complete" || payload["status"] == "ready" {
+			t.Fatalf("failure reported success: %#v", payload)
+		}
+		if args[5] == "verify" && payload["error"] == nil {
+			t.Fatalf("verify failure omitted structured error: %#v", payload)
+		}
 	}
 }
 
@@ -383,18 +418,21 @@ func TestSprintValidateFailuresAndUnsupportedStages(t *testing.T) {
 	if status != ExitUsage || stdout != "" {
 		t.Fatalf("unsupported status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
-	assertContains(t, stderr, "unsupported flow target")
+	assertContains(t, stderr, "--yes is required for smoke execution")
 }
 
 func TestParseSprintReviewArgs(t *testing.T) {
-	req, jsonOut, err := parseSprintReviewArgs([]string{"--dry-run", "--model", "openai/gpt-5.6", "--parallel", "4", "--json"})
-	if err != nil || !req.DryRun || req.ModelOverride != "openai/gpt-5.6" || req.Concurrency != 4 || !jsonOut {
+	req, jsonOut, err := parseSprintReviewArgs([]string{"--dry-run", "--restart", "--model", "openai/gpt-5.6", "--parallel", "4", "--json"})
+	if err != nil || !req.DryRun || !req.Restart || req.ModelOverride != "openai/gpt-5.6" || req.Concurrency != 4 || !jsonOut {
 		t.Fatalf("req=%+v json=%t err=%v", req, jsonOut, err)
 	}
 	if _, _, err := parseSprintReviewArgs([]string{"--parallel", "0"}); err == nil {
 		t.Fatal("expected invalid parallelism")
 	}
-	for _, want := range []string{"validate review", "prompt review", "flow --to review", "review [--dry-run]"} {
+	if _, _, err := parseSprintReviewArgs([]string{"--restart", "--focus", "contract-testing"}); err == nil {
+		t.Fatal("expected restart/focus conflict")
+	}
+	for _, want := range []string{"validate review", "prompt review", "flow --to review", "review [--restart]"} {
 		if !strings.Contains(sprintHelp(), want) {
 			t.Fatalf("help missing %q", want)
 		}
@@ -402,12 +440,15 @@ func TestParseSprintReviewArgs(t *testing.T) {
 }
 
 func TestParseSprintSmokeArgsAndHelp(t *testing.T) {
-	req, jsonOut, err := parseSprintSmokeArgs([]string{"--suite", "sprint-27", "--timeout", "2m", "--force-review", "--dry-run", "--yes", "--json"})
-	if err != nil || req.Suite != "sprint-27" || req.Timeout != 2*time.Minute || !req.ForceReview || !req.DryRun || !req.NonInteractive || !jsonOut {
+	req, jsonOut, err := parseSprintSmokeArgs([]string{"--suite", "sprint-27", "--timeout", "2m", "--force-review", "--override-reason", "diagnose blocked review", "--dry-run", "--yes", "--json"})
+	if err != nil || req.Suite != "sprint-27" || req.Timeout != 2*time.Minute || !req.ForceReview || req.OverrideRationale == "" || !req.DryRun || !req.NonInteractive || !jsonOut {
 		t.Fatalf("req=%+v json=%t err=%v", req, jsonOut, err)
 	}
 	if _, _, err := parseSprintSmokeArgs([]string{"--suite", "a", "--test", "b"}); err == nil {
 		t.Fatal("expected exclusive scope error")
+	}
+	if _, _, err := parseSprintSmokeArgs([]string{"--force-review", "--yes"}); err == nil {
+		t.Fatal("expected override rationale error")
 	}
 	for _, want := range []string{"validate smoke", "smoke [--level", "--force-review", "--dry-run"} {
 		if !strings.Contains(sprintHelp()+sprintSmokeHelp(), want) {
@@ -578,11 +619,11 @@ func (f *sprintCommandRuntime) StartRun(_ context.Context, req runtimepkg.Reques
 }
 
 func stubSprintRuntimeFactory(rt *sprintCommandRuntime) func() {
-	orig := sprintRuntimeFactory
-	sprintRuntimeFactory = func(config.Config) (sprint.Runtime, error) {
+	orig := testSprintRuntimeFactory
+	testSprintRuntimeFactory = func(config.Config) (sprint.Runtime, error) {
 		return rt, nil
 	}
-	return func() { sprintRuntimeFactory = orig }
+	return func() { testSprintRuntimeFactory = orig }
 }
 
 func commandValidTechnicalHandbook() string {

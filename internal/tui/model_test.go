@@ -73,7 +73,7 @@ func TestSprintNavigationExposesAllSprintOperations(t *testing.T) {
 	for _, item := range items {
 		labels[item.Label] = true
 	}
-	for _, want := range []string{"Sprint Status", "Review", "Validate review", "Preview review Prompt", "Review Status", "Review Dry Run", "Run Review [RUNTIME]"} {
+	for _, want := range []string{"Sprint Status", "Review", "Validate review", "Preview review Prompt", "Review Status", "Review Dry Run", "Run/Resume Review [RUNTIME]", "Restart Review [RUNTIME]"} {
 		if !labels[want] {
 			t.Fatalf("missing review navigation %q", want)
 		}

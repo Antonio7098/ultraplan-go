@@ -1,9 +1,11 @@
 package sprint
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,9 +29,38 @@ func LoadFlowState(root string, s Sprint) (FlowState, error) {
 		}
 		return FlowState{}, fmt.Errorf("read flow state %s: %w", path, err)
 	}
-	var state FlowState
-	if err := json.Unmarshal(content, &state); err != nil {
+	var header struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(content, &header); err != nil {
 		return FlowState{}, fmt.Errorf("%w: %s: %w", ErrFlowStateMalformed, path, err)
+	}
+	if header.SchemaVersion == 0 {
+		return FlowState{}, fmt.Errorf("%w: %s: missing schemaVersion", ErrFlowStateMalformed, path)
+	}
+	if header.SchemaVersion != FlowStateSchemaVersion && header.SchemaVersion != PreviousFlowStateSchemaVersion {
+		return FlowState{}, fmt.Errorf("%w: %s: schemaVersion %d; restore version %d or regenerate state", ErrFlowStateUnsupported, path, header.SchemaVersion, FlowStateSchemaVersion)
+	}
+	var state FlowState
+	dec := json.NewDecoder(bytes.NewReader(content))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&state); err != nil {
+		return FlowState{}, fmt.Errorf("%w: %s: %w", ErrFlowStateMalformed, path, err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err == nil {
+		return FlowState{}, fmt.Errorf("%w: %s: multiple JSON values", ErrFlowStateMalformed, path)
+	} else if !errors.Is(err, io.EOF) {
+		return FlowState{}, fmt.Errorf("%w: %s: trailing JSON: %v", ErrFlowStateMalformed, path, err)
+	}
+	if header.SchemaVersion == PreviousFlowStateSchemaVersion {
+		state = migrateFlowStateV1(root, s, state)
+		if err := ValidateFlowState(root, s, state, path); err != nil {
+			return FlowState{}, err
+		}
+		if err := saveFlowStateWithHooks(root, s, state, atomicWriteHooks{}); err != nil {
+			return FlowState{}, fmt.Errorf("migrate flow state %s: %w", path, err)
+		}
 	}
 	if err := ValidateFlowState(root, s, state, path); err != nil {
 		return FlowState{}, err
@@ -37,7 +68,69 @@ func LoadFlowState(root string, s Sprint) (FlowState, error) {
 	return state, nil
 }
 
+func migrateFlowStateV1(root string, sp Sprint, state FlowState) FlowState {
+	state.SchemaVersion = FlowStateSchemaVersion
+	if state.Review != nil {
+		r := state.Review
+		r.Stale = true
+		if r.Status == ReviewCompleted {
+			digest, _ := hashFile(mustArtifactPath(root, sp, StageReview))
+			if digest == "" {
+				digest = "legacy-unverifiable"
+			}
+			if r.Fingerprint == "" {
+				r.Fingerprint = "legacy-unverifiable"
+			}
+			completedAt := derefTime(r.LastRunAt)
+			if completedAt.IsZero() {
+				completedAt = state.UpdatedAt
+			}
+			r.ArtifactDigest = digest
+			r.LastComplete = &ReviewCompletion{Verdict: r.Verdict, Artifact: r.Path, ArtifactDigest: digest, InputFingerprint: r.Fingerprint, CompletedAt: completedAt}
+		}
+	}
+	if state.Smoke != nil {
+		sm := state.Smoke
+		sm.Stale = true
+		if sm.Status == SmokeCompleted {
+			digest, _ := hashFile(mustArtifactPath(root, sp, StageSmoke))
+			if digest == "" {
+				digest = "legacy-unverifiable"
+			}
+			completedAt := derefTime(sm.LastRunAt)
+			if completedAt.IsZero() {
+				completedAt = state.UpdatedAt
+			}
+			sm.ArtifactDigest = digest
+			sm.InputFingerprint = "legacy-unverifiable"
+			sm.LastComplete = &SmokeCompletion{Verdict: sm.Verdict, Artifact: sm.Path, ArtifactDigest: digest, InputFingerprint: sm.InputFingerprint, CompletedAt: completedAt, RunID: sm.RunID, EvidenceID: sm.EvidenceID}
+		}
+	}
+	return state
+}
+
+func derefTime(value *time.Time) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+	return value.UTC()
+}
+
 func SaveFlowState(root string, s Sprint, state FlowState) error {
+	// Planning-stage refreshes must not erase the last complete verification
+	// evidence. Explicit stage writers load and replace their own record.
+	if state.Review == nil || state.Smoke == nil {
+		if prior, err := LoadFlowState(root, s); err == nil {
+			if state.Review == nil {
+				state.Review = prior.Review
+			}
+			if state.Smoke == nil {
+				state.Smoke = prior.Smoke
+			}
+		} else if !errors.Is(err, ErrFlowStateMissing) {
+			return err
+		}
+	}
 	return saveFlowStateWithHooks(root, s, state, atomicWriteHooks{})
 }
 

@@ -253,6 +253,26 @@ func renderRunTask(b *strings.Builder, task app.RunTaskSummary) {
 
 func renderRouteSummary(b *strings.Builder, m Model) {
 	route := m.currentRoute()
+	if route.Kind == RouteSprint {
+		sprint, ok := findSprint(m.Data.Sprints, route.Project, route.Sprint)
+		if !ok {
+			return
+		}
+		fmt.Fprintln(b, "Verification summary")
+		fmt.Fprintf(b, "  Review: %s verdict=%s stale=%t evidence=%s\n", sprint.Review.Status, sprint.Review.Verdict, sprint.Review.Stale, sprint.Review.Artifact)
+		for _, reason := range sprint.Review.FreshnessReasons {
+			fmt.Fprintf(b, "    Reason: %s\n", reason)
+		}
+		fmt.Fprintf(b, "  Smoke: %s verdict=%s stale=%t run=%s evidence=%s\n", sprint.Smoke.Status, sprint.Smoke.Verdict, sprint.Smoke.Stale, sprint.Smoke.RunID, sprint.Smoke.Artifact)
+		for _, issue := range sprint.Smoke.Issues {
+			fmt.Fprintf(b, "    Issue: %s [%s] %s\n", issue.ID, issue.Status, issue.Path)
+		}
+		if sprint.Smoke.Override != nil && sprint.Smoke.Override.Requested {
+			fmt.Fprintf(b, "    Diagnostic override: %s\n", sprint.Smoke.Override.Rationale)
+		}
+		fmt.Fprintf(b, "  Overall: %s\n  Next: %s\n\n", sprint.Assessment, sprint.NextAction)
+		return
+	}
 	if route.Kind != RouteStudy {
 		return
 	}

@@ -45,26 +45,27 @@ type PermissionPathRule struct {
 }
 
 type Result struct {
-	RunID         string
-	SessionID     string
-	TurnID        string
-	Status        string
-	Events        []Event
-	EventStats    EventStats
-	Memory        MemoryStats
-	Artifacts     []Artifact
-	Warnings      []string
-	Attempts      []AttemptSummary
-	Usage         Usage
-	EstimatedCost *CostEstimate
-	Policy        PolicySummary
-	Permissions   PermissionSummary
-	Cleanup       CleanupSummary
-	Validation    ValidationSummary
-	Repair        RepairSummary
-	Error         *Error
-	StartedAt     time.Time
-	FinishedAt    time.Time
+	RunID          string
+	SessionID      string
+	TurnID         string
+	Status         string
+	TerminalOutput string
+	Events         []Event
+	EventStats     EventStats
+	Memory         MemoryStats
+	Artifacts      []Artifact
+	Warnings       []string
+	Attempts       []AttemptSummary
+	Usage          Usage
+	EstimatedCost  *CostEstimate
+	Policy         PolicySummary
+	Permissions    PermissionSummary
+	Cleanup        CleanupSummary
+	Validation     ValidationSummary
+	Repair         RepairSummary
+	Error          *Error
+	StartedAt      time.Time
+	FinishedAt     time.Time
 }
 
 type Event struct {
@@ -244,6 +245,7 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 	go func() {
 		events := newEventCollection(retainedRuntimeEventLimit)
 		for event := range run.Events() {
+			events.captureTerminalOutput(event.Payload)
 			mapped := mapEvent(event)
 			events.add(mapped)
 			if req.OnEvent != nil {
@@ -293,6 +295,7 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 	select {
 	case events := <-eventsCh:
 		mapped.Events = events.events
+		mapped.TerminalOutput = events.terminalOutput
 		mapped.EventStats = events.stats()
 		mapped.Memory = events.memory
 		if events.dropped > 0 {
@@ -317,11 +320,12 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 }
 
 type eventCollection struct {
-	events  []Event
-	total   int64
-	dropped int64
-	limit   int
-	memory  MemoryStats
+	events         []Event
+	terminalOutput string
+	total          int64
+	dropped        int64
+	limit          int
+	memory         MemoryStats
 }
 
 func newEventCollection(limit int) eventCollection {
@@ -357,6 +361,37 @@ func (c *eventCollection) add(event Event) {
 	copy(c.events, c.events[1:])
 	c.events[len(c.events)-1] = event
 	c.dropped++
+}
+
+func (c *eventCollection) captureTerminalOutput(payload map[string]any) {
+	if value := terminalOutputValue(payload, 0); value != "" {
+		c.terminalOutput = truncateString(value, maxMappedTerminalOutputBytes)
+	}
+}
+
+func terminalOutputValue(value any, depth int) string {
+	if depth > 4 {
+		return ""
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, key := range []string{"structured_output", "output", "content", "text", "message", "part"} {
+			if nested, ok := typed[key]; ok {
+				if result := terminalOutputValue(nested, depth+1); result != "" {
+					return result
+				}
+			}
+		}
+	case []any:
+		for i := len(typed) - 1; i >= 0; i-- {
+			if result := terminalOutputValue(typed[i], depth+1); result != "" {
+				return result
+			}
+		}
+	case string:
+		return typed
+	}
+	return ""
 }
 
 func (c *eventCollection) finish() {

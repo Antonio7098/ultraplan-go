@@ -17,7 +17,9 @@ import (
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
-var sprintRuntimeFactory = func(c config.Config) (sprint.Runtime, error) {
+type SprintRuntimeFactory func(config.Config) (sprint.Runtime, error)
+
+func defaultSprintRuntimeFactory(c config.Config) (sprint.Runtime, error) {
 	return runtimepkg.NewOpenCode(c)
 }
 
@@ -47,13 +49,22 @@ func runSprint(deps dependencies, args []string) error {
 		case "smoke":
 			_, err := deps.stdout.Write([]byte(sprintSmokeHelp()))
 			return err
+		case "verify":
+			_, err := deps.stdout.Write([]byte(sprintVerifyHelp()))
+			return err
+		case "execute":
+			_, err := deps.stdout.Write([]byte(sprintExecuteHelp()))
+			return err
+		case "review":
+			_, err := deps.stdout.Write([]byte(sprintReviewHelp()))
+			return err
 		}
 	}
 	if len(args) < 3 {
 		if len(args) == 2 {
 			return classified(ExitUsage, "sprint: expected '<project> <sprint> status'")
 		}
-		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|validate|prompt|flow|execute|review|smoke>'")
+		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|validate|prompt|flow|execute|review|smoke|verify>'")
 	}
 	root, err := discoverWorkspace(deps)
 	if err != nil {
@@ -74,12 +85,22 @@ func runSprint(deps dependencies, args []string) error {
 		if err != nil {
 			return mapSprintError("sprint.status", err)
 		}
+		statusLabel := "ok"
 		smokeReadiness, smokeErr := service.SmokeStatus(args[0], args[1])
 		if smokeErr != nil {
 			smokeReadiness.Ready = false
+			if smokeFailure, ok := sprint.AsSmokeError(smokeErr); ok && (smokeFailure.Category == "catalog" || smokeFailure.Category == "review_gate") {
+				statusLabel = "partial"
+			} else {
+				mapped := mapSmokeError(smokeErr)
+				if jsonOut {
+					_ = json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.status", "status": "failed", "result": status, "smoke_readiness": smokeReadiness, "error": stableCommandError(mapped)})
+				}
+				return mapped
+			}
 		}
 		if jsonOut {
-			return json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.status", "status": "ok", "result": status, "smoke_readiness": smokeReadiness})
+			return json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.status", "status": statusLabel, "result": status, "smoke_readiness": smokeReadiness})
 		}
 		renderSprintStatus(deps, status)
 		fmt.Fprintf(deps.stdout, "  readiness: %t\n", smokeReadiness.Ready)
@@ -155,12 +176,16 @@ func runSprint(deps dependencies, args []string) error {
 		fmt.Fprint(deps.stdout, preview.Prompt)
 		return nil
 	case "flow":
-		req, err := parseSprintFlowArgs(args[3:])
+		flowArgs, jsonOut := stripFlag(args[3:], "--json")
+		req, err := parseSprintFlowArgs(flowArgs)
 		if err != nil {
 			return classified(ExitUsage, "sprint.flow: %w", err)
 		}
 		flowService := service
 		if !req.DryRun {
+			if req.To == sprint.StageSmoke && !req.Smoke.NonInteractive {
+				return classified(ExitUsage, "sprint.flow: --yes is required for smoke execution")
+			}
 			req.Progress = renderSprintFlowProgress(deps)
 			flowService, err = sprintRuntimeService(deps, root)
 			if err != nil {
@@ -170,10 +195,20 @@ func runSprint(deps dependencies, args []string) error {
 		var result sprint.FlowResult
 		result, err = runSprintFlow(deps.ctx, flowService, args[0], args[1], req)
 		if result.DryRun && err == nil {
+			if jsonOut {
+				return json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.flow", "status": "ready", "result": result})
+			}
 			renderSprintFlow(deps, result)
 			return nil
 		}
 		if err != nil {
+			if jsonOut {
+				_ = json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.flow", "status": "failed", "result": result})
+				if len(result.Findings) > 0 {
+					return classified(ExitValidation, "sprint.flow: %w", err)
+				}
+				return mapSprintError("sprint.flow", err)
+			}
 			if len(result.Findings) > 0 {
 				renderSprintFlow(deps, result)
 				return classified(ExitValidation, "sprint.flow: %w", err)
@@ -183,7 +218,52 @@ func runSprint(deps dependencies, args []string) error {
 			}
 			return mapSprintError("sprint.flow", err)
 		}
+		if jsonOut {
+			verification, _ := flowService.VerificationStatus(args[0], args[1])
+			return json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.flow", "status": "complete", "result": result, "verification": verification})
+		}
 		renderSprintFlow(deps, result)
+		return nil
+	case "verify":
+		req, jsonOut, err := parseSprintVerifyArgs(args[3:])
+		if err != nil {
+			return classified(ExitUsage, "sprint.verify: %w", err)
+		}
+		if req.To == sprint.StageSmoke && !req.DryRun && !req.Smoke.NonInteractive {
+			return classified(ExitUsage, "sprint.verify: --yes is required for smoke execution")
+		}
+		verifyService := service
+		if !req.DryRun {
+			verifyService, err = sprintRuntimeService(deps, root)
+			if err != nil {
+				return err
+			}
+			req.Progress = renderSprintFlowProgress(deps)
+		}
+		result, runErr := verifyService.Verify(deps.ctx, args[0], args[1], req)
+		var mappedRunErr error
+		if runErr != nil {
+			if _, ok := sprint.AsSmokeError(runErr); ok {
+				mappedRunErr = mapSmokeError(runErr)
+			} else {
+				mappedRunErr = mapSprintError("sprint.verify", runErr)
+			}
+		}
+		if jsonOut {
+			payload := map[string]any{"schema_version": 1, "operation": "sprint.verify", "status": result.Verification.Assessment, "result": result}
+			if mappedRunErr != nil {
+				payload["error"] = stableCommandError(mappedRunErr)
+			}
+			_ = json.NewEncoder(deps.stdout).Encode(payload)
+		} else {
+			renderSprintVerification(deps, result.Verification)
+		}
+		if mappedRunErr != nil {
+			return mappedRunErr
+		}
+		if result.Verification.Assessment == sprint.AssessmentFail || result.Verification.Assessment == sprint.AssessmentBlocked {
+			return classified(ExitValidation, "sprint.verify: assessment %s", result.Verification.Assessment)
+		}
 		return nil
 	case "execute":
 		req, err := parseSprintExecuteArgs(args[3:])
@@ -290,124 +370,21 @@ func runSprint(deps dependencies, args []string) error {
 	}
 }
 
-func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, sprintRef string, req sprint.FlowRequest) (sprint.FlowResult, error) {
-	stages := []sprint.PlanningStage{sprint.StageRequirements}
-	switch req.To {
-	case sprint.StageRequirements:
-	case sprint.StageSprintIndex:
-		stages = append(stages, sprint.StageSprintIndex)
-	case sprint.StageTechnicalHandbook:
-		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook)
-	case sprint.StageAreaReasoning:
-		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning)
-	case sprint.StageReasoning:
-		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning)
-	case sprint.StagePlan:
-		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan)
-	case sprint.StageExecute:
-		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute)
-	case sprint.StageReview:
-		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview)
-	case sprint.StageSmoke:
-		stages = append(stages, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageAreaReasoning, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview, sprint.StageSmoke)
-	default:
-		return sprint.FlowResult{}, fmt.Errorf("unsupported flow target %q", req.To)
+func stripFlag(args []string, flag string) ([]string, bool) {
+	out := make([]string, 0, len(args))
+	found := false
+	for _, arg := range args {
+		if arg == flag {
+			found = true
+			continue
+		}
+		out = append(out, arg)
 	}
-	if req.DryRun {
-		stages = []sprint.PlanningStage{req.To}
-	}
-	var result sprint.FlowResult
-	for _, stage := range stages {
-		if req.Progress != nil {
-			req.Progress(sprint.FlowProgress{Stage: stage, State: "checking", Message: "checking prerequisites and existing artifact"})
-		}
-		stageReq := sprint.FlowRequest{To: stage, DryRun: req.DryRun}
-		var err error
-		if !req.DryRun {
-			valid, validateErr := sprintStageAlreadyValid(service, projectRef, sprintRef, stage)
-			if validateErr != nil {
-				return sprint.FlowResult{}, validateErr
-			}
-			if valid {
-				result = sprint.FlowResult{Project: projectRef, Sprint: sprintRef, To: stage, Message: string(stage) + " already complete"}
-				if req.Progress != nil {
-					req.Progress(sprint.FlowProgress{Stage: stage, State: "skipped", Message: "already complete"})
-				}
-				continue
-			}
-		}
-		if req.Progress != nil && !req.DryRun {
-			req.Progress(sprint.FlowProgress{Stage: stage, State: "running", Message: "starting runtime-backed stage"})
-		}
-		switch stage {
-		case sprint.StageRequirements:
-			result, err = service.FlowRequirements(ctx, projectRef, sprintRef, stageReq)
-		case sprint.StageSprintIndex:
-			result, err = service.FlowSprintIndex(ctx, projectRef, sprintRef, stageReq)
-		case sprint.StageTechnicalHandbook:
-			result, err = service.FlowTechnicalHandbook(ctx, projectRef, sprintRef, stageReq)
-		case sprint.StageAreaReasoning, sprint.StageReasoning:
-			result, err = service.FlowReasoning(ctx, projectRef, sprintRef, stageReq)
-		case sprint.StagePlan:
-			result, err = service.FlowPlan(ctx, projectRef, sprintRef, stageReq)
-		case sprint.StageExecute:
-			exec, execErr := service.Execute(ctx, projectRef, sprintRef, sprint.ExecuteRequest{DryRun: req.DryRun, Resume: true})
-			result = sprint.FlowResult{Project: exec.Project, Sprint: exec.Sprint, To: sprint.StageExecute, DryRun: exec.DryRun, Message: firstNonEmpty(exec.Prompt, exec.Message), Findings: exec.Findings}
-			err = execErr
-		case sprint.StageReview:
-			review, reviewErr := service.Review(ctx, projectRef, sprintRef, sprint.ReviewRequest{DryRun: req.DryRun})
-			result = sprint.FlowResult{Project: review.Project, Sprint: review.Sprint, To: sprint.StageReview, DryRun: review.DryRun, Message: firstNonEmpty(review.Prompt, review.Message)}
-			err = reviewErr
-		case sprint.StageSmoke:
-			smoke, smokeErr := service.RunSmoke(ctx, projectRef, sprintRef, sprint.SmokeRequest{DryRun: req.DryRun})
-			result = sprint.FlowResult{Project: smoke.Project, Sprint: smoke.Sprint, To: sprint.StageSmoke, DryRun: smoke.DryRun, Message: fmt.Sprintf("smoke %s verdict=%s scope=%s %s next=%s", smoke.Status, smoke.Verdict, smoke.ScopeKind, smoke.Scope, smoke.NextAction)}
-			err = smokeErr
-		default:
-			err = fmt.Errorf("unsupported flow target %q", stage)
-		}
-		if err != nil {
-			if req.Progress != nil {
-				req.Progress(sprint.FlowProgress{Stage: stage, State: "failed", Message: err.Error()})
-			}
-			return result, err
-		}
-		if req.Progress != nil {
-			req.Progress(sprint.FlowProgress{Stage: stage, State: "complete", Message: firstNonEmpty(result.Message, "stage complete")})
-		}
-	}
-	result.To = req.To
-	return result, nil
+	return out, found
 }
 
-func sprintStageAlreadyValid(service sprint.Service, projectRef, sprintRef string, stage sprint.PlanningStage) (bool, error) {
-	var result sprint.ValidationResult
-	var err error
-	switch stage {
-	case sprint.StageRequirements:
-		result, err = service.ValidateRequirements(projectRef, sprintRef)
-	case sprint.StageSprintIndex:
-		result, err = service.ValidateSprintIndex(projectRef, sprintRef)
-	case sprint.StageTechnicalHandbook:
-		result, err = service.ValidateTechnicalHandbook(projectRef, sprintRef)
-	case sprint.StageAreaReasoning:
-		result, err = service.ValidateAreaReasoning(projectRef, sprintRef)
-	case sprint.StageReasoning:
-		result, err = service.ValidateReasoning(projectRef, sprintRef)
-	case sprint.StagePlan:
-		result, err = service.ValidatePlan(projectRef, sprintRef)
-	case sprint.StageExecute:
-		return false, nil
-	case sprint.StageReview:
-		result, err = service.ValidateReview(projectRef, sprintRef)
-	case sprint.StageSmoke:
-		result, err = service.ValidateSmoke(projectRef, sprintRef)
-	default:
-		return false, fmt.Errorf("unsupported flow target %q", stage)
-	}
-	if err != nil {
-		return false, nil
-	}
-	return result.Valid(), nil
+func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, sprintRef string, req sprint.FlowRequest) (sprint.FlowResult, error) {
+	return service.Flow(ctx, projectRef, sprintRef, req)
 }
 
 func sprintRuntimeService(deps dependencies, root workspace.Root, observers ...func(sprint.RuntimeProgress)) (sprint.Service, error) {
@@ -419,7 +396,7 @@ func sprintRuntimeService(deps dependencies, root workspace.Root, observers ...f
 	if err != nil {
 		return sprint.Service{}, classified(ExitConfig, "runtime.config: %w", err)
 	}
-	rt, err := sprintRuntimeFactory(effective.Config)
+	rt, err := deps.sprintRuntimeFactory(effective.Config)
 	if err != nil {
 		return sprint.Service{}, classified(ExitRuntime, "runtime.init: %w", err)
 	}
@@ -471,7 +448,7 @@ func parseSprintSmokeArgs(args []string) (sprint.SmokeRequest, bool, error) {
 	jsonOut := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--level", "--suite", "--test", "--timeout":
+		case "--level", "--suite", "--test", "--timeout", "--override-reason":
 			if i+1 >= len(args) {
 				return req, jsonOut, fmt.Errorf("%s requires a value", args[i])
 			}
@@ -490,13 +467,15 @@ func parseSprintSmokeArgs(args []string) (sprint.SmokeRequest, bool, error) {
 					return req, jsonOut, fmt.Errorf("--timeout must be positive and no more than 24h")
 				}
 				req.Timeout = d
+			case "--override-reason":
+				req.OverrideRationale = value
 			}
 		case "--force-review":
 			req.ForceReview = true
 		case "--dry-run", "--preview":
 			req.DryRun = true
 		case "--yes", "--non-interactive":
-			req.NonInteractive = true
+			req.NonInteractive, req.OverrideConfirmed = true, true
 		case "--json":
 			jsonOut = true
 		default:
@@ -511,6 +490,9 @@ func parseSprintSmokeArgs(args []string) (sprint.SmokeRequest, bool, error) {
 	}
 	if selected > 1 {
 		return req, jsonOut, fmt.Errorf("choose only one of --level, --suite, or --test")
+	}
+	if req.ForceReview && strings.TrimSpace(req.OverrideRationale) == "" {
+		return req, jsonOut, fmt.Errorf("--force-review requires --override-reason")
 	}
 	return req, jsonOut, nil
 }
@@ -568,6 +550,12 @@ func mapSprintError(prefix string, err error) error {
 	var projectRef project.RefError
 	var sprintRef sprint.RefError
 	switch {
+	case errors.Is(err, context.Canceled):
+		return classified(ExitCancel, "%s: %w", prefix, err)
+	case errors.Is(err, context.DeadlineExceeded):
+		return classified(ExitRuntime, "%s: %w", prefix, err)
+	case errors.Is(err, sprint.ErrVerificationConflict):
+		return classified(ExitPartial, "%s: %w", prefix, err)
 	case errors.Is(err, sprint.ErrFlowStateMalformed), errors.Is(err, sprint.ErrFlowStateUnsupported):
 		return classified(ExitValidation, "%s: %w", prefix, err)
 	case errors.Is(err, sprint.ErrExecuteRunStateMissing), errors.Is(err, sprint.ErrExecuteRunStateMalformed), errors.Is(err, sprint.ErrExecuteRunStateUnsupported):
@@ -593,6 +581,18 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 			i++
 		case "--dry-run":
 			req.DryRun = true
+		case "--restart-review":
+			req.Review.Restart = true
+		case "--yes", "--non-interactive":
+			req.Smoke.NonInteractive, req.Smoke.OverrideConfirmed = true, true
+		case "--force-review":
+			req.Smoke.ForceReview = true
+		case "--override-reason":
+			if i+1 >= len(args) {
+				return req, fmt.Errorf("--override-reason requires a value")
+			}
+			i++
+			req.Smoke.OverrideRationale = args[i]
 		default:
 			return req, fmt.Errorf("unsupported argument %q", args[i])
 		}
@@ -603,8 +603,8 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 	if req.To != sprint.StageRequirements && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan && req.To != sprint.StageExecute && req.To != sprint.StageReview && req.To != sprint.StageSmoke {
 		return req, fmt.Errorf("unsupported flow target %q", req.To)
 	}
-	if req.To == sprint.StageSmoke && !req.DryRun {
-		return req, fmt.Errorf("unsupported flow target %q; run the guarded smoke command directly", req.To)
+	if req.Smoke.ForceReview && strings.TrimSpace(req.Smoke.OverrideRationale) == "" {
+		return req, fmt.Errorf("--force-review requires --override-reason")
 	}
 	return req, nil
 }
@@ -616,6 +616,8 @@ func parseSprintReviewArgs(args []string) (sprint.ReviewRequest, bool, error) {
 		switch args[i] {
 		case "--dry-run", "--prompt":
 			req.DryRun = true
+		case "--restart":
+			req.Restart = true
 		case "--json":
 			jsonOut = true
 		case "--model":
@@ -634,9 +636,92 @@ func parseSprintReviewArgs(args []string) (sprint.ReviewRequest, bool, error) {
 				return req, jsonOut, fmt.Errorf("--parallel must be positive")
 			}
 			req.Concurrency = n
+		case "--focus":
+			if i+1 >= len(args) {
+				return req, jsonOut, fmt.Errorf("--focus requires a coverage id")
+			}
+			i++
+			req.Focus = append(req.Focus, args[i])
 		default:
 			return req, jsonOut, fmt.Errorf("unsupported argument %q", args[i])
 		}
+	}
+	if req.Restart && len(req.Focus) > 0 {
+		return req, jsonOut, fmt.Errorf("--restart cannot be combined with --focus")
+	}
+	return req, jsonOut, nil
+}
+
+func parseSprintVerifyArgs(args []string) (sprint.VerifyRequest, bool, error) {
+	req := sprint.VerifyRequest{To: sprint.StageSmoke}
+	jsonOut := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--to":
+			if i+1 >= len(args) {
+				return req, jsonOut, fmt.Errorf("--to requires review or smoke")
+			}
+			i++
+			req.To = sprint.PlanningStage(args[i])
+		case "--focus-review":
+			if i+1 >= len(args) {
+				return req, jsonOut, fmt.Errorf("--focus-review requires a coverage id")
+			}
+			i++
+			req.Review.Focus = append(req.Review.Focus, args[i])
+		case "--restart-review":
+			req.Review.Restart = true
+		case "--level", "--suite", "--test", "--timeout", "--override-reason":
+			if i+1 >= len(args) {
+				return req, jsonOut, fmt.Errorf("%s requires a value", args[i])
+			}
+			key, value := args[i], args[i+1]
+			i++
+			switch key {
+			case "--level":
+				req.Smoke.Level = value
+			case "--suite":
+				req.Smoke.Suite = value
+			case "--test":
+				req.Smoke.Test = value
+			case "--override-reason":
+				req.Smoke.OverrideRationale = value
+			case "--timeout":
+				d, parseErr := time.ParseDuration(value)
+				if parseErr != nil || d <= 0 || d > 24*time.Hour {
+					return req, jsonOut, fmt.Errorf("--timeout must be positive and no more than 24h")
+				}
+				req.Smoke.Timeout = d
+			}
+		case "--force-review":
+			req.Smoke.ForceReview = true
+		case "--yes", "--non-interactive":
+			req.Smoke.NonInteractive, req.Smoke.OverrideConfirmed = true, true
+		case "--dry-run", "--preview":
+			req.DryRun, req.Review.DryRun, req.Smoke.DryRun = true, true, true
+		case "--json":
+			jsonOut = true
+		default:
+			return req, jsonOut, fmt.Errorf("unsupported argument %q", args[i])
+		}
+	}
+	if req.To != sprint.StageReview && req.To != sprint.StageSmoke {
+		return req, jsonOut, fmt.Errorf("--to must be review or smoke")
+	}
+	if req.Review.Restart && len(req.Review.Focus) > 0 {
+		return req, jsonOut, fmt.Errorf("--restart-review cannot be combined with --focus-review")
+	}
+	selected := 0
+	for _, value := range []string{req.Smoke.Level, req.Smoke.Suite, req.Smoke.Test} {
+		if value != "" {
+			selected++
+		}
+	}
+	if selected > 1 {
+		return req, jsonOut, fmt.Errorf("choose only one of --level, --suite, or --test")
+	}
+	if req.Smoke.ForceReview && strings.TrimSpace(req.Smoke.OverrideRationale) == "" {
+		return req, jsonOut, fmt.Errorf("--force-review requires --override-reason")
 	}
 	return req, jsonOut, nil
 }
@@ -709,6 +794,29 @@ func renderSprintStatus(deps dependencies, status sprint.StatusSummary) {
 	} else {
 		fmt.Fprintf(deps.stdout, "  status: %s\n  verdict: %s\n  stale: %t\n  run: %s\n  reconciliation required: %t\n", status.Smoke.Status, status.Smoke.Verdict, status.Smoke.Stale, status.Smoke.RunID, status.Smoke.Reconciliation)
 	}
+	renderSprintVerification(deps, status.Verification)
+}
+
+func renderSprintVerification(deps dependencies, status sprint.VerificationStatus) {
+	fmt.Fprintln(deps.stdout, "Verification:")
+	for _, stage := range []sprint.VerificationStage{status.Review, status.Smoke} {
+		fmt.Fprintf(deps.stdout, "  %s: execution=%s verdict=%s fresh=%t artifact=%s", stage.Stage, stage.ExecutionStatus, stage.Verdict, stage.Fresh, stage.Artifact)
+		if stage.RunID != "" {
+			fmt.Fprintf(deps.stdout, " run=%s", stage.RunID)
+		}
+		fmt.Fprintln(deps.stdout)
+		for _, reason := range stage.FreshnessReasons {
+			fmt.Fprintf(deps.stdout, "    stale reason: %s\n", reason)
+		}
+		for _, issue := range stage.Issues {
+			fmt.Fprintf(deps.stdout, "    issue: %s status=%s path=%s\n", issue.ID, issue.Status, issue.Path)
+		}
+		if stage.Override != nil && stage.Override.Requested {
+			fmt.Fprintf(deps.stdout, "    diagnostic override: confirmed=%t rationale=%s\n", stage.Override.Confirmed, stage.Override.Rationale)
+		}
+	}
+	fmt.Fprintf(deps.stdout, "  overall assessment: %s\n", status.Assessment)
+	fmt.Fprintf(deps.stdout, "  next action: %s\n", status.NextAction)
 }
 
 func renderSprintValidation(deps dependencies, result sprint.ValidationResult) {
@@ -867,6 +975,15 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func stableCommandError(err error) map[string]string {
+	code := "internal.error"
+	var classed classedError
+	if errors.As(err, &classed) {
+		code = classed.Code()
+	}
+	return map[string]string{"code": code, "message": displaySafe(err.Error()), "recovery": "Inspect stderr and sprint status, repair the reported cause, then retry."}
+}
+
 func sprintHelp() string {
 	return `ultraplan sprint
 
@@ -896,11 +1013,12 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
   ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
   ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
-  ultraplan sprint <project> <sprint> flow --to review [--dry-run]
-  ultraplan sprint <project> <sprint> flow --to smoke [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run]
   ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
-  ultraplan sprint <project> <sprint> review [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
-  ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review] [--dry-run] [--yes] [--json]
+  ultraplan sprint <project> <sprint> review [--restart] [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
+  ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
+  ultraplan sprint <project> <sprint> verify [--to review|smoke] [--focus-review <id>] [--restart-review] [--level <id>|--suite <id>|--test <id>] [--yes] [--json]
   execute <project> <sprint> is available as the sprint execute action above.
 
 Commands:
@@ -911,6 +1029,7 @@ Commands:
   <project> <sprint> execute           Execute validated plan tasks through the generic runtime boundary.
   <project> <sprint> review            Run bounded read-only reviewers and atomically write review.md.
   <project> <sprint> smoke             Run the cataloged external harness and atomically write smoke.md.
+  <project> <sprint> verify            Run the shared execute-evidence -> review -> smoke transition.
 
 Scope:
   Supports governed planning, controlled execute, automated review, and review-gated smoke. It does not run issue tracking, Git mutation, hosted/browser, or cross-sprint scheduling workflows.
@@ -924,6 +1043,26 @@ Usage:
   ultraplan sprint <project> <sprint> status
 
 Shows deterministic planning-stage status for requirements.md, sprint-index.md, technical-handbook.md, reasoning/*.md, reasoning.md, plan.md, and execute run state when present. Missing or valid flow state is refreshed; invalid state fails without repair.
+`
+}
+
+func sprintExecuteHelp() string {
+	return `ultraplan sprint <project> <sprint> execute
+
+Usage:
+  ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
+
+Executes validated plan tasks through the configured generic runtime. Dry-run prints the frozen execution prompt without invoking the runtime.
+`
+}
+
+func sprintReviewHelp() string {
+	return `ultraplan sprint <project> <sprint> review
+
+Usage:
+  ultraplan sprint <project> <sprint> review [--focus <coverage-id>] [--restart] [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
+
+Runs bounded read-only reviewers. Compatible interrupted attempts resume validated coverage and retained OpenCode sessions by default. --restart discards the resumable attempt and starts every reviewer in a fresh session. A focused rerun requires complete same-fingerprint retained coverage and promotes only a fully validated canonical review.
 `
 }
 
@@ -949,7 +1088,7 @@ func sprintSmokeHelp() string {
 	return `ultraplan sprint <project> <sprint> smoke
 
 Usage:
-  ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review] [--dry-run] [--yes] [--json]
+  ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
 
 Discovers the protocol-v1 harness from project-index.md, requires a current review, selects the narrowest sufficient scope, and executes a direct bounded process. Raw evidence stays in the harness; a validated smoke.md and flow state are written only for authoritative results.
 
@@ -959,9 +1098,20 @@ Flags:
   --test <id>        Run a diagnostic test; it is authoritative only when discovery proves complete equivalence.
   --timeout <value>  Positive bounded run timeout, maximum 24h.
   --force-review     Permit an explicitly diagnostic run after a current fail/blocked review.
+  --override-reason  Required non-empty actor-neutral rationale for --force-review.
   --dry-run          Discover and preview without launching the run command or writing artifacts.
   --yes              Mark non-interactive confirmation explicit.
   --json             Emit stable JSON without native harness streams.
+`
+}
+
+func sprintVerifyHelp() string {
+	return `ultraplan sprint <project> <sprint> verify
+
+Usage:
+  ultraplan sprint <project> <sprint> verify [--to review|smoke] [--focus-review <coverage-id>] [--restart-review] [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
+
+Requires complete execute evidence, obtains a current review, then applies the review gate before smoke. Focused review results promote only with complete same-fingerprint retained coverage. Test/level smoke is diagnostic unless the harness proves containing coverage. A review override requires --yes and a rationale, remains diagnostic, and cannot improve the overall assessment.
 `
 }
 
@@ -993,9 +1143,9 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
   ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
   ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
-  ultraplan sprint <project> <sprint> flow --to review [--dry-run]
-  ultraplan sprint <project> <sprint> flow --to smoke [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run] [--yes]
 
-Dry-run prints planned prompt inputs without mutation. Non-dry-run validates prerequisites, invokes the generic runtime boundary, validates the generated artifact or execute evidence, and updates durable state after all gates pass.
+Dry-run prints planned inputs without mutation. Non-dry-run validates prerequisites and uses the same sprint-owned review-to-smoke transition as verify. Smoke requires --yes; a diagnostic review override additionally requires --force-review and --override-reason.
 `
 }

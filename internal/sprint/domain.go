@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-const FlowStateSchemaVersion = 1
+const FlowStateSchemaVersion = 2
+const PreviousFlowStateSchemaVersion = 1
 const ExecuteRunStateSchemaVersion = 1
 
 var (
@@ -138,19 +139,102 @@ type FlowState struct {
 	Smoke         *SmokeStageState  `json:"smoke,omitempty"`
 }
 
+type AttemptStatus string
+
+const (
+	AttemptPending   AttemptStatus = "pending"
+	AttemptRunning   AttemptStatus = "running"
+	AttemptCompleted AttemptStatus = "completed"
+	AttemptFailed    AttemptStatus = "failed"
+	AttemptCancelled AttemptStatus = "cancelled"
+	AttemptTimedOut  AttemptStatus = "timed_out"
+	AttemptBlocked   AttemptStatus = "blocked"
+)
+
+// VerificationAttempt records transient work independently from the last
+// complete canonical evidence. Diagnostics are deliberately bounded and safe.
+type VerificationAttempt struct {
+	ID          string        `json:"id"`
+	Status      AttemptStatus `json:"status"`
+	StartedAt   time.Time     `json:"startedAt"`
+	CompletedAt *time.Time    `json:"completedAt,omitempty"`
+	Category    string        `json:"category,omitempty"`
+	Diagnostics []string      `json:"diagnostics,omitempty"`
+	NextAction  string        `json:"nextAction,omitempty"`
+}
+
+type EvidenceReference struct {
+	Kind   string `json:"kind"`
+	Path   string `json:"path"`
+	Digest string `json:"digest,omitempty"`
+}
+
+type DiagnosticOverride struct {
+	Requested         bool      `json:"requested"`
+	Confirmed         bool      `json:"confirmed"`
+	Rationale         string    `json:"rationale,omitempty"`
+	RequestedAt       time.Time `json:"requestedAt,omitempty"`
+	ReviewFingerprint string    `json:"reviewFingerprint,omitempty"`
+	ReviewVerdict     string    `json:"reviewVerdict,omitempty"`
+}
+
+type OverallAssessment string
+
+const (
+	AssessmentIncomplete       OverallAssessment = "incomplete"
+	AssessmentBlocked          OverallAssessment = "blocked"
+	AssessmentFail             OverallAssessment = "fail"
+	AssessmentNotApplicable    OverallAssessment = "not_applicable"
+	AssessmentPassWithFindings OverallAssessment = "pass_with_findings"
+	AssessmentPass             OverallAssessment = "pass"
+)
+
+type VerificationStage struct {
+	Stage            PlanningStage        `json:"stage"`
+	ExecutionStatus  string               `json:"execution_status"`
+	Verdict          string               `json:"verdict,omitempty"`
+	Fresh            bool                 `json:"fresh"`
+	FreshnessReasons []string             `json:"freshness_reasons,omitempty"`
+	Artifact         string               `json:"artifact,omitempty"`
+	ArtifactDigest   string               `json:"artifact_digest,omitempty"`
+	InputFingerprint string               `json:"input_fingerprint,omitempty"`
+	RunID            string               `json:"run_id,omitempty"`
+	Evidence         []EvidenceReference  `json:"evidence,omitempty"`
+	Issues           []SmokeIssue         `json:"relevant_issues,omitempty"`
+	Override         *DiagnosticOverride  `json:"diagnostic_override,omitempty"`
+	ActiveAttempt    *VerificationAttempt `json:"active_attempt,omitempty"`
+	LastAttempt      *VerificationAttempt `json:"last_attempt,omitempty"`
+	Resumable        bool                 `json:"resumable,omitempty"`
+	Completed        int                  `json:"completed,omitempty"`
+	Total            int                  `json:"total,omitempty"`
+	RetainedSessions int                  `json:"retained_sessions,omitempty"`
+	NextAction       string               `json:"next_action,omitempty"`
+}
+
+type VerificationStatus struct {
+	Project     string            `json:"project"`
+	Sprint      string            `json:"sprint"`
+	Review      VerificationStage `json:"review"`
+	Smoke       VerificationStage `json:"smoke"`
+	Assessment  OverallAssessment `json:"overall_assessment"`
+	NextAction  string            `json:"next_action"`
+	Diagnostics []string          `json:"diagnostics,omitempty"`
+}
+
 type StatusSummary struct {
-	Project       string            `json:"project"`
-	Sprint        string            `json:"sprint"`
-	SprintRoot    string            `json:"sprint_root"`
-	FlowStatePath string            `json:"flow_state_path"`
-	Stages        []StageState      `json:"stages"`
-	ExecuteState  *ExecuteRunState  `json:"execute_state,omitempty"`
-	ExecutePath   string            `json:"execute_path"`
-	RunStatePath  string            `json:"run_state_path"`
-	Review        *ReviewStageState `json:"review,omitempty"`
-	ReviewPath    string            `json:"review_path"`
-	Smoke         *SmokeStageState  `json:"smoke,omitempty"`
-	SmokePath     string            `json:"smoke_path"`
+	Project       string             `json:"project"`
+	Sprint        string             `json:"sprint"`
+	SprintRoot    string             `json:"sprint_root"`
+	FlowStatePath string             `json:"flow_state_path"`
+	Stages        []StageState       `json:"stages"`
+	ExecuteState  *ExecuteRunState   `json:"execute_state,omitempty"`
+	ExecutePath   string             `json:"execute_path"`
+	RunStatePath  string             `json:"run_state_path"`
+	Review        *ReviewStageState  `json:"review,omitempty"`
+	ReviewPath    string             `json:"review_path"`
+	Smoke         *SmokeStageState   `json:"smoke,omitempty"`
+	SmokePath     string             `json:"smoke_path"`
+	Verification  VerificationStatus `json:"verification"`
 }
 
 type ValidationFinding struct {
@@ -215,6 +299,32 @@ func ValidExecuteTaskStatus(status ExecuteTaskStatus) bool {
 		}
 	}
 	return false
+}
+
+func validateAttempt(attempt *VerificationAttempt, active bool) error {
+	if attempt == nil {
+		return nil
+	}
+	if attempt.ID == "" || attempt.StartedAt.IsZero() || strings.ContainsAny(attempt.ID, "\x00\r\n") {
+		return fmt.Errorf("invalid identity or start time")
+	}
+	switch attempt.Status {
+	case AttemptRunning, AttemptCompleted, AttemptFailed, AttemptCancelled, AttemptTimedOut, AttemptBlocked:
+	default:
+		return fmt.Errorf("unsupported status %q", attempt.Status)
+	}
+	if active && (attempt.Status != AttemptRunning || attempt.CompletedAt != nil) {
+		return fmt.Errorf("active attempt is not running")
+	}
+	if !active && (attempt.Status == AttemptRunning || attempt.CompletedAt == nil || attempt.CompletedAt.IsZero()) {
+		return fmt.Errorf("last attempt is not terminal")
+	}
+	for _, value := range append(append([]string{}, attempt.Diagnostics...), attempt.Category, attempt.NextAction) {
+		if len(value) > 240 || strings.ContainsAny(value, "\x00\r\n") {
+			return fmt.Errorf("unsafe diagnostic")
+		}
+	}
+	return nil
 }
 
 type RefError struct {

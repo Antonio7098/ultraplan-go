@@ -16,6 +16,8 @@ type Runtime interface {
 type FlowRequest struct {
 	To       PlanningStage
 	DryRun   bool
+	Review   ReviewRequest
+	Smoke    SmokeRequest
 	Progress func(FlowProgress)
 }
 
@@ -34,6 +36,132 @@ type FlowResult struct {
 	Runtime  runtime.Result
 	Stages   []StageState
 	Findings []ValidationFinding
+}
+
+// Flow owns the ordered sprint state machine. Surfaces map requests and render
+// this result; they do not schedule stages or duplicate verification policy.
+func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req FlowRequest) (FlowResult, error) {
+	stages, err := flowStages(req.To)
+	if err != nil {
+		return FlowResult{}, err
+	}
+	if req.DryRun {
+		if req.To == StageReview || req.To == StageSmoke {
+			verified, verifyErr := s.Verify(ctx, projectRef, sprintRef, VerifyRequest{To: req.To, DryRun: true, Review: req.Review, Smoke: req.Smoke, Progress: req.Progress})
+			message := "verification dry run"
+			if verified.ReviewResult != nil {
+				message = firstNonEmptyString(verified.ReviewResult.Prompt, verified.ReviewResult.Message, message)
+			}
+			return FlowResult{Project: verified.Project, Sprint: verified.Sprint, To: req.To, DryRun: true, Message: message}, verifyErr
+		}
+		stages = []PlanningStage{req.To}
+	}
+	var result FlowResult
+	for _, stage := range stages {
+		emitFlow(req.Progress, FlowProgress{Stage: stage, State: "checking", Message: "checking prerequisites and existing artifact"})
+		stageReq := FlowRequest{To: stage, DryRun: req.DryRun}
+		if !req.DryRun {
+			valid, validateErr := s.flowStageAlreadyValid(projectRef, sprintRef, stage)
+			if validateErr != nil {
+				return FlowResult{}, validateErr
+			}
+			if valid {
+				result = FlowResult{Project: projectRef, Sprint: sprintRef, To: stage, Message: string(stage) + " already complete"}
+				emitFlow(req.Progress, FlowProgress{Stage: stage, State: "skipped", Message: "already complete"})
+				continue
+			}
+			emitFlow(req.Progress, FlowProgress{Stage: stage, State: "running", Message: "starting runtime-backed stage"})
+		}
+		var stageErr error
+		switch stage {
+		case StageRequirements:
+			result, stageErr = s.FlowRequirements(ctx, projectRef, sprintRef, stageReq)
+		case StageSprintIndex:
+			result, stageErr = s.FlowSprintIndex(ctx, projectRef, sprintRef, stageReq)
+		case StageTechnicalHandbook:
+			result, stageErr = s.FlowTechnicalHandbook(ctx, projectRef, sprintRef, stageReq)
+		case StageAreaReasoning, StageReasoning:
+			result, stageErr = s.FlowReasoning(ctx, projectRef, sprintRef, stageReq)
+		case StagePlan:
+			result, stageErr = s.FlowPlan(ctx, projectRef, sprintRef, stageReq)
+		case StageExecute:
+			execute, executeErr := s.Execute(ctx, projectRef, sprintRef, ExecuteRequest{DryRun: req.DryRun, Resume: true})
+			result = FlowResult{Project: execute.Project, Sprint: execute.Sprint, To: StageExecute, DryRun: execute.DryRun, Message: firstNonEmptyString(execute.Prompt, execute.Message), Findings: execute.Findings}
+			stageErr = executeErr
+		default:
+			stageErr = fmt.Errorf("unsupported flow stage %q", stage)
+		}
+		if stageErr != nil {
+			emitFlow(req.Progress, FlowProgress{Stage: stage, State: "failed", Message: stageErr.Error()})
+			return result, stageErr
+		}
+		emitFlow(req.Progress, FlowProgress{Stage: stage, State: "complete", Message: firstNonEmptyString(result.Message, "stage complete")})
+	}
+	if req.To == StageReview || req.To == StageSmoke {
+		verified, verifyErr := s.Verify(ctx, projectRef, sprintRef, VerifyRequest{To: req.To, Review: req.Review, Smoke: req.Smoke, Progress: req.Progress})
+		message := fmt.Sprintf("verification assessment=%s next=%s", verified.Verification.Assessment, verified.Verification.NextAction)
+		return FlowResult{Project: verified.Project, Sprint: verified.Sprint, To: req.To, Message: message}, verifyErr
+	}
+	result.To = req.To
+	return result, nil
+}
+
+func flowStages(target PlanningStage) ([]PlanningStage, error) {
+	if err := validateFlowTarget(target); err != nil {
+		return nil, err
+	}
+	ordered := []PlanningStage{StageRequirements, StageSprintIndex, StageTechnicalHandbook, StageAreaReasoning, StageReasoning, StagePlan, StageExecute}
+	end := 0
+	switch target {
+	case StageRequirements:
+		end = 1
+	case StageSprintIndex:
+		end = 2
+	case StageTechnicalHandbook:
+		end = 3
+	case StageAreaReasoning:
+		end = 4
+	case StageReasoning:
+		end = 5
+	case StagePlan:
+		end = 6
+	case StageExecute, StageReview, StageSmoke:
+		end = 7
+	}
+	return append([]PlanningStage(nil), ordered[:end]...), nil
+}
+
+func (s Service) flowStageAlreadyValid(projectRef, sprintRef string, stage PlanningStage) (bool, error) {
+	var result ValidationResult
+	var err error
+	switch stage {
+	case StageRequirements:
+		result, err = s.ValidateRequirements(projectRef, sprintRef)
+	case StageSprintIndex:
+		result, err = s.ValidateSprintIndex(projectRef, sprintRef)
+	case StageTechnicalHandbook:
+		result, err = s.ValidateTechnicalHandbook(projectRef, sprintRef)
+	case StageAreaReasoning:
+		result, err = s.ValidateAreaReasoning(projectRef, sprintRef)
+	case StageReasoning:
+		result, err = s.ValidateReasoning(projectRef, sprintRef)
+	case StagePlan:
+		result, err = s.ValidatePlan(projectRef, sprintRef)
+	case StageExecute:
+		return s.ExecuteComplete(projectRef, sprintRef)
+	default:
+		return false, fmt.Errorf("unsupported flow stage %q", stage)
+	}
+	if err != nil {
+		return false, nil
+	}
+	return result.Valid(), nil
+}
+
+func emitFlow(progress func(FlowProgress), event FlowProgress) {
+	if progress != nil {
+		progress(event)
+	}
 }
 
 func flowRequirementsSuccessStages(sp Sprint, now time.Time) []StageState {

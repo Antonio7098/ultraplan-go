@@ -38,6 +38,8 @@ const (
 	OperationSmokeStatus   OperationKind = "smoke-status"
 	OperationSmokeDryRun   OperationKind = "smoke-dry-run"
 	OperationSmokeStart    OperationKind = "smoke-start"
+	OperationVerifyDryRun  OperationKind = "verify-dry-run"
+	OperationVerifyStart   OperationKind = "verify-start"
 	OperationStudyStart    OperationKind = "study-start"
 	OperationStudyResume   OperationKind = "study-resume"
 	OperationStudyCancel   OperationKind = "study-cancel"
@@ -60,6 +62,9 @@ type OperationRequest struct {
 	Level, Suite, Test                  string
 	Timeout                             string
 	ForceReview                         bool
+	RestartReview                       bool
+	OverrideRationale                   string
+	ReviewFocus                         []string
 	Sources, Dimensions                 []string
 	Parallelism                         int
 }
@@ -125,16 +130,26 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Runtime = true
 		c.Mutates = true
 		c.Scope = []string{"one read-only reviewer per selected contract plus handbook", fmt.Sprintf("bounded parallelism: %d", req.Parallelism)}
+		if req.RestartReview {
+			c.Scope = append(c.Scope, "discard resumable review checkpoints and start fresh sessions")
+		}
 		c.Warning = "RUNTIME + REVIEW ARTIFACT WRITE (TARGET READ-ONLY)"
 	case OperationSmokeDryRun, OperationSmokeStart:
-		preview, err := u.sprintService().RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, ForceReview: req.ForceReview, DryRun: true})
+		preview, err := u.sprintService().RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, ForceReview: req.ForceReview, OverrideConfirmed: req.ForceReview, OverrideRationale: req.OverrideRationale, DryRun: true})
 		if err != nil {
 			return c, err
 		}
 		c.Runtime = true
 		c.Mutates = req.Kind == OperationSmokeStart
-		c.Scope = []string{fmt.Sprintf("%s %s", preview.ScopeKind, preview.Scope), preview.ScopeRationale, "prerequisites: " + strings.Join(preview.Prerequisites, ", "), "duration/cost: " + preview.DurationClass + "/" + preview.CostClass, "safe command: " + preview.SafeArgv, "evidence roots: " + strings.Join(preview.EvidenceRoots, ", ")}
+		c.Scope = []string{fmt.Sprintf("%s %s", preview.ScopeKind, preview.Scope), preview.ScopeRationale, "prerequisites: " + strings.Join(preview.Prerequisites, ", "), "duration/cost: " + preview.DurationClass + "/" + preview.CostClass, fmt.Sprintf("timeout: %s (source: %s)", preview.EffectiveTimeout, preview.TimeoutSource), "safe command: " + preview.SafeArgv, "evidence roots: " + strings.Join(preview.EvidenceRoots, ", ")}
 		c.Warning = "EXTERNAL HARNESS + SMOKE ARTIFACT WRITE; RAW EVIDENCE REMAINS EXTERNAL"
+	case OperationVerifyDryRun, OperationVerifyStart:
+		c.Runtime, c.Mutates = true, req.Kind == OperationVerifyStart
+		c.Scope = []string{"complete execute evidence", "current review", "review-gated containing smoke scope"}
+		if req.ForceReview {
+			c.Scope = append(c.Scope, "DIAGNOSTIC OVERRIDE: "+req.OverrideRationale)
+		}
+		c.Warning = "ORDERED REVIEW -> SMOKE VERIFICATION; CANONICAL EVIDENCE ONLY AFTER VALIDATION"
 	case OperationStudyStart, OperationStudyResume:
 		if req.Parallelism < 1 || req.Parallelism > 64 {
 			return c, fmt.Errorf("parallelism must be between 1 and 64")
@@ -221,24 +236,26 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 		if err != nil {
 			return failedOperation(result, err)
 		}
-		if r.Review == nil {
-			result.Message = "review not started"
-		} else {
-			result.Message = fmt.Sprintf("%s verdict=%s stale=%t progress=%d/%d", r.Review.Status, r.Review.Verdict, r.Review.Stale, r.Review.Completed, r.Review.Total)
-		}
+		result.Message = fmt.Sprintf("%s verdict=%s fresh=%t next=%s", r.Verification.Review.ExecutionStatus, r.Verification.Review.Verdict, r.Verification.Review.Fresh, r.Verification.Review.NextAction)
 	case OperationSmokeStatus:
-		r, err := ss.SmokeStatus(req.Project, req.Sprint)
+		r, err := ss.VerificationStatus(req.Project, req.Sprint)
 		if err != nil {
 			return failedOperation(result, err)
 		}
-		result.Message = fmt.Sprintf("%s verdict=%s stale=%t run=%s next=%s", r.Status, r.Verdict, r.Stale, r.RunID, r.NextAction)
+		result.Message = fmt.Sprintf("%s verdict=%s fresh=%t run=%s issues=%d assessment=%s next=%s", r.Smoke.ExecutionStatus, r.Smoke.Verdict, r.Smoke.Fresh, r.Smoke.RunID, len(r.Smoke.Issues), r.Assessment, r.NextAction)
 	case OperationSmokeDryRun:
-		r, err := ss.RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, ForceReview: req.ForceReview, DryRun: true})
+		r, err := ss.RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, ForceReview: req.ForceReview, OverrideConfirmed: req.ForceReview, OverrideRationale: req.OverrideRationale, DryRun: true})
 		if err != nil {
 			return failedOperation(result, err)
 		}
 		result.Message = fmt.Sprintf("%s %s: %s", r.ScopeKind, r.Scope, r.ScopeRationale)
 		result.Content, result.Truncated = boundContent(sprint.RenderSmoke(r))
+	case OperationVerifyDryRun:
+		r, err := ss.Verify(ctx, req.Project, req.Sprint, sprint.VerifyRequest{To: sprint.PlanningStage(req.Stage), DryRun: true, Review: sprint.ReviewRequest{DryRun: true, Focus: req.ReviewFocus, Restart: req.RestartReview}, Smoke: sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, ForceReview: req.ForceReview, OverrideConfirmed: req.ForceReview, OverrideRationale: req.OverrideRationale, DryRun: true}})
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Message = fmt.Sprintf("assessment=%s next=%s", r.Verification.Assessment, r.Verification.NextAction)
 	default:
 		if u.runner == nil {
 			return failedOperation(result, fmt.Errorf("runtime-backed operation is unavailable without configured composition"))
@@ -270,6 +287,7 @@ func summarizeSprintStatus(status sprint.StatusSummary) string {
 	} else {
 		parts = append(parts, fmt.Sprintf("smoke=%s verdict=%s stale=%t", status.Smoke.Status, status.Smoke.Verdict, status.Smoke.Stale))
 	}
+	parts = append(parts, fmt.Sprintf("assessment=%s next=%s", status.Verification.Assessment, status.Verification.NextAction))
 	return strings.Join(parts, "\n")
 }
 

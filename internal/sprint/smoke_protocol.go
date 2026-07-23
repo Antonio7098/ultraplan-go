@@ -181,7 +181,7 @@ func (s Service) prepareSmokeStatic(projectRef, sprintRef string, req SmokeReque
 	}
 	if !review.Stale {
 		content, readErr := s.store.ReadArtifact(sp, StageReview)
-		review.Stale = readErr != nil || len(ValidateReviewContent(content, reviewManifest)) > 0
+		review.Stale = readErr != nil || len(ValidateReviewContent(content, reviewManifest)) > 0 || review.ArtifactDigest == "" || hashBytes([]byte(content)) != review.ArtifactDigest
 	}
 	if review.Stale {
 		return smokePrepared{}, smokeError("smoke_review_stale", "review_gate", "review is stale", "Run sprint review again; stale reviews cannot be overridden.", nil)
@@ -191,6 +191,9 @@ func (s Service) prepareSmokeStatic(projectRef, sprintRef string, req SmokeReque
 	case ReviewFail, ReviewVerdictBlocked:
 		if !req.ForceReview {
 			return smokePrepared{}, smokeError("smoke_review_blocked", "review_gate", "review verdict blocks smoke", "Use --force-review only for an explicitly confirmed diagnostic run.", nil)
+		}
+		if !req.OverrideConfirmed || strings.TrimSpace(req.OverrideRationale) == "" {
+			return smokePrepared{}, smokeError("smoke_review_override_confirmation", "review_gate", "diagnostic override requires explicit confirmation and rationale", "Pass the confirmation flag with a non-empty actor-neutral rationale.", nil)
 		}
 	default:
 		return smokePrepared{}, smokeError("smoke_review_invalid", "review_gate", "review verdict is missing or unsupported", "Regenerate review.md.", nil)
@@ -204,6 +207,12 @@ func validateSmokeManifest(m smokeManifest) error {
 	}
 	if m.Harness.ID == "" || m.Harness.Version == "" || m.Executable == "" || m.CWD == "" || len(m.Commands.Discover) == 0 || len(m.Commands.Run) == 0 || m.Evidence.Runs == "" || m.Evidence.Issues == "" {
 		return smokeError("smoke_manifest_required", "protocol", "manifest is missing required fields", "Set harness identity, executable, cwd, commands, and evidence roots.", nil)
+	}
+	if m.Defaults.Timeout != "" {
+		timeout, err := time.ParseDuration(m.Defaults.Timeout)
+		if err != nil || timeout <= 0 || timeout > 24*time.Hour {
+			return smokeError("smoke_manifest_timeout", "configuration", "manifest default timeout is invalid", "Use a positive Go duration no greater than 24h.", err)
+		}
 	}
 	required := []string{"discovery", "run", "evidence-v1", "scope-mapping"}
 	for _, capability := range required {
@@ -373,7 +382,7 @@ func selectSmoke(d smokeDiscovery, sprint string, req SmokeRequest) (smokeSelect
 		if !ok {
 			return smokeSelection{Verdict: SmokeBlockedVerdict, Prerequisites: missing, NextAction: "Satisfy the listed prerequisites and rerun smoke."}, nil
 		}
-		return smokeSelection{Kind: "test", IDs: []string{test.ID}, Rationale: "explicit diagnostic test override", DiagnosticOnly: !test.EquivalentComplete, DurationClass: suite.DurationClass, CostClass: suite.CostClass}, nil
+		return smokeSelection{Kind: "test", IDs: []string{test.ID}, Rationale: "explicit diagnostic test override", DiagnosticOnly: true, DurationClass: suite.DurationClass, CostClass: suite.CostClass}, nil
 	}
 	if mapping == nil || !mapping.Complete || len(mapping.Suites) == 0 {
 		return smokeSelection{Verdict: SmokeBlockedVerdict, Rationale: "discovery cannot prove complete sprint coverage", NextAction: "Select an explicit sufficient level or update the harness sprint mapping."}, nil

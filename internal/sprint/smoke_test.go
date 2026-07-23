@@ -49,6 +49,7 @@ func TestSmokeSelectionAndVerdicts(t *testing.T) {
 		t.Fatalf("selection=%+v", selection)
 	}
 	d.SprintMappings[0].NotApplicable = false
+	d.Tests[0].EquivalentComplete = true
 	selection, _ = selectSmoke(d, "27", SmokeRequest{Test: "test-a"})
 	if !selection.DiagnosticOnly {
 		t.Fatalf("test selection must be diagnostic: %+v", selection)
@@ -146,6 +147,21 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	if err != nil || len(ValidateSmokeContent(string(prior))) != 0 {
 		t.Fatalf("artifact err=%v content=%s", err, prior)
 	}
+	status, statusErr := service.VerificationStatus("proj", "01")
+	if statusErr != nil || !status.Smoke.Fresh {
+		t.Fatalf("fresh smoke status=%+v err=%v", status, statusErr)
+	}
+	originalRun, _ := os.ReadFile(runJSON)
+	if err := os.WriteFile(runJSON, []byte("externally edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status, statusErr = service.VerificationStatus("proj", "01")
+	if statusErr != nil || status.Smoke.Fresh {
+		t.Fatalf("external evidence edit did not stale smoke: %+v err=%v", status, statusErr)
+	}
+	if err := os.WriteFile(runJSON, originalRun, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	runner.malformed = true
 	if _, err := service.RunSmoke(context.Background(), "proj", "01", SmokeRequest{}); err == nil {
 		t.Fatal("expected malformed discovery failure")
@@ -153,6 +169,10 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	after, _ := os.ReadFile(artifact)
 	if string(after) != string(prior) {
 		t.Fatal("malformed run replaced valid smoke.md")
+	}
+	state, stateErr := LoadFlowState(root, sp)
+	if stateErr != nil || state.Smoke.LastComplete == nil || state.Smoke.LastComplete.Verdict != SmokePass || state.Smoke.LastAttempt == nil || state.Smoke.LastAttempt.Status != AttemptFailed {
+		t.Fatalf("failed attempt did not preserve last complete smoke: state=%+v err=%v", state.Smoke, stateErr)
 	}
 }
 
@@ -165,6 +185,21 @@ func TestSmokeManifestRejectsUnsupportedAndUnsafeValues(t *testing.T) {
 	m.Environment = []string{"TOKEN", "TOKEN"}
 	if err := validateSmokeManifest(m); err == nil {
 		t.Fatal("expected duplicate environment rejection")
+	}
+	m.Environment = nil
+	for _, timeout := range []string{"invalid", "0s", "-1s", "25h"} {
+		m.Defaults.Timeout = timeout
+		if err := validateSmokeManifest(m); err == nil {
+			t.Fatalf("expected timeout %q rejection", timeout)
+		}
+	}
+	m.Defaults.Timeout = "2m"
+	if err := validateSmokeManifest(m); err != nil {
+		t.Fatalf("valid timeout rejected: %v", err)
+	}
+	argv := safeArgv("/opt/harness", []string{"run", "--authorization", "Bearer top-secret", "--credential=value", "--scope", "suite"})
+	if strings.Contains(argv, "top-secret") || strings.Contains(argv, "value") || strings.Contains(argv, "suite") || !strings.Contains(argv, "--authorization") {
+		t.Fatalf("unsafe stable argv: %s", argv)
 	}
 }
 

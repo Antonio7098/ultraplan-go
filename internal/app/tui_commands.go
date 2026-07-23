@@ -20,20 +20,6 @@ type TUIRunOptions struct {
 
 type TUIRunner func(context.Context, TUIRunOptions) error
 
-var tuiRunner TUIRunner = func(context.Context, TUIRunOptions) error {
-	return fmt.Errorf("tui runner is not configured")
-}
-
-func SetTUIRunner(runner TUIRunner) {
-	if runner == nil {
-		tuiRunner = func(context.Context, TUIRunOptions) error {
-			return fmt.Errorf("tui runner is not configured")
-		}
-		return
-	}
-	tuiRunner = runner
-}
-
 func runTUI(deps dependencies, args []string) error {
 	if len(args) > 0 {
 		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
@@ -59,7 +45,7 @@ func runTUI(deps dependencies, args []string) error {
 			if e != nil {
 				return failedOperation(result, e)
 			}
-			r, e := runSprintFlow(ctx, service, req.Project, req.Sprint, sprint.FlowRequest{To: sprint.PlanningStage(req.Stage), Progress: func(progress sprint.FlowProgress) {
+			r, e := runSprintFlow(ctx, service, req.Project, req.Sprint, sprint.FlowRequest{To: sprint.PlanningStage(req.Stage), Review: sprint.ReviewRequest{Restart: req.RestartReview}, Smoke: sprint.SmokeRequest{NonInteractive: true, OverrideConfirmed: req.ForceReview, ForceReview: req.ForceReview, OverrideRationale: req.OverrideRationale}, Progress: func(progress sprint.FlowProgress) {
 				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Message: progress.State + ": " + displaySafe(progress.Message)})
 			}})
 			result.Message = r.Message
@@ -83,7 +69,7 @@ func runTUI(deps dependencies, args []string) error {
 			if e != nil {
 				return failedOperation(result, e)
 			}
-			r, e := service.Review(ctx, req.Project, req.Sprint, sprint.ReviewRequest{Concurrency: req.Parallelism, Progress: func(p sprint.ReviewProgress) {
+			r, e := service.Review(ctx, req.Project, req.Sprint, sprint.ReviewRequest{Concurrency: req.Parallelism, Focus: req.ReviewFocus, Restart: req.RestartReview, Progress: func(p sprint.ReviewProgress) {
 				emit(OperationEvent{State: OperationRunning, Stage: "review", Task: p.CoverageID, Message: p.Message, Completed: p.Completed, Total: p.Total})
 			}})
 			result.Message = fmt.Sprintf("%s verdict=%s", r.Status, r.Verdict)
@@ -99,7 +85,7 @@ func runTUI(deps dependencies, args []string) error {
 			if req.Timeout != "" {
 				timeout, _ = time.ParseDuration(req.Timeout)
 			}
-			r, e := service.RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, Timeout: timeout, ForceReview: req.ForceReview, Progress: func(p sprint.SmokeProgress) {
+			r, e := service.RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, Timeout: timeout, ForceReview: req.ForceReview, OverrideConfirmed: req.ForceReview, OverrideRationale: req.OverrideRationale, Progress: func(p sprint.SmokeProgress) {
 				emit(OperationEvent{State: OperationRunning, Stage: string(p.Phase), Task: operationFirstNonEmpty(p.Test, p.Suite), Message: p.Message, Completed: p.Completed, Total: p.Total})
 			}})
 			result.Message = fmt.Sprintf("%s verdict=%s run=%s next=%s", r.Status, r.Verdict, r.RunID, r.NextAction)
@@ -108,6 +94,22 @@ func runTUI(deps dependencies, args []string) error {
 					result.Content, result.Truncated = boundContent(preview.Content)
 				}
 			}
+			if e != nil {
+				return failedOperation(result, e)
+			}
+		case OperationVerifyStart:
+			service, e := sprintRuntimeService(deps, root, tuiSprintRuntimeProgress(emit))
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			var timeout time.Duration
+			if req.Timeout != "" {
+				timeout, _ = time.ParseDuration(req.Timeout)
+			}
+			r, e := service.Verify(ctx, req.Project, req.Sprint, sprint.VerifyRequest{To: sprint.PlanningStage(req.Stage), Review: sprint.ReviewRequest{Focus: req.ReviewFocus, Restart: req.RestartReview}, Smoke: sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, Timeout: timeout, ForceReview: req.ForceReview, OverrideConfirmed: req.ForceReview, OverrideRationale: req.OverrideRationale}, Progress: func(p sprint.FlowProgress) {
+				emit(OperationEvent{State: OperationRunning, Stage: string(p.Stage), Message: p.State + ": " + p.Message})
+			}})
+			result.Message = fmt.Sprintf("assessment=%s next=%s", r.Verification.Assessment, r.Verification.NextAction)
 			if e != nil {
 				return failedOperation(result, e)
 			}
@@ -143,7 +145,10 @@ func runTUI(deps dependencies, args []string) error {
 		emit(OperationEvent{State: OperationComplete, Message: "operation complete"})
 		return result, nil
 	}
-	if err := tuiRunner(deps.ctx, TUIRunOptions{UseCases: useCases, Stdout: deps.stdout, Width: 100}); err != nil {
+	if deps.tuiRunner == nil {
+		return classified(ExitError, "tui.start: tui runner is not configured")
+	}
+	if err := deps.tuiRunner(deps.ctx, TUIRunOptions{UseCases: useCases, Stdout: deps.stdout, Width: 100}); err != nil {
 		return classified(ExitError, "tui.start: %w", err)
 	}
 	return nil

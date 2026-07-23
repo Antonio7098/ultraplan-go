@@ -122,11 +122,12 @@ func cloneAnyMap(src map[string]any) map[string]any {
 }
 
 const (
-	maxMappedPayloadFields      = 32
-	maxMappedPayloadStringBytes = 4096
-	maxMappedPayloadSliceItems  = 8
-	maxMappedPayloadDepth       = 2
-	maxMappedDiagnosticBytes    = 4096
+	maxMappedPayloadFields       = 32
+	maxMappedPayloadStringBytes  = 4096
+	maxMappedTerminalOutputBytes = 96 << 10
+	maxMappedPayloadSliceItems   = 8
+	maxMappedPayloadDepth        = 2
+	maxMappedDiagnosticBytes     = 4096
 )
 
 func sanitizeAnyMap(src map[string]any, depth int) map[string]any {

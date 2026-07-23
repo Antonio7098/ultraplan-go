@@ -410,6 +410,9 @@ func (m Model) navItems() []navItem {
 				items = append(items, navItem{Label: "Validate " + stage, Validation: &app.ValidationRequest{Subject: app.ValidationSprint, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
 				items = append(items, navItem{Label: "Preview " + stage + " Prompt", Operation: &app.OperationRequest{Kind: app.OperationPrompt, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
 			}
+			items = append(items,
+				navItem{Label: "Dry Run Flow to smoke", Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
+				navItem{Label: "Run Flow to smoke [RUNTIME + EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}})
 			for _, stage := range stages {
 				items = append(items,
 					navItem{Label: "Dry Run Flow to " + stage, Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: stage}},
@@ -423,13 +426,18 @@ func (m Model) navItems() []navItem {
 			items = append(items,
 				navItem{Label: "Review Status", Operation: &app.OperationRequest{Kind: app.OperationReviewStatus, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
 				navItem{Label: "Review Dry Run", Operation: &app.OperationRequest{Kind: app.OperationReviewDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
-				navItem{Label: "Run Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationReviewStart, Project: route.Project, Sprint: route.Sprint, Stage: "review"}})
+				navItem{Label: "Run/Resume Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationReviewStart, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
+				navItem{Label: "Restart Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationReviewStart, Project: route.Project, Sprint: route.Sprint, Stage: "review", RestartReview: true}})
 			items = append(items,
+				navItem{Label: "Verify to Review Preview", Operation: &app.OperationRequest{Kind: app.OperationVerifyDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
+				navItem{Label: "Verify to Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationVerifyStart, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
+				navItem{Label: "Verify to Smoke Preview", Operation: &app.OperationRequest{Kind: app.OperationVerifyDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
+				navItem{Label: "Verify to Smoke [RUNTIME + EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationVerifyStart, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
 				navItem{Label: "Validate smoke", Validation: &app.ValidationRequest{Subject: app.ValidationSprint, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
 				navItem{Label: "Smoke Status", Operation: &app.OperationRequest{Kind: app.OperationSmokeStatus, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
 				navItem{Label: "Smoke Preview", Operation: &app.OperationRequest{Kind: app.OperationSmokeDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
 				navItem{Label: "Run Smoke [EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationSmokeStart, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
-				navItem{Label: "Run Smoke Diagnostic Override [EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationSmokeStart, Project: route.Project, Sprint: route.Sprint, Stage: "smoke", ForceReview: true}})
+				navItem{Label: "Run Smoke Diagnostic Override [EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationSmokeStart, Project: route.Project, Sprint: route.Sprint, Stage: "smoke", ForceReview: true, OverrideRationale: "operator requested guarded TUI diagnostic evidence"}})
 			return items
 		}
 	case RouteStudies:

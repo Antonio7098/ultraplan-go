@@ -16,8 +16,28 @@ import (
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
 )
 
-func (s Service) RunSmoke(ctx context.Context, projectRef, sprintRef string, req SmokeRequest) (SmokeResult, error) {
-	result := SmokeResult{Project: projectRef, Sprint: sprintRef, Status: SmokeReady, DryRun: req.DryRun}
+func (s Service) RunSmoke(ctx context.Context, projectRef, sprintRef string, req SmokeRequest) (result SmokeResult, err error) {
+	if req.DryRun {
+		return s.runSmoke(ctx, projectRef, sprintRef, req)
+	}
+	release, lockErr := s.acquireMutation(projectRef, sprintRef)
+	if lockErr != nil {
+		return SmokeResult{Project: projectRef, Sprint: sprintRef, Status: SmokeFailed}, lockErr
+	}
+	defer release()
+	if saveErr := s.saveSmokeAttempt(projectRef, sprintRef, SmokeResult{Project: projectRef, Sprint: sprintRef, Status: SmokeRunning}, nil, false); saveErr != nil {
+		return SmokeResult{Project: projectRef, Sprint: sprintRef, Status: SmokeFailed}, smokeError("smoke_state_write", "persistence", "smoke attempt could not be recorded", "Repair flow-state persistence before retrying; no harness work was started.", saveErr)
+	}
+	result, err = s.runSmoke(ctx, projectRef, sprintRef, req)
+	if saveErr := s.saveSmokeAttempt(projectRef, sprintRef, result, err, true); saveErr != nil {
+		stateErr := smokeError("smoke_state_write", "persistence", "terminal smoke state could not be recorded", "Inspect and repair flow-state persistence before retrying.", saveErr)
+		return result, errors.Join(err, stateErr)
+	}
+	return result, err
+}
+
+func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req SmokeRequest) (SmokeResult, error) {
+	result := SmokeResult{Project: projectRef, Sprint: sprintRef, Status: SmokeReady, DryRun: req.DryRun, OverrideRationale: strings.TrimSpace(req.OverrideRationale)}
 	emit := func(p SmokeProgress) {
 		if req.Progress != nil {
 			req.Progress(p)
@@ -125,7 +145,7 @@ func (s Service) RunSmoke(ctx context.Context, projectRef, sprintRef string, req
 	result.Verdict = synthesizeSmokeVerdict(result.Counts, issues)
 	result.Status = SmokeCompleted
 	result.NextAction = nextSmokeAction(result)
-	if selection.DiagnosticOnly {
+	if result.DiagnosticOnly {
 		return result, nil
 	}
 	emit(SmokeProgress{Phase: SmokePhaseWritingArtifact, Message: "writing validated smoke summary"})
@@ -134,6 +154,67 @@ func (s Service) RunSmoke(ctx context.Context, projectRef, sprintRef string, req
 		emit(SmokeProgress{Phase: SmokePhaseCompleted, Message: "smoke complete"})
 	}
 	return committed, commitErr
+}
+
+func (s Service) saveSmokeAttempt(projectRef, sprintRef string, result SmokeResult, runErr error, terminal bool) error {
+	sp, _, _, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return err
+	}
+	state, err := LoadFlowState(s.root, sp)
+	if err != nil {
+		if !errors.Is(err, ErrFlowStateMissing) {
+			return err
+		}
+		snap, readErr := s.store.ReadArtifacts(sp)
+		if readErr != nil {
+			return readErr
+		}
+		state = NewFlowState(sp, DeriveStages(sp, snap, nil), s.now())
+	}
+	now := s.now().UTC()
+	current := state.Smoke
+	if current == nil {
+		current = &SmokeStageState{Path: ArtifactRelPath(sp, StageSmoke)}
+	}
+	if !terminal {
+		current.Status = SmokeRunning
+		current.ActiveAttempt = &VerificationAttempt{ID: fmt.Sprintf("smoke-%d", now.UnixNano()), Status: AttemptRunning, StartedAt: now}
+	} else {
+		attempt := VerificationAttempt{ID: fmt.Sprintf("smoke-%d", now.UnixNano()), StartedAt: now}
+		if current.ActiveAttempt != nil {
+			attempt = *current.ActiveAttempt
+		}
+		attempt.CompletedAt = &now
+		attempt.Status = smokeAttemptStatus(result.Status, runErr)
+		if se, ok := AsSmokeError(runErr); ok {
+			attempt.Category, attempt.Diagnostics, attempt.NextAction = se.Category, []string{safeError(se)}, se.Guidance
+		}
+		current.ActiveAttempt, current.LastAttempt, current.Status = nil, &attempt, result.Status
+		if current.LastComplete != nil && result.Status != SmokeCompleted {
+			current.Verdict, current.RunID, current.EvidenceID = current.LastComplete.Verdict, current.LastComplete.RunID, current.LastComplete.EvidenceID
+		}
+	}
+	state.Smoke = current
+	return SaveFlowState(s.root, sp, state)
+}
+
+func smokeAttemptStatus(status SmokeExecutionStatus, err error) AttemptStatus {
+	if errors.Is(err, context.Canceled) || status == SmokeCancelled {
+		return AttemptCancelled
+	}
+	if se, ok := AsSmokeError(err); ok {
+		if se.Category == "timeout" {
+			return AttemptTimedOut
+		}
+		if se.Category == "review_gate" || se.Category == "catalog" {
+			return AttemptBlocked
+		}
+	}
+	if status == SmokeCompleted {
+		return AttemptCompleted
+	}
+	return AttemptFailed
 }
 
 func (s Service) SmokeStatus(projectRef, sprintRef string) (SmokeResult, error) {
@@ -275,7 +356,22 @@ func (s Service) commitSmoke(p smokePrepared, result SmokeResult) (SmokeResult, 
 	if len(result.Evidence) > 0 {
 		evidenceID = result.Evidence[0].SHA256
 	}
-	state.Smoke = &SmokeStageState{Status: result.Status, Verdict: result.Verdict, Path: ArtifactRelPath(p.Sprint, StageSmoke), LastRunAt: &now, ReviewFingerprint: result.ReviewFingerprint, SmokeFingerprint: hashBytes([]byte(content)), RunID: result.RunID, EvidenceID: evidenceID, ReviewOverride: result.ReviewOverride, Diagnostics: result.Diagnostics}
+	artifactDigest := hashBytes([]byte(content))
+	identityRefs := smokeIdentityReferences(p, result)
+	inputFingerprint, _ := refreshEvidenceFingerprint(identityRefs)
+	refs := make([]EvidenceReference, 0, len(result.Evidence))
+	for _, evidence := range result.Evidence {
+		refs = append(refs, EvidenceReference{Kind: evidence.Kind, Path: evidence.Path, Digest: evidence.SHA256})
+	}
+	var override *DiagnosticOverride
+	if result.ReviewOverride {
+		override = &DiagnosticOverride{Requested: true, Confirmed: true, Rationale: result.OverrideRationale, RequestedAt: now, ReviewFingerprint: result.ReviewFingerprint, ReviewVerdict: string(result.ReviewVerdict)}
+	}
+	active := (*VerificationAttempt)(nil)
+	if state.Smoke != nil {
+		active = state.Smoke.ActiveAttempt
+	}
+	state.Smoke = &SmokeStageState{Status: result.Status, Verdict: result.Verdict, Path: ArtifactRelPath(p.Sprint, StageSmoke), LastRunAt: &now, ReviewFingerprint: result.ReviewFingerprint, SmokeFingerprint: artifactDigest, ArtifactDigest: artifactDigest, InputFingerprint: inputFingerprint, RunID: result.RunID, EvidenceID: evidenceID, ReviewOverride: result.ReviewOverride, Diagnostics: result.Diagnostics, Issues: append([]SmokeIssue(nil), result.Issues...), Evidence: refs, Override: override, ActiveAttempt: active, LastComplete: &SmokeCompletion{Verdict: result.Verdict, Artifact: ArtifactRelPath(p.Sprint, StageSmoke), ArtifactDigest: artifactDigest, InputFingerprint: inputFingerprint, CompletedAt: now, RunID: result.RunID, EvidenceID: evidenceID, Evidence: identityRefs, Issues: append([]SmokeIssue(nil), result.Issues...), Override: override}}
 	if err := SaveFlowState(s.root, p.Sprint, state); err != nil {
 		result.Reconciliation = true
 		return result, smokeError("smoke_reconciliation", "reconciliation", "smoke.md committed but flow state update failed", "Reconcile flow state by rerunning smoke.", err)
@@ -287,7 +383,7 @@ func RenderSmoke(r SmokeResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Sprint Smoke\n\nSmoke status: `%s`\nVerdict: `%s`\nDate: `%s`\n\n", r.Status, r.Verdict, time.Now().UTC().Format(time.RFC3339))
 	fmt.Fprintf(&b, "## Smoke Context\n\nProject: `%s`\nSprint: `%s`\nArtifact: `%s`\n\n", r.Project, r.Sprint, r.Artifact)
-	fmt.Fprintf(&b, "## Review Gate\n\nReview verdict: `%s`\nReview fingerprint: `%s`\nDiagnostic override: `%t`\n\n", r.ReviewVerdict, r.ReviewFingerprint, r.ReviewOverride)
+	fmt.Fprintf(&b, "## Review Gate\n\nReview verdict: `%s`\nReview fingerprint: `%s`\nDiagnostic override: `%t`\nOverride rationale: %s\n\n", r.ReviewVerdict, r.ReviewFingerprint, r.ReviewOverride, printable(r.OverrideRationale))
 	fmt.Fprintf(&b, "## Harness And Protocol\n\nHarness: `%s`\nProtocol: `%s`\n\n", r.Harness, r.Protocol)
 	fmt.Fprintf(&b, "## Selected Scope And Rationale\n\nScope kind: `%s`\nScope: `%s`\nRationale: %s\nDuration class: `%s`\nCost class: `%s`\nDiagnostic only: `%t`\n\n", printable(r.ScopeKind), printable(r.Scope), printable(r.ScopeRationale), printable(r.DurationClass), printable(r.CostClass), r.DiagnosticOnly)
 	fmt.Fprintf(&b, "## Preconditions And Environment\n\nPrerequisites: %s\nEnvironment: bounded allowlist; values not persisted\nEvidence roots: `%s`\nEffective timeout: `%s` (source `%s`)\n\n", printable(strings.Join(r.Prerequisites, "; ")), printable(strings.Join(r.EvidenceRoots, ", ")), r.EffectiveTimeout, printable(r.TimeoutSource))
@@ -398,22 +494,19 @@ func decodeOneJSON(value string, target any) error {
 	return nil
 }
 func safeArgv(executable string, args []string) string {
-	values := append([]string{executable}, args...)
-	redactNext := false
-	for i, value := range values {
-		lower := strings.ToLower(value)
-		if redactNext {
-			values[i] = "[REDACTED]"
-			redactNext = false
+	// Manifest argv has no sensitivity metadata, so stable output retains only
+	// option names and argument shape. Raw values remain in external evidence.
+	values := []string{filepath.Base(executable)}
+	for _, value := range args {
+		if strings.HasPrefix(value, "-") {
+			if name, _, ok := strings.Cut(value, "="); ok {
+				values = append(values, name+"=[REDACTED]")
+			} else {
+				values = append(values, value)
+			}
 			continue
 		}
-		if strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "password") || strings.Contains(lower, "api-key") {
-			if strings.Contains(value, "=") {
-				values[i] = strings.SplitN(value, "=", 2)[0] + "=[REDACTED]"
-			} else {
-				redactNext = true
-			}
-		}
+		values = append(values, "[ARG]")
 	}
 	for i, value := range values {
 		values[i] = fmt.Sprintf("%q", value)

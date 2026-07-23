@@ -25,14 +25,16 @@ const (
 )
 
 type Config struct {
-	Args    []string
-	Stdin   io.Reader
-	Stdout  io.Writer
-	Stderr  io.Writer
-	Context context.Context
-	Version Version
-	WorkDir string
-	Env     map[string]string
+	Args                 []string
+	Stdin                io.Reader
+	Stdout               io.Writer
+	Stderr               io.Writer
+	Context              context.Context
+	Version              Version
+	WorkDir              string
+	Env                  map[string]string
+	TUIRunner            TUIRunner
+	SprintRuntimeFactory SprintRuntimeFactory
 }
 
 type classedError struct {
@@ -99,12 +101,17 @@ func Run(cfg Config) int {
 	}
 
 	deps := dependencies{
-		stdout:  stdout,
-		stderr:  stderr,
-		stdin:   stdin,
-		ctx:     cfg.Context,
-		workDir: cfg.WorkDir,
-		env:     cfg.Env,
+		stdout:               stdout,
+		stderr:               stderr,
+		stdin:                stdin,
+		ctx:                  cfg.Context,
+		workDir:              cfg.WorkDir,
+		env:                  cfg.Env,
+		tuiRunner:            cfg.TUIRunner,
+		sprintRuntimeFactory: cfg.SprintRuntimeFactory,
+	}
+	if deps.sprintRuntimeFactory == nil {
+		deps.sprintRuntimeFactory = defaultSprintRuntimeFactory
 	}
 	if deps.ctx == nil {
 		deps.ctx = context.Background()
@@ -154,13 +161,15 @@ func Run(cfg Config) int {
 }
 
 type dependencies struct {
-	stdout        io.Writer
-	stderr        io.Writer
-	stdin         io.Reader
-	ctx           context.Context
-	workDir       string
-	workspaceFlag string
-	env           map[string]string
+	stdout               io.Writer
+	stderr               io.Writer
+	stdin                io.Reader
+	ctx                  context.Context
+	workDir              string
+	workspaceFlag        string
+	env                  map[string]string
+	tuiRunner            TUIRunner
+	sprintRuntimeFactory SprintRuntimeFactory
 }
 
 type globalFlags struct {

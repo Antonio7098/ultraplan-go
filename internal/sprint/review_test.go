@@ -30,6 +30,42 @@ type mutateReviewRuntime struct {
 
 type contextReviewRuntime struct{}
 
+type repairReviewRuntime struct{ calls atomic.Int32 }
+
+type resumableReviewRuntime struct {
+	mu              sync.Mutex
+	cancel          context.CancelFunc
+	interruptOnCall int
+	calls           []pruntime.Request
+}
+
+func (r *resumableReviewRuntime) StartRun(ctx context.Context, req pruntime.Request) (pruntime.Result, error) {
+	r.mu.Lock()
+	r.calls = append(r.calls, req)
+	call := len(r.calls)
+	r.mu.Unlock()
+	sessionID := "session-" + req.Metadata["coverage"]
+	if req.OnEvent != nil {
+		req.OnEvent(pruntime.Event{SessionID: sessionID, Kind: "session", Payload: map[string]any{"session_id": sessionID}})
+	}
+	if call == r.interruptOnCall {
+		r.cancel()
+		<-ctx.Done()
+		return pruntime.Result{SessionID: sessionID, Permissions: pruntime.PermissionSummary{Mode: "restricted"}}, ctx.Err()
+	}
+	data, _ := json.Marshal(ReviewCoverageResult{SchemaVersion: 1, CoverageID: req.Metadata["coverage"], Applicability: "direct", Summary: "checked"})
+	return pruntime.Result{SessionID: sessionID, TerminalOutput: string(data), Permissions: pruntime.PermissionSummary{Mode: "restricted"}}, nil
+}
+
+func (r *repairReviewRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
+	r.calls.Add(1)
+	if req.SessionAction != "continue" {
+		return pruntime.Result{SessionID: "review-session", Events: []pruntime.Event{{Payload: map[string]any{"text": "analysis without the required object"}}}, Permissions: pruntime.PermissionSummary{Mode: "restricted"}}, nil
+	}
+	data, _ := json.Marshal(ReviewCoverageResult{SchemaVersion: 1, CoverageID: req.Metadata["coverage"], Applicability: "direct", Summary: "repaired"})
+	return pruntime.Result{Events: []pruntime.Event{{Payload: map[string]any{"text": string(data)}}}, Permissions: pruntime.PermissionSummary{Mode: "restricted"}}, nil
+}
+
 func (contextReviewRuntime) StartRun(ctx context.Context, _ pruntime.Request) (pruntime.Result, error) {
 	<-ctx.Done()
 	return pruntime.Result{}, ctx.Err()
@@ -104,10 +140,106 @@ func TestReviewManifestExecutionAndArtifactPreservation(t *testing.T) {
 	if string(after) != string(prior) {
 		t.Fatal("failed review replaced the last valid review.md")
 	}
+	state, stateErr := LoadFlowState(root, sp)
+	if stateErr != nil || state.Review.LastComplete == nil || state.Review.LastComplete.Verdict != ReviewPass || state.Review.LastAttempt == nil || state.Review.LastAttempt.Status != AttemptFailed {
+		t.Fatalf("failed attempt did not preserve last complete review: state=%+v err=%v", state.Review, stateErr)
+	}
 	for _, req := range rt.requests {
-		if req.WorkDir == "" || req.Policy.Default != "deny" || req.Sandbox != "read_only" {
+		if req.WorkDir == "" || req.Policy.Default != "deny" || req.Policy.Tools["external_directory"] != "" || req.Sandbox != "read_only" {
 			t.Fatalf("unsafe reviewer request: %+v", req)
 		}
+		if len(req.Prompt) > reviewPromptMaxBytes || strings.Contains(req.Prompt, "# Requirements\n\nReview this sprint.") {
+			t.Fatalf("reviewer prompt was not compact and path-backed: bytes=%d", len(req.Prompt))
+		}
+		if strings.Contains(req.Prompt, filepath.Join(root, filepath.FromSlash(ArtifactRelPath(sp, StageRequirements)))) || !strings.Contains(req.Prompt, filepath.Join(req.WorkDir, "workspace", filepath.FromSlash(ArtifactRelPath(sp, StageRequirements)))) {
+			t.Fatalf("reviewer prompt omitted governed input path: %s", req.Prompt)
+		}
+	}
+}
+
+func TestReviewResumesValidatedCoverageAndOpenCodeSession(t *testing.T) {
+	root, sp := reviewFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	runtime := &resumableReviewRuntime{cancel: cancel, interruptOnCall: 2}
+	service := NewService(root).WithRuntime(runtime).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "minimax-coding-plan/MiniMax-M3"}}).WithReviewConcurrency(1)
+
+	first, err := service.Review(ctx, "proj", "01", ReviewRequest{Concurrency: 1})
+	if err == nil || first.Status != ReviewCancelled {
+		t.Fatalf("interrupted result=%+v err=%v", first, err)
+	}
+	state, err := LoadFlowState(root, sp)
+	if err != nil || state.Review == nil || state.Review.Resume == nil {
+		t.Fatalf("missing resume state: review=%+v err=%v", state.Review, err)
+	}
+	completed, retainedSession := 0, ""
+	for _, checkpoint := range state.Review.Resume.Coverage {
+		if checkpoint.Status == AttemptCompleted {
+			completed++
+		} else if checkpoint.SessionID != "" {
+			retainedSession = checkpoint.SessionID
+		}
+	}
+	if completed != 1 || retainedSession == "" {
+		t.Fatalf("resume checkpoints=%+v", state.Review.Resume.Coverage)
+	}
+
+	runtime.interruptOnCall = 0
+	resumed, err := service.Review(context.Background(), "proj", "01", ReviewRequest{Concurrency: 1})
+	if err != nil || resumed.Status != ReviewCompleted || !resumed.Resumed || resumed.Reused != 1 {
+		t.Fatalf("resumed result=%+v err=%v", resumed, err)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if len(runtime.calls) != 3 {
+		t.Fatalf("runtime calls=%d want 3", len(runtime.calls))
+	}
+	last := runtime.calls[2]
+	if last.SessionID != retainedSession || last.SessionAction != "continue" {
+		t.Fatalf("resume request session=%q action=%q want %q/continue", last.SessionID, last.SessionAction, retainedSession)
+	}
+}
+
+func TestReviewRestartDiscardsCoverageAndSessions(t *testing.T) {
+	root, _ := reviewFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	runtime := &resumableReviewRuntime{cancel: cancel, interruptOnCall: 2}
+	service := NewService(root).WithRuntime(runtime).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "minimax-coding-plan/MiniMax-M3"}}).WithReviewConcurrency(1)
+	if _, err := service.Review(ctx, "proj", "01", ReviewRequest{Concurrency: 1}); err == nil {
+		t.Fatal("expected interrupted review")
+	}
+
+	runtime.interruptOnCall = 0
+	restarted, err := service.Review(context.Background(), "proj", "01", ReviewRequest{Concurrency: 1, Restart: true})
+	if err != nil || restarted.Status != ReviewCompleted || !restarted.Restarted || restarted.Resumed || restarted.Reused != 0 {
+		t.Fatalf("restarted result=%+v err=%v", restarted, err)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if len(runtime.calls) != 4 {
+		t.Fatalf("runtime calls=%d want 4", len(runtime.calls))
+	}
+	for _, req := range runtime.calls[2:] {
+		if req.SessionID != "" || req.SessionAction != "" {
+			t.Fatalf("restart reused session: id=%q action=%q", req.SessionID, req.SessionAction)
+		}
+	}
+}
+
+func TestReviewerPromptStaysBelowSubprocessArgumentBudget(t *testing.T) {
+	root, sp := reviewFixture(t)
+	large := strings.Repeat("governed evidence line\n", 10_000)
+	writeFileContent(t, sp.Path, "# Requirements\n\n"+large, "requirements.md")
+	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	manifest, findings, err := service.PrepareReview("proj", "01", ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare: err=%v findings=%+v", err, findings)
+	}
+	prompt := renderReviewerPrompt(manifest, manifest.Coverage[0])
+	if len(prompt) > reviewPromptMaxBytes {
+		t.Fatalf("prompt bytes=%d budget=%d", len(prompt), reviewPromptMaxBytes)
+	}
+	if strings.Contains(prompt, large) || !strings.Contains(prompt, filepath.Join(root, filepath.FromSlash(ArtifactRelPath(sp, StageRequirements)))) {
+		t.Fatal("prompt did not replace governed content with its readable frozen path")
 	}
 }
 
@@ -143,6 +275,11 @@ func TestReviewVerdictAndCitationValidation(t *testing.T) {
 	if verdict != ReviewVerdictBlocked || len(ds) == 0 {
 		t.Fatalf("unsafe citation verdict=%s diagnostics=%+v", verdict, ds)
 	}
+	results[0].Findings[0].Citations[0].Path = "go.mod"
+	_, ds, verdict = validateReviewCoverage(root, m, results)
+	if verdict != ReviewVerdictBlocked || len(ds) == 0 {
+		t.Fatalf("unfrozen citation verdict=%s diagnostics=%+v", verdict, ds)
+	}
 }
 
 func TestExtractReviewResultReadsOpenCodeTextPart(t *testing.T) {
@@ -154,6 +291,35 @@ func TestExtractReviewResultReadsOpenCodeTextPart(t *testing.T) {
 	}
 	if out.CoverageID != "contract-testing" || out.Summary != "checked" {
 		t.Fatalf("unexpected result: %+v", out)
+	}
+}
+
+func TestExtractReviewResultUsesUntruncatedTerminalOutput(t *testing.T) {
+	summary := strings.Repeat("review evidence ", 400)
+	data, _ := json.Marshal(ReviewCoverageResult{SchemaVersion: 1, CoverageID: "contract-testing", Applicability: "direct", Summary: summary})
+	r := pruntime.Result{
+		TerminalOutput: string(data),
+		Events:         []pruntime.Event{{Type: "text", Payload: map[string]any{"text": string(data[:4096]) + "... [truncated]"}}},
+	}
+	var out ReviewCoverageResult
+	if !extractReviewResult(r, &out) {
+		t.Fatal("expected review result from untruncated terminal output")
+	}
+	if out.CoverageID != "contract-testing" || out.Summary != summary {
+		t.Fatalf("unexpected result: coverage=%q summary-bytes=%d", out.CoverageID, len(out.Summary))
+	}
+}
+
+func TestReviewerGetsOneStructuredOutputRepair(t *testing.T) {
+	root, _ := reviewFixture(t)
+	runtime := &repairReviewRuntime{}
+	service := NewService(root).WithRuntime(runtime).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	result, err := service.Review(context.Background(), "proj", "01", ReviewRequest{Concurrency: 2})
+	if err != nil || result.Verdict != ReviewPass {
+		t.Fatalf("repair review result=%+v err=%v", result, err)
+	}
+	if runtime.calls.Load() != int32(len(result.Coverage)*2) {
+		t.Fatalf("runtime calls=%d coverage=%d", runtime.calls.Load(), len(result.Coverage))
 	}
 }
 
