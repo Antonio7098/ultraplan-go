@@ -149,7 +149,7 @@ UltraPlan does not own OpenCode provider credentials or provider billing. Config
 
 ## Smoke Configuration
 
-Smoke configuration is resolved after manifest defaults and before command/TUI overrides. UltraPlan passes only named environment variables; values never appear in config output, JSON, Markdown, or TUI diagnostics. The built-in platform set is `PATH`, `HOME`, `TMPDIR`, `LANG`, and `LC_ALL`. Add a manifest-declared name to `smoke.environment` only when the harness genuinely needs it. The real-harness test lane is opt-in with `ULTRAPLAN_REAL_SMOKE=1`; normal tests never launch it.
+Smoke configuration is resolved after manifest defaults and before command/TUI overrides. UltraPlan passes only named environment variables; values never appear in config output, JSON, Markdown, or TUI diagnostics. The built-in platform set is limited to `TMPDIR`, `LANG`, and `LC_ALL`; `PATH` and `HOME` are not forwarded by default. Add a manifest-declared name to `smoke.environment` only when the harness genuinely needs it. The real-harness test lane is opt-in with `ULTRAPLAN_REAL_SMOKE=1`; normal tests never launch it.
 
 ## Redaction
 

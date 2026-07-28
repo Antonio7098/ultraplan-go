@@ -1,11 +1,12 @@
 # Release Checklist
 
-This checklist gates local study and planning-side release artifacts. It does not publish, sign, notarize, tag, upload, or create a GitHub release.
+This checklist gates the local Phase 3 CLI and TUI release. It does not publish, sign, notarize, tag, upload, or create a GitHub release.
 
 ## Scope
 
-- Study workflows and planning workflows through `plan.md`.
-- No target scaffolding, sprint implementation execution, smoke investigation execution, review automation, issue tracking, hosted SaaS, browser UI, multi-user collaboration, or automatic Git mutation.
+- Study workflows and governed sprint delivery through `execute -> review -> smoke`.
+- CLI and TUI support integrated `verify`, resumable/focused review, review-gated smoke, status, validation, cancellation, and recovery.
+- No issue management, hosted SaaS, browser UI, multi-user collaboration, or automatic Git mutation.
 - Runtime integration remains through agentwrap/OpenCode.
 
 ## Offline Gates
@@ -16,9 +17,13 @@ Run from the repository root:
 go test ./...
 go test -race ./...
 go build ./cmd/ultraplan
+go vet ./...
+git diff --check
 ```
 
 Failures block release unless separately triaged and recorded.
+
+Also require the fake-runtime review suite and fake smoke-harness suite to pass without network, OpenCode, ambient credentials, or the external harness. Required real-runtime prerequisites that are unavailable must be reported as `blocked`, never `pass`.
 
 ## Packaging
 

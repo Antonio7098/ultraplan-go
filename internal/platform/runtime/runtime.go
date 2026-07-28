@@ -15,6 +15,9 @@ import (
 
 type Request struct {
 	Prompt        string
+	PromptRef     PromptReference
+	TraceID       string
+	ParentTraceID string
 	WorkDir       string
 	SessionID     string
 	SessionAction string
@@ -29,6 +32,17 @@ type Request struct {
 	Policy        PermissionPolicy
 	Validation    *agentwrap.ValidationSpec
 	OnEvent       func(Event)
+}
+
+// PromptReference identifies the exact product-owned prompt sent to a runtime.
+// It intentionally carries identity rather than prompt contents.
+type PromptReference struct {
+	ID        string
+	Version   string
+	OwnerKind string
+	OwnerID   string
+	Purpose   string
+	Checksum  string
 }
 
 type PermissionPolicy struct {

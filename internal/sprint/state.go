@@ -58,9 +58,6 @@ func LoadFlowState(root string, s Sprint) (FlowState, error) {
 		if err := ValidateFlowState(root, s, state, path); err != nil {
 			return FlowState{}, err
 		}
-		if err := saveFlowStateWithHooks(root, s, state, atomicWriteHooks{}); err != nil {
-			return FlowState{}, fmt.Errorf("migrate flow state %s: %w", path, err)
-		}
 	}
 	if err := ValidateFlowState(root, s, state, path); err != nil {
 		return FlowState{}, err

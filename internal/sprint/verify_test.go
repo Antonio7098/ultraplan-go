@@ -77,8 +77,8 @@ func TestFlowStateMigratesExactlyOnePredecessor(t *testing.T) {
 	}
 	data, _ := os.ReadFile(path)
 	var persisted map[string]any
-	if err := json.Unmarshal(data, &persisted); err != nil || int(persisted["schemaVersion"].(float64)) != FlowStateSchemaVersion {
-		t.Fatalf("persisted migration=%s err=%v", data, err)
+	if err := json.Unmarshal(data, &persisted); err != nil || int(persisted["schemaVersion"].(float64)) != PreviousFlowStateSchemaVersion {
+		t.Fatalf("read unexpectedly persisted migration=%s err=%v", data, err)
 	}
 	state.SchemaVersion = 0
 	writeJSON(t, path, state)
@@ -92,7 +92,7 @@ func TestFlowStateMigratesExactlyOnePredecessor(t *testing.T) {
 	}
 }
 
-func TestVerificationStatusReconcilesExpiredReviewAttempt(t *testing.T) {
+func TestVerificationStatusDerivesExpiredReviewAttemptWithoutWriting(t *testing.T) {
 	root, sp := reviewFixture(t)
 	now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
 	started := now.Add(-25 * time.Hour)
@@ -119,8 +119,8 @@ func TestVerificationStatusReconcilesExpiredReviewAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Review.ActiveAttempt != nil || persisted.Review.LastAttempt == nil || persisted.Review.LastAttempt.Status != AttemptTimedOut {
-		t.Fatalf("expired attempt was not persisted: %+v", persisted.Review)
+	if persisted.Review.ActiveAttempt == nil || persisted.Review.ActiveAttempt.Status != AttemptRunning || persisted.Review.LastAttempt != nil {
+		t.Fatalf("read-only status mutated durable attempt: %+v", persisted.Review)
 	}
 }
 

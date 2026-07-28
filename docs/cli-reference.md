@@ -290,6 +290,12 @@ ultraplan sprint <project> <sprint> review [--focus <coverage-id>] [--restart] [
 
 Runs bounded read-only conformance reviewers and atomically writes `review.md`. Compatible interrupted attempts resume validated coverage and retained OpenCode sessions. Use `--restart` to discard the resumable attempt and start fresh. A focused rerun promotes only when all other coverage can be retained from the same current fingerprint.
 
+Example:
+
+```bash
+ultraplan sprint ultraplan-go 28-review-to-smoke-flow review --focus architecture --json
+```
+
 ### `ultraplan sprint <project> <sprint> smoke`
 
 ```text
@@ -298,6 +304,12 @@ ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>
 
 Discovers the cataloged protocol-v1 harness, gates on the current review fingerprint, selects sufficient scope, invokes direct bounded argv, validates external evidence, and atomically writes `smoke.md` before smoke flow state. `--force-review` additionally requires `--override-reason`; the resulting run is diagnostic and cannot promote the review or overall assessment. Raw streams and run/issue evidence remain external. Timeout, cancellation, malformed evidence, path escape, and uncertain cleanup never replace a valid summary.
 
+Example:
+
+```bash
+ultraplan sprint ultraplan-go 28-review-to-smoke-flow smoke --dry-run --json
+```
+
 ### `ultraplan sprint <project> <sprint> verify`
 
 ```text
@@ -305,6 +317,12 @@ ultraplan sprint <project> <sprint> verify [--to review|smoke] [--focus-review <
 ```
 
 Runs the shared execute-evidence → review → smoke transition. It requires complete execute evidence, reuses a current review or resumes compatible unfinished review coverage, and applies the review gate before smoke. `--restart-review` starts all reviewers in fresh sessions. Focused review and narrow smoke selections remain diagnostic unless complete retained or containing coverage proves they can promote canonical evidence.
+
+Example:
+
+```bash
+ultraplan sprint ultraplan-go 28-review-to-smoke-flow verify --to smoke --yes
+```
 
 ### `ultraplan code`
 
@@ -327,5 +345,11 @@ The compatibility-sensitive JSON surfaces in this release are:
 - `study <study> validate --json`
 - `study <study> status --json`
 - `code --json` deterministic extraction result
+- `sprint <project> <sprint> status --json`
+- `sprint <project> <sprint> review --json`
+- `sprint <project> <sprint> smoke --json`
+- `sprint <project> <sprint> verify --json`
+
+The Phase 3 field-level compatibility contract is documented in [Phase 3 JSON Schemas](phase3-json-schemas.md).
 
 Sprint `status --json`, `review --json`, and `smoke --json` also expose schema-versioned envelopes. Other text output is intended for humans unless explicitly promoted to stable JSON.

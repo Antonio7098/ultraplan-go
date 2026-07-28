@@ -2,6 +2,8 @@ package sprint
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -903,6 +905,27 @@ func (s Service) runtimeRequest(prompt string, metadata map[string]string) prunt
 	req.Prompt = prompt
 	req.WorkDir = s.root
 	req.Metadata = cloneMetadata(req.Metadata, metadata)
+	stage := strings.TrimSpace(metadata["stage"])
+	project := strings.TrimSpace(metadata["project"])
+	sprint := strings.TrimSpace(metadata["sprint"])
+	sum := sha256.Sum256([]byte(prompt))
+	checksum := hex.EncodeToString(sum[:])
+	req.PromptRef = pruntime.PromptReference{
+		ID:        "sprint." + stage,
+		Version:   "1",
+		OwnerKind: "sprint",
+		OwnerID:   project + "/" + sprint,
+		Purpose:   stage,
+		Checksum:  checksum,
+	}
+	if req.TraceID == "" {
+		trace := sha256.Sum256([]byte(project + "\x00" + sprint + "\x00" + stage + "\x00" + checksum + "\x00" + s.now().UTC().Format(time.RFC3339Nano)))
+		req.TraceID = hex.EncodeToString(trace[:16])
+	}
+	req.Metadata["trace_id"] = req.TraceID
+	req.Metadata["prompt_id"] = req.PromptRef.ID
+	req.Metadata["prompt_version"] = req.PromptRef.Version
+	req.Metadata["prompt_checksum"] = req.PromptRef.Checksum
 	if stage := PlanningStage(metadata["stage"]); stage != "" {
 		if override, ok := s.stageRuntime[stage]; ok {
 			if override.Model != "" {

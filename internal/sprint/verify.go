@@ -143,11 +143,9 @@ func (s Service) VerificationStatus(projectRef, sprintRef string) (VerificationS
 	if err != nil {
 		return out, err
 	}
-	if reconcileExpiredAttempts(&state, s.now().UTC()) {
-		if err := SaveFlowState(s.root, sp, state); err != nil {
-			return out, fmt.Errorf("reconcile expired verification attempt: %w", err)
-		}
-	}
+	// Status derives expired-attempt truth without mutating durable state.
+	// The next explicit review/smoke operation owns any persisted transition.
+	reconcileExpiredAttempts(&state, s.now().UTC())
 	malformed := false
 	if state.Review != nil {
 		r := state.Review

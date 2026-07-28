@@ -4,6 +4,8 @@ UltraPlan Go is a local-first CLI for durable architecture studies and governed 
 
 This release includes study workflows and the governed sprint chain through `execute -> review -> smoke`, including integrated `sprint verify`, durable review resume, focused review reruns, and explicit diagnostic smoke overrides. Issue management, hosted SaaS, browser UI, multi-user collaboration, automatic Git mutation, signing, notarization, tags, and artifact upload remain deferred.
 
+Phase 3 operators should start with the [CLI reference](docs/cli-reference.md), [recovery runbook](docs/recovery.md), [JSON schema contract](docs/phase3-json-schemas.md), and [legacy verification migration guide](docs/phase3-migration.md). The authoritative product requirements, technical requirements, architecture, roadmap, and sprint plans live in the adjacent `ultraplan-go-workspace/projects/ultraplan-go/` planning workspace; this repository does not duplicate them.
+
 ## Install
 
 Install to your user bin directory, which keeps the `ultraplan` command in the same place for future upgrades:

@@ -56,7 +56,7 @@ The governed sprint chain continues through execute, review, and smoke using the
 - Interrupted review: run `sprint <project> <sprint> status` to inspect completed coverage and retained sessions, then rerun `review`, `verify`, or `flow`. Compatible attempts resume by default.
 - Intentional fresh review: use `review --restart`, `verify --restart-review`, or `flow --restart-review`. Restart cannot be combined with focused review.
 - Changed review inputs or model: the saved attempt is incompatible and the next review starts fresh automatically.
-- Expired running attempt: `sprint status` marks an attempt that has lacked a terminal update for more than 24 hours as timed out while retaining usable review checkpoints.
+- Expired running attempt: `sprint status` derives an attempt that has lacked a terminal update for more than 24 hours as timed out without mutating state; the next explicit review/smoke operation owns the durable transition.
 - Review failure: resolve findings and rerun review. Use `--force-review --override-reason <text> --yes` only for diagnostic smoke; it cannot promote review or the overall assessment.
 - Smoke interruption or timeout: confirm no harness process remains, inspect external run evidence, then rerun `verify --to smoke --yes` or the explicit `smoke --yes` action.
 - Fresh canonical review with stale smoke: rerun the required containing smoke suite; a narrow diagnostic selection does not replace containing-suite evidence.
