@@ -1,6 +1,6 @@
 # UltraPlan User Guide
 
-This guide covers study workflows and governed sprint planning through execute, automated review, and review-gated deep smoke. Integrated verification/recovery, issue management, hosted services, browser UI, multi-user collaboration, and automatic Git mutation are not part of this release.
+This guide covers study workflows and governed sprint delivery through execute, resumable automated review, integrated verification, and review-gated deep smoke. Issue management, hosted services, browser UI, multi-user collaboration, and automatic Git mutation are not part of this release.
 
 ## 1. Build Or Install
 
@@ -216,7 +216,7 @@ Project validation checks that the project catalog resolves selected contracts, 
 
 ## 17. Work Through Sprint Planning
 
-Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, `plan`, and controlled `execute`.
+Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, `plan`, controlled `execute`, automated `review`, and review-gated `smoke`.
 
 ```bash
 ultraplan sprint <project> <sprint> status
@@ -235,15 +235,17 @@ Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use 
 
 The planning flow continues through controlled execute from validated `plan.md` tasks. Execute writes `.run-state.json` and `execute.md`; automated review then writes the current `review.md`.
 
-Run deep smoke only after review:
+Use the integrated transition after execute:
 
 ```bash
-ultraplan sprint <project> <sprint> review
-ultraplan sprint <project> <sprint> smoke --dry-run
-ultraplan sprint <project> <sprint> smoke --yes
+ultraplan sprint <project> <sprint> verify --to review --dry-run
+ultraplan sprint <project> <sprint> verify --to smoke --dry-run
+ultraplan sprint <project> <sprint> verify --to smoke --yes
 ultraplan sprint <project> <sprint> validate smoke
 ```
 
-The smoke preview shows the review gate, sufficient scope, prerequisites, duration/cost class where supplied, safe argv, and external evidence roots. `--force-review` is diagnostic-only after a current failed/blocked review; it cannot override stale or malformed review evidence. Raw harness evidence stays in its `runs/` and `issues/` directories, while the sprint stores only `smoke.md` and flow state.
+`verify` requires complete execute evidence, obtains or reuses a current review, then applies the smoke gate. Interrupted reviews resume validated coverage and retained OpenCode sessions by default. Use `review --restart` or `verify --restart-review` when you intentionally want fresh sessions; a restart cannot be combined with focused review.
+
+The smoke preview shows the review gate, sufficient scope, prerequisites, duration/cost class where supplied, safe argv, and external evidence roots. `--force-review` additionally requires `--override-reason` and is diagnostic-only after a current failed/blocked review; it cannot override stale or malformed review evidence or improve the overall assessment. Raw harness evidence stays in its `runs/` and `issues/` directories, while the sprint stores only `smoke.md` and flow state.
 
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`.

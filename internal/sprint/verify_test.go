@@ -92,6 +92,38 @@ func TestFlowStateMigratesExactlyOnePredecessor(t *testing.T) {
 	}
 }
 
+func TestVerificationStatusReconcilesExpiredReviewAttempt(t *testing.T) {
+	root, sp := reviewFixture(t)
+	now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
+	started := now.Add(-25 * time.Hour)
+	state := NewFlowState(sp, completeStates(sp), started)
+	state.Review = &ReviewStageState{
+		Status:        ReviewRunning,
+		Path:          ArtifactRelPath(sp, StageReview),
+		LastRunAt:     &started,
+		ActiveAttempt: &VerificationAttempt{ID: "review-stale", Status: AttemptRunning, StartedAt: started},
+	}
+	if err := SaveFlowState(root, sp, state); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(root)
+	service.now = func() time.Time { return now }
+	status, err := service.VerificationStatus("proj", "01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Review.ExecutionStatus != string(ReviewFailed) || status.Review.ActiveAttempt != nil || status.Review.LastAttempt == nil || status.Review.LastAttempt.Status != AttemptTimedOut {
+		t.Fatalf("status did not reconcile expired attempt: %+v", status.Review)
+	}
+	persisted, err := LoadFlowState(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Review.ActiveAttempt != nil || persisted.Review.LastAttempt == nil || persisted.Review.LastAttempt.Status != AttemptTimedOut {
+		t.Fatalf("expired attempt was not persisted: %+v", persisted.Review)
+	}
+}
+
 func TestReviewFreshnessArtifactEditAndFocusedMerge(t *testing.T) {
 	root, sp := reviewFixture(t)
 	runtime := &reviewRuntime{}

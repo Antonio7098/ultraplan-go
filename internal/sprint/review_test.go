@@ -32,6 +32,12 @@ type contextReviewRuntime struct{}
 
 type repairReviewRuntime struct{ calls atomic.Int32 }
 
+type rejectedReviewRuntime struct {
+	calls       atomic.Int32
+	permissions pruntime.PermissionSummary
+	malformed   bool
+}
+
 type resumableReviewRuntime struct {
 	mu              sync.Mutex
 	cancel          context.CancelFunc
@@ -64,6 +70,19 @@ func (r *repairReviewRuntime) StartRun(_ context.Context, req pruntime.Request) 
 	}
 	data, _ := json.Marshal(ReviewCoverageResult{SchemaVersion: 1, CoverageID: req.Metadata["coverage"], Applicability: "direct", Summary: "repaired"})
 	return pruntime.Result{Events: []pruntime.Event{{Payload: map[string]any{"text": string(data)}}}, Permissions: pruntime.PermissionSummary{Mode: "restricted"}}, nil
+}
+
+func (r *rejectedReviewRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
+	r.calls.Add(1)
+	data, _ := json.Marshal(ReviewCoverageResult{SchemaVersion: 1, CoverageID: req.Metadata["coverage"], Applicability: "direct", Summary: "checked"})
+	if r.malformed {
+		data = []byte("analysis without the required structured result")
+	}
+	return pruntime.Result{
+		SessionID:      "review-session",
+		TerminalOutput: string(data),
+		Permissions:    r.permissions,
+	}, nil
 }
 
 func (contextReviewRuntime) StartRun(ctx context.Context, _ pruntime.Request) (pruntime.Result, error) {
@@ -317,6 +336,32 @@ func TestReviewerGetsOneStructuredOutputRepair(t *testing.T) {
 	result, err := service.Review(context.Background(), "proj", "01", ReviewRequest{Concurrency: 2})
 	if err != nil || result.Verdict != ReviewPass {
 		t.Fatalf("repair review result=%+v err=%v", result, err)
+	}
+	if runtime.calls.Load() != int32(len(result.Coverage)*2) {
+		t.Fatalf("runtime calls=%d coverage=%d", runtime.calls.Load(), len(result.Coverage))
+	}
+}
+
+func TestReviewerBlocksUnsupportedPermissions(t *testing.T) {
+	root, _ := reviewFixture(t)
+	runtime := &rejectedReviewRuntime{permissions: pruntime.PermissionSummary{Mode: "restricted", UnsupportedCount: 1}}
+	service := NewService(root).WithRuntime(runtime).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	result, err := service.Review(context.Background(), "proj", "01", ReviewRequest{Concurrency: 2})
+	if err == nil || result.Verdict != ReviewVerdictBlocked {
+		t.Fatalf("permission review result=%+v err=%v", result, err)
+	}
+	if runtime.calls.Load() != int32(len(result.Coverage)) {
+		t.Fatalf("runtime calls=%d coverage=%d", runtime.calls.Load(), len(result.Coverage))
+	}
+}
+
+func TestReviewerBlocksAfterStructuredOutputRepairIsExhausted(t *testing.T) {
+	root, _ := reviewFixture(t)
+	runtime := &rejectedReviewRuntime{permissions: pruntime.PermissionSummary{Mode: "restricted"}, malformed: true}
+	service := NewService(root).WithRuntime(runtime).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	result, err := service.Review(context.Background(), "proj", "01", ReviewRequest{Concurrency: 2})
+	if err == nil || result.Verdict != ReviewVerdictBlocked {
+		t.Fatalf("exhausted repair result=%+v err=%v", result, err)
 	}
 	if runtime.calls.Load() != int32(len(result.Coverage)*2) {
 		t.Fatalf("runtime calls=%d coverage=%d", runtime.calls.Load(), len(result.Coverage))

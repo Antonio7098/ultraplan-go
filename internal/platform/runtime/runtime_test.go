@@ -100,6 +100,36 @@ func TestAdapterBoundsSDKErrorAndPolicyDiagnostics(t *testing.T) {
 	}
 }
 
+func TestAdapterRedactsSDKErrorDetails(t *testing.T) {
+	sdkErr := agentwrap.NewError(agentwrap.ErrorProviderUnavailable, "fake wait", "request used api_key=secret-value", errors.New("provider failed"))
+	sdkErr.DebugDetail = "Authorization: Bearer secret-token"
+	sdkErr.ResponseBody = `{"access_token":"secret-token"}`
+	adapter := NewAdapter(fakeRuntime{run: &fakeRun{
+		id:     "run-1",
+		result: agentwrap.RunResult{RunID: "run-1", Status: agentwrap.StatusFailed, Err: sdkErr},
+		err:    sdkErr,
+	}})
+
+	result, err := adapter.StartRun(context.Background(), Request{Prompt: "hello"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var got *agentwrap.SDKError
+	if !errors.As(err, &got) {
+		t.Fatalf("SDK error classification not preserved: %#v", err)
+	}
+	for label, value := range map[string]string{
+		"user detail":   got.UserDetail,
+		"debug detail":  got.DebugDetail,
+		"response body": got.ResponseBody,
+		"mapped detail": result.Error.UserDetail,
+	} {
+		if value != "[REDACTED]" {
+			t.Fatalf("%s = %q, want redacted", label, value)
+		}
+	}
+}
+
 func TestAdapterMapsAllCanonicalEventKinds(t *testing.T) {
 	kinds := []agentwrap.EventKind{
 		agentwrap.EventLifecycle,

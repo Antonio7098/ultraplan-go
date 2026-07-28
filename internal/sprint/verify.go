@@ -143,6 +143,11 @@ func (s Service) VerificationStatus(projectRef, sprintRef string) (VerificationS
 	if err != nil {
 		return out, err
 	}
+	if reconcileExpiredAttempts(&state, s.now().UTC()) {
+		if err := SaveFlowState(s.root, sp, state); err != nil {
+			return out, fmt.Errorf("reconcile expired verification attempt: %w", err)
+		}
+	}
 	malformed := false
 	if state.Review != nil {
 		r := state.Review
@@ -411,4 +416,35 @@ func targetIdentity(root string) (string, error) {
 
 func attemptExpired(attempt *VerificationAttempt, now time.Time) bool {
 	return attempt != nil && attempt.Status == AttemptRunning && now.Sub(attempt.StartedAt) > 24*time.Hour
+}
+
+func reconcileExpiredAttempts(state *FlowState, now time.Time) bool {
+	changed := false
+	if state.Review != nil && attemptExpired(state.Review.ActiveAttempt, now) {
+		attempt := *state.Review.ActiveAttempt
+		attempt.Status = AttemptTimedOut
+		attempt.CompletedAt = &now
+		attempt.Category = "interrupted"
+		attempt.Diagnostics = []string{"review attempt expired without a terminal update"}
+		attempt.NextAction = "Resume the retained review coverage, or restart review explicitly."
+		state.Review.ActiveAttempt = nil
+		state.Review.LastAttempt = &attempt
+		state.Review.Status = ReviewFailed
+		state.Review.LastRunAt = &now
+		changed = true
+	}
+	if state.Smoke != nil && attemptExpired(state.Smoke.ActiveAttempt, now) {
+		attempt := *state.Smoke.ActiveAttempt
+		attempt.Status = AttemptTimedOut
+		attempt.CompletedAt = &now
+		attempt.Category = "interrupted"
+		attempt.Diagnostics = []string{"smoke attempt expired without a terminal update"}
+		attempt.NextAction = "Confirm no harness process remains, then rerun smoke."
+		state.Smoke.ActiveAttempt = nil
+		state.Smoke.LastAttempt = &attempt
+		state.Smoke.Status = SmokeFailed
+		state.Smoke.LastRunAt = &now
+		changed = true
+	}
+	return changed
 }

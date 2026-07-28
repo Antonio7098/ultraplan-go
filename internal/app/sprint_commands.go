@@ -504,11 +504,11 @@ func mapSmokeError(err error) error {
 	}
 	switch se.Category {
 	case "cancellation":
-		return classified(ExitCancel, "%s: %s", se.Code, se.Error())
+		return classifiedCause(ExitCancel, se, "%s", se.Code)
 	case "process", "timeout", "cleanup":
-		return classified(ExitRuntime, "%s: %s", se.Code, se.Error())
+		return classifiedCause(ExitRuntime, se, "%s", se.Code)
 	default:
-		return classified(ExitValidation, "%s: %s", se.Code, se.Error())
+		return classifiedCause(ExitValidation, se, "%s", se.Code)
 	}
 }
 

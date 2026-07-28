@@ -1,8 +1,8 @@
 # UltraPlan Go
 
-UltraPlan Go is a local-first CLI for durable architecture studies and governed planning artifacts. It initializes study workspaces, runs source and dimension analyses through agentwrap/OpenCode, synthesizes reports, validates artifacts, regenerates summaries, extracts cited code snippets for review, and manages planning projects and sprints through `plan.md`.
+UltraPlan Go is a local-first CLI for durable architecture studies and governed sprint delivery. It initializes study workspaces, runs source and dimension analyses through agentwrap/OpenCode, synthesizes reports, validates artifacts, executes sprint plans, runs resumable automated reviews, and drives review-gated smoke verification.
 
-This release includes the study workflow and the planning workflow from `study -> select -> distill -> reason -> plan`. Sprint implementation execution, smoke investigation execution, review automation, issue tracking, hosted SaaS, browser UI, multi-user collaboration, automatic Git mutation, signing, notarization, tags, and artifact upload are deferred.
+This release includes study workflows and the governed sprint chain through `execute -> review -> smoke`, including integrated `sprint verify`, durable review resume, focused review reruns, and explicit diagnostic smoke overrides. Issue management, hosted SaaS, browser UI, multi-user collaboration, automatic Git mutation, signing, notarization, tags, and artifact upload remain deferred.
 
 ## Install
 

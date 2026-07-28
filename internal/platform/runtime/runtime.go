@@ -570,9 +570,9 @@ func mapError(err error) error {
 	var sdk *agentwrap.SDKError
 	if errors.As(err, &sdk) {
 		bounded := *sdk
-		bounded.UserDetail = truncateDiagnosticString(sdk.UserDetail)
-		bounded.DebugDetail = truncateDiagnosticString(sdk.DebugDetail)
-		bounded.ResponseBody = truncateDiagnosticString(sdk.ResponseBody)
+		bounded.UserDetail = redactDiagnosticString("sdk.user_detail", sdk.UserDetail)
+		bounded.DebugDetail = redactDiagnosticString("sdk.debug_detail", sdk.DebugDetail)
+		bounded.ResponseBody = redactDiagnosticString("sdk.response_body", sdk.ResponseBody)
 		bounded.ResponseHeaders = cloneStringMap(sdk.ResponseHeaders)
 		bounded.Metadata = cloneStringMap(sdk.Metadata)
 		switch {
@@ -595,7 +595,7 @@ func mapSDKError(err *agentwrap.SDKError) *Error {
 	return &Error{
 		Category:    string(err.Category),
 		Operation:   err.Operation,
-		UserDetail:  truncateDiagnosticString(err.UserDetail),
+		UserDetail:  redactDiagnosticString("sdk.user_detail", err.UserDetail),
 		Provider:    string(err.Provider),
 		Model:       string(err.Model),
 		RuntimeKind: string(err.RuntimeKind),
@@ -604,6 +604,10 @@ func mapSDKError(err *agentwrap.SDKError) *Error {
 		RetryAfter:  err.RetryAfter,
 		Metadata:    cloneStringMap(err.Metadata),
 	}
+}
+
+func redactDiagnosticString(key, value string) string {
+	return config.RedactValue(key, truncateDiagnosticString(value))
 }
 
 func splitModel(value string) (string, string) {

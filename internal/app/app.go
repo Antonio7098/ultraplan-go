@@ -59,6 +59,10 @@ func classified(class int, format string, args ...any) error {
 	return classedError{class: class, code: errorCode(class), err: fmt.Errorf(format, args...)}
 }
 
+func classifiedCause(class int, cause error, format string, args ...any) error {
+	return classedError{class: class, code: errorCode(class), err: fmt.Errorf(format+": %w", append(args, cause)...)}
+}
+
 func errorCode(class int) string {
 	switch class {
 	case ExitUsage:

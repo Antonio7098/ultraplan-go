@@ -1,6 +1,6 @@
 # CLI Reference
 
-This release includes study commands and governed sprint planning, execute, automated review, and review-gated deep smoke. Integrated `verify`, focused rerun recovery, issue management, Git mutation, hosted services, and browser UI remain deferred.
+This release includes study commands and governed sprint planning, execute, resumable automated review, integrated `verify`, focused review reruns, and review-gated deep smoke. Issue management, Git mutation, hosted services, and browser UI remain deferred.
 
 ## Global Usage
 
@@ -268,11 +268,11 @@ ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
 ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
 ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
 ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
-ultraplan sprint <project> <sprint> flow --to review [--dry-run]
-ultraplan sprint <project> <sprint> flow --to smoke --dry-run
+ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
+ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run] [--yes]
 ```
 
-Runs or previews the governed stage flow through review. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. `flow --to smoke --dry-run` exposes the shared guarded smoke preview, but mutating smoke remains an explicit confirmed `smoke` action; integrated review-to-smoke execution is deferred to Sprint 28.
+Runs or previews the governed stage flow through smoke. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. Review and smoke use the same sprint-owned transition as `verify`. Compatible interrupted reviews resume by default; `--restart-review` discards retained review progress. A non-dry-run smoke transition requires `--yes`.
 
 ### `ultraplan sprint <project> <sprint> execute`
 
@@ -285,18 +285,26 @@ Executes validated top-level `plan.md` task checkboxes through the generic runti
 ### `ultraplan sprint <project> <sprint> review`
 
 ```text
-ultraplan sprint <project> <sprint> review [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
+ultraplan sprint <project> <sprint> review [--focus <coverage-id>] [--restart] [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
 ```
 
-Runs the current automated conformance review and atomically writes `review.md`.
+Runs bounded read-only conformance reviewers and atomically writes `review.md`. Compatible interrupted attempts resume validated coverage and retained OpenCode sessions. Use `--restart` to discard the resumable attempt and start fresh. A focused rerun promotes only when all other coverage can be retained from the same current fingerprint.
 
 ### `ultraplan sprint <project> <sprint> smoke`
 
 ```text
-ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review] [--dry-run] [--yes] [--json]
+ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
 ```
 
-Discovers the cataloged protocol-v1 harness, gates on the current review fingerprint, selects sufficient scope, invokes direct bounded argv, validates external evidence, and atomically writes `smoke.md` before smoke flow state. Raw streams and run/issue evidence remain external. Timeout, cancellation, malformed evidence, path escape, and uncertain cleanup never replace a valid summary.
+Discovers the cataloged protocol-v1 harness, gates on the current review fingerprint, selects sufficient scope, invokes direct bounded argv, validates external evidence, and atomically writes `smoke.md` before smoke flow state. `--force-review` additionally requires `--override-reason`; the resulting run is diagnostic and cannot promote the review or overall assessment. Raw streams and run/issue evidence remain external. Timeout, cancellation, malformed evidence, path escape, and uncertain cleanup never replace a valid summary.
+
+### `ultraplan sprint <project> <sprint> verify`
+
+```text
+ultraplan sprint <project> <sprint> verify [--to review|smoke] [--focus-review <coverage-id>] [--restart-review] [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
+```
+
+Runs the shared execute-evidence → review → smoke transition. It requires complete execute evidence, reuses a current review or resumes compatible unfinished review coverage, and applies the review gate before smoke. `--restart-review` starts all reviewers in fresh sessions. Focused review and narrow smoke selections remain diagnostic unless complete retained or containing coverage proves they can promote canonical evidence.
 
 ### `ultraplan code`
 

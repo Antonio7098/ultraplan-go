@@ -815,8 +815,11 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 		if previousOnEvent != nil {
 			previousOnEvent(event)
 		}
-		if event.SessionID != "" && onSession != nil {
-			onSession(event.SessionID)
+		if event.SessionID != "" {
+			sessionID = event.SessionID
+			if onSession != nil {
+				onSession(event.SessionID)
+			}
 		}
 	}
 	r, err := s.runtime.StartRun(ctx, req)
