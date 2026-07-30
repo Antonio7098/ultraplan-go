@@ -156,10 +156,8 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 			refreshed.Smoke.Reconciliation = fingerprintMismatch || (readErr == nil && refreshed.Smoke.SmokeFingerprint == "")
 		}
 	}
-	if !stateLoaded {
-		if err := SaveFlowState(s.root, sp, refreshed); err != nil {
-			return StatusSummary{}, err
-		}
+	if err := SaveFlowState(s.root, sp, refreshed); err != nil {
+		return StatusSummary{}, err
 	}
 	flowPath, err := FlowStatePath(s.root, sp)
 	if err != nil {
@@ -1185,7 +1183,9 @@ func stringsTrim(value string) string {
 
 func DeriveStages(sp Sprint, snap ArtifactSnapshot, prior []StageState) []StageState {
 	failed := map[PlanningStage]StageState{}
+	previous := map[PlanningStage]StageState{}
 	for _, state := range prior {
+		previous[state.Stage] = state
 		if state.Status == StatusFailed {
 			failed[state.Stage] = state
 		}
@@ -1222,7 +1222,11 @@ func DeriveStages(sp Sprint, snap ArtifactSnapshot, prior []StageState) []StageS
 		if status == StatusMissing || status == StatusReady || status == StatusFailed {
 			blocked = true
 		}
-		out = append(out, StageState{Stage: stage, Status: status, Path: ArtifactRelPath(sp, stage)})
+		derived := StageState{Stage: stage, Status: status, Path: ArtifactRelPath(sp, stage)}
+		if priorState, ok := previous[stage]; ok && priorState.Status == status {
+			derived.LastRunAt = priorState.LastRunAt
+		}
+		out = append(out, derived)
 	}
 	return out
 }

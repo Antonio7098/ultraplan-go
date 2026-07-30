@@ -212,6 +212,15 @@ Prompts and templates are built into the CLI. Materialize editable copies only w
 ultraplan defaults install --dry-run
 ultraplan defaults install
 ` + "```" + `
+
+## Manually Invoked Stage Skills
+
+Materialise every embedded stage skill, or one selected stage:
+
+` + "```sh" + `
+ultraplan skills materialise
+ultraplan skills materialise reasoning
+` + "```" + `
 `
 
 func PlanInit(path string) (InitPlan, error) {

@@ -87,6 +87,8 @@ Check:
 
 - README links every release document.
 - CLI reference matches `ultraplan --help`, `ultraplan config --help`, `ultraplan health --help`, `ultraplan project --help`, `ultraplan sprint --help`, `ultraplan study --help`, and `ultraplan code --help`.
+- Stage-skill documentation matches `ultraplan skills --help` and `ultraplan skills materialise --help`.
+- All nine embedded stage skills materialise idempotently and remain manual-only.
 - Stable JSON documentation is limited to documented JSON surfaces.
 - Recovery docs describe validation, missing artifacts, failed planning stages, cancellation, stale locks, `--force-unlock`, partial completion, retry/fallback metadata, and atomic write failures.
 - Configuration docs document precedence, schema version rejection, runtime/model/retry/fallback settings, agentwrap/OpenCode mapping, and redaction.

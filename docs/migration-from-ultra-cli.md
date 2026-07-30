@@ -1,6 +1,8 @@
 # Migration From `.ultra/cli`
 
-UltraPlan Go ports the planning artifact chain from the prototype through `plan.md`. It does not port sprint implementation execution, smoke investigation execution, review automation, issue tracking, automatic Git mutation, hosted UI behavior, or multi-user collaboration.
+UltraPlan Go supports the governed sprint chain through `execute`, automated
+`review`, and review-gated `smoke`. Issue tracking, automatic Git mutation,
+hosted UI behavior, and multi-user collaboration remain outside the product.
 
 ## Artifact Mapping
 
@@ -40,6 +42,14 @@ ultraplan sprint <project> <sprint> validate plan
 
 5. Use `prompt <stage>` before rerunning a generated stage so edited Markdown remains reviewable.
 6. Use `flow --to plan --dry-run` before any runtime-backed planning run.
+7. Materialise the optional manual stage skills:
+
+```bash
+ultraplan skills materialise --path <workspace>
+```
+
+This writes explicit-invocation skills under `.agents/skills` without changing
+the governed project or sprint artifacts.
 
 ## Prompt And Template Defaults
 
@@ -77,7 +87,8 @@ If a prompt or template already exists and differs from the built-in default, `d
 - Technical handbooks distill selected evidence only and should not make implementation decisions.
 - `reasoning.md` owns decisions, expected evidence, assumptions, and risks.
 - `plan.md` executes `reasoning.md` and must keep task/evidence traceability.
-- The Go workflow stops after `plan.md`.
+- Execute, review, and smoke use governed CLI orchestration and durable state;
+  a manually invoked skill must not fabricate their completion artifacts.
 
 ## Release Evidence
 

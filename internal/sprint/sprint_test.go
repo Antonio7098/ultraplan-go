@@ -156,6 +156,21 @@ func TestServiceStatusRefreshesMissingStateAndRejectsInvalidState(t *testing.T) 
 	if _, err := os.Stat(filepath.Join(sp.Path, "flow-state.json")); err != nil {
 		t.Fatalf("flow state not written: %v", err)
 	}
+	writeFileContent(t, sp.Path, "# Technical Handbook\n", "technical-handbook.md")
+	status, err = NewService(root).Status("proj", "01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Stages[2].Status != StatusComplete {
+		t.Fatalf("refreshed status did not observe manual artifact: %+v", status.Stages[2])
+	}
+	persisted, err := LoadFlowState(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Stages[2].Status != StatusComplete {
+		t.Fatalf("flow state was not synchronized after status: %+v", persisted.Stages[2])
+	}
 	writeFileContent(t, sp.Path, "{not json", "flow-state.json")
 	if _, err := NewService(root).Status("proj", "01-alpha"); !errors.Is(err, ErrFlowStateMalformed) {
 		t.Fatalf("invalid state err = %v", err)

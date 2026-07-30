@@ -43,6 +43,28 @@ Creates the minimal required workspace scaffold: `README.md`, `ultraplan.yml`, a
 
 Built-in prompts and templates are embedded in the CLI and are not required in the workspace.
 
+### `ultraplan skills materialise`
+
+```text
+ultraplan skills materialise [all|stage] [--path <dir>] [--dry-run] [--force]
+```
+
+Writes manually invoked sprint-stage skills to
+`.agents/skills/ultraplan-<stage>/`. With no selection, all nine skills are
+materialised. Supported stages are `requirements`, `sprint-index`,
+`technical-handbook`, `area-reasoning`, `reasoning`, `plan`, `execute`,
+`review`, and `smoke`.
+
+Each generated skill includes `SKILL.md` and `agents/openai.yaml`. Implicit
+invocation is disabled. The `SKILL.md` embeds the canonical stage prompt and
+adds interactive prerequisite checks, explicit proposal-only behavior,
+validation, and flow-state reconciliation.
+
+Behavior matches `defaults install`: missing files are created, identical
+files are unchanged, customized files require confirmation, `--force`
+overwrites them, and `--dry-run` makes no writes. `materialize` is accepted as
+an alias.
+
 ### `ultraplan defaults install`
 
 ```text

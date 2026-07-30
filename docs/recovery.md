@@ -49,6 +49,19 @@ Planning artifacts use a separate chain under `projects/<project>/sprints/<sprin
 - Missing `plan.md`: validate `reasoning`, then run `flow --to plan`.
 - Missing `flow-state.json`: run `sprint <project> <sprint> status` to refresh artifact state.
 
+If stage skills are missing or stale, preview and rematerialise them:
+
+```bash
+ultraplan skills materialise all --dry-run
+ultraplan skills materialise all
+```
+
+Customized skill files are preserved unless overwrite is confirmed. Use
+`--force` only when the embedded versions should replace those customizations.
+After an agent writes or repairs a planning artifact, run `sprint status
+--json`; status persists the derived stage state while preserving review and
+smoke evidence. Do not hand-edit state JSON to mark a stage complete.
+
 The governed sprint chain continues through execute, review, and smoke using the shared `sprint verify` transition. Verification does not authorize issue management, remediation, or Git mutation.
 
 ## Verify Recovery
@@ -125,6 +138,11 @@ For a failed planning stage:
 3. Validate the earliest incomplete stage with `ultraplan sprint <project> <sprint> validate <stage>`.
 4. Use `prompt <stage>` to inspect the runtime input before rerunning flow.
 5. Rerun `flow --to <stage>` only after the upstream artifact validates.
+
+When using a stage skill, it performs the same checks and must ask before
+filling prerequisite gaps. An explicit proposal-only or deep-dive discussion
+does not advance flow state until the governed artifact is written and
+validated.
 
 Common causes are project-index references that do not resolve, sprint-index entries outside the project catalog, missing selected evidence, reasoning that does not include decisions/risks/evidence, or a plan that does not trace tasks to `reasoning.md`.
 

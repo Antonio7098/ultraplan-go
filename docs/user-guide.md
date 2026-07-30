@@ -28,6 +28,18 @@ ultraplan init-workspace --path . --dry-run
 
 `init-workspace` creates only the required workspace files: `README.md`, `ultraplan.yml`, and `studies/`. The README includes common health, config, study, planning, and defaults commands. Prompts and templates are built into the CLI, so a workspace can run without local `prompts/` or `templates/` directories.
 
+Materialise the optional, manually invoked sprint-stage skills when the
+workspace will be used directly by an agent:
+
+```bash
+ultraplan skills materialise --dry-run
+ultraplan skills materialise
+```
+
+Use `ultraplan skills materialise <stage>` to install just one. Skills are
+written under `.agents/skills`, are explicit-invocation-only, and preserve
+customized local copies unless overwrite is confirmed.
+
 If you want editable copies of the built-in defaults, install them:
 
 ```bash
@@ -223,7 +235,7 @@ Project validation checks that the project catalog resolves selected contracts, 
 
 ## 17. Work Through Sprint Planning
 
-Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, `plan`, controlled `execute`, automated `review`, and review-gated `smoke`.
+Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `requirements`, `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, `plan`, controlled `execute`, automated `review`, and review-gated `smoke`.
 
 ```bash
 ultraplan sprint <project> <sprint> status
@@ -256,3 +268,17 @@ ultraplan sprint <project> <sprint> validate smoke
 The smoke preview shows the review gate, sufficient scope, prerequisites, duration/cost class where supplied, safe argv, and external evidence roots. `--force-review` additionally requires `--override-reason` and is diagnostic-only after a current failed/blocked review; it cannot override stale or malformed review evidence or improve the overall assessment. Raw harness evidence stays in its `runs/` and `issues/` directories, while the sprint stores only `smoke.md` and flow state.
 
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`. A project may override only the area-reasoning prompt, final-reasoning prompt, and final-reasoning template. Project status reports which source is effective.
+
+The materialised stage skills are interactive forms of those prompts. Invoke
+them explicitly as `$ultraplan-requirements`,
+`$ultraplan-sprint-index`, `$ultraplan-technical-handbook`,
+`$ultraplan-area-reasoning`, `$ultraplan-reasoning`, `$ultraplan-plan`,
+`$ultraplan-execute`, `$ultraplan-review`, or `$ultraplan-smoke`. A skill
+checks status and validates prerequisites first. If gaps exist, it must ask
+before filling them. Unless the user requests a proposal or discussion only,
+the skill performs the selected stage and reconciles status afterward.
+
+For area and final reasoning, an explicit deep-dive request should become an
+interactive design discussion covering evidence, alternatives, trade-offs,
+risks, technical debt, and future consequences before conclusions are written.
+See [Manually Invoked Stage Skills](stage-skills.md) for the complete contract.

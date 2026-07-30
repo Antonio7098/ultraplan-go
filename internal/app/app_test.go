@@ -33,6 +33,7 @@ func TestRunHelp(t *testing.T) {
 			assertContains(t, stdout, "init-workspace")
 			assertContains(t, stdout, "config")
 			assertContains(t, stdout, "health")
+			assertContains(t, stdout, "skills")
 			assertContains(t, stdout, "sprint")
 			assertContains(t, stdout, "version")
 
@@ -131,6 +132,7 @@ func TestInitWorkspaceDryRunAndCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertContains(t, string(readme), "ultraplan health")
+	assertContains(t, string(readme), "ultraplan skills materialise")
 	assertContains(t, string(readme), "ultraplan study <study> run-loop --parallel 1")
 	assertContains(t, string(readme), "ultraplan sprint <project> <sprint> flow --to plan --dry-run")
 	for _, rel := range []string{"prompts/base.md", "templates/report.md"} {
@@ -265,11 +267,11 @@ func runForTestWithInput(args []string, env map[string]string, input string) (st
 	var stderr bytes.Buffer
 
 	status := Run(Config{
-		Args:   args,
-		Stdin:  strings.NewReader(input),
-		Stdout: &stdout,
-		Stderr: &stderr,
-		TUIRunner: testTUIRunner,
+		Args:                 args,
+		Stdin:                strings.NewReader(input),
+		Stdout:               &stdout,
+		Stderr:               &stderr,
+		TUIRunner:            testTUIRunner,
 		SprintRuntimeFactory: testSprintRuntimeFactory,
 		Version: Version{
 			Version:   "1.2.3-test",

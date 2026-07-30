@@ -34,6 +34,13 @@ An existing unreadable, empty, or non-file project override fails closed instead
 of silently falling back. `ultraplan project <project> status` shows the
 effective source for each reasoning default.
 
+Materialised stage skills do not introduce another prompt precedence layer.
+Their embedded canonical prompt is a portable baseline; at execution time the
+skill requests the effective CLI prompt, so project and workspace overrides
+above still win. Skill customization under `.agents/skills` is independent of
+prompt customization and is preserved by `skills materialise` unless overwrite
+is confirmed.
+
 ## Workspace Config
 
 Default `ultraplan.yml`:

@@ -1,6 +1,6 @@
 # UltraPlan Go
 
-UltraPlan Go is a local-first CLI for durable architecture studies and governed sprint delivery. It initializes study workspaces, runs source and dimension analyses through agentwrap/OpenCode, synthesizes reports, validates artifacts, executes sprint plans, runs resumable automated reviews, and drives review-gated smoke verification.
+UltraPlan Go is a local-first CLI for durable architecture studies and governed sprint delivery. It initializes study workspaces, runs source and dimension analyses through agentwrap/OpenCode, synthesizes reports, validates artifacts, executes sprint plans, runs resumable automated reviews, drives review-gated smoke verification, and embeds manually invoked skills for every sprint stage.
 
 This release includes study workflows and the governed sprint chain through `execute -> review -> smoke`, including integrated `sprint verify`, durable review resume, focused review reruns, and explicit diagnostic smoke overrides. Issue management, hosted SaaS, browser UI, multi-user collaboration, automatic Git mutation, signing, notarization, tags, and artifact upload remain deferred.
 
@@ -82,6 +82,13 @@ ultraplan defaults install --dry-run
 ultraplan defaults install
 ```
 
+Materialise all manually invoked stage skills, or just one:
+
+```bash
+ultraplan skills materialise
+ultraplan skills materialise reasoning
+```
+
 Run study work:
 
 ```bash
@@ -124,6 +131,7 @@ ultraplan sprint <project> <sprint> execute --resume
 - [User guide](docs/user-guide.md): end-to-end study workflow.
 - [CLI reference](docs/cli-reference.md): public commands, flags, exit classes, and stable JSON surfaces.
 - [Configuration](docs/configuration.md): `ultraplan.yml`, environment overrides, precedence, redaction, and runtime mapping.
+- [Stage skills](docs/stage-skills.md): manual invocation, prerequisite interaction, materialisation, and state ownership.
 - [Recovery runbook](docs/recovery.md): validation failures, stale locks, cancellation, partial runs, and safe retry.
 - [OpenCode smoke](docs/opencode-smoke.md): gated real-runtime smoke procedure outside default tests.
 - [Planning smoke](docs/planning-smoke.md): gated planning flow smoke procedure.
@@ -181,6 +189,11 @@ Study reports are dimension-scoped. Per-source reports are written to `studies/<
 
 Projects live under `projects/<project>/` with `docs/`, `roadmap.md`, `project-index.md`, and `sprints/<sprint>/`. A project can keep specialised area reasoning documents under `projects/<project>/reasoning/` and list them in `project-index.md`. Planning sprints are editable Markdown/JSON artifact chains through `requirements.md`, `sprint-index.md`, `technical-handbook.md`, optional `reasoning/*.md`, `reasoning.md`, `plan.md`, and `flow-state.json`.
 
+Manually invoked stage skills are materialised under `.agents/skills/`. Each
+skill contains the corresponding canonical prompt plus interactive
+prerequisite, proposal, validation, and reconciliation rules. They are marked
+manual-only and therefore require explicit `$ultraplan-<stage>` invocation.
+
 ## Runtime Boundary
 
 UltraPlan owns study behavior and artifact validation. Runtime execution is delegated through `github.com/Antonio7098/agentwrap` and its OpenCode adapter. UltraPlan does not claim direct OpenCode process supervision, provider billing ownership, or provider-agnostic guarantees that bypass the configured runtime.
@@ -209,7 +222,7 @@ go build ./cmd/ultraplan
 
 The architecture keeps product behavior inside product modules:
 
-- `internal/workspace` owns workspace discovery, path safety, and workspace validation.
+- `internal/workspace` owns workspace discovery, path safety, workspace validation, and embedded stage-skill materialisation.
 - `internal/study` owns study workflows, prompts, validation, execution, summaries, and durable state.
 - `internal/project` owns project discovery, project-index catalog validation, and project status.
 - `internal/sprint` owns planning artifacts, flow state, stage validation, prompt previews, and flow execution through `plan.md`.
