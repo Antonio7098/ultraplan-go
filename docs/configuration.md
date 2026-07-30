@@ -130,6 +130,19 @@ ULTRAPLAN_AGENTWRAP_PERMISSION_MODE
 
 `ULTRAPLAN_WORKSPACE` participates in workspace discovery. The other variables override matching config fields when non-empty.
 
+## Per-Study Execution Order
+
+Workspace runtime defaults remain in `ultraplan.yml`. A study can independently prioritize dimensions with `studies/<study>/study.json`:
+
+```json
+{
+  "version": 1,
+  "dimension_order": ["04", "02-runtime"]
+}
+```
+
+References use normal dimension resolution. Unknown, ambiguous, and duplicate dimensions are invalid. Listed dimensions run as ordered priority tiers, followed by all unlisted dimensions. Missing `study.json` and an empty list preserve natural execution behavior.
+
 ## Command Flags
 
 Implemented config-related command flags include:

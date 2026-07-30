@@ -265,7 +265,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	for ctx.Err() == nil {
 		mu.Lock()
 		now := time.Now().UTC()
-		ids := runnableTaskIDs(state, scope, attempted, req.Parallelism, now)
+		ids := runnableTaskIDs(state, scope, attempted, req.Parallelism, now, listing.DimensionOrder)
 		nextRetry := nextRetryAfter(state, scope, now)
 		mu.Unlock()
 		if len(ids) == 0 {
@@ -429,7 +429,7 @@ func interestingRuntimeEvent(kind string) bool {
 	}
 }
 
-func runnableTaskIDs(state RunState, scope map[string]bool, attempted map[string]bool, limit int, now time.Time) []string {
+func runnableTaskIDs(state RunState, scope map[string]bool, attempted map[string]bool, limit int, now time.Time, dimensionOrder []Dimension) []string {
 	if limit < 1 {
 		limit = 1
 	}
@@ -437,6 +437,24 @@ func runnableTaskIDs(state RunState, scope map[string]bool, attempted map[string
 	byID := map[string]TaskState{}
 	for _, task := range state.Tasks {
 		byID[task.ID] = task
+	}
+	ranks := dimensionPriorityRanks(dimensionOrder)
+	remainingRank := len(dimensionOrder)
+	activeRank := -1
+	for _, task := range state.Tasks {
+		if !scope[task.ID] || taskAttemptBlocked(task, attempted) {
+			continue
+		}
+		if task.Status == TaskStatusCompleted || task.Status == TaskStatusSkipped {
+			continue
+		}
+		rank := dimensionTaskRank(task, ranks, remainingRank)
+		if activeRank == -1 || rank < activeRank {
+			activeRank = rank
+		}
+	}
+	if activeRank == -1 {
+		return nil
 	}
 	for _, task := range state.Tasks {
 		if len(ids) >= limit {
@@ -446,6 +464,9 @@ func runnableTaskIDs(state RunState, scope map[string]bool, attempted map[string
 			continue
 		}
 		if taskAttemptBlocked(task, attempted) || task.Kind != TaskKindSynthesis || !taskRunnable(task, now) {
+			continue
+		}
+		if dimensionTaskRank(task, ranks, remainingRank) != activeRank {
 			continue
 		}
 		if dependenciesCompleteFrom(byID, task) || dependenciesTerminalFrom(byID, task) {
@@ -462,9 +483,27 @@ func runnableTaskIDs(state RunState, scope map[string]bool, attempted map[string
 		if taskAttemptBlocked(task, attempted) || task.Kind != TaskKindAnalysis || !taskRunnable(task, now) {
 			continue
 		}
+		if dimensionTaskRank(task, ranks, remainingRank) != activeRank {
+			continue
+		}
 		ids = append(ids, task.ID)
 	}
 	return ids
+}
+
+func dimensionPriorityRanks(order []Dimension) map[string]int {
+	ranks := make(map[string]int, len(order))
+	for i, dimension := range order {
+		ranks[dimension.Ref()] = i
+	}
+	return ranks
+}
+
+func dimensionTaskRank(task TaskState, ranks map[string]int, remainingRank int) int {
+	if rank, ok := ranks[task.DimensionRef]; ok {
+		return rank
+	}
+	return remainingRank
 }
 
 func runLoopScope(study Study, allSources []Source, scopeSources []Source, dimensions []Dimension, sourceFiltered bool) map[string]bool {

@@ -113,6 +113,7 @@ func buildInitPlan(req InitRequest) (initPlan, error) {
 	var files []plannedFile
 	files = append(files,
 		plannedFile{path: filepath.Join(studyDir, "study-init.yml"), content: []byte(renderNormalizedYAML(def))},
+		plannedFile{path: filepath.Join(studyDir, StudyConfigFileName), content: []byte(renderStudyConfigJSON())},
 		plannedFile{path: filepath.Join(studyDir, "README.md"), content: []byte(renderReadme(def))},
 	)
 	for _, dim := range def.Dimensions {

@@ -102,6 +102,15 @@ func runStudy(deps dependencies, args []string) error {
 		for _, dimension := range listing.Dimensions {
 			fmt.Fprintf(deps.stdout, "  %s %s %s\n", dimension.Number, dimension.Slug, dimension.File)
 		}
+		fmt.Fprintln(deps.stdout, "Dimension order:")
+		if len(listing.DimensionOrder) == 0 {
+			fmt.Fprintln(deps.stdout, "  (natural)")
+		} else {
+			for _, dimension := range listing.DimensionOrder {
+				fmt.Fprintf(deps.stdout, "  %s\n", dimension.Ref())
+			}
+			fmt.Fprintln(deps.stdout, "  (remaining dimensions follow natural order)")
+		}
 		return nil
 	case args[0] == "list":
 		return classified(ExitUsage, "study list: unknown argument %q", args[1])
@@ -117,6 +126,9 @@ func mapStudyError(err error) error {
 	}
 	if errors.Is(err, study.ErrPromptInapplicable) {
 		return classified(ExitValidation, "study.prompt: %w", err)
+	}
+	if errors.Is(err, study.ErrStudyConfigMalformed) || errors.Is(err, study.ErrStudyConfigUnsupported) || errors.Is(err, study.ErrStudyConfigInvalid) {
+		return classified(ExitValidation, "study.config: %w", err)
 	}
 	return classified(ExitWorkspace, "study.list: %w", err)
 }
@@ -811,6 +823,9 @@ func classifyExecutionResult(prefix string, result study.ExecutionResult) error 
 func mapStudyExecutionError(prefix string, err error) error {
 	var refErr study.RefError
 	if errors.As(err, &refErr) {
+		return classified(ExitValidation, "%s: %w", prefix, err)
+	}
+	if errors.Is(err, study.ErrStudyConfigMalformed) || errors.Is(err, study.ErrStudyConfigUnsupported) || errors.Is(err, study.ErrStudyConfigInvalid) {
 		return classified(ExitValidation, "%s: %w", prefix, err)
 	}
 	return classified(ExitWorkspace, "%s: %w", prefix, err)

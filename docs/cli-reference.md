@@ -162,7 +162,7 @@ Lists discovered studies under `studies/`.
 ultraplan study <study> list
 ```
 
-Lists sources and dimensions for one study. Markdown sources show their applicability filter or `all`.
+Lists sources and dimensions for one study. Markdown sources show their applicability filter or `all`. The configured dimension priority from `studies/<study>/study.json` is shown after the natural dimension listing.
 
 ### `ultraplan study <study> prompt`
 
@@ -197,7 +197,7 @@ Runs one synthesis task after validating required per-source reports.
 ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>]
 ```
 
-Runs selected applicable analysis tasks, synthesis tasks, and summary generation with bounded parallelism. `--dimension` and `--source` are repeatable.
+Runs selected applicable analysis tasks, synthesis tasks, and summary generation with bounded parallelism. `--dimension` and `--source` are repeatable. Configured `dimension_order` entries are strict priority tiers: each listed dimension reaches synthesis or another terminal state before the next tier starts, followed by all unlisted dimensions.
 
 ### `ultraplan study <study> run-loop`
 
@@ -205,7 +205,7 @@ Runs selected applicable analysis tasks, synthesis tasks, and summary generation
 ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock] [--reset] [--yes]
 ```
 
-Advances shared durable study progress with per-study locking and `studies/<study>/.ultraplan/run-state.json`. By default, existing progress is resumed, reconciled against current source/dimension applicability metadata, and revalidated. `--dimension` and `--source` select the eligible slice to advance; terminal progress shows both selected-scope and whole-study counts. Use `--reset` to archive and rebuild progress, with confirmation unless `--yes` is provided. Use `--force-unlock` only for operator-confirmed stale locks.
+Advances shared durable study progress with per-study locking and `studies/<study>/.ultraplan/run-state.json`. By default, existing progress is resumed, reconciled against current source/dimension applicability metadata, and revalidated. `--dimension` and `--source` select the eligible slice to advance; `study.json` priority applies within that slice. Terminal progress shows both selected-scope and whole-study counts. Use `--reset` to archive and rebuild progress, with confirmation unless `--yes` is provided. Use `--force-unlock` only for operator-confirmed stale locks.
 
 ### `ultraplan study <study> validate`
 

@@ -49,6 +49,7 @@ func ValidateStudyArtifacts(listing StudyListing) StudyValidationResult {
 	addCheck(existsCheck("study.structure.reports.source", listing.Study.Path, "studies/<study>/reports/source directory", pathExists(listing.Study.Path, "reports", "source"), "run analyses or create the source reports directory"))
 	addCheck(existsCheck("study.structure.reports.final", listing.Study.Path, "studies/<study>/reports/final directory", pathExists(listing.Study.Path, "reports", "final"), "run synthesis or create the final report directory"))
 	addCheck(existsCheck("summary.csv", listing.Study.Path, "studies/<study>/summary.csv", pathExists(listing.Study.Path, "summary.csv"), "run 'ultraplan study <study> summary' after reports exist"))
+	addCheck(validateStudyConfigCheck(listing))
 
 	if len(listing.Sources) == 0 {
 		addCheck(failedCheck("source.discovery", listing.Study.Path, "at least one source", "no sources discovered", "", "add directory or Markdown sources under studies/<study>/sources"))
@@ -105,6 +106,31 @@ func ValidateStudyArtifacts(listing StudyListing) StudyValidationResult {
 		}
 	}
 	return result
+}
+
+func validateStudyConfigCheck(listing StudyListing) ValidationCheck {
+	path := StudyConfigPath(listing.Study)
+	if !listing.Config.Present {
+		return ValidationCheck{
+			ID:       "study.config",
+			Name:     "study.config",
+			Status:   ValidationStatusSkipped,
+			Severity: ValidationSeverityInfo,
+			Path:     path,
+			Expected: fmt.Sprintf("optional version %d study config", StudyConfigVersion),
+			Observed: "study.json is not present",
+			Guidance: "add studies/<study>/study.json only when a custom dimension order is needed",
+		}
+	}
+	return ValidationCheck{
+		ID:       "study.config",
+		Name:     "study.config",
+		Status:   ValidationStatusPassed,
+		Severity: ValidationSeverityInfo,
+		Path:     path,
+		Expected: fmt.Sprintf("version %d study config with valid dimension references", StudyConfigVersion),
+		Observed: fmt.Sprintf("%d prioritized dimensions", len(listing.DimensionOrder)),
+	}
 }
 
 func addValidationCount(counts *ValidationCounts, status ValidationStatus) {

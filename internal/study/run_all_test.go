@@ -151,3 +151,35 @@ func TestRunAllBoundsParallelismAndReportsCancellation(t *testing.T) {
 		t.Fatalf("Status = %q", result.Status)
 	}
 }
+
+func TestRunAllCompletesConfiguredPriorityDimensionsBeforeRemainingDimensions(t *testing.T) {
+	root, st := executionFixture(t)
+	writeReport(t, filepath.Join(st.Path, "dimensions", "02-runtime.md"), "# Runtime\n")
+	writeReport(t, StudyConfigPath(st), `{"version":1,"dimension_order":["02"]}`)
+	rt := &orderedRuntime{}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+
+	result, err := service.RunAll(context.Background(), RunAllRequest{StudyRef: "demo", Parallelism: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunAllStatusCompleted {
+		t.Fatalf("Status = %q counts = %+v", result.Status, result.Counts)
+	}
+	want := []string{
+		"analysis:02-runtime",
+		"analysis:02-runtime",
+		"synthesis:02-runtime",
+		"analysis:01-structure",
+		"analysis:01-structure",
+		"synthesis:01-structure",
+	}
+	if len(rt.order) != len(want) {
+		t.Fatalf("order len = %d order = %#v", len(rt.order), rt.order)
+	}
+	for i := range want {
+		if rt.order[i] != want[i] {
+			t.Fatalf("order[%d] = %q, want %q; full order %#v", i, rt.order[i], want[i], rt.order)
+		}
+	}
+}

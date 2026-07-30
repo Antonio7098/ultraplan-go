@@ -13,9 +13,11 @@ type Service struct {
 }
 
 type StudyListing struct {
-	Study      Study
-	Sources    []Source
-	Dimensions []Dimension
+	Study          Study
+	Config         StudyConfig
+	Sources        []Source
+	Dimensions     []Dimension
+	DimensionOrder []Dimension
 }
 
 type Option func(*Service)
@@ -60,10 +62,16 @@ func (s Service) ListStudy(ref string) (StudyListing, error) {
 	if err != nil {
 		return StudyListing{}, err
 	}
+	studyConfig, dimensionOrder, err := LoadStudyConfig(resolved, dimensions)
+	if err != nil {
+		return StudyListing{}, err
+	}
 	return StudyListing{
-		Study:      resolved,
-		Sources:    sources,
-		Dimensions: dimensions,
+		Study:          resolved,
+		Config:         studyConfig,
+		Sources:        sources,
+		Dimensions:     dimensions,
+		DimensionOrder: dimensionOrder,
 	}, nil
 }
 

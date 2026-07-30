@@ -192,6 +192,35 @@ func TestRunLoopSynthesizesDimensionAsSoonAsItsAnalysisCompletes(t *testing.T) {
 	}
 }
 
+func TestRunLoopDoesNotFillParallelSlotsFromLaterPriorityTiers(t *testing.T) {
+	root, st := executionFixture(t)
+	writeReport(t, filepath.Join(st.Path, "dimensions", "02-runtime.md"), "# Runtime\n")
+	writeReport(t, StudyConfigPath(st), `{"version":1,"dimension_order":["02"]}`)
+	rt := &orderedRuntime{}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+
+	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", Parallelism: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunAllStatusCompleted {
+		t.Fatalf("Status = %q counts = %+v", result.Status, result.Counts)
+	}
+	wantPrefix := []string{
+		"analysis:02-runtime",
+		"analysis:02-runtime",
+		"synthesis:02-runtime",
+	}
+	if len(rt.order) < len(wantPrefix) {
+		t.Fatalf("order = %#v", rt.order)
+	}
+	for i := range wantPrefix {
+		if rt.order[i] != wantPrefix[i] {
+			t.Fatalf("order[%d] = %q, want %q; full order %#v", i, rt.order[i], wantPrefix[i], rt.order)
+		}
+	}
+}
+
 func TestRunLoopCancellationDoesNotCancelUnscheduledTasks(t *testing.T) {
 	root, st := executionFixture(t)
 	rt := &runAllRuntime{write: validSourceReport}

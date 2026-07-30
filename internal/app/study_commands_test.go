@@ -57,6 +57,7 @@ func TestStudyDetailListsSourcesDimensionsAndKind(t *testing.T) {
 	writeFixtureFile(t, studyRoot, "dimensions", "02-runtime.md")
 	writeFixtureFile(t, studyRoot, "dimensions", "01-structure.md")
 	writeFixtureFile(t, studyRoot, "dimensions", "notes.md")
+	writeFixtureFileContent(t, studyRoot, `{"version":1,"dimension_order":["02"]}`, "study.json")
 
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "study", "plat", "list"})
 	if status != ExitOK {
@@ -67,6 +68,7 @@ func TestStudyDetailListsSourcesDimensionsAndKind(t *testing.T) {
 	assertInOrder(t, stdout, "  document.md markdown all\n", "  filtered.md markdown 01,02\n")
 	assertInOrder(t, stdout, "  filtered.md markdown 01,02\n", "  zeta directory all\n")
 	assertInOrder(t, stdout, "  01 structure 01-structure.md\n", "  02 runtime 02-runtime.md\n")
+	assertContains(t, stdout, "Dimension order:\n  02-runtime\n  (remaining dimensions follow natural order)")
 	assertNotContains(t, stdout, "ignored.md")
 	assertNotContains(t, stdout, "ignored.txt")
 }

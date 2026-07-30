@@ -103,7 +103,21 @@ Useful flags:
 - `--no-clone`: create source directories without cloning repositories.
 - `--output <dir>`: choose a workspace-relative output directory.
 
-Generated study artifacts are human-editable Markdown and YAML.
+Generated study artifacts are human-editable Markdown, YAML, and JSON.
+
+Initialization creates `studies/<study>/study.json` for live study execution settings:
+
+```json
+{
+  "version": 1,
+  "dimension_order": [
+    "04.03",
+    "01-execution-semantics"
+  ]
+}
+```
+
+The list is optional and may contain the same unambiguous dimension references accepted by study commands. Listed dimensions execute first in the configured order. UltraPlan completes the applicable analyses and synthesis for each listed dimension before admitting the next configured dimension. Afterward, unlisted dimensions use their natural order and existing bounded parallelism. A missing file or empty list preserves the default behavior. Unknown, ambiguous, and duplicate references are rejected.
 
 ## 6. List Studies, Sources, And Dimensions
 
@@ -160,7 +174,7 @@ Optional filters:
 ultraplan study <study> run-all --dimension 01 --source <source>
 ```
 
-`run-all` executes applicable analysis tasks with bounded parallelism, runs synthesis where possible, and writes `studies/<study>/summary.csv`.
+`run-all` executes applicable analysis tasks with bounded parallelism, runs synthesis where possible, and writes `studies/<study>/summary.csv`. When `study.json` defines `dimension_order`, configured dimensions run as strict priority tiers before the remaining dimensions.
 
 ## 11. Resume With Run Loop
 
@@ -168,7 +182,7 @@ ultraplan study <study> run-all --dimension 01 --source <source>
 ultraplan study <study> run-loop --parallel 3
 ```
 
-`run-loop` persists shared study progress in `studies/<study>/.ultraplan/run-state.json` after meaningful task transitions, prints compact task progress as it runs, and refuses concurrent invocations through a per-study lock. By default, it resumes existing progress; dimension/source filters only choose which slice of the study graph is eligible to advance. On each start, it reconciles the persisted task graph against the current discovered source/dimension applicability so status totals and scheduling follow source metadata updates.
+`run-loop` persists shared study progress in `studies/<study>/.ultraplan/run-state.json` after meaningful task transitions, prints compact task progress as it runs, and refuses concurrent invocations through a per-study lock. By default, it resumes existing progress; dimension/source filters only choose which slice of the study graph is eligible to advance. On each start, it reconciles the persisted task graph against the current discovered source/dimension applicability so status totals and scheduling follow source metadata updates. It reads `dimension_order` on every invocation, so editing `study.json` changes the next scheduling decision without resetting durable progress.
 
 Memory diagnostics are appended to `studies/<study>/.ultraplan/diagnostics/run-loop-memory.jsonl`. Samples are written at state load/save and runtime boundaries and every five seconds, and include Go heap usage, process RSS/high-water/swap, state-file size, task ID, and phase duration. The file rotates to `.1` at 8 MiB so diagnostics cannot grow without bound.
 

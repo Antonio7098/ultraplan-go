@@ -30,66 +30,10 @@ func (s Service) RunAll(ctx context.Context, req RunAllRequest) (RunAllResult, e
 		return RunAllResult{}, err
 	}
 	result := RunAllResult{Study: listing.Study, Parallelism: req.Parallelism, SummaryPath: SummaryPath(listing.Study)}
-	tasks := buildAnalysisTasks(dimensions, sources)
-	result.Analysis = make([]ExecutionResult, len(tasks))
-
-	taskCh := make(chan int)
-	var wg sync.WaitGroup
-	for i := 0; i < req.Parallelism; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for idx := range taskCh {
-				task := tasks[idx]
-				if ctx.Err() != nil {
-					result.Analysis[idx] = pendingAnalysisResult(listing.Study, task)
-					continue
-				}
-				onEvent := func(event runtimepkg.Event) {
-					if req.Progress != nil {
-						req.Progress(RunAllProgress{TaskKind: TaskKindAnalysis, DimensionRef: task.dimension.Ref(), SourceRef: task.source.Name, Event: event})
-					}
-				}
-				res, err := s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.dimension.Ref(), SourceRef: task.source.Name, OnEvent: onEvent})
-				if err != nil {
-					res = failedAnalysisResult(listing.Study, task, err)
-				}
-				result.Analysis[idx] = res
-			}
-		}()
-	}
-	for idx := range tasks {
-		if ctx.Err() != nil {
-			result.Analysis[idx] = pendingAnalysisResult(listing.Study, tasks[idx])
-			continue
-		}
-		taskCh <- idx
-	}
-	close(taskCh)
-	wg.Wait()
-
-	for _, dimension := range dimensions {
-		if ctx.Err() != nil {
-			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusCancelled, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study, dimension)})
-			continue
-		}
-		if !hasAnalysisForDimension(result.Analysis, dimension) {
-			continue
-		}
-		if blockers := synthesisBlockers(result.Analysis, dimension); len(blockers) > 0 {
-			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusPreflightBlocked, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study, dimension), Blockers: blockers})
-			continue
-		}
-		onEvent := func(event runtimepkg.Event) {
-			if req.Progress != nil {
-				req.Progress(RunAllProgress{TaskKind: TaskKindSynthesis, DimensionRef: dimension.Ref(), Event: event})
-			}
-		}
-		res, err := s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: dimension.Ref(), SourceRefs: selectedSourceNames(sources), OnEvent: onEvent})
-		if err != nil {
-			res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: listing.Study, Dimension: dimension, OutputPath: FinalReportPath(listing.Study, dimension), RuntimeError: safeError(err), RuntimeErr: err}
-		}
-		result.Synthesis = append(result.Synthesis, res)
+	for _, group := range dimensionExecutionGroups(dimensions, listing.DimensionOrder) {
+		groupResult := s.runAllDimensionGroup(ctx, req, listing.Study, group, sources)
+		result.Analysis = append(result.Analysis, groupResult.Analysis...)
+		result.Synthesis = append(result.Synthesis, groupResult.Synthesis...)
 	}
 
 	summary, err := WriteSummary(listing.Study, dimensions, sources)
@@ -104,6 +48,98 @@ func (s Service) RunAll(ctx context.Context, req RunAllRequest) (RunAllResult, e
 	result.Counts = countRunAll(result)
 	result.Status = statusRunAll(result, ctx.Err() != nil)
 	return result, nil
+}
+
+func (s Service) runAllDimensionGroup(ctx context.Context, req RunAllRequest, study Study, dimensions []Dimension, sources []Source) RunAllResult {
+	var result RunAllResult
+	tasks := buildAnalysisTasks(dimensions, sources)
+	result.Analysis = make([]ExecutionResult, len(tasks))
+	taskCh := make(chan int)
+	var wg sync.WaitGroup
+	for i := 0; i < req.Parallelism; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range taskCh {
+				task := tasks[idx]
+				if ctx.Err() != nil {
+					result.Analysis[idx] = pendingAnalysisResult(study, task)
+					continue
+				}
+				onEvent := func(event runtimepkg.Event) {
+					if req.Progress != nil {
+						req.Progress(RunAllProgress{TaskKind: TaskKindAnalysis, DimensionRef: task.dimension.Ref(), SourceRef: task.source.Name, Event: event})
+					}
+				}
+				res, err := s.RunAnalysis(ctx, ExecutionRequest{StudyRef: study.Name, DimensionRef: task.dimension.Ref(), SourceRef: task.source.Name, OnEvent: onEvent})
+				if err != nil {
+					res = failedAnalysisResult(study, task, err)
+				}
+				result.Analysis[idx] = res
+			}
+		}()
+	}
+	for idx := range tasks {
+		if ctx.Err() != nil {
+			result.Analysis[idx] = pendingAnalysisResult(study, tasks[idx])
+			continue
+		}
+		taskCh <- idx
+	}
+	close(taskCh)
+	wg.Wait()
+
+	for _, dimension := range dimensions {
+		if ctx.Err() != nil {
+			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusCancelled, TaskKind: TaskKindSynthesis, Study: study, Dimension: dimension, OutputPath: FinalReportPath(study, dimension)})
+			continue
+		}
+		if !hasAnalysisForDimension(result.Analysis, dimension) {
+			continue
+		}
+		if blockers := synthesisBlockers(result.Analysis, dimension); len(blockers) > 0 {
+			result.Synthesis = append(result.Synthesis, ExecutionResult{Status: ExecutionStatusPreflightBlocked, TaskKind: TaskKindSynthesis, Study: study, Dimension: dimension, OutputPath: FinalReportPath(study, dimension), Blockers: blockers})
+			continue
+		}
+		onEvent := func(event runtimepkg.Event) {
+			if req.Progress != nil {
+				req.Progress(RunAllProgress{TaskKind: TaskKindSynthesis, DimensionRef: dimension.Ref(), Event: event})
+			}
+		}
+		res, err := s.Synthesize(ctx, SynthesisRequest{StudyRef: study.Name, DimensionRef: dimension.Ref(), SourceRefs: selectedSourceNames(sources), OnEvent: onEvent})
+		if err != nil {
+			res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: study, Dimension: dimension, OutputPath: FinalReportPath(study, dimension), RuntimeError: safeError(err), RuntimeErr: err}
+		}
+		result.Synthesis = append(result.Synthesis, res)
+	}
+	return result
+}
+
+func dimensionExecutionGroups(selected, priority []Dimension) [][]Dimension {
+	selectedByRef := make(map[string]Dimension, len(selected))
+	for _, dimension := range selected {
+		selectedByRef[dimension.Ref()] = dimension
+	}
+	groups := make([][]Dimension, 0, len(priority)+1)
+	prioritized := make(map[string]bool, len(priority))
+	for _, dimension := range priority {
+		selectedDimension, ok := selectedByRef[dimension.Ref()]
+		if !ok {
+			continue
+		}
+		groups = append(groups, []Dimension{selectedDimension})
+		prioritized[dimension.Ref()] = true
+	}
+	var remaining []Dimension
+	for _, dimension := range selected {
+		if !prioritized[dimension.Ref()] {
+			remaining = append(remaining, dimension)
+		}
+	}
+	if len(remaining) > 0 {
+		groups = append(groups, remaining)
+	}
+	return groups
 }
 
 func selectedSourceNames(sources []Source) []string {

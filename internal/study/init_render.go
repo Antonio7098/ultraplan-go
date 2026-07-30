@@ -53,9 +53,10 @@ func renderReadme(def initDefinition) string {
 		fmt.Fprintf(&b, "- `%s`: %s (`dimensions/%s`)\n", dim.Number, dim.Title, dim.FileName)
 	}
 	fmt.Fprintf(&b, "\n## Generated Paths\n\n")
-	for _, path := range []string{"study-init.yml", "dimensions/", "sources/", "reports/source/", "reports/final/"} {
+	for _, path := range []string{"study-init.yml", StudyConfigFileName, "dimensions/", "sources/", "reports/source/", "reports/final/"} {
 		fmt.Fprintf(&b, "- `%s`\n", path)
 	}
+	fmt.Fprintf(&b, "\nEdit `%s` to run selected dimensions before the remaining dimensions.\n", StudyConfigFileName)
 	fmt.Fprintf(&b, "\n## Next Commands\n\n")
 	fmt.Fprintf(&b, "- `ultraplan study list`\n")
 	fmt.Fprintf(&b, "- `ultraplan study %s list`\n", def.Name)

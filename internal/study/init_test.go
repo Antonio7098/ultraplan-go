@@ -20,6 +20,7 @@ func TestInitDryRunPlansDeterministicArtifactsAndNoMutation(t *testing.T) {
 	}
 	assertHasRel(t, root, result.Directories, "studies/go-cli-study/dimensions")
 	assertHasRel(t, root, result.Files, "studies/go-cli-study/study-init.yml")
+	assertHasRel(t, root, result.Files, "studies/go-cli-study/study.json")
 	assertHasRel(t, root, result.Files, "studies/go-cli-study/dimensions/01-project-structure.md")
 	assertHasRel(t, root, result.Files, "studies/go-cli-study/sources/example.ultraplan-source.yml")
 	if len(result.CloneActions) != 1 {
@@ -46,6 +47,7 @@ func TestInitCreatesArtifactsAndSkipsClones(t *testing.T) {
 		t.Fatalf("SkippedClones = %+v", result.SkippedClones)
 	}
 	assertFileContains(t, root, "studies/go-cli-study/study-init.yml", `number: "01"`)
+	assertFileContains(t, root, "studies/go-cli-study/study.json", `"dimension_order": []`)
 	assertFileContains(t, root, "studies/go-cli-study/README.md", "ultraplan study go-cli-study list")
 	assertFileContains(t, root, "studies/go-cli-study/dimensions/01-project-structure.md", "## Citations")
 }
