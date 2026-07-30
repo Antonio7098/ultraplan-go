@@ -75,7 +75,10 @@ func RenderTechnicalHandbookPrompt(root string, manifest HandbookManifest) Promp
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
 }
 
-func RenderAreaReasoningPrompt(root string, manifest ReasoningManifest, entry ReasoningTemplateEntry) PromptPreview {
+func RenderAreaReasoningPrompt(root string, manifest ReasoningManifest, entry ReasoningTemplateEntry) (PromptPreview, error) {
+	if _, err := project.ResolveReasoningDefault(root, manifest.ProjectSlug, project.AreaReasoningPromptPath); err != nil {
+		return PromptPreview{}, err
+	}
 	var b strings.Builder
 	fmt.Fprintln(&b, "Input manifest:")
 	fmt.Fprint(&b, formatReasoningManifest(manifest))
@@ -89,10 +92,16 @@ func RenderAreaReasoningPrompt(root string, manifest ReasoningManifest, entry Re
 	fmt.Fprintln(&b, "- Do not write final reasoning.md, plan.md, implementation files, smoke artifacts, review artifacts, issue artifacts, workspace config, source repositories, or Git state.")
 	fmt.Fprintln(&b, "- Write editable Markdown only to the selected area output path.")
 	prompt := renderPromptFromDefault(root, "prompts/create-area-reasoning.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
-	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
+	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}, nil
 }
 
-func RenderFinalReasoningPrompt(root string, manifest ReasoningManifest) PromptPreview {
+func RenderFinalReasoningPrompt(root string, manifest ReasoningManifest) (PromptPreview, error) {
+	if _, err := project.ResolveReasoningDefault(root, manifest.ProjectSlug, project.FinalReasoningPromptPath); err != nil {
+		return PromptPreview{}, err
+	}
+	if _, err := project.ResolveReasoningDefault(root, manifest.ProjectSlug, project.FinalReasoningTemplatePath); err != nil {
+		return PromptPreview{}, err
+	}
 	var b strings.Builder
 	fmt.Fprintln(&b, "Input manifest:")
 	fmt.Fprint(&b, formatReasoningManifest(manifest))
@@ -103,13 +112,13 @@ func RenderFinalReasoningPrompt(root string, manifest ReasoningManifest) PromptP
 	for _, entry := range manifest.ReasoningTemplates {
 		fmt.Fprintf(&b, "- %s: %s\n", entry.Name, entry.OutputPath)
 	}
-	appendInjectedWorkspaceFile(root, &b, "Sprint Reasoning Template", "templates/sprint-reasoning.md")
+	appendInjectedProjectReasoningFile(root, manifest.ProjectSlug, &b, "Sprint Reasoning Template", project.FinalReasoningTemplatePath)
 	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Use only selected context from sprint-index.md, technical-handbook.md, and required selected area reasoning artifacts.")
 	fmt.Fprintln(&b, "- Do not generate or validate plan.md, task checklists, implementation files, smoke artifacts, review artifacts, issue artifacts, workspace config, source repositories, or Git state.")
 	fmt.Fprintln(&b, "- Write editable Markdown only to reasoning.md.")
 	prompt := renderPromptFromDefault(root, "prompts/create-sprint-reasoning.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
-	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
+	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}, nil
 }
 
 func RenderPlanPrompt(root string, manifest PlanManifest) PromptPreview {
@@ -145,7 +154,7 @@ func RenderPlanPrompt(root string, manifest PlanManifest) PromptPreview {
 }
 
 func renderPromptFromDefault(root, rel, projectSlug, sprintSlug, manifest string) string {
-	body, source := sprintPromptTemplate(root, rel)
+	body, source := projectReasoningPromptTemplate(root, projectSlug, rel)
 	replacements := map[string]string{
 		"{project}":     projectSlug,
 		"{sprint-slug}": sprintSlug,
@@ -184,8 +193,26 @@ func sprintPromptTemplate(root, rel string) (string, string) {
 	return fmt.Sprintf("# Missing Prompt Default\n\nNo workspace override or built-in default exists for `%s`.\n", rel), rel
 }
 
+func projectReasoningPromptTemplate(root, projectSlug, rel string) (string, string) {
+	if project.IsReasoningDefault(rel) {
+		resolved, err := project.ResolveReasoningDefault(root, projectSlug, rel)
+		if err != nil {
+			return fmt.Sprintf("# Prompt Load Error\n\nCould not resolve `%s`: %v\n", rel, err), "invalid:" + rel
+		}
+		return resolved.Content, resolved.Source
+	}
+	return sprintPromptTemplate(root, rel)
+}
+
 func appendInjectedWorkspaceFile(root string, b *strings.Builder, label, rel string) {
 	content, source := sprintPromptTemplate(root, rel)
+	fmt.Fprintf(b, "\nInjected %s:\n", label)
+	fmt.Fprintf(b, "Source: %s\n\n", source)
+	fmt.Fprintln(b, strings.TrimRight(content, "\n"))
+}
+
+func appendInjectedProjectReasoningFile(root, projectSlug string, b *strings.Builder, label, rel string) {
+	content, source := projectReasoningPromptTemplate(root, projectSlug, rel)
 	fmt.Fprintf(b, "\nInjected %s:\n", label)
 	fmt.Fprintf(b, "Source: %s\n\n", source)
 	fmt.Fprintln(b, strings.TrimRight(content, "\n"))

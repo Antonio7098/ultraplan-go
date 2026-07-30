@@ -23,7 +23,8 @@ This document defines what can be selected for project work. It does not decide 
 
 | Template | Path | Use When |
 | --- | --- | --- |
-| `[template name]` | `.ultra/system/reasoning/[template].md` | `[selection rule]` |
+| `[project-specific area]` | `projects/[project-slug]/reasoning/[area].md` | `[selection rule]` |
+| `[shared area]` | `reasoning/[area].md` | `[selection rule]` |
 
 ## Available Studies
 
@@ -53,6 +54,8 @@ This document defines what can be selected for project work. It does not decide 
 
 - Select contracts by changed surface, runtime impact, data sensitivity, and public API exposure.
 - Select reasoning templates only when the sprint needs deeper area-specific analysis.
+- Keep project-owned area reasoning documents under `projects/[project-slug]/reasoning/`.
+- A project may use shared workspace reasoning documents, but cannot select reasoning documents owned by another project.
 - Select studies as evidence inputs, not as implementation instructions.
 - Select prior decisions when they constrain compatibility, architecture, or operational behavior.
 - Select review protocols before implementation starts so evidence can be planned.

@@ -105,6 +105,56 @@ func TestValidateFindsEmptyDocs(t *testing.T) {
 	assertFinding(t, result.Findings, "empty docs directory")
 }
 
+func TestValidateRejectsCrossProjectReasoningTemplate(t *testing.T) {
+	root := workspaceFixture(t)
+	writeValidProject(t, root, "alpha")
+	writeValidProject(t, root, "beta")
+	base := filepath.Join(root, "projects", "alpha")
+	content, err := os.ReadFile(filepath.Join(base, "project-index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(content), "projects/alpha/templates/architecture.md", "projects/beta/templates/architecture.md", 1)
+	writeFileContent(t, base, updated, "project-index.md")
+
+	result, err := NewService(root).Validate("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFinding(t, result.Findings, "cross-project reasoning template")
+}
+
+func TestStatusReportsReasoningDefaultsAndProjectAreaDocuments(t *testing.T) {
+	root := workspaceFixture(t)
+	writeValidProject(t, root, "alpha")
+	base := filepath.Join(root, "projects", "alpha")
+	writeFileContent(t, base, "# Project area\n", "reasoning", "architecture.md")
+	content, err := os.ReadFile(filepath.Join(base, "project-index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(content), "projects/alpha/templates/architecture.md", "projects/alpha/reasoning/architecture.md", 1)
+	writeFileContent(t, base, updated, "project-index.md")
+	writeFileContent(t, base, "# Project final reasoning\n", "templates", "sprint-reasoning.md")
+
+	status, err := NewService(root).Status("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.AreaReasoningDocuments) != 1 || status.AreaReasoningDocuments[0] != "projects/alpha/reasoning/architecture.md" {
+		t.Fatalf("area reasoning documents = %#v", status.AreaReasoningDocuments)
+	}
+	var finalSource string
+	for _, item := range status.ReasoningDefaults {
+		if item.RelativePath == FinalReasoningTemplatePath {
+			finalSource = item.Source
+		}
+	}
+	if finalSource != "project:projects/alpha/templates/sprint-reasoning.md" {
+		t.Fatalf("final reasoning source = %q", finalSource)
+	}
+}
+
 func TestParseProjectIndexRecognizesCatalogSectionsAndExternalURLs(t *testing.T) {
 	index, findings := ParseProjectIndex(`# Project Index
 

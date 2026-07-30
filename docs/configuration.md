@@ -13,6 +13,27 @@ Effective config is resolved in this order:
 
 `config show` reports the effective configuration. `config show --json` includes source metadata for fields after redaction.
 
+## Reasoning Prompt And Template Precedence
+
+Reasoning Markdown defaults use a separate file precedence:
+
+1. Project override under `projects/<project>/`.
+2. Workspace override.
+3. Embedded built-in default.
+
+The supported project override paths are:
+
+```text
+projects/<project>/prompts/create-area-reasoning.md
+projects/<project>/prompts/create-sprint-reasoning.md
+projects/<project>/templates/sprint-reasoning.md
+```
+
+Overrides replace the complete Markdown file; UltraPlan does not merge sections.
+An existing unreadable, empty, or non-file project override fails closed instead
+of silently falling back. `ultraplan project <project> status` shows the
+effective source for each reasoning default.
+
 ## Workspace Config
 
 Default `ultraplan.yml`:

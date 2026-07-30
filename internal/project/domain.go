@@ -42,15 +42,17 @@ const (
 )
 
 type ProjectStatus struct {
-	Project         Project
-	DocsDir         StatusState
-	MarkdownDocs    []string
-	Roadmap         StatusState
-	ProjectIndex    StatusState
-	SprintsDir      StatusState
-	SprintDirs      []string
-	Catalog         StatusState
-	ValidationFinds []ValidationFinding
+	Project                Project
+	DocsDir                StatusState
+	MarkdownDocs           []string
+	Roadmap                StatusState
+	ProjectIndex           StatusState
+	SprintsDir             StatusState
+	SprintDirs             []string
+	Catalog                StatusState
+	ReasoningDefaults      []ReasoningDefault
+	AreaReasoningDocuments []string
+	ValidationFinds        []ValidationFinding
 }
 
 type ValidationSeverity string

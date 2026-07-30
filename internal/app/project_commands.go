@@ -96,6 +96,14 @@ func renderProjectStatus(deps dependencies, status project.ProjectStatus) {
 	for _, sprint := range status.SprintDirs {
 		fmt.Fprintf(deps.stdout, "  %s\n", sprint)
 	}
+	fmt.Fprintln(deps.stdout, "Reasoning defaults:")
+	for _, item := range status.ReasoningDefaults {
+		fmt.Fprintf(deps.stdout, "  %s: %s\n", item.RelativePath, item.Source)
+	}
+	fmt.Fprintf(deps.stdout, "Project area reasoning documents: %d\n", len(status.AreaReasoningDocuments))
+	for _, path := range status.AreaReasoningDocuments {
+		fmt.Fprintf(deps.stdout, "  %s\n", path)
+	}
 	fmt.Fprintf(deps.stdout, "Catalog: %s\n", status.Catalog)
 	if len(status.ValidationFinds) > 0 {
 		fmt.Fprintf(deps.stdout, "Findings: %d\n", len(status.ValidationFinds))

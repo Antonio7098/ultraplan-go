@@ -37,6 +37,13 @@ ultraplan defaults install
 
 Workspace files at the same relative paths override built-ins. For example, `prompts/base.md` overrides the built-in base prompt, and `templates/report.md` overrides the built-in report template.
 
+Reasoning prompts and the final reasoning template may be specialised for one
+project under `projects/<project>/prompts/` and
+`projects/<project>/templates/sprint-reasoning.md`. Their precedence is project,
+workspace, then built-in. Area-specific reasoning source documents belong under
+`projects/<project>/reasoning/` and must be listed in that project's
+`project-index.md`.
+
 If `defaults install` finds an existing prompt or template that differs from the built-in default, it lists the file and asks before overwriting it. Answering anything other than `yes` keeps the customized file. Use `--force` only when you intentionally want to overwrite customized prompt/template files without confirmation.
 
 Study reports are grouped by dimension. Analysis writes `studies/<study>/reports/source/<dimension-ref>/<source>.md`; synthesis writes `studies/<study>/reports/final/<dimension-ref>.md`.
@@ -248,4 +255,4 @@ ultraplan sprint <project> <sprint> validate smoke
 
 The smoke preview shows the review gate, sufficient scope, prerequisites, duration/cost class where supplied, safe argv, and external evidence roots. `--force-review` additionally requires `--override-reason` and is diagnostic-only after a current failed/blocked review; it cannot override stale or malformed review evidence or improve the overall assessment. Raw harness evidence stays in its `runs/` and `issues/` directories, while the sprint stores only `smoke.md` and flow state.
 
-Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`.
+Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`. A project may override only the area-reasoning prompt, final-reasoning prompt, and final-reasoning template. Project status reports which source is effective.

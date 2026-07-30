@@ -389,7 +389,7 @@ func (s Service) PromptAreaReasoning(projectRef, sprintRef string) (PromptPrevie
 	if len(manifest.ReasoningTemplates) == 0 {
 		return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: "No selected reasoning templates; area-reasoning is skipped.\n"}, nil
 	}
-	return RenderAreaReasoningPrompt(s.root, manifest, manifest.ReasoningTemplates[0]), nil
+	return RenderAreaReasoningPrompt(s.root, manifest, manifest.ReasoningTemplates[0])
 }
 
 func (s Service) PromptReasoning(projectRef, sprintRef string) (PromptPreview, error) {
@@ -401,7 +401,7 @@ func (s Service) PromptReasoning(projectRef, sprintRef string) (PromptPreview, e
 	if len(findings) > 0 {
 		return PromptPreview{}, fmt.Errorf("selected reasoning template validation failed")
 	}
-	return RenderFinalReasoningPrompt(s.root, manifest), nil
+	return RenderFinalReasoningPrompt(s.root, manifest)
 }
 
 func (s Service) PromptPlan(projectRef, sprintRef string) (PromptPreview, error) {
@@ -1016,7 +1016,14 @@ func (s Service) flowAreaReasoning(ctx context.Context, sp Sprint, req FlowReque
 		}
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages, Message: "area-reasoning skipped"}, nil
 	}
-	prompt := RenderAreaReasoningPrompt(s.root, manifest, manifest.ReasoningTemplates[0])
+	prompt, promptErr := RenderAreaReasoningPrompt(s.root, manifest, manifest.ReasoningTemplates[0])
+	if promptErr != nil {
+		stages := flowFailedStages(sp, req.To, promptErr, now)
+		if !req.DryRun {
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		}
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, promptErr
+	}
 	if req.DryRun {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: true, Message: prompt.Prompt}, nil
 	}
@@ -1109,7 +1116,14 @@ func (s Service) flowFinalReasoning(ctx context.Context, sp Sprint, req FlowRequ
 		}
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages, Findings: findings}, err
 	}
-	prompt := RenderFinalReasoningPrompt(s.root, manifest)
+	prompt, promptErr := RenderFinalReasoningPrompt(s.root, manifest)
+	if promptErr != nil {
+		stages := flowFailedStages(sp, req.To, promptErr, now)
+		if !req.DryRun {
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		}
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, promptErr
+	}
 	if req.DryRun {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: true, Message: prompt.Prompt}, nil
 	}

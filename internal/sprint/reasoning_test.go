@@ -70,6 +70,51 @@ func TestReasoningManifestPromptsAndValidation(t *testing.T) {
 	}
 }
 
+func TestReasoningPromptsUseProjectThenWorkspaceThenBuiltinDefaults(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-alpha")
+	writeFixtureProjectIndex(t, root, "proj")
+	writeFileContent(t, root, "# Architecture Template\n", "system", "reasoning", "architecture_reasoning_template.md")
+	writeFileContent(t, sp.Path, "# Requirements\n\nDo reasoning stage.\n", "requirements.md")
+	writeFileContent(t, sp.Path, validSprintIndex(), "sprint-index.md")
+	writeFileContent(t, root, "# Workspace Area Prompt\n", "prompts", "create-area-reasoning.md")
+	writeFileContent(t, root, "# Project Area Prompt\n", "projects", "proj", "prompts", "create-area-reasoning.md")
+	writeFileContent(t, root, "# Project Final Prompt\n", "projects", "proj", "prompts", "create-sprint-reasoning.md")
+	writeFileContent(t, root, "# Project Final Template\n", "projects", "proj", "templates", "sprint-reasoning.md")
+
+	service := NewService(root).WithRuntime(panicRuntime{})
+	area, err := service.PromptAreaReasoning("proj", "01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# Project Area Prompt",
+		"Prompt source: `project:projects/proj/prompts/create-area-reasoning.md`",
+	} {
+		if !strings.Contains(area.Prompt, want) {
+			t.Fatalf("area prompt missing %q:\n%s", want, area.Prompt)
+		}
+	}
+	if strings.Contains(area.Prompt, "# Workspace Area Prompt") {
+		t.Fatalf("project prompt did not shadow workspace prompt:\n%s", area.Prompt)
+	}
+
+	final, err := service.PromptReasoning("proj", "01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# Project Final Prompt",
+		"Prompt source: `project:projects/proj/prompts/create-sprint-reasoning.md`",
+		"Source: project:projects/proj/templates/sprint-reasoning.md",
+		"# Project Final Template",
+	} {
+		if !strings.Contains(final.Prompt, want) {
+			t.Fatalf("final prompt missing %q:\n%s", want, final.Prompt)
+		}
+	}
+}
+
 func TestReasoningManifestRejectsUnsafeOrUnreadableTemplates(t *testing.T) {
 	root := workspaceFixture(t)
 	sp := sprintFixture(t, root, "proj", "01-alpha")

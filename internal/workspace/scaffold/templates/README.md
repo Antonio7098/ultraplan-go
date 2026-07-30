@@ -32,7 +32,9 @@ project-index.md
 - Planning artifacts live once.
 - `project-index.md` is the available pool.
 - `sprint-index.md` is the selected pool.
-- Area-specific reasoning is optional for small sprints.
+- Area-specific reasoning is optional for small sprints and may be owned by the project under `projects/<project>/reasoning/`.
+- Project reasoning prompt overrides live under `projects/<project>/prompts/`.
+- The project final reasoning template override lives at `projects/<project>/templates/sprint-reasoning.md`.
 - `sprint-reasoning.md` decides.
 - `sprint-plan.md` executes.
 - `review.md` checks conformance.

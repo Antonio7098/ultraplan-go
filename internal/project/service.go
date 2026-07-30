@@ -1,5 +1,7 @@
 package project
 
+import "sort"
+
 type Service struct {
 	root  string
 	store FSStore
@@ -19,7 +21,29 @@ func (s Service) Status(ref string) (ProjectStatus, error) {
 		return ProjectStatus{}, err
 	}
 	validation := ValidateProject(s.root, p, files)
-	return StatusFromValidation(p, files, validation), nil
+	status := StatusFromValidation(p, files, validation)
+	for _, rel := range ReasoningDefaultPaths() {
+		resolved, resolveErr := ResolveReasoningDefault(s.root, p.Name, rel)
+		if resolveErr != nil {
+			status.ReasoningDefaults = append(status.ReasoningDefaults, ReasoningDefault{
+				RelativePath: rel,
+				Source:       "invalid",
+			})
+			continue
+		}
+		resolved.Content = ""
+		status.ReasoningDefaults = append(status.ReasoningDefaults, resolved)
+	}
+	index, _ := ParseProjectIndex(files.IndexContent)
+	projectReasoningPrefix := "projects/" + p.Name + "/reasoning/"
+	for _, entry := range index.Entries {
+		path := normalizeCatalogPath(entry.Path)
+		if entry.Section == SectionAvailableReasoningTemplate && len(path) > len(projectReasoningPrefix) && path[:len(projectReasoningPrefix)] == projectReasoningPrefix {
+			status.AreaReasoningDocuments = append(status.AreaReasoningDocuments, path)
+		}
+	}
+	sort.Strings(status.AreaReasoningDocuments)
+	return status, nil
 }
 
 func (s Service) Validate(ref string) (ValidationResult, error) {

@@ -106,7 +106,9 @@ Lists discovered project roots under `projects/`.
 ultraplan project <project> status
 ```
 
-Shows project docs, roadmap, `project-index.md`, sprints, and catalog health without runtime execution.
+Shows project docs, roadmap, `project-index.md`, sprints, catalog health,
+project-owned area reasoning documents, and the effective project/workspace/built-in
+source for each reasoning default without runtime execution.
 
 ### `ultraplan project <project> validate`
 
@@ -114,7 +116,7 @@ Shows project docs, roadmap, `project-index.md`, sprints, and catalog health wit
 ultraplan project <project> validate
 ```
 
-Validates required project files and `project-index.md` catalog references for contracts, evidence reports, reasoning templates, review protocols, and the external smoke harness manifest.
+Validates required project files and `project-index.md` catalog references for contracts, evidence reports, reasoning templates, review protocols, and the external smoke harness manifest. It also validates project reasoning overrides and rejects reasoning templates owned by a different project.
 
 ### `ultraplan study init`
 

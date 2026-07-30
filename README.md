@@ -164,11 +164,22 @@ templates/
 
 If an existing workspace prompt or template differs from the built-in default, `defaults install` lists the customized file and asks before overwriting it. Use `--force` only when you intentionally want to replace customized files without confirmation.
 
+Reasoning defaults may also be specialised per project. UltraPlan resolves
+`create-area-reasoning.md`, `create-sprint-reasoning.md`, and
+`sprint-reasoning.md` in this order: project override, workspace override,
+then built-in default. Project overrides live at:
+
+```text
+projects/<project>/prompts/create-area-reasoning.md
+projects/<project>/prompts/create-sprint-reasoning.md
+projects/<project>/templates/sprint-reasoning.md
+```
+
 Studies live under `studies/<study>/` with editable source, dimension, report, run-state, and summary artifacts. Directory sources are analyzed by path. Live directory-source metadata is stored in `sources/<source>.ultraplan-source.yml` or `sources/<source>/.ultraplan-source.yml`; `applicable_dimensions` there limits which dimensions apply. Top-level Markdown sources can declare the same filter in frontmatter. `study-init.yml` is retained as initialization provenance, not the live applicability contract.
 
 Study reports are dimension-scoped. Per-source reports are written to `studies/<study>/reports/source/<dimension-ref>/<source>.md`, and synthesis writes `studies/<study>/reports/final/<dimension-ref>.md`.
 
-Projects live under `projects/<project>/` with `docs/`, `roadmap.md`, `project-index.md`, and `sprints/<sprint>/`. Planning sprints are editable Markdown/JSON artifact chains through `requirements.md`, `sprint-index.md`, `technical-handbook.md`, optional `reasoning/*.md`, `reasoning.md`, `plan.md`, and `flow-state.json`.
+Projects live under `projects/<project>/` with `docs/`, `roadmap.md`, `project-index.md`, and `sprints/<sprint>/`. A project can keep specialised area reasoning documents under `projects/<project>/reasoning/` and list them in `project-index.md`. Planning sprints are editable Markdown/JSON artifact chains through `requirements.md`, `sprint-index.md`, `technical-handbook.md`, optional `reasoning/*.md`, `reasoning.md`, `plan.md`, and `flow-state.json`.
 
 ## Runtime Boundary
 

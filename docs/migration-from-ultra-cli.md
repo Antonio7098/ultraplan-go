@@ -57,6 +57,17 @@ Workspace files override built-ins by relative path. For example:
 - `prompts/create-sprint-reasoning.md` overrides the built-in sprint reasoning prompt.
 - `templates/sprint-plan.md` overrides the built-in sprint plan template.
 
+For project-specific reasoning, move specialised area documents to
+`projects/<project>/reasoning/` and list them under `Available Reasoning
+Templates` in that project's `project-index.md`. Optional project overrides use:
+
+- `projects/<project>/prompts/create-area-reasoning.md`
+- `projects/<project>/prompts/create-sprint-reasoning.md`
+- `projects/<project>/templates/sprint-reasoning.md`
+
+These take precedence over workspace overrides, which continue to take
+precedence over built-ins.
+
 If a prompt or template already exists and differs from the built-in default, `defaults install` lists the file and asks before overwriting it. Use `--force` only when you intentionally want to replace customized workspace files with the built-in defaults.
 
 ## Scope Differences

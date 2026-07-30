@@ -49,6 +49,15 @@ func ValidateProject(root string, p Project, files ProjectFiles) ValidationResul
 			if entry.External {
 				continue
 			}
+			if entry.Section == SectionAvailableReasoningTemplate {
+				path := normalizeCatalogPath(entry.Path)
+				projectsPrefix := "projects/"
+				ownProjectPrefix := "projects/" + p.Name + "/"
+				if strings.HasPrefix(path, projectsPrefix) && !strings.HasPrefix(path, ownProjectPrefix) {
+					findings = append(findings, catalogFinding(entry, "cross-project reasoning template", "reasoning templates under projects/ must belong to the selected project", "Move the template into projects/"+p.Name+"/reasoning/ or use a shared workspace path outside projects/.", nil))
+					continue
+				}
+			}
 			full, err := workspace.ResolveInside(root, filepath.FromSlash(entry.Path))
 			if err != nil {
 				findings = append(findings, catalogFinding(entry, "catalog path escapes workspace", err.Error(), "Use a workspace-relative path inside this workspace.", err))
@@ -60,6 +69,20 @@ func ValidateProject(root string, p Project, files ProjectFiles) ValidationResul
 					continue
 				}
 				findings = append(findings, catalogFinding(entry, "catalog path cannot be read", err.Error(), "Fix filesystem permissions or update the catalog path.", err))
+			}
+		}
+		for _, rel := range ReasoningDefaultPaths() {
+			projectRel := filepath.ToSlash(filepath.Join("projects", p.Name, filepath.FromSlash(rel)))
+			full, err := workspace.ResolveInside(root, projectRel)
+			if err != nil {
+				add(projectRel, "invalid reasoning override path", err.Error(), "Use the supported project reasoning override path.", err)
+				continue
+			}
+			if _, err := os.Stat(full); os.IsNotExist(err) {
+				continue
+			}
+			if _, err := ResolveReasoningDefault(root, p.Name, rel); err != nil {
+				add(projectRel, "invalid project reasoning override", err.Error(), "Use a readable, non-empty Markdown file.", err)
 			}
 		}
 	}
