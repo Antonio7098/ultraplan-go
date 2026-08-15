@@ -64,12 +64,16 @@ type dashboardUseCases struct {
 	stageRuntime      map[sprint.PlanningStage]sprint.StageRuntime
 	reviewConcurrency int
 	smokeSettings     sprint.SmokeSettings
+	readOnly          bool
 }
 
 func (u dashboardUseCases) sprintService() sprint.Service {
 	service := sprint.NewService(u.root).WithStageRuntime(u.stageRuntime).WithReviewConcurrency(u.reviewConcurrency)
 	if u.smokeSettings.DiscoveryTimeout > 0 {
 		service = service.WithSmokeSettings(u.smokeSettings)
+	}
+	if u.readOnly {
+		service = service.WithoutStatusWrites()
 	}
 	return service
 }

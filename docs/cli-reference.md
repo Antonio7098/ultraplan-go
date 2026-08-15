@@ -1,6 +1,6 @@
 # CLI Reference
 
-This release includes study commands and governed sprint planning, execute, resumable automated review, integrated `verify`, focused review reruns, and review-gated deep smoke. Issue management, Git mutation, hosted services, and browser UI remain deferred.
+This release includes study commands and governed sprint planning, execute, resumable automated review, integrated `verify`, focused review reruns, review-gated deep smoke, the terminal dashboard, and a loopback-only read-only browser dashboard. Issue management, Git mutation, hosted services, and browser-triggered operations remain deferred.
 
 ## Global Usage
 
@@ -355,6 +355,35 @@ ultraplan code <report>... [--json] [--output <path>]
 ```
 
 Extracts cited code snippets from one or more reports. Text output is human-oriented. `--json` renders deterministic code extraction JSON with reports, sources, references, diagnostics, unresolved entries, and status.
+
+### `ultraplan serve`
+
+```text
+ultraplan [--workspace <path>] serve [--listen <address>] [--open-browser]
+```
+
+Starts the read-only local browser dashboard. Workspace selection uses the
+normal precedence: global `--workspace`, `ULTRAPLAN_WORKSPACE`, then current
+directory ancestry. Configuration is loaded and validated before a listener is
+opened.
+
+- `--listen` defaults to `127.0.0.1:8080`. It must contain a numeric loopback
+  IP and an explicit port. Canonical examples are `127.0.0.1:8080` and
+  `[::1]:8080`; `localhost`, port zero, wildcard, LAN, and public addresses are
+  rejected before server startup.
+- `--open-browser` asks the platform browser launcher to open the canonical
+  bound URL after listening succeeds. A launcher failure is a redacted warning;
+  the healthy server continues and the printed URL can be opened manually.
+- Startup/listen failures use the existing error exit class. Interrupt or
+  process-context cancellation performs a timeout-bounded graceful shutdown and
+  exits successfully when cleanup succeeds.
+
+`serve --help` never opens a listener or parses the embedded templates.
+Existing CLI commands and `ultraplan tui` remain independent adapters over the
+same typed app services. The browser cannot start, cancel, review, smoke,
+execute, validate-now, edit files, or mutate Git. See
+[Local Web Dashboard](local-web.md) for routes, limits, trust boundaries, and
+troubleshooting.
 
 ### `ultraplan version`
 

@@ -30,6 +30,7 @@ type Service struct {
 	processRunner     pprocess.Runner
 	smokeSettings     SmokeSettings
 	mutations         *sync.Map
+	statusWrites      bool
 }
 
 func (s Service) WithReviewConcurrency(n int) Service { s.reviewConcurrency = n; return s }
@@ -50,7 +51,15 @@ type StageRuntime struct {
 }
 
 func NewService(root string) Service {
-	return Service{root: root, store: NewFSStore(root), now: func() time.Time { return time.Now().UTC() }, processRunner: pprocess.DirectRunner{}, smokeSettings: DefaultSmokeSettings(), mutations: &sync.Map{}}
+	return Service{root: root, store: NewFSStore(root), now: func() time.Time { return time.Now().UTC() }, processRunner: pprocess.DirectRunner{}, smokeSettings: DefaultSmokeSettings(), mutations: &sync.Map{}, statusWrites: true}
+}
+
+// WithoutStatusWrites derives status from current artifacts without creating a
+// missing flow-state file. It is used by strictly read-only presentation
+// surfaces; existing CLI/TUI status behavior remains unchanged.
+func (s Service) WithoutStatusWrites() Service {
+	s.statusWrites = false
+	return s
 }
 
 var ErrVerificationConflict = errors.New("verification mutation already in progress")
@@ -156,8 +165,10 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 			refreshed.Smoke.Reconciliation = fingerprintMismatch || (readErr == nil && refreshed.Smoke.SmokeFingerprint == "")
 		}
 	}
-	if err := SaveFlowState(s.root, sp, refreshed); err != nil {
-		return StatusSummary{}, err
+	if s.statusWrites {
+		if err := SaveFlowState(s.root, sp, refreshed); err != nil {
+			return StatusSummary{}, err
+		}
 	}
 	flowPath, err := FlowStatePath(s.root, sp)
 	if err != nil {

@@ -1,0 +1,8 @@
+{{define "sprint"}}{{template "top" .}}
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / <a href="/projects/{{.Sprint.Project}}">{{.Sprint.Project}}</a> / {{.Sprint.Slug}}</nav>
+<dl class="metadata"><div><dt>Status</dt><dd>{{.Sprint.Status}}</dd></div><div><dt>Assessment</dt><dd>{{if .Sprint.Assessment}}{{.Sprint.Assessment}}{{else}}not available{{end}}</dd></div><div><dt>Next action</dt><dd>{{if .Sprint.NextAction}}{{.Sprint.NextAction}}{{else}}none recorded{{end}}</dd></div></dl>
+<section><h2>Planning stages</h2>{{if .Sprint.Stages}}<div class="table-wrap"><table><caption>Current governed stage state</caption><thead><tr><th>Stage</th><th>Status</th></tr></thead><tbody>{{range .Sprint.Stages}}<tr><td>{{.Name}}</td><td>{{.Status}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="empty">No stage state available.</p>{{end}}</section>
+<section><h2>Execute, review, and smoke</h2><dl class="metadata"><div><dt>Execute complete</dt><dd>{{.Sprint.Execute.Complete}} / {{.Sprint.Execute.Total}}</dd></div><div><dt>Review</dt><dd>{{if .Sprint.Review.Available}}{{.Sprint.Review.Status}} {{.Sprint.Review.Verdict}}{{else}}not available{{end}}</dd></div><div><dt>Smoke</dt><dd>{{if .Sprint.Smoke.Available}}{{.Sprint.Smoke.Status}} {{.Sprint.Smoke.Verdict}}{{else}}not available{{end}}</dd></div></dl></section>
+<section><h2>Validation findings</h2>{{template "findings" .Sprint.Findings}}</section>
+<section><h2>Artifacts</h2>{{template "artifacts" .Sprint.Artifacts}}</section>
+{{template "bottom" .}}{{end}}

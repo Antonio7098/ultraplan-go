@@ -91,7 +91,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 					Project:           p.Name,
 					Slug:              sp.Slug,
 					Status:            "status unavailable",
-					RefreshMayWrite:   true,
+					RefreshMayWrite:   !u.readOnly,
 					RefreshActionNote: "refresh recomputes deterministic flow-state.json status when existing state is valid",
 					Findings:          []DisplayFinding{{Severity: "error", Section: "sprint.status", Problem: displaySafe(err.Error()), Suggestion: "Inspect or regenerate sprint flow-state.json outside the read-only TUI."}},
 					Artifacts: []DisplayArtifact{
@@ -119,7 +119,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				RunStatePath:      status.RunStatePath,
 				ReviewPath:        status.ReviewPath,
 				SmokePath:         status.SmokePath,
-				RefreshMayWrite:   true,
+				RefreshMayWrite:   !u.readOnly,
 				RefreshActionNote: "refresh derives verification freshness and assessment from current evidence without caching them as authoritative state",
 				Execute:           summarizeExecute(status.ExecuteState),
 				Review:            summarizeReview(status.Review),

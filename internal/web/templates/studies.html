@@ -1,0 +1,4 @@
+{{define "studies"}}{{template "top" .}}
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Studies</nav>
+{{if .Studies}}<ul class="summary-grid">{{range .Studies}}<li><a href="/studies/{{.Name}}">{{.Name}}</a><span>{{.Completed}} / {{.Total}} complete · {{.Status}}</span></li>{{end}}</ul>{{else}}<p class="empty">No studies found.</p>{{end}}
+{{template "bottom" .}}{{end}}

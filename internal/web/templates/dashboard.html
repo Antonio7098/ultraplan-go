@@ -1,0 +1,15 @@
+{{define "dashboard"}}{{template "top" .}}
+<p>Live, bounded inspection of projects, sprints, studies, validation findings, and governed artifacts.</p>
+<section aria-labelledby="projects-heading">
+  <h2 id="projects-heading">Projects</h2>
+  {{if .Projects}}<ul class="summary-grid">{{range .Projects}}<li><a href="/projects/{{.Name}}">{{.Name}}</a><span>{{len .Findings}} findings</span></li>{{end}}</ul>{{else}}<p class="empty">No projects found.</p>{{end}}
+</section>
+<section aria-labelledby="sprints-heading">
+  <h2 id="sprints-heading">Sprints</h2>
+  {{if .Sprints}}<div class="table-wrap"><table><caption>Current sprint projections</caption><thead><tr><th>Project</th><th>Sprint</th><th>Status</th><th>Assessment</th></tr></thead><tbody>{{range .Sprints}}<tr><td>{{.Project}}</td><td><a href="/projects/{{.Project}}/sprints/{{.Slug}}">{{.Slug}}</a></td><td>{{.Status}}</td><td>{{if .Assessment}}{{.Assessment}}{{else}}not available{{end}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="empty">No sprints found.</p>{{end}}
+</section>
+<section aria-labelledby="studies-heading">
+  <h2 id="studies-heading">Studies</h2>
+  {{if .Studies}}<ul class="summary-grid">{{range .Studies}}<li><a href="/studies/{{.Name}}">{{.Name}}</a><span>{{.Status}}</span></li>{{end}}</ul>{{else}}<p class="empty">No studies found.</p>{{end}}
+</section>
+{{template "bottom" .}}{{end}}

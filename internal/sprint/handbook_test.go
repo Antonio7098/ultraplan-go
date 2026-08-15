@@ -33,9 +33,9 @@ func TestTechnicalHandbookValidationAndManifest(t *testing.T) {
 	if got := ValidateTechnicalHandbookContent(validTechnicalHandbook(), manifest); len(got) != 0 {
 		t.Fatalf("valid handbook findings = %+v", got)
 	}
-	got := ValidateTechnicalHandbookContent(strings.Replace(validTechnicalHandbook(), "## Evidence Pointers", "## Final Decisions", 1), manifest)
-	if len(got) == 0 {
-		t.Fatalf("expected decision-language finding")
+	got := ValidateTechnicalHandbookContent(validTechnicalHandbook()+"\n## Final Decisions\n\nWe will implement this implementation decision.\n", manifest)
+	if len(got) != 0 {
+		t.Fatalf("decision language should not be validated: %+v", got)
 	}
 	got = ValidateTechnicalHandbookContent(strings.Replace(validTechnicalHandbook(), "01-project-structure", "08-concurrency", -1), manifest)
 	if len(got) == 0 {

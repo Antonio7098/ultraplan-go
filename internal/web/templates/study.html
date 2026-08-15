@@ -1,0 +1,8 @@
+{{define "study"}}{{template "top" .}}
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/studies">Studies</a> / {{.Study.Name}}</nav>
+<dl class="metadata"><div><dt>Status</dt><dd>{{.Study.Status}}</dd></div><div><dt>Tasks</dt><dd>{{.Study.Completed}} complete / {{.Study.Total}} total</dd></div><div><dt>Active</dt><dd>{{if .Study.RunActive}}yes{{else}}no{{end}}</dd></div></dl>
+<section><h2>Sources</h2>{{if .Study.Sources}}<ul>{{range .Study.Sources}}<li>{{.}}</li>{{end}}</ul>{{else}}<p class="empty">No sources found.</p>{{end}}</section>
+<section><h2>Dimensions</h2>{{if .Study.Dimensions}}<ul>{{range .Study.Dimensions}}<li>{{.}}</li>{{end}}</ul>{{else}}<p class="empty">No dimensions found.</p>{{end}}</section>
+<section><h2>Validation findings</h2>{{template "findings" .Study.Findings}}</section>
+<section><h2>Artifacts</h2>{{template "artifacts" .Study.Artifacts}}</section>
+{{template "bottom" .}}{{end}}

@@ -34,6 +34,7 @@ type Config struct {
 	WorkDir              string
 	Env                  map[string]string
 	TUIRunner            TUIRunner
+	WebRunner            WebRunner
 	SprintRuntimeFactory SprintRuntimeFactory
 }
 
@@ -112,6 +113,7 @@ func Run(cfg Config) int {
 		workDir:              cfg.WorkDir,
 		env:                  cfg.Env,
 		tuiRunner:            cfg.TUIRunner,
+		webRunner:            cfg.WebRunner,
 		sprintRuntimeFactory: cfg.SprintRuntimeFactory,
 	}
 	if deps.sprintRuntimeFactory == nil {
@@ -159,6 +161,8 @@ func Run(cfg Config) int {
 		return failOrOK(stderr, runStudy(deps, args[1:]))
 	case "tui":
 		return failOrOK(stderr, runTUI(deps, args[1:]))
+	case "serve":
+		return failOrOK(stderr, runServe(deps, args[1:]))
 	case "code":
 		return failOrOK(stderr, runCode(deps, args[1:]))
 	default:
@@ -175,6 +179,7 @@ type dependencies struct {
 	workspaceFlag        string
 	env                  map[string]string
 	tuiRunner            TUIRunner
+	webRunner            WebRunner
 	sprintRuntimeFactory SprintRuntimeFactory
 }
 
@@ -251,6 +256,7 @@ Commands:
   sprint           Inspect planning sprint artifact flow state.
   study            Inspect studies, sources, and dimensions.
   tui              Open a read-only terminal dashboard.
+  serve            Start the read-only local browser dashboard.
   version          Print build metadata.
 
 Flags:

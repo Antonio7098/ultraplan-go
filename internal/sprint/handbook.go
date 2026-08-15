@@ -117,18 +117,6 @@ func ValidateTechnicalHandbookContent(content string, manifest HandbookManifest)
 			findings = append(findings, finding("Evidence Pointers", "", path, "unselected evidence reference", "handbook cites a report that is not selected by sprint-index.md", "Use only selected evidence reports."))
 		}
 	}
-	for heading := range sections {
-		lower := strings.ToLower(heading)
-		if strings.Contains(lower, "decision") || strings.Contains(lower, "implementation plan") || strings.Contains(lower, "task plan") {
-			findings = append(findings, finding(heading, "", "", "decision-language section", "technical-handbook.md must distill evidence, not make final decisions", "Move final decisions to reasoning.md or plan.md."))
-		}
-	}
-	for _, phrase := range []string{"final decision:", "we will implement", "implementation decision", "decision:"} {
-		if strings.Contains(strings.ToLower(content), phrase) {
-			findings = append(findings, finding("technical-handbook.md", "", "", "implementation decision language", "handbook contains final decision wording", "Frame handbook content as evidence, trade-offs, warnings, or open questions."))
-			break
-		}
-	}
 	sortSprintFindings(findings)
 	return findings
 }

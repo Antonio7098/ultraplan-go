@@ -1,0 +1,7 @@
+{{define "project"}}{{template "top" .}}
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / {{.Project.Name}}</nav>
+<section><h2>Documentation</h2>{{if .Project.Docs}}<ul>{{range .Project.Docs}}<li><code>{{.}}</code></li>{{end}}</ul>{{else}}<p class="empty">No Markdown documentation found.</p>{{end}}</section>
+<section><h2>Sprints</h2>{{if .Project.Sprints}}<ul class="summary-grid">{{range .Project.Sprints}}<li><a href="/projects/{{.Project}}/sprints/{{.Slug}}">{{.Slug}}</a><span>{{.Status}}</span></li>{{end}}</ul>{{else}}<p class="empty">No sprints found.</p>{{end}}</section>
+<section><h2>Validation findings</h2>{{template "findings" .Project.Findings}}</section>
+<section><h2>Artifacts</h2>{{template "artifacts" .Project.Artifacts}}</section>
+{{template "bottom" .}}{{end}}
