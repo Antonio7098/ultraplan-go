@@ -107,3 +107,24 @@ func TestResolveStageSkillsRejectsUnknownSelection(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestReviewSkillResolvesSprintPathAndDelegatesFanOut(t *testing.T) {
+	skills, err := ResolveStageSkills("review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := renderStageSkill(skills[0])
+	for _, want := range []string{
+		"Treat a supplied sprint path as UltraPlan stage input",
+		"read the matching `project-index.md`",
+		"resolve its repository from `Target Implementation Directory`",
+		"Do not search nested source repositories for a similarly named skill",
+		"projects/ultraplan-go/sprints/30-web-foundations/",
+		"The CLI owns reviewer fan-out",
+		"read the generated `review.md`",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("review skill missing %q", want)
+		}
+	}
+}
