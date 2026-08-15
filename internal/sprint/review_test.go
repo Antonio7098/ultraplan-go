@@ -135,6 +135,9 @@ func TestReviewManifestExecutionAndArtifactPreservation(t *testing.T) {
 	if err != nil || len(findings) != 0 || first.Fingerprint != second.Fingerprint {
 		t.Fatalf("manifest is not deterministic: first=%s second=%s findings=%+v err=%v", first.Fingerprint, second.Fingerprint, findings, err)
 	}
+	if len(first.ChangedPaths) != 1 || first.ChangedPaths[0] != "internal/sprint/review.go" {
+		t.Fatalf("target changed paths include governed workspace artifacts: %#v", first.ChangedPaths)
+	}
 	result, err := service.Review(context.Background(), "proj", "01", ReviewRequest{Concurrency: 2})
 	if err != nil {
 		t.Fatalf("review: %v result=%+v", err, result)
@@ -449,6 +452,6 @@ func reviewFixture(t *testing.T) (string, Sprint) {
 	writeFileContent(t, sp.Path, validPlanFinalReasoning(), "reasoning.md")
 	writeFileContent(t, sp.Path, strings.ReplaceAll(validPlan(), "- [ ]", "- [x]"), "plan.md")
 	writeFileContent(t, sp.Path, "# Execute Summary\n\nAll tasks complete.\n\n- `go test ./...`: pass\n", "execute.md")
-	writeFileContent(t, sp.Path, `{"files":["internal/sprint/review.go"]}`+"\n", ".run-state.json")
+	writeFileContent(t, sp.Path, `{"files":["internal/sprint/review.go","projects/proj/sprints/01-alpha/plan.md"]}`+"\n", ".run-state.json")
 	return root, sp
 }

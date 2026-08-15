@@ -269,7 +269,7 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 	if data, readErr := os.ReadFile(filepath.Join(s.root, filepath.FromSlash(runPath))); readErr == nil {
 		manifest.Contents[runPath] = string(data)
 		manifest.Inputs = append(manifest.Inputs, reviewInput("run-state", "governed", "run-state", runPath, string(data)))
-		manifest.ChangedPaths = reviewChangedPaths(data)
+		manifest.ChangedPaths = excludeGovernedReviewPaths(reviewChangedPaths(data), manifest.Inputs)
 	} else {
 		manifest.Inputs = append(manifest.Inputs, ReviewInput{ID: "run-state", Kind: "governed", Name: "run-state", Path: runPath, Hash: "missing"})
 	}
@@ -1239,6 +1239,23 @@ func reviewChangedPaths(data []byte) []string {
 		out = append(out, p)
 	}
 	sort.Strings(out)
+	return out
+}
+
+func excludeGovernedReviewPaths(paths []string, inputs []ReviewInput) []string {
+	governed := make(map[string]bool, len(inputs))
+	for _, input := range inputs {
+		if input.Kind == "target" || strings.TrimSpace(input.Path) == "" {
+			continue
+		}
+		governed[filepath.ToSlash(filepath.Clean(input.Path))] = true
+	}
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if !governed[filepath.ToSlash(filepath.Clean(path))] {
+			out = append(out, path)
+		}
+	}
 	return out
 }
 
