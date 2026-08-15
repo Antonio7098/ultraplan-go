@@ -173,7 +173,7 @@ func TestReviewManifestExecutionAndArtifactPreservation(t *testing.T) {
 		if len(req.Prompt) > reviewPromptMaxBytes || strings.Contains(req.Prompt, "# Requirements\n\nReview this sprint.") {
 			t.Fatalf("reviewer prompt was not compact and path-backed: bytes=%d", len(req.Prompt))
 		}
-		if strings.Contains(req.Prompt, filepath.Join(root, filepath.FromSlash(ArtifactRelPath(sp, StageRequirements)))) || !strings.Contains(req.Prompt, filepath.Join(req.WorkDir, "workspace", filepath.FromSlash(ArtifactRelPath(sp, StageRequirements)))) {
+		if req.SessionAction == "" && (strings.Contains(req.Prompt, filepath.Join(root, filepath.FromSlash(ArtifactRelPath(sp, StageRequirements)))) || !strings.Contains(req.Prompt, filepath.Join(req.WorkDir, "workspace", filepath.FromSlash(ArtifactRelPath(sp, StageRequirements))))) {
 			t.Fatalf("reviewer prompt omitted governed input path: %s", req.Prompt)
 		}
 	}
@@ -304,6 +304,42 @@ func TestReviewVerdictAndCitationValidation(t *testing.T) {
 	}
 }
 
+func TestReviewResultSchemaCanonicalizesLegacyDeferredAndRejectsDuplicateFindingIDs(t *testing.T) {
+	root, _ := reviewFixture(t)
+	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	manifest, findings, err := service.PrepareReview("proj", "01", ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare: err=%v findings=%+v", err, findings)
+	}
+	coverage := manifest.Coverage[0]
+	legacy := ReviewCoverageResult{SchemaVersion: 1, CoverageID: coverage.ID, Applicability: "deferred", Summary: "Deferred by the governing contract."}
+	normalizeReviewResult(&legacy)
+	if legacy.Applicability != "explicitly_deferred" || len(reviewResultProblems(root, manifest, coverage.ID, legacy)) != 0 {
+		t.Fatalf("legacy result not canonicalized: %+v problems=%+v", legacy, reviewResultProblems(root, manifest, coverage.ID, legacy))
+	}
+	citation := ReviewCitation{Path: coverage.Path, StartLine: 1, EndLine: 1}
+	duplicate := ReviewFinding{ID: "DUP-1", Severity: "low", Applicability: "direct", Title: "Issue", Detail: "Actionable deviation.", Citations: []ReviewCitation{citation}}
+	results := make([]ReviewCoverageResult, len(manifest.Coverage))
+	for i, item := range manifest.Coverage {
+		results[i] = ReviewCoverageResult{SchemaVersion: 1, CoverageID: item.ID, Applicability: "direct", Summary: "Checked."}
+	}
+	results[0].Findings = []ReviewFinding{duplicate}
+	results[1].Findings = []ReviewFinding{duplicate}
+	_, diagnostics, verdict := validateReviewCoverage(root, manifest, results)
+	if verdict != ReviewVerdictBlocked || !hasReviewDiagnostic(diagnostics, "duplicate-finding-id") {
+		t.Fatalf("verdict=%s diagnostics=%+v", verdict, diagnostics)
+	}
+}
+
+func hasReviewDiagnostic(values []ReviewDiagnostic, code string) bool {
+	for _, value := range values {
+		if value.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestExtractReviewResultReadsOpenCodeTextPart(t *testing.T) {
 	data, _ := json.Marshal(ReviewCoverageResult{SchemaVersion: 1, CoverageID: "contract-testing", Applicability: "direct", Summary: "checked"})
 	r := pruntime.Result{Events: []pruntime.Event{{Type: "text", Payload: map[string]any{"part": map[string]any{"type": "text", "text": string(data)}}}}}
@@ -366,7 +402,7 @@ func TestReviewerBlocksAfterStructuredOutputRepairIsExhausted(t *testing.T) {
 	if err == nil || result.Verdict != ReviewVerdictBlocked {
 		t.Fatalf("exhausted repair result=%+v err=%v", result, err)
 	}
-	if runtime.calls.Load() != int32(len(result.Coverage)*2) {
+	if runtime.calls.Load() != int32(len(result.Coverage)*3) {
 		t.Fatalf("runtime calls=%d coverage=%d", runtime.calls.Load(), len(result.Coverage))
 	}
 }
@@ -410,9 +446,21 @@ func TestReviewDetectsInputDriftBeforePersistence(t *testing.T) {
 	if err == nil || result.Status != ReviewFailed {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
+	if result.Verdict != ReviewVerdictBlocked || result.ProvisionalVerdict != ReviewPass || !reviewDiagnosticsContain(result.Diagnostics, "requirements.md") {
+		t.Fatalf("drift outcome did not separate authoritative/provisional verdict or identify input: %+v", result)
+	}
 	if _, err := os.Stat(filepath.Join(sp.Path, "review.md")); !os.IsNotExist(err) {
 		t.Fatalf("stale review wrote artifact: %v", err)
 	}
+}
+
+func reviewDiagnosticsContain(values []ReviewDiagnostic, text string) bool {
+	for _, value := range values {
+		if strings.Contains(value.Message, text) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestReviewCancellationAndBlockedPreflightDoNotPass(t *testing.T) {

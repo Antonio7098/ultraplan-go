@@ -46,20 +46,21 @@ type ReviewDiagnostic struct {
 }
 
 type ReviewStageState struct {
-	Status         ReviewExecutionStatus `json:"status"`
-	Verdict        ReviewVerdict         `json:"verdict,omitempty"`
-	Path           string                `json:"path"`
-	LastRunAt      *time.Time            `json:"lastRunAt,omitempty"`
-	Fingerprint    string                `json:"fingerprint,omitempty"`
-	Stale          bool                  `json:"stale"`
-	Completed      int                   `json:"completed"`
-	Total          int                   `json:"total"`
-	Diagnostics    []ReviewDiagnostic    `json:"diagnostics,omitempty"`
-	ArtifactDigest string                `json:"artifactDigest,omitempty"`
-	ActiveAttempt  *VerificationAttempt  `json:"activeAttempt,omitempty"`
-	LastAttempt    *VerificationAttempt  `json:"lastAttempt,omitempty"`
-	Resume         *ReviewResumeState    `json:"resume,omitempty"`
-	LastComplete   *ReviewCompletion     `json:"lastComplete,omitempty"`
+	Status             ReviewExecutionStatus `json:"status"`
+	Verdict            ReviewVerdict         `json:"verdict,omitempty"`
+	ProvisionalVerdict ReviewVerdict         `json:"provisionalVerdict,omitempty"`
+	Path               string                `json:"path"`
+	LastRunAt          *time.Time            `json:"lastRunAt,omitempty"`
+	Fingerprint        string                `json:"fingerprint,omitempty"`
+	Stale              bool                  `json:"stale"`
+	Completed          int                   `json:"completed"`
+	Total              int                   `json:"total"`
+	Diagnostics        []ReviewDiagnostic    `json:"diagnostics,omitempty"`
+	ArtifactDigest     string                `json:"artifactDigest,omitempty"`
+	ActiveAttempt      *VerificationAttempt  `json:"activeAttempt,omitempty"`
+	LastAttempt        *VerificationAttempt  `json:"lastAttempt,omitempty"`
+	Resume             *ReviewResumeState    `json:"resume,omitempty"`
+	LastComplete       *ReviewCompletion     `json:"lastComplete,omitempty"`
 }
 
 type ReviewResumeState struct {
@@ -143,22 +144,23 @@ type ReviewProgress struct {
 }
 
 type ReviewResult struct {
-	Project     string                 `json:"project"`
-	Sprint      string                 `json:"sprint"`
-	Prompt      string                 `json:"prompt,omitempty"`
-	Artifact    string                 `json:"artifact,omitempty"`
-	Fingerprint string                 `json:"fingerprint,omitempty"`
-	Message     string                 `json:"message,omitempty"`
-	DryRun      bool                   `json:"dry_run"`
-	Status      ReviewExecutionStatus  `json:"execution_status"`
-	Verdict     ReviewVerdict          `json:"verdict,omitempty"`
-	Coverage    []ReviewCoverageResult `json:"coverage,omitempty"`
-	Findings    []ReviewFinding        `json:"findings,omitempty"`
-	Diagnostics []ReviewDiagnostic     `json:"diagnostics,omitempty"`
-	Focused     []string               `json:"focused,omitempty"`
-	Resumed     bool                   `json:"resumed,omitempty"`
-	Restarted   bool                   `json:"restarted,omitempty"`
-	Reused      int                    `json:"reused_coverage,omitempty"`
+	Project            string                 `json:"project"`
+	Sprint             string                 `json:"sprint"`
+	Prompt             string                 `json:"prompt,omitempty"`
+	Artifact           string                 `json:"artifact,omitempty"`
+	Fingerprint        string                 `json:"fingerprint,omitempty"`
+	Message            string                 `json:"message,omitempty"`
+	DryRun             bool                   `json:"dry_run"`
+	Status             ReviewExecutionStatus  `json:"execution_status"`
+	Verdict            ReviewVerdict          `json:"verdict,omitempty"`
+	ProvisionalVerdict ReviewVerdict          `json:"provisional_verdict,omitempty"`
+	Coverage           []ReviewCoverageResult `json:"coverage,omitempty"`
+	Findings           []ReviewFinding        `json:"findings,omitempty"`
+	Diagnostics        []ReviewDiagnostic     `json:"diagnostics,omitempty"`
+	Focused            []string               `json:"focused,omitempty"`
+	Resumed            bool                   `json:"resumed,omitempty"`
+	Restarted          bool                   `json:"restarted,omitempty"`
+	Reused             int                    `json:"reused_coverage,omitempty"`
 }
 
 func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) (ReviewManifest, []ValidationFinding, error) {
@@ -274,7 +276,7 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 		manifest.Inputs = append(manifest.Inputs, ReviewInput{ID: "run-state", Kind: "governed", Name: "run-state", Path: runPath, Hash: "missing"})
 	}
 	if target.Path != "" {
-		identity, identityErr := targetIdentity(target.Path)
+		identity, identityErr := targetRevisionIdentity(target.Path)
 		if identityErr != nil {
 			findings = append(findings, finding("Review target", "target identity", "target/.identity", "target identity unavailable", identityErr.Error(), "Restore a contained readable target tree."))
 			manifest.Inputs = append(manifest.Inputs, ReviewInput{ID: "target-identity", Kind: "target", Name: "target identity", Path: "target/.identity", Hash: "missing"})
@@ -547,7 +549,11 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 	current, currentFindings, currentErr := s.PrepareReview(projectRef, sprintRef, req)
 	if currentErr != nil || len(currentFindings) > 0 || current.Fingerprint != m.Fingerprint {
 		result.Status = ReviewFailed
-		result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "inputs-changed", Message: "review inputs changed during execution"})
+		result.ProvisionalVerdict = result.Verdict
+		result.Verdict = ReviewVerdictBlocked
+		for _, message := range reviewManifestChanges(m, current, currentFindings, currentErr) {
+			result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "inputs-changed", Message: safeReviewText(s.root, message)})
+		}
 		return s.persistReviewFailure(projectRef, sprintRef, result, completed, len(coverage), fmt.Errorf("review inputs changed during execution"))
 	}
 	result.Status = ReviewCompleted
@@ -759,6 +765,10 @@ func (s Service) updateReviewResume(projectRef, sprintRef, fingerprint, coverage
 		return fmt.Errorf("review resume checkpoint no longer matches active inputs")
 	}
 	now := s.now().UTC()
+	if state.Review.ActiveAttempt != nil {
+		state.Review.ActiveAttempt.HeartbeatAt = now
+		state.Review.ActiveAttempt.OwnerPID = os.Getpid()
+	}
 	for i := range state.Review.Resume.Coverage {
 		if state.Review.Resume.Coverage[i].CoverageID == coverageID {
 			update(&state.Review.Resume.Coverage[i], now)
@@ -806,6 +816,7 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 	req.Permissions = "restricted"
 	req.RequireCaps = appendUnique(req.RequireCaps, "permissions")
 	req.Policy = pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": "allow", "list": "allow", "search": "allow"}}
+	req.Validation = s.reviewValidationSpec(m, c)
 	if resumeSession != "" {
 		req.SessionID, req.SessionAction = resumeSession, "continue"
 		req.Prompt = "Resume the interrupted review using the refreshed frozen snapshot paths in this request. " + req.Prompt
@@ -816,17 +827,12 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 			previousOnEvent(event)
 		}
 		if event.SessionID != "" {
-			sessionID = event.SessionID
 			if onSession != nil {
 				onSession(event.SessionID)
 			}
 		}
 	}
 	r, err := s.runtime.StartRun(ctx, req)
-	if err != nil {
-		out.Error = safeReviewText(s.root, err.Error())
-		return
-	}
 	sessionID = r.SessionID
 	if sessionID != "" && onSession != nil {
 		onSession(sessionID)
@@ -835,26 +841,62 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 		out.Error = "runtime could not enforce review permission policy"
 		return
 	}
-	if !extractReviewResult(r, &out) {
-		if r.SessionID == "" {
-			out.Error = "runtime did not return a structured review result"
-			return
+	if ctx.Err() != nil {
+		out.Error = safeReviewText(s.root, ctx.Err().Error())
+		return
+	}
+	candidate, problems := extractValidatedReviewResult(s.root, m, c.ID, r)
+	if err == nil && len(problems) == 0 {
+		return candidate, sessionID
+	}
+	// The production AgentWrap stack already performed its bounded repairs.
+	// Runtime implementations without that wrapper retain a small equivalent
+	// fallback here so the product boundary remains deterministic in tests and
+	// alternate adapters.
+	if r.Validation.Configured {
+		if len(problems) > 0 {
+			out.Error = safeReviewText(s.root, strings.Join(problems, "; "))
+		} else if err != nil {
+			out.Error = safeReviewText(s.root, err.Error())
 		}
+		return
+	}
+	if len(problems) == 0 && err != nil {
+		problems = []string{safeReviewText(s.root, err.Error())}
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
 		repair := req
-		repair.SessionID, repair.SessionAction = r.SessionID, "continue"
-		repair.Prompt = fmt.Sprintf("Your prior review did not end with the required structured result. Return only one JSON object for coverageId %q using the exact schema from the original request. Do not perform more tool calls.", c.ID)
+		repair.Validation = nil
+		repair.Prompt = buildReviewRepairPrompt(c.ID, problems)
+		if attempt == 1 && sessionID != "" {
+			repair.SessionID, repair.SessionAction = sessionID, "continue"
+		} else {
+			repair.SessionID, repair.SessionAction = "", "fresh"
+		}
 		repaired, repairErr := s.runtime.StartRun(ctx, repair)
 		if repaired.SessionID != "" {
 			sessionID = repaired.SessionID
+			if onSession != nil {
+				onSession(sessionID)
+			}
 		}
-		if repairErr != nil || !extractReviewResult(repaired, &out) {
-			out.Error = "runtime did not return a structured review result after one repair attempt"
+		if repaired.Permissions.UnsupportedCount > 0 {
+			out.Error = "runtime could not enforce review permission policy during repair"
 			return
 		}
+		if ctx.Err() != nil {
+			out.Error = safeReviewText(s.root, ctx.Err().Error())
+			return
+		}
+		candidate, problems = extractValidatedReviewResult(s.root, m, c.ID, repaired)
+		if repairErr == nil && len(problems) == 0 {
+			return candidate, sessionID
+		}
+		if len(problems) == 0 && repairErr != nil {
+			problems = []string{safeReviewText(s.root, repairErr.Error())}
+		}
 	}
-	if out.CoverageID == "" {
-		out.CoverageID = c.ID
-	}
+	out.Error = safeReviewText(s.root, "structured review result remained invalid after bounded repair: "+strings.Join(problems, "; "))
 	return
 }
 
@@ -862,39 +904,30 @@ func validateReviewCoverage(root string, m ReviewManifest, results []ReviewCover
 	var findings []ReviewFinding
 	var diagnostics []ReviewDiagnostic
 	coverage := map[string]bool{}
-	for _, r := range results {
-		coverage[r.CoverageID] = true
+	findingIDs := map[string]string{}
+	for i, r := range results {
+		expectedID := r.CoverageID
+		if i < len(m.Coverage) {
+			expectedID = m.Coverage[i].ID
+		}
 		if r.Error != "" {
-			diagnostics = append(diagnostics, ReviewDiagnostic{Code: "reviewer-failed", CoverageID: r.CoverageID, Message: r.Error})
+			diagnostics = append(diagnostics, ReviewDiagnostic{Code: "reviewer-failed", CoverageID: expectedID, Message: r.Error})
 			continue
 		}
-		if r.SchemaVersion != 1 {
-			diagnostics = append(diagnostics, ReviewDiagnostic{Code: "unsupported-schema", CoverageID: r.CoverageID, Message: "reviewer result schemaVersion must be 1"})
+		normalizeReviewResult(&r)
+		problems := reviewResultProblems(root, m, expectedID, r)
+		if len(problems) > 0 {
+			diagnostics = append(diagnostics, ReviewDiagnostic{Code: "invalid-result", CoverageID: expectedID, Message: safeReviewText(root, strings.Join(problems, "; "))})
+			continue
 		}
-		if !validReviewApplicability(r.Applicability) {
-			diagnostics = append(diagnostics, ReviewDiagnostic{Code: "invalid-applicability", CoverageID: r.CoverageID, Message: "applicability must be applicable or not_applicable"})
-		}
+		coverage[r.CoverageID] = true
 		for _, f := range r.Findings {
-			valid := true
-			if f.Severity != "info" && f.Severity != "low" && f.Severity != "medium" && f.Severity != "high" && f.Severity != "blocker" {
-				valid = false
+			if priorCoverage, duplicate := findingIDs[f.ID]; duplicate {
+				diagnostics = append(diagnostics, ReviewDiagnostic{Code: "duplicate-finding-id", CoverageID: r.CoverageID, Message: fmt.Sprintf("finding id %q already emitted by %s", f.ID, priorCoverage)})
+				continue
 			}
-			if !validReviewApplicability(f.Applicability) {
-				valid = false
-			}
-			if len(f.Citations) == 0 && reviewApplicable(f.Applicability) {
-				valid = false
-			}
-			for _, c := range f.Citations {
-				if !validReviewCitation(root, m, c) {
-					valid = false
-				}
-			}
-			if valid {
-				findings = append(findings, f)
-			} else {
-				diagnostics = append(diagnostics, ReviewDiagnostic{Code: "invalid-finding", CoverageID: r.CoverageID, Message: "finding failed schema or citation validation"})
-			}
+			findingIDs[f.ID] = r.CoverageID
+			findings = append(findings, f)
 		}
 	}
 	for _, c := range m.Coverage {
@@ -1020,6 +1053,9 @@ func validateReviewStageState(root string, sp Sprint, state ReviewStageState, pa
 	if state.Verdict != "" && state.Verdict != ReviewPass && state.Verdict != ReviewPassWithFindings && state.Verdict != ReviewFail && state.Verdict != ReviewVerdictBlocked {
 		return fmt.Errorf("%w: %s: unsupported review verdict %q", ErrFlowStateMalformed, path, state.Verdict)
 	}
+	if state.ProvisionalVerdict != "" && state.ProvisionalVerdict != ReviewPass && state.ProvisionalVerdict != ReviewPassWithFindings && state.ProvisionalVerdict != ReviewFail {
+		return fmt.Errorf("%w: %s: unsupported provisional review verdict %q", ErrFlowStateMalformed, path, state.ProvisionalVerdict)
+	}
 	if err := validateAttempt(state.ActiveAttempt, true); err != nil {
 		return fmt.Errorf("%w: %s: review active attempt: %v", ErrFlowStateMalformed, path, err)
 	}
@@ -1095,11 +1131,14 @@ func (s Service) saveReviewState(projectRef, sprintRef string, r ReviewResult, c
 		current.Resume = nil
 	}
 	current.Status, current.LastRunAt, current.Completed, current.Total, current.Diagnostics = r.Status, &now, completed, total, append([]ReviewDiagnostic(nil), r.Diagnostics...)
-	attempt := VerificationAttempt{ID: fmt.Sprintf("review-%d", now.UnixNano()), Status: AttemptRunning, StartedAt: now}
+	current.ProvisionalVerdict = r.ProvisionalVerdict
+	attempt := VerificationAttempt{ID: fmt.Sprintf("review-%d", now.UnixNano()), Status: AttemptRunning, StartedAt: now, HeartbeatAt: now, OwnerPID: os.Getpid()}
 	if current.ActiveAttempt != nil {
 		attempt = *current.ActiveAttempt
 	}
 	if r.Status == ReviewRunning {
+		attempt.HeartbeatAt = now
+		attempt.OwnerPID = os.Getpid()
 		current.ActiveAttempt = &attempt
 		if current.Resume != nil && !r.Restarted {
 			current.Resume.AttemptID = attempt.ID
@@ -1111,6 +1150,7 @@ func (s Service) saveReviewState(projectRef, sprintRef string, r ReviewResult, c
 		current.ActiveAttempt, current.LastAttempt = nil, &attempt
 	}
 	if r.Status == ReviewCompleted {
+		current.ProvisionalVerdict = ""
 		digest, _ := hashFile(mustArtifactPath(s.root, sp, StageReview))
 		current.Verdict, current.Fingerprint, current.ArtifactDigest, current.Stale = r.Verdict, r.Fingerprint, digest, false
 		current.LastComplete = &ReviewCompletion{Verdict: r.Verdict, Artifact: ArtifactRelPath(sp, StageReview), ArtifactDigest: digest, InputFingerprint: r.Fingerprint, CompletedAt: now, Coverage: append([]ReviewCoverageResult(nil), r.Coverage...)}
@@ -1329,7 +1369,7 @@ func renderReviewerPrompt(m ReviewManifest, c ReviewInput) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(m.PromptTemplate))
 	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "# Read-only Sprint Reviewer\n\nReview coverage `%s` (%s: %s). Do not write files, mutate git, or run destructive commands. Read the coverage source and governed inputs from the exact paths below; their hashes form the frozen fingerprint and inputs are checked again before promotion. Review only those inputs and the target scope. Cite logical manifest paths, not absolute read paths. Return exactly one JSON object matching: {\"schemaVersion\":1,\"coverageId\":string,\"applicability\":\"direct|partial|not_triggered|deferred\",\"summary\":string,\"findings\":[{\"id\":string,\"severity\":\"info|low|medium|high|blocker\",\"applicability\":\"direct|partial|not_triggered|deferred\",\"title\":string,\"detail\":string,\"action\":string,\"citations\":[{\"path\":string,\"startLine\":number,\"endLine\":number}]}]}. Every direct or partial finding requires real line citations.\n\nTarget: %s\nFingerprint: %s\nChanged paths: %s\n\nCoverage source: logical `%s`; read `%s`; sha256 `%s`.\n\nFrozen input index:\n", c.ID, c.Kind, c.Name, m.Target, m.Fingerprint, strings.Join(m.ChangedPaths, ", "), c.Path, reviewInputReadPath(m, c), c.Hash)
+	fmt.Fprintf(&b, "# Read-only Sprint Reviewer\n\nReview coverage `%s` (%s: %s). Do not write files, mutate git, or run destructive commands. Read the coverage source and governed inputs from the exact paths below; their hashes form the frozen fingerprint and inputs are checked again before promotion. Review only those inputs and the target scope. Cite logical manifest paths, not absolute read paths. Return exactly one JSON object matching: {\"schemaVersion\":1,\"coverageId\":string,\"applicability\":\"direct|partial|not_triggered|explicitly_deferred\",\"summary\":string,\"findings\":[{\"id\":string,\"severity\":\"info|low|medium|high|blocker\",\"applicability\":\"direct|partial|not_triggered|explicitly_deferred\",\"title\":string,\"detail\":string,\"action\":string,\"citations\":[{\"path\":string,\"startLine\":number,\"endLine\":number}]}]}. Every direct or partial finding requires real line citations. Findings are only for actionable deviations; summarize confirmed conformance in `summary` instead of emitting informational findings. Use stable unique finding IDs and emit no more than %d findings.\n\nTarget: %s\nFingerprint: %s\nChanged paths: %s\n\nCoverage source: logical `%s`; read `%s`; sha256 `%s`.\n\nFrozen input index:\n", c.ID, c.Kind, c.Name, maxReviewFindingsPerCoverage, m.Target, m.Fingerprint, strings.Join(m.ChangedPaths, ", "), c.Path, reviewInputReadPath(m, c), c.Hash)
 	for _, in := range m.Inputs {
 		fmt.Fprintf(&b, "- logical `%s`; kind `%s`; read `%s`; sha256 `%s`\n", in.Path, in.Kind, reviewInputReadPath(m, in), in.Hash)
 	}
@@ -1494,7 +1534,7 @@ func safeReviewText(root, value string) string {
 }
 
 func validReviewApplicability(v string) bool {
-	return v == "direct" || v == "partial" || v == "not_triggered" || v == "deferred"
+	return v == "direct" || v == "partial" || v == "not_triggered" || v == "explicitly_deferred" || v == "deferred"
 }
 func reviewApplicable(v string) bool { return v == "direct" || v == "partial" }
 

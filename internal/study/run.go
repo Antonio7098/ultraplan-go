@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Antonio7098/agentwrap"
-
 	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
@@ -92,12 +90,7 @@ func (s Service) startRuntime(ctx context.Context, prompt PromptResult, kind Tas
 	req = withStudyRuntimeIsolation(req)
 	req.Metadata = executionMetadata(req, kind, study, dimension, source, outputPath)
 	req.OnEvent = onEvent
-	req.Validation = &agentwrap.ValidationSpec{Expectations: []agentwrap.ValidationExpectation{{
-		ID:       "expected_output",
-		Kind:     agentwrap.ExpectationFile,
-		Severity: agentwrap.ExpectationRequired,
-		Path:     outputPath,
-	}}}
+	req.Validation = studyReportValidationSpec(kind, study, source, dimension, outputPath)
 	return s.runtime.StartRun(ctx, req)
 }
 

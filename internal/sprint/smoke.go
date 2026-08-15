@@ -179,7 +179,7 @@ func (s Service) saveSmokeAttempt(projectRef, sprintRef string, result SmokeResu
 	}
 	if !terminal {
 		current.Status = SmokeRunning
-		current.ActiveAttempt = &VerificationAttempt{ID: fmt.Sprintf("smoke-%d", now.UnixNano()), Status: AttemptRunning, StartedAt: now}
+		current.ActiveAttempt = &VerificationAttempt{ID: fmt.Sprintf("smoke-%d", now.UnixNano()), Status: AttemptRunning, StartedAt: now, HeartbeatAt: now, OwnerPID: os.Getpid()}
 	} else {
 		attempt := VerificationAttempt{ID: fmt.Sprintf("smoke-%d", now.UnixNano()), StartedAt: now}
 		if current.ActiveAttempt != nil {

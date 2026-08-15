@@ -135,9 +135,11 @@ Then run or resume the governed review:
 
     ultraplan sprint <project> <sprint> review
 
+Plain reruns resume only validated coverage and retained reviewer sessions. Use ` + "`--restart`" + ` only when the user explicitly wants to discard compatible checkpoints or when the CLI reports that the saved schema, model, or input fingerprint is incompatible. Do not use restart as a generic retry for runtime, schema, or caller-interruption failures.
+
 The CLI owns reviewer fan-out, frozen inputs, aggregation, verdict calculation, state reconciliation, and creation of the sprint-root ` + "`review.md`" + `. Do not replace it with a single-agent ad hoc code review. After it finishes, read the generated ` + "`review.md`" + ` and the fresh review status, then summarize the verdict, findings by severity, evidence freshness, blockers, and smoke eligibility for the user.
 
-Do not silently fix findings during the review stage; if fixes are requested, return to execute and rerun review so evidence and fingerprints remain authoritative.`,
+If publication is blocked because inputs changed, report the exact changed logical paths emitted by the CLI, restore a stable input set, and rerun normally. Do not silently fix findings during the review stage; if fixes are requested, return to execute and rerun review so evidence and fingerprints remain authoritative.`,
 		},
 		{
 			Stage:            "smoke",

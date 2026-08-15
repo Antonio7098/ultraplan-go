@@ -89,7 +89,7 @@ func TestFlowSuccessAndValidationFailureUpdateState(t *testing.T) {
 	}
 }
 
-func TestFlowKeepsGeneratedArtifactValidationOutsideRuntime(t *testing.T) {
+func TestFlowConfiguresRuntimeValidationAndKeepsProductValidation(t *testing.T) {
 	root := workspaceFixture(t)
 	sp := sprintFixture(t, root, "proj", "01-alpha")
 	writeFixtureProjectIndex(t, root, "proj")
@@ -99,8 +99,8 @@ func TestFlowKeepsGeneratedArtifactValidationOutsideRuntime(t *testing.T) {
 	rt := &validationInspectRuntime{}
 	service := NewService(root).WithRuntime(rt)
 	_, _ = service.FlowSprintIndex(context.Background(), "proj", "01", FlowRequest{To: StageSprintIndex})
-	if rt.request.Validation != nil {
-		t.Fatalf("runtime request validation = %#v, want nil so local validation controls repair", rt.request.Validation)
+	if rt.request.Validation == nil || len(rt.request.Validation.Validators) == 0 || rt.request.Validation.Repair.MaxAttempts != 2 {
+		t.Fatalf("runtime request validation = %#v, want semantic validation with bounded repair", rt.request.Validation)
 	}
 }
 

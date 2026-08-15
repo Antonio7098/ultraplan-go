@@ -412,8 +412,40 @@ func targetIdentity(root string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// targetRevisionIdentity deliberately excludes unrelated dirty files. Review
+// separately freezes every execute-reported changed path, so repository-wide
+// hashing would make an unrelated edit invalidate an otherwise atomic review.
+func targetRevisionIdentity(root string) (string, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	head := "non-git"
+	if output, gitErr := exec.Command("git", "-C", root, "rev-parse", "--show-toplevel").Output(); gitErr == nil {
+		gitRoot, absErr := filepath.Abs(strings.TrimSpace(string(output)))
+		if absErr == nil && filepath.Clean(gitRoot) == filepath.Clean(root) {
+			if output, headErr := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output(); headErr == nil {
+				head = strings.TrimSpace(string(output))
+			}
+		}
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "root=%s\nhead=%s\n", filepath.ToSlash(root), head)
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 func attemptExpired(attempt *VerificationAttempt, now time.Time) bool {
-	return attempt != nil && attempt.Status == AttemptRunning && now.Sub(attempt.StartedAt) > 24*time.Hour
+	if attempt == nil || attempt.Status != AttemptRunning {
+		return false
+	}
+	if attempt.OwnerPID > 0 && !verificationProcessAlive(attempt.OwnerPID) {
+		return true
+	}
+	lastSeen := attempt.StartedAt
+	if attempt.HeartbeatAt.After(lastSeen) {
+		lastSeen = attempt.HeartbeatAt
+	}
+	return now.Sub(lastSeen) > 2*time.Hour
 }
 
 func reconcileExpiredAttempts(state *FlowState, now time.Time) bool {

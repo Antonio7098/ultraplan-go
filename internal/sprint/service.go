@@ -76,7 +76,15 @@ func (s Service) acquireMutation(projectRef, sprintRef string) (func(), error) {
 	if _, loaded := s.mutations.LoadOrStore(key, struct{}{}); loaded {
 		return nil, fmt.Errorf("%w for %s/%s; wait for the active attempt or cancel it", ErrVerificationConflict, sp.Project, sp.Slug)
 	}
-	return func() { s.mutations.Delete(key) }, nil
+	fileLock, lockErr := acquireVerificationFileLock(s.root, sp, s.now().UTC())
+	if lockErr != nil {
+		s.mutations.Delete(key)
+		return nil, lockErr
+	}
+	return func() {
+		_ = fileLock.release()
+		s.mutations.Delete(key)
+	}, nil
 }
 
 func (s Service) WithRuntime(rt Runtime, reqs ...pruntime.Request) Service {
@@ -453,6 +461,7 @@ func (s Service) FlowRequirements(ctx context.Context, projectRef, sprintRef str
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageRequirements)})
+	runtimeReq.Validation = s.requirementsValidationSpec(sp)
 	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
@@ -521,6 +530,7 @@ func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef stri
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageSprintIndex)})
+	runtimeReq.Validation = s.sprintIndexValidationSpec(sp, catalog)
 	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
@@ -597,6 +607,7 @@ func (s Service) FlowPlan(ctx context.Context, projectRef, sprintRef string, req
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StagePlan)})
+	runtimeReq.Validation = s.planValidationSpec(sp, manifest)
 	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
@@ -677,6 +688,7 @@ func (s Service) FlowTechnicalHandbook(ctx context.Context, projectRef, sprintRe
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageTechnicalHandbook)})
+	runtimeReq.Validation = s.technicalHandbookValidationSpec(sp, manifest)
 	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
@@ -1043,6 +1055,7 @@ func (s Service) flowAreaReasoning(ctx context.Context, sp Sprint, req FlowReque
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageAreaReasoning)})
+	runtimeReq.Validation = s.areaReasoningValidationSpec(manifest)
 	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
@@ -1143,6 +1156,7 @@ func (s Service) flowFinalReasoning(ctx context.Context, sp Sprint, req FlowRequ
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Stages: stages}, err
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageReasoning)})
+	runtimeReq.Validation = s.finalReasoningValidationSpec(sp, manifest)
 	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)

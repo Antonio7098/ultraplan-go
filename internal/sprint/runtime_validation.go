@@ -125,10 +125,19 @@ func generatedArtifactValidationSpec(id, path string, validate func() []Validati
 			}
 		})},
 		Repair: agentwrap.RepairConfig{
-			MaxAttempts:   generatedArtifactRepairAttempts,
-			SessionAction: agentwrap.SessionActionContinue,
+			MaxAttempts:                 generatedArtifactRepairAttempts + 1,
+			SessionAction:               agentwrap.SessionActionContinue,
+			AllowFreshSessionFallback:   true,
+			FreshSessionFallbackOnError: true,
 			BuildPrompt: func(ctx agentwrap.RepairContext) string {
 				return buildGeneratedArtifactRepairPrompt(path, ctx.Validation.Failures)
+			},
+			OverrideRequest: func(ctx agentwrap.RepairContext, req agentwrap.RunRequest) agentwrap.RunRequest {
+				if ctx.Attempt >= 2 {
+					req.SessionID = ""
+					req.SessionAction = agentwrap.SessionActionFresh
+				}
+				return req
 			},
 		},
 	}

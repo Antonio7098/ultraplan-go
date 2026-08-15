@@ -124,6 +124,31 @@ func TestVerificationStatusDerivesExpiredReviewAttemptWithoutWriting(t *testing.
 	}
 }
 
+func TestVerificationStatusImmediatelyRecoversDeadAttemptOwner(t *testing.T) {
+	root, sp := reviewFixture(t)
+	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	started := now.Add(-time.Minute)
+	state := NewFlowState(sp, completeStates(sp), started)
+	state.Review = &ReviewStageState{
+		Status:        ReviewRunning,
+		Path:          ArtifactRelPath(sp, StageReview),
+		LastRunAt:     &started,
+		ActiveAttempt: &VerificationAttempt{ID: "review-dead-owner", Status: AttemptRunning, StartedAt: started, HeartbeatAt: started, OwnerPID: 99999999},
+	}
+	if err := SaveFlowState(root, sp, state); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(root)
+	service.now = func() time.Time { return now }
+	status, err := service.VerificationStatus("proj", "01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Review.ActiveAttempt != nil || status.Review.LastAttempt == nil || status.Review.LastAttempt.Status != AttemptTimedOut {
+		t.Fatalf("dead owner was not recovered: %+v", status.Review)
+	}
+}
+
 func TestReviewFreshnessArtifactEditAndFocusedMerge(t *testing.T) {
 	root, sp := reviewFixture(t)
 	runtime := &reviewRuntime{}

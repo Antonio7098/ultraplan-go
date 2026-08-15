@@ -309,7 +309,9 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 	select {
 	case events := <-eventsCh:
 		mapped.Events = events.events
-		mapped.TerminalOutput = events.terminalOutput
+		if mapped.TerminalOutput == "" && events.terminalOutput != "" {
+			mapped.TerminalOutput = events.terminalOutput
+		}
 		mapped.EventStats = events.stats()
 		mapped.Memory = events.memory
 		if events.dropped > 0 {
@@ -504,23 +506,24 @@ func mapResult(result agentwrap.RunResult) Result {
 		warnings = append(warnings, truncateDiagnosticString(warning))
 	}
 	return Result{
-		RunID:         string(result.RunID),
-		SessionID:     string(result.SessionID),
-		TurnID:        string(result.TurnID),
-		Status:        string(result.Status),
-		Artifacts:     mapArtifacts(result.Artifacts),
-		Warnings:      warnings,
-		Attempts:      mapAttempts(result.Metadata.Attempts),
-		Usage:         mapUsage(result.Usage),
-		EstimatedCost: mapCost(result.Metadata.EstimatedCost),
-		Policy:        mapPolicy(result.Metadata.Policy),
-		Permissions:   mapPermissions(result.Metadata.Permissions),
-		Cleanup:       mapCleanup(result.Metadata.Cleanup),
-		Validation:    mapValidation(result.Metadata.Validation),
-		Repair:        mapRepair(result.Metadata.Repair),
-		Error:         mapSDKError(result.Err),
-		StartedAt:     result.StartedAt,
-		FinishedAt:    result.FinishedAt,
+		RunID:          string(result.RunID),
+		SessionID:      string(result.SessionID),
+		TurnID:         string(result.TurnID),
+		Status:         string(result.Status),
+		TerminalOutput: result.TerminalOutput,
+		Artifacts:      mapArtifacts(result.Artifacts),
+		Warnings:       warnings,
+		Attempts:       mapAttempts(result.Metadata.Attempts),
+		Usage:          mapUsage(result.Usage),
+		EstimatedCost:  mapCost(result.Metadata.EstimatedCost),
+		Policy:         mapPolicy(result.Metadata.Policy),
+		Permissions:    mapPermissions(result.Metadata.Permissions),
+		Cleanup:        mapCleanup(result.Metadata.Cleanup),
+		Validation:     mapValidation(result.Metadata.Validation),
+		Repair:         mapRepair(result.Metadata.Repair),
+		Error:          mapSDKError(result.Err),
+		StartedAt:      result.StartedAt,
+		FinishedAt:     result.FinishedAt,
 	}
 }
 

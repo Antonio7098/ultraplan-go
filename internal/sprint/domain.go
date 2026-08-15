@@ -157,6 +157,8 @@ type VerificationAttempt struct {
 	ID          string        `json:"id"`
 	Status      AttemptStatus `json:"status"`
 	StartedAt   time.Time     `json:"startedAt"`
+	HeartbeatAt time.Time     `json:"heartbeatAt,omitzero"`
+	OwnerPID    int           `json:"ownerPid,omitempty"`
 	CompletedAt *time.Time    `json:"completedAt,omitempty"`
 	Category    string        `json:"category,omitempty"`
 	Diagnostics []string      `json:"diagnostics,omitempty"`
@@ -307,6 +309,9 @@ func validateAttempt(attempt *VerificationAttempt, active bool) error {
 	}
 	if attempt.ID == "" || attempt.StartedAt.IsZero() || strings.ContainsAny(attempt.ID, "\x00\r\n") {
 		return fmt.Errorf("invalid identity or start time")
+	}
+	if attempt.OwnerPID < 0 || (!attempt.HeartbeatAt.IsZero() && attempt.HeartbeatAt.Before(attempt.StartedAt)) {
+		return fmt.Errorf("invalid attempt owner or heartbeat")
 	}
 	switch attempt.Status {
 	case AttemptRunning, AttemptCompleted, AttemptFailed, AttemptCancelled, AttemptTimedOut, AttemptBlocked:
