@@ -230,8 +230,12 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 			findings = append(findings, finding("Review prerequisites", item.id, rel, "missing governed project input", safeError(readErr), "Restore the governed project input."))
 			continue
 		}
-		manifest.Contents[rel] = string(data)
-		manifest.Inputs = append(manifest.Inputs, reviewInput(item.id, "governed", item.id, rel, string(data)))
+		content := string(data)
+		if item.id == "project-index" {
+			content = reviewRelevantProjectIndexContent(content)
+		}
+		manifest.Contents[rel] = content
+		manifest.Inputs = append(manifest.Inputs, reviewInput(item.id, "governed", item.id, rel, content))
 	}
 	for _, item := range base {
 		data, readErr := s.store.ReadArtifact(sp, item.stage)
@@ -1254,6 +1258,37 @@ func fingerprintReviewManifest(m ReviewManifest) string {
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
+
+// reviewRelevantProjectIndexContent removes smoke-only configuration from the
+// frozen review view while preserving line numbers. Smoke owns validation of
+// its harness catalog; moving that harness must not invalidate implementation
+// review evidence or restart every reviewer.
+func reviewRelevantProjectIndexContent(content string) string {
+	lines := strings.Split(content, "\n")
+	inSmokeHarnesses := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.EqualFold(trimmed, "## Smoke Harnesses") {
+			inSmokeHarnesses = true
+			lines[i] = ""
+			continue
+		}
+		if inSmokeHarnesses {
+			if strings.HasPrefix(trimmed, "## ") {
+				inSmokeHarnesses = false
+			} else {
+				lines[i] = ""
+				continue
+			}
+		}
+		plain := strings.ToLower(strings.ReplaceAll(trimmed, "**", ""))
+		if strings.HasPrefix(plain, "- smoke harness directory:") {
+			lines[i] = ""
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func reviewChangedPaths(data []byte) []string {
 	var raw struct {
 		Files []string `json:"files"`

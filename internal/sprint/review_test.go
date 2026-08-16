@@ -179,6 +179,49 @@ func TestReviewManifestExecutionAndArtifactPreservation(t *testing.T) {
 	}
 }
 
+func TestReviewFingerprintIgnoresSmokeOnlyProjectIndexChanges(t *testing.T) {
+	root, _ := reviewFixture(t)
+	indexPath := filepath.Join(root, "projects", "proj", "project-index.md")
+	content, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withSmoke := string(content) + `
+
+## Smoke Harnesses
+
+| Harness | Path | Manifest | Evidence | Useful For | Status |
+|---|---|---|---|---|---|
+| smoke | /old/smoke | manifest.json | runs/ | runtime | current |
+`
+	writeFileContent(t, filepath.Dir(indexPath), withSmoke, filepath.Base(indexPath))
+	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	before, findings, err := service.PrepareReview("proj", "01", ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare before: err=%v findings=%+v", err, findings)
+	}
+
+	afterSmokeMove := strings.Replace(withSmoke, "/old/smoke", "/new/location/smoke", 1)
+	writeFileContent(t, filepath.Dir(indexPath), afterSmokeMove, filepath.Base(indexPath))
+	after, findings, err := service.PrepareReview("proj", "01", ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare after: err=%v findings=%+v", err, findings)
+	}
+	if before.Fingerprint != after.Fingerprint {
+		t.Fatalf("smoke-only project-index change invalidated review: before=%s after=%s", before.Fingerprint, after.Fingerprint)
+	}
+
+	afterRelevantChange := strings.Replace(afterSmokeMove, "# Project Index", "# Changed Project Index", 1)
+	writeFileContent(t, filepath.Dir(indexPath), afterRelevantChange, filepath.Base(indexPath))
+	relevant, findings, err := service.PrepareReview("proj", "01", ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare relevant: err=%v findings=%+v", err, findings)
+	}
+	if after.Fingerprint == relevant.Fingerprint {
+		t.Fatal("review-relevant project-index change did not invalidate review")
+	}
+}
+
 func TestReviewResumesValidatedCoverageAndOpenCodeSession(t *testing.T) {
 	root, sp := reviewFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
