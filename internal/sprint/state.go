@@ -65,6 +65,28 @@ func LoadFlowState(root string, s Sprint) (FlowState, error) {
 	return state, nil
 }
 
+// legacyFlowState reports the original versioned map-based planning state.
+// It predates durable review/smoke attempt ownership, so recovery has no live
+// attempt to reconcile and must preserve the file for compatibility.
+func legacyFlowState(root string, s Sprint) bool {
+	path, err := FlowStatePath(root, s)
+	if err != nil {
+		return false
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var header struct {
+		SchemaVersion int `json:"schemaVersion"`
+		Version       int `json:"version"`
+	}
+	if err := json.Unmarshal(content, &header); err != nil {
+		return false
+	}
+	return header.SchemaVersion == 0 && header.Version == 1
+}
+
 func migrateFlowStateV1(root string, sp Sprint, state FlowState) FlowState {
 	state.SchemaVersion = FlowStateSchemaVersion
 	if state.Review != nil {

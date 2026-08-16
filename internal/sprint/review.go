@@ -386,11 +386,12 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 		return result, err
 	}
 	if !req.DryRun && !req.PromptOnly {
-		release, lockErr := s.acquireMutation(projectRef, sprintRef)
+		lockedCtx, release, lockErr := s.acquireMutationContext(ctx, projectRef, sprintRef)
 		if lockErr != nil {
 			return result, lockErr
 		}
 		defer release()
+		ctx = lockedCtx
 	}
 	if len(findings) > 0 {
 		result.Status, result.Verdict = ReviewBlocked, ReviewVerdictBlocked

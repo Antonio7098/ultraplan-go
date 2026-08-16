@@ -45,6 +45,29 @@ func TestSecurityHostOriginNoCORSAndHeaders(t *testing.T) {
 	}
 }
 
+func TestSecurityAllowsKnownStaticAssetsWithOpaqueSubresourceOrigin(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	for _, path := range []string{"/static/app.css", "/static/app.js"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = testAuthority
+		req.Header.Set("Origin", "null")
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", path, res.Code, res.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req.Host = testAuthority
+	req.Header.Set("Origin", "null")
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("API status=%d, want forbidden", res.Code)
+	}
+}
+
 func TestSecurityBracketedIPv6AuthorityAndOrigin(t *testing.T) {
 	h, err := NewHandler(HandlerOptions{Queries: sampleQueries(), Authority: "[::1]:8080", RequestID: func() string { return "ipv6-id" }})
 	if err != nil {

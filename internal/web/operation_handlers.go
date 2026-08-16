@@ -1,0 +1,545 @@
+package web
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/Antonio7098/ultraplan-go/internal/app"
+)
+
+type operationScopeRequest struct {
+	Project string `json:"project,omitempty"`
+	Sprint  string `json:"sprint,omitempty"`
+	Study   string `json:"study,omitempty"`
+}
+
+type operationOptionsRequest struct {
+	Stage             string   `json:"stage,omitempty"`
+	ToStage           string   `json:"to_stage,omitempty"`
+	Task              string   `json:"task,omitempty"`
+	Action            string   `json:"action,omitempty"`
+	DryRun            bool     `json:"dry_run,omitempty"`
+	Resume            bool     `json:"resume,omitempty"`
+	Level             string   `json:"level,omitempty"`
+	Suite             string   `json:"suite,omitempty"`
+	Test              string   `json:"test,omitempty"`
+	Timeout           string   `json:"timeout,omitempty"`
+	ForceReview       bool     `json:"force_review,omitempty"`
+	RestartReview     bool     `json:"restart_review,omitempty"`
+	OverrideRationale string   `json:"override_rationale,omitempty"`
+	ReviewFocus       []string `json:"review_focus,omitempty"`
+	Sources           []string `json:"sources,omitempty"`
+	Dimensions        []string `json:"dimensions,omitempty"`
+	Parallelism       int      `json:"parallelism,omitempty"`
+}
+
+type operationSpecRequest struct {
+	Kind    string                  `json:"kind"`
+	Scope   operationScopeRequest   `json:"scope"`
+	Options operationOptionsRequest `json:"options,omitempty"`
+}
+
+type prepareRequest struct {
+	Operation operationSpecRequest `json:"operation"`
+}
+
+type startRequest struct {
+	Operation         operationSpecRequest `json:"operation"`
+	ConfirmationToken string               `json:"confirmation_token"`
+}
+
+type preparationDTO struct {
+	PreparationID     string         `json:"preparation_id"`
+	Operation         map[string]any `json:"operation"`
+	AffectedPaths     []string       `json:"affected_paths"`
+	MutationClass     string         `json:"mutation_class"`
+	Runtime           map[string]any `json:"runtime,omitempty"`
+	Harness           map[string]any `json:"harness,omitempty"`
+	Prerequisites     []string       `json:"prerequisites"`
+	InputFingerprint  string         `json:"input_fingerprint"`
+	ExpiresAt         time.Time      `json:"expires_at"`
+	ConfirmationToken string         `json:"confirmation_token"`
+}
+
+type operationPreparationView struct {
+	Preparation preparationDTO
+	Spec        operationSpecRequest
+}
+
+func (h *handler) handleOperationPrepare(w http.ResponseWriter, r *http.Request) {
+	if h.hub == nil || h.hub.ops == nil {
+		h.writeOperationError(w, r, errors.New("operation capability unavailable"))
+		return
+	}
+	if h.hub.isDraining() {
+		h.writeOperationError(w, r, errServerDraining)
+		return
+	}
+	var payload prepareRequest
+	if err := decodeStrictJSON(r, &payload); err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	req, err := mapOperationRequest(payload.Operation)
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	confirmation, err := h.hub.ops.PrepareOperation(r.Context(), req)
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	record, err := h.preparations.issue(sessionID(r.Context()), confirmation)
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	h.logOperation(r, "operation_prepared", "", string(confirmation.Request.Kind), "prepared", "")
+	dto := preparationDTO{
+		PreparationID: record.ID, Operation: mapOperationSpec(confirmation.Request), AffectedPaths: append([]string(nil), confirmation.Paths...),
+		MutationClass: confirmation.MutationClass, Prerequisites: append([]string(nil), confirmation.Prerequisites...),
+		InputFingerprint: confirmation.InputFingerprint, ExpiresAt: record.ExpiresAt, ConfirmationToken: record.Token,
+	}
+	if confirmation.Runtime {
+		dto.Runtime = map[string]any{"kind": "configured_runtime", "model_source": confirmation.ModelSource}
+	}
+	if confirmation.Request.Kind == app.OperationSmokeStart || confirmation.Request.Kind == app.OperationSmokeDryRun {
+		dto.Harness = map[string]any{"kind": "configured_smoke_harness"}
+	}
+	h.writeSuccess(w, r, http.StatusOK, dto, nil)
+}
+
+func (h *handler) handleOperationStart(w http.ResponseWriter, r *http.Request) {
+	if h.hub == nil || h.hub.ops == nil {
+		h.writeOperationError(w, r, errors.New("operation capability unavailable"))
+		return
+	}
+	var payload startRequest
+	if err := decodeStrictJSON(r, &payload); err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	if strings.TrimSpace(payload.ConfirmationToken) == "" {
+		h.writeOperationError(w, r, fmt.Errorf("confirmation_token is required"))
+		return
+	}
+	req, err := mapOperationRequest(payload.Operation)
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	current, err := h.hub.ops.PrepareOperation(r.Context(), req)
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	doc, err := h.hub.startConfirmed(sessionID(r.Context()), func() (app.Confirmation, error) {
+		return h.preparations.consume(payload.ConfirmationToken, sessionID(r.Context()), current.CanonicalRequest, current.InputFingerprint)
+	})
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	w.Header().Set("Location", "/api/v1/operations/"+doc.ID)
+	h.logOperation(r, "operation_started", doc.ID, string(doc.Kind), doc.State, "")
+	h.writeSuccess(w, r, http.StatusAccepted, doc, nil)
+}
+
+func (h *handler) handleOperationStatus(w http.ResponseWriter, r *http.Request, id string) {
+	doc, err := h.hub.status(sessionID(r.Context()), id)
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	h.writeSuccess(w, r, http.StatusOK, doc, nil)
+}
+
+func (h *handler) handleOperationCancel(w http.ResponseWriter, r *http.Request, id string) {
+	doc, requested, err := h.hub.cancelOperation(sessionID(r.Context()), id, "user_request")
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	status := http.StatusOK
+	if requested {
+		status = http.StatusAccepted
+	}
+	h.logOperation(r, "operation_cancel", doc.ID, string(doc.Kind), doc.State, doc.Reason)
+	h.writeSuccess(w, r, status, doc, nil)
+}
+
+func (h *handler) handleOperationEvents(w http.ResponseWriter, r *http.Request, id string) {
+	lastID, err := parseEventID(r.Header.Get("Last-Event-ID"))
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	replay, events, unsubscribe, err := h.hub.subscribe(sessionID(r.Context()), id, lastID)
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	defer unsubscribe()
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		h.writeOperationError(w, r, errors.New("streaming unavailable"))
+		return
+	}
+	_ = http.NewResponseController(w).SetWriteDeadline(h.now().Add(MaxStreamLifetime + SSEHeartbeat))
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	for _, event := range replay {
+		if err := writeSSEEvent(w, event); err != nil {
+			return
+		}
+	}
+	flusher.Flush()
+	heartbeat := time.NewTicker(SSEHeartbeat)
+	defer heartbeat.Stop()
+	lifetime := time.NewTimer(MaxStreamLifetime)
+	defer lifetime.Stop()
+	for {
+		select {
+		case event, open := <-events:
+			if !open {
+				flusher.Flush()
+				return
+			}
+			if err := writeSSEEvent(w, event); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-heartbeat.C:
+			if _, err := io.WriteString(w, ": heartbeat\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-lifetime.C:
+			return
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func (h *handler) handleHTMLOperationPrepare(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil || r.FormValue("_csrf") != csrfToken(r.Context()) {
+		h.renderError(w, r, http.StatusForbidden, "Request rejected", "The browser session or CSRF proof is invalid. Refresh the page and try again.")
+		return
+	}
+	if h.hub == nil || h.hub.ops == nil || h.hub.isDraining() {
+		h.renderError(w, r, http.StatusServiceUnavailable, "Server draining", "The server is not accepting new operations.")
+		return
+	}
+	spec := operationSpecFromForm(r)
+	req, err := mapOperationRequest(spec)
+	if err != nil {
+		h.renderError(w, r, http.StatusBadRequest, "Invalid operation", "The selected operation scope is invalid.")
+		return
+	}
+	prepared, err := h.hub.ops.PrepareOperation(r.Context(), req)
+	if err != nil {
+		h.renderError(w, r, http.StatusUnprocessableEntity, "Preparation failed", "The operation could not be prepared from current governed state.")
+		return
+	}
+	record, err := h.preparations.issue(sessionID(r.Context()), prepared)
+	if err != nil {
+		h.renderError(w, r, http.StatusTooManyRequests, "Capacity reached", "Too many preparations are active. Wait briefly and retry.")
+		return
+	}
+	dto := preparationDTO{
+		PreparationID: record.ID, Operation: mapOperationSpec(prepared.Request), AffectedPaths: append([]string(nil), prepared.Paths...),
+		MutationClass: prepared.MutationClass, Prerequisites: append([]string(nil), prepared.Prerequisites...),
+		InputFingerprint: prepared.InputFingerprint, ExpiresAt: record.ExpiresAt, ConfirmationToken: record.Token,
+	}
+	view := &operationPreparationView{Preparation: dto, Spec: spec}
+	h.render(w, r, http.StatusOK, "operation-confirm", pageModel{Title: "Confirm operation", Heading: "Confirm current operation scope", Preparation: view})
+}
+
+func (h *handler) handleHTMLOperationStart(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil || r.FormValue("_csrf") != csrfToken(r.Context()) {
+		h.renderError(w, r, http.StatusForbidden, "Request rejected", "The browser session or CSRF proof is invalid. Refresh and prepare again.")
+		return
+	}
+	if h.hub == nil || h.hub.ops == nil {
+		h.renderError(w, r, http.StatusServiceUnavailable, "Unavailable", "The operation capability is unavailable.")
+		return
+	}
+	spec := operationSpecFromForm(r)
+	req, err := mapOperationRequest(spec)
+	if err != nil {
+		h.renderError(w, r, http.StatusBadRequest, "Invalid operation", "The selected operation scope is invalid.")
+		return
+	}
+	current, err := h.hub.ops.PrepareOperation(r.Context(), req)
+	if err != nil {
+		h.renderError(w, r, http.StatusUnprocessableEntity, "Preparation stale", "The operation can no longer be prepared. Return to the owning page and prepare again.")
+		return
+	}
+	doc, err := h.hub.startConfirmed(sessionID(r.Context()), func() (app.Confirmation, error) {
+		return h.preparations.consume(r.FormValue("confirmation_token"), sessionID(r.Context()), current.CanonicalRequest, current.InputFingerprint)
+	})
+	if err != nil {
+		h.renderError(w, r, http.StatusConflict, "Confirmation rejected", "The confirmation expired, changed, or was already used. Prepare the operation again.")
+		return
+	}
+	h.logOperation(r, "operation_started", doc.ID, string(doc.Kind), doc.State, "")
+	http.Redirect(w, r, "/operations/"+doc.ID, http.StatusSeeOther)
+}
+
+func (h *handler) handleHTMLOperationStatus(w http.ResponseWriter, r *http.Request, id string) {
+	doc, err := h.hub.status(sessionID(r.Context()), id)
+	if err != nil {
+		h.renderError(w, r, http.StatusNotFound, "Operation not retained", "Refresh the owning project, sprint, or study page for durable status.")
+		return
+	}
+	h.render(w, r, http.StatusOK, "operation", pageModel{Title: "Operation " + doc.ID, Heading: "Operation status", Operation: &doc})
+}
+
+func operationSpecFromForm(r *http.Request) operationSpecRequest {
+	parallelism, _ := strconv.Atoi(r.FormValue("parallelism"))
+	return operationSpecRequest{
+		Kind:    r.FormValue("kind"),
+		Scope:   operationScopeRequest{Project: r.FormValue("project"), Sprint: r.FormValue("sprint"), Study: r.FormValue("study")},
+		Options: operationOptionsRequest{ToStage: r.FormValue("stage"), Parallelism: parallelism},
+	}
+}
+
+func writeSSEEvent(w io.Writer, event operationEvent) error {
+	_, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.ID, event.Name, event.Data)
+	return err
+}
+
+func decodeStrictJSON(r *http.Request, target any) error {
+	contentType := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(strings.ToLower(contentType), "application/json") {
+		return fmt.Errorf("Content-Type must be application/json")
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("invalid JSON request: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("request must contain one JSON value")
+	}
+	return nil
+}
+
+func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error) {
+	if !validOptionalIdentifier(spec.Scope.Project) || !validOptionalIdentifier(spec.Scope.Sprint) || !validOptionalIdentifier(spec.Scope.Study) {
+		return app.OperationRequest{}, fmt.Errorf("operation scope contains an invalid identifier")
+	}
+	options := spec.Options
+	req := app.OperationRequest{
+		Project: spec.Scope.Project, Sprint: spec.Scope.Sprint, Study: spec.Scope.Study,
+		Stage: firstString(options.ToStage, options.Stage), Task: options.Task,
+		Level: options.Level, Suite: options.Suite, Test: options.Test, Timeout: options.Timeout,
+		ForceReview: options.ForceReview, RestartReview: options.RestartReview, OverrideRationale: options.OverrideRationale,
+		ReviewFocus: options.ReviewFocus, Sources: options.Sources, Dimensions: options.Dimensions, Parallelism: options.Parallelism,
+	}
+	kind := strings.ReplaceAll(strings.TrimSpace(spec.Kind), "_", "-")
+	switch kind {
+	case "validation", "validate":
+		req.Kind = app.OperationValidate
+	case "sprint-status":
+		req.Kind = app.OperationSprintStatus
+	case "prompt-preview", "sprint-prompt":
+		req.Kind = app.OperationPrompt
+	case "dry-run", "sprint-flow-dry-run":
+		req.Kind = app.OperationFlowDryRun
+	case "sprint-flow":
+		if options.DryRun {
+			req.Kind = app.OperationFlowDryRun
+		} else {
+			req.Kind = app.OperationFlow
+		}
+	case "execute", "execute-start":
+		switch {
+		case options.Action == "status":
+			req.Kind = app.OperationExecuteStatus
+		case options.DryRun:
+			req.Kind = app.OperationExecuteDryRun
+		case options.Resume:
+			req.Kind = app.OperationExecuteResume
+		default:
+			req.Kind = app.OperationExecuteStart
+		}
+	case "execute-status":
+		req.Kind = app.OperationExecuteStatus
+	case "execute-dry-run":
+		req.Kind = app.OperationExecuteDryRun
+	case "execute-resume":
+		req.Kind = app.OperationExecuteResume
+	case "review", "review-start":
+		if options.Action == "status" {
+			req.Kind = app.OperationReviewStatus
+		} else if options.DryRun {
+			req.Kind = app.OperationReviewDryRun
+		} else {
+			req.Kind = app.OperationReviewStart
+		}
+	case "review-status":
+		req.Kind = app.OperationReviewStatus
+	case "review-dry-run":
+		req.Kind = app.OperationReviewDryRun
+	case "smoke", "smoke-start":
+		if options.Action == "status" {
+			req.Kind = app.OperationSmokeStatus
+		} else if options.DryRun {
+			req.Kind = app.OperationSmokeDryRun
+		} else {
+			req.Kind = app.OperationSmokeStart
+		}
+	case "smoke-status":
+		req.Kind = app.OperationSmokeStatus
+	case "smoke-dry-run":
+		req.Kind = app.OperationSmokeDryRun
+	case "verify", "verify-start":
+		if options.DryRun {
+			req.Kind = app.OperationVerifyDryRun
+		} else {
+			req.Kind = app.OperationVerifyStart
+		}
+	case "verify-dry-run":
+		req.Kind = app.OperationVerifyDryRun
+	case "study-run-loop", "study-start":
+		if options.Resume {
+			req.Kind = app.OperationStudyResume
+		} else {
+			req.Kind = app.OperationStudyStart
+		}
+	case "study-resume":
+		req.Kind = app.OperationStudyResume
+	case "study-cancel":
+		req.Kind = app.OperationStudyCancel
+	default:
+		return app.OperationRequest{}, fmt.Errorf("unsupported operation kind %q", spec.Kind)
+	}
+	if req.Kind == app.OperationValidate {
+		if (req.Project == "") == (req.Study == "") {
+			return app.OperationRequest{}, fmt.Errorf("validation requires one project or study scope")
+		}
+	} else if strings.HasPrefix(string(req.Kind), "study-") {
+		if req.Study == "" || req.Project != "" || req.Sprint != "" {
+			return app.OperationRequest{}, fmt.Errorf("study operations require only scope.study")
+		}
+	} else if req.Project == "" {
+		return app.OperationRequest{}, fmt.Errorf("project operations require scope.project")
+	} else if req.Sprint == "" {
+		return app.OperationRequest{}, fmt.Errorf("sprint operations require scope.sprint")
+	}
+	return req, nil
+}
+
+func mapOperationSpec(req app.OperationRequest) map[string]any {
+	scope := map[string]any{}
+	if req.Project != "" {
+		scope["project"] = req.Project
+	}
+	if req.Sprint != "" {
+		scope["sprint"] = req.Sprint
+	}
+	if req.Study != "" {
+		scope["study"] = req.Study
+	}
+	options := map[string]any{}
+	if req.Stage != "" {
+		options["stage"] = req.Stage
+	}
+	if req.Task != "" {
+		options["task"] = req.Task
+	}
+	if req.Parallelism > 0 {
+		options["parallelism"] = req.Parallelism
+	}
+	return map[string]any{"kind": req.Kind, "scope": scope, "options": options}
+}
+
+func validOptionalIdentifier(value string) bool {
+	return value == "" || validIdentifier(value)
+}
+
+func firstString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func (h *handler) writeOperationError(w http.ResponseWriter, r *http.Request, err error) {
+	status, code, message, retryable := http.StatusBadRequest, "invalid_request", "The operation request is invalid.", false
+	details := map[string]any{}
+	switch {
+	case errors.Is(err, errConfirmationExpired):
+		status, code, message, retryable = http.StatusConflict, "confirmation_expired", "The confirmation expired. Prepare the operation again.", true
+	case errors.Is(err, errConfirmationMismatch):
+		status, code, message = http.StatusConflict, "confirmation_mismatch", "The confirmation does not match this session or operation."
+	case errors.Is(err, errConfirmationReplayed):
+		status, code, message = http.StatusConflict, "confirmation_replayed", "The confirmation was already used or is unknown."
+	case errors.Is(err, errStaleConfirmation), errors.Is(err, app.ErrStaleOperation):
+		status, code, message, retryable = http.StatusConflict, "stale_confirmation", "The operation inputs changed after confirmation. Prepare it again.", true
+	case errors.Is(err, errOperationNotFound):
+		status, code, message = http.StatusNotFound, "operation_not_found", "The operation is no longer retained. Refresh durable status."
+		details["action"] = "refresh_durable_status"
+	case errors.Is(err, errOperationCapacity):
+		status, code, message, retryable = http.StatusTooManyRequests, "operation_capacity", "Operation capacity is currently full.", true
+		w.Header().Set("Retry-After", "2")
+	case errors.Is(err, errSubscriberCapacity):
+		status, code, message, retryable = http.StatusTooManyRequests, "subscriber_capacity", "Stream capacity is currently full.", true
+		w.Header().Set("Retry-After", "2")
+	case errors.Is(err, errServerDraining):
+		status, code, message, retryable = http.StatusServiceUnavailable, "server_draining", "The server is shutting down and is not accepting new work.", true
+		w.Header().Set("Retry-After", "2")
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		status, code, message, retryable = http.StatusServiceUnavailable, "server_draining", "The server is shutting down.", true
+	case strings.Contains(strings.ToLower(err.Error()), "validation"):
+		status, code, message = http.StatusUnprocessableEntity, "validation_failed", "The governed inputs failed validation."
+	case strings.Contains(strings.ToLower(err.Error()), "lock"), strings.Contains(strings.ToLower(err.Error()), "in progress"):
+		status, code, message, retryable = http.StatusConflict, "operation_conflict", "A conflicting operation is already running.", true
+	case strings.Contains(strings.ToLower(err.Error()), "unavailable"):
+		status, code, message, retryable = http.StatusFailedDependency, "prerequisite_unavailable", "A required operation prerequisite is unavailable.", true
+	case !isClientOperationError(err):
+		status, code, message = http.StatusInternalServerError, "internal_failure", "The operation could not be completed."
+	}
+	h.writeErrorDetails(w, r, status, errorBody{Code: code, Message: message, Retryable: retryable, Details: details})
+}
+
+func isClientOperationError(err error) bool {
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "required") || strings.Contains(text, "invalid") || strings.Contains(text, "unsupported") || strings.Contains(text, "json") || strings.Contains(text, "content-type") || strings.Contains(text, "scope")
+}
+
+func (h *handler) writeErrorDetails(w http.ResponseWriter, r *http.Request, status int, body errorBody) {
+	meta := responseMeta{APIVersion: "v1", RequestID: requestID(r.Context()), GeneratedAt: h.now().UTC().Format(time.RFC3339Nano)}
+	writeJSON(w, status, errorEnvelope{Error: body, Meta: meta})
+}
+
+func eventIDHeader(value string) string {
+	if value == "" {
+		return "0"
+	}
+	if _, err := strconv.ParseUint(value, 10, 64); err != nil {
+		return "0"
+	}
+	return value
+}
+
+func (h *handler) logOperation(r *http.Request, event, operationID, kind, state, reason string) {
+	fmt.Fprintf(h.diagnostics,
+		"event=%s request_id=%s operation_id=%s kind=%s state=%s reason=%s\n",
+		safeWebText(event), safeWebText(requestID(r.Context())), safeWebText(operationID), safeWebText(kind), safeWebText(state), safeWebText(reason))
+}

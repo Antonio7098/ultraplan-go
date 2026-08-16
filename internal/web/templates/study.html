@@ -1,8 +1,33 @@
 {{define "study"}}{{template "top" .}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/studies">Studies</a> / {{.Study.Name}}</nav>
-<dl class="metadata"><div><dt>Status</dt><dd>{{.Study.Status}}</dd></div><div><dt>Tasks</dt><dd>{{.Study.Completed}} complete / {{.Study.Total}} total</dd></div><div><dt>Active</dt><dd>{{if .Study.RunActive}}yes{{else}}no{{end}}</dd></div></dl>
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/studies">Studies</a> / {{.Study.Name}}{{if ne .Page "overview"}} / {{if eq .Page "inputs"}}Inputs{{else if eq .Page "progress"}}Progress{{else if eq .Page "operations"}}Operations{{else if eq .Page "validation"}}Validation{{else}}Artifacts{{end}}{{end}}</nav>
+<div class="detail-layout">
+<aside class="detail-sidebar">
+<nav aria-label="Study navigation"><h2>Study</h2><ul>
+<li><a href="/studies/{{.Study.Name}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
+<li><a href="/studies/{{.Study.Name}}/inputs"{{if eq .Page "inputs"}} aria-current="page"{{end}}>Inputs</a></li>
+<li><a href="/studies/{{.Study.Name}}/progress"{{if eq .Page "progress"}} aria-current="page"{{end}}>Progress</a></li>
+<li><a href="/studies/{{.Study.Name}}/operations"{{if eq .Page "operations"}} aria-current="page"{{end}}>Operations</a></li>
+<li><a href="/studies/{{.Study.Name}}/validation"{{if eq .Page "validation"}} aria-current="page"{{end}}>Validation</a></li>
+<li><a href="/studies/{{.Study.Name}}/artifacts"{{if eq .Page "artifacts"}} aria-current="page"{{end}}>Artifacts</a></li>
+</ul></nav>
+</aside>
+<div class="detail-content">
+{{if eq .Page "overview"}}
+<section><h2>Overview</h2><dl class="metadata"><div><dt>Status</dt><dd>{{.Study.Status}}</dd></div><div><dt>Tasks</dt><dd>{{.Study.Completed}} complete / {{.Study.Total}} total</dd></div><div><dt>Active</dt><dd>{{if .Study.RunActive}}yes{{else}}no{{end}}</dd></div><div><dt>Validation findings</dt><dd>{{len .Study.Findings}}</dd></div></dl></section>
+<nav class="destination-grid" aria-label="Study overview destinations"><a href="/studies/{{.Study.Name}}/inputs"><strong>Inputs</strong><span>Review sources and analysis dimensions.</span></a><a href="/studies/{{.Study.Name}}/progress"><strong>Progress</strong><span>See the detailed task and run state.</span></a><a href="/studies/{{.Study.Name}}/operations"><strong>Operations</strong><span>Prepare validation or run the study.</span></a><a href="/studies/{{.Study.Name}}/artifacts"><strong>Artifacts</strong><span>Open the study’s generated outputs.</span></a></nav>
+{{else if eq .Page "inputs"}}
 <section><h2>Sources</h2>{{if .Study.Sources}}<ul>{{range .Study.Sources}}<li>{{.}}</li>{{end}}</ul>{{else}}<p class="empty">No sources found.</p>{{end}}</section>
 <section><h2>Dimensions</h2>{{if .Study.Dimensions}}<ul>{{range .Study.Dimensions}}<li>{{.}}</li>{{end}}</ul>{{else}}<p class="empty">No dimensions found.</p>{{end}}</section>
+{{else if eq .Page "progress"}}
+<section><h2>Progress</h2><dl class="metadata"><div><dt>Status</dt><dd>{{.Study.Status}}</dd></div><div><dt>Completed</dt><dd>{{.Study.Completed}}</dd></div><div><dt>Pending</dt><dd>{{.Study.Pending}}</dd></div><div><dt>Active tasks</dt><dd>{{.Study.ActiveTasks}}</dd></div><div><dt>Failed</dt><dd>{{.Study.Failed}}</dd></div><div><dt>Cancelled</dt><dd>{{.Study.Cancelled}}</dd></div>{{if .Study.RunID}}<div><dt>Run ID</dt><dd>{{.Study.RunID}}</dd></div>{{end}}</dl></section>
+{{else if eq .Page "operations"}}
+<section><h2>Study operations</h2><div class="operation-actions"><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="validation" data-study="{{.Study.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="validation"><input type="hidden" name="study" value="{{.Study.Name}}"><button type="submit">Prepare study validation</button></form><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="study_run_loop" data-study="{{.Study.Name}}" data-parallelism="1"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="study_run_loop"><input type="hidden" name="study" value="{{.Study.Name}}"><input type="hidden" name="parallelism" value="1"><button type="submit">Prepare study run loop</button></form></div></section>
+{{template "operation-console" .}}
+{{else if eq .Page "validation"}}
 <section><h2>Validation findings</h2>{{template "findings" .Study.Findings}}</section>
+{{else}}
 <section><h2>Artifacts</h2>{{template "artifacts" .Study.Artifacts}}</section>
+{{end}}
+</div>
+</div>
 {{template "bottom" .}}{{end}}

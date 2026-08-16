@@ -25,9 +25,24 @@ func TestRouteInventoryHTMLAndAPI(t *testing.T) {
 		{"/", "text/html"},
 		{"/projects", "text/html"},
 		{"/projects/alpha", "text/html"},
+		{"/projects/alpha/documentation", "text/html"},
+		{"/projects/alpha/sprints", "text/html"},
+		{"/projects/alpha/operations", "text/html"},
+		{"/projects/alpha/validation", "text/html"},
+		{"/projects/alpha/artifacts", "text/html"},
 		{"/projects/alpha/sprints/30-web", "text/html"},
+		{"/projects/alpha/sprints/30-web/plan", "text/html"},
+		{"/projects/alpha/sprints/30-web/delivery", "text/html"},
+		{"/projects/alpha/sprints/30-web/operations", "text/html"},
+		{"/projects/alpha/sprints/30-web/validation", "text/html"},
+		{"/projects/alpha/sprints/30-web/artifacts", "text/html"},
 		{"/studies", "text/html"},
 		{"/studies/research", "text/html"},
+		{"/studies/research/inputs", "text/html"},
+		{"/studies/research/progress", "text/html"},
+		{"/studies/research/operations", "text/html"},
+		{"/studies/research/validation", "text/html"},
+		{"/studies/research/artifacts", "text/html"},
 		{"/artifacts/artifact_ref", "text/html"},
 		{"/api/v1/dashboard", "application/json"},
 		{"/api/v1/projects", "application/json"},
@@ -90,7 +105,7 @@ func TestMethodHeadAndUnknownAPIRouting(t *testing.T) {
 	if method.Code != http.StatusMethodNotAllowed || method.Header().Get("Allow") != "GET, HEAD" {
 		t.Fatalf("method status=%d allow=%q body=%s", method.Code, method.Header().Get("Allow"), method.Body.String())
 	}
-	for _, path := range []string{"/api/v2/projects", "/api/unknown", "/api/v1/operations", "/api/v1/operations/id/events"} {
+	for _, path := range []string{"/api/v2/projects", "/api/unknown", "/api/v1/operations/id/unknown"} {
 		res := request(h, http.MethodGet, path, nil)
 		if res.Code != http.StatusNotFound || !strings.Contains(res.Header().Get("Content-Type"), "application/json") ||
 			!strings.Contains(res.Body.String(), `"code":"not_found"`) {

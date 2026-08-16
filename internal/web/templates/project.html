@@ -1,7 +1,32 @@
 {{define "project"}}{{template "top" .}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / {{.Project.Name}}</nav>
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / {{.Project.Name}}{{if ne .Page "overview"}} / {{if eq .Page "documentation"}}Documentation{{else if eq .Page "sprints"}}Sprints{{else if eq .Page "operations"}}Operations{{else if eq .Page "validation"}}Validation{{else}}Artifacts{{end}}{{end}}</nav>
+<div class="detail-layout">
+<aside class="detail-sidebar">
+<nav aria-label="Project navigation"><h2>Project</h2><ul>
+<li><a href="/projects/{{.Project.Name}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
+<li><a href="/projects/{{.Project.Name}}/documentation"{{if eq .Page "documentation"}} aria-current="page"{{end}}>Documentation</a></li>
+<li><a href="/projects/{{.Project.Name}}/sprints"{{if eq .Page "sprints"}} aria-current="page"{{end}}>Sprints</a></li>
+<li><a href="/projects/{{.Project.Name}}/operations"{{if eq .Page "operations"}} aria-current="page"{{end}}>Operations</a></li>
+<li><a href="/projects/{{.Project.Name}}/validation"{{if eq .Page "validation"}} aria-current="page"{{end}}>Validation</a></li>
+<li><a href="/projects/{{.Project.Name}}/artifacts"{{if eq .Page "artifacts"}} aria-current="page"{{end}}>Artifacts</a></li>
+</ul></nav>
+</aside>
+<div class="detail-content">
+{{if eq .Page "overview"}}
+<section><h2>Overview</h2><p>Use this project hub to move between its planning work, documentation, and current health.</p><dl class="metadata"><div><dt>Sprints</dt><dd>{{len .Project.Sprints}}</dd></div><div><dt>Documentation files</dt><dd>{{len .Project.Docs}}</dd></div><div><dt>Validation findings</dt><dd>{{len .Project.Findings}}</dd></div><div><dt>Artifacts</dt><dd>{{len .Project.Artifacts}}</dd></div></dl></section>
+<nav class="destination-grid" aria-label="Project overview destinations"><a href="/projects/{{.Project.Name}}/sprints"><strong>Sprints</strong><span>Open this project’s planned and active work.</span></a><a href="/projects/{{.Project.Name}}/documentation"><strong>Documentation</strong><span>See the Markdown files that define the project.</span></a><a href="/projects/{{.Project.Name}}/operations"><strong>Operations</strong><span>Prepare and monitor project validation.</span></a><a href="/projects/{{.Project.Name}}/validation"><strong>Validation</strong><span>Review current catalog and index findings.</span></a></nav>
+{{else if eq .Page "documentation"}}
 <section><h2>Documentation</h2>{{if .Project.Docs}}<ul>{{range .Project.Docs}}<li><code>{{.}}</code></li>{{end}}</ul>{{else}}<p class="empty">No Markdown documentation found.</p>{{end}}</section>
+{{else if eq .Page "sprints"}}
 <section><h2>Sprints</h2>{{if .Project.Sprints}}<ul class="summary-grid">{{range .Project.Sprints}}<li><a href="/projects/{{.Project}}/sprints/{{.Slug}}">{{.Slug}}</a><span>{{.Status}}</span></li>{{end}}</ul>{{else}}<p class="empty">No sprints found.</p>{{end}}</section>
+{{else if eq .Page "operations"}}
+<section><h2>Project operations</h2><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="validation" data-project="{{.Project.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="validation"><input type="hidden" name="project" value="{{.Project.Name}}"><p>Validate the current project index and catalog.</p><button type="submit">Prepare project validation</button></form></section>
+{{template "operation-console" .}}
+{{else if eq .Page "validation"}}
 <section><h2>Validation findings</h2>{{template "findings" .Project.Findings}}</section>
+{{else}}
 <section><h2>Artifacts</h2>{{template "artifacts" .Project.Artifacts}}</section>
+{{end}}
+</div>
+</div>
 {{template "bottom" .}}{{end}}

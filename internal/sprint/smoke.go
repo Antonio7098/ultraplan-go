@@ -21,11 +21,12 @@ func (s Service) RunSmoke(ctx context.Context, projectRef, sprintRef string, req
 	if req.DryRun {
 		return s.runSmoke(ctx, projectRef, sprintRef, req)
 	}
-	release, lockErr := s.acquireMutation(projectRef, sprintRef)
+	lockedCtx, release, lockErr := s.acquireMutationContext(ctx, projectRef, sprintRef)
 	if lockErr != nil {
 		return SmokeResult{Project: projectRef, Sprint: sprintRef, Status: SmokeFailed}, lockErr
 	}
 	defer release()
+	ctx = lockedCtx
 	if saveErr := s.saveSmokeAttempt(projectRef, sprintRef, SmokeResult{Project: projectRef, Sprint: sprintRef, Status: SmokeRunning}, nil, false); saveErr != nil {
 		return SmokeResult{Project: projectRef, Sprint: sprintRef, Status: SmokeFailed}, smokeError("smoke_state_write", "persistence", "smoke attempt could not be recorded", "Repair flow-state persistence before retrying; no harness work was started.", saveErr)
 	}

@@ -19,7 +19,7 @@ func TestServeHelpIsLazyAndDocumentsContract(t *testing.T) {
 	if status != ExitOK || called {
 		t.Fatalf("status=%d called=%v stderr=%q", status, called, stderr.String())
 	}
-	for _, want := range []string{"--listen", "127.0.0.1:8080", "--open-browser", "--workspace", "shuts", "read-only"} {
+	for _, want := range []string{"--listen", "127.0.0.1:8080", "--open-browser", "--workspace", "shuts", "guarded", "bounded SSE"} {
 		assertContains(t, stdout.String(), want)
 	}
 }

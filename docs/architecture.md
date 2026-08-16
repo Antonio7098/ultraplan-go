@@ -28,11 +28,12 @@ not initialize web facilities.
 
 ## Web Adapter Boundary
 
-`internal/app/web_usecases.go` owns the query-only browser capability. It
+`internal/app/web_usecases.go` owns the browser query facade, while the closed
+operation capability in `internal/app/operations.go` is shared with the TUI. It
 provides typed dashboard, project, sprint, study, validation, artifact, and
-health projections; deterministic bounds; canonical identifiers; opaque
-reference issuance/resolution; workspace containment; allowlisting; and typed
-error identity.
+health projections plus allowlisted operation normalization, affected paths,
+mutation class, prerequisites, governed-input inventory, SHA-256 fingerprint,
+safe progress/result projections, and canonical context cancellation.
 
 `internal/web` receives only that interface and its plain app result types. It
 owns:
@@ -41,26 +42,37 @@ owns:
 - HTML and `/api/v1` routing
 - transport DTOs and safe error envelopes
 - Host/Origin, request-limit, concurrency, and security-header middleware
+- per-process session/CSRF and short-lived binding confirmation policy
+- the bounded ephemeral operation hub, retained safe event/result projections,
+  progress-only SSE, and subscriber lifecycle
 - `html/template` view models and embedded first-party assets
 - escaped source presentation and redacted request/lifecycle diagnostics
 
 It does not import project, sprint, study, workspace, runtime, process, or CLI
-handler packages. It cannot execute workflows, persist product state, invoke
-providers or the smoke harness, run Git, or read arbitrary files.
+handler packages. It cannot decide workflow semantics, persist product state,
+invoke providers or the smoke harness directly, run Git, or read arbitrary
+files. It starts only the typed app operation capability supplied by the
+composition root.
 
 ## State And Artifact Ownership
 
 Workspace files and product-owned flow, execute, review, smoke, and study run
 state remain authoritative. Web requests perform fresh sequential app queries.
 The server retains only immutable configuration, parsed embedded templates,
-listener/server objects, request contexts and IDs, response models, opaque
-reference mappings, and bounded preview buffers.
+listener/server objects, request/session IDs, opaque artifact references,
+short-lived confirmations, and bounded ephemeral operation/event/subscriber
+state. The hub is transport lifecycle state, not workflow authority: it holds
+at most eight active owners, recent already-redacted events, cancellation
+handles, and terminal projections for ten minutes. It never persists a queue
+or operation history.
 
-There is no web cache, watcher, snapshot, browser persistence, database,
-background polling, operation hub, confirmation store, or SSE subscriber state
-in Sprint 30. Read-only sprint status uses the sprint service's non-persisting
-projection mode, so a browser read does not create missing flow state; existing
-CLI/TUI behavior remains unchanged.
+Read-only sprint status uses the sprint service's non-persisting projection
+mode. Product-owned workspace artifacts, execute/review/smoke state, study run
+state, and per-sprint/study mutation locks remain authoritative. Restart and
+replay-gap recovery direct users back to that durable state rather than
+reconstructing product truth from the hub. Server startup acquires product
+leases conservatively and reconciles only dead-owner sprint attempts; live
+cross-process work is not rewritten.
 
 Opaque artifact references are issued by the app boundary. Resolution repeats
 the allowlist check, lexical containment, and symlink-aware canonical
@@ -83,12 +95,24 @@ support, and reduced-motion behavior. No Node.js, Vite, framework, hydration,
 client router/store, third-party assets, separate frontend process, or asset
 build step exists.
 
-## Deferred Phase 4 Capabilities
+## Operation Ownership And Shutdown
 
-Sprint 31 may add separately reviewed command capabilities for guarded
-validation/workflow operations, normalized confirmations, product-owned
-mutation locking, operation handles, explicit cancellation, and bounded SSE.
-Those capabilities must not widen Sprint 30's query facade implicitly.
+Preparation is side-effect-free and does not reserve capacity or acquire a
+mutation lock. Start repeats normalization and fingerprinting, consumes one
+session-bound confirmation, and creates a server-owned context immediately;
+there is no web queue. Sprint flow, execute, review, smoke, and verify use one
+product-owned per-sprint cross-process mutation lease. Study run-loop keeps its
+independent product lock.
+
+Each accepted operation has one canonical cancel function and terminal
+arbitration point. Slow or disconnected SSE subscribers cannot block or cancel
+product work. Graceful shutdown enters draining, rejects new work, requests
+`server_shutdown` cancellation once per owner, waits outside hub/product locks
+for bounded cleanup and durable reconciliation, publishes a truthful terminal
+event, closes subscribers, and only then shuts down HTTP. No detached operation
+is intentionally allowed to outlive the server.
+
+## Deferred Phase 4 Capabilities
 
 Hosted or LAN/public serving, accounts, authentication, TLS, teams, tenants,
 collaboration, remote workers, browser editing, WebSockets, terminal transport,

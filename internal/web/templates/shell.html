@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} · UltraPlan</title>
+  <meta name="ultraplan-csrf" content="{{.CSRF}}">
   <link rel="stylesheet" href="/static/app.css">
   <script defer src="/static/app.js"></script>
 </head>
@@ -20,7 +21,7 @@
   <main id="main" tabindex="-1">
     <div class="heading-row">
       <div>
-        <p class="eyebrow">Read-only local workspace</p>
+        <p class="eyebrow">Guarded local workspace</p>
         <h1>{{.Heading}}</h1>
       </div>
       <a class="refresh-link" href="" aria-describedby="refresh-status">Refresh</a>
@@ -32,7 +33,7 @@
   </main>
   <footer>
     <span class="status status-ok">Server ready</span>
-    <span>Workspace files remain authoritative. No browser action changes them.</span>
+    <span>Workspace files and product run state remain authoritative.</span>
   </footer>
 </body>
 </html>{{end}}
@@ -45,6 +46,18 @@
   {{end}}
 </ul>
 {{else}}<p class="empty">No previewable artifacts.</p>{{end}}
+{{end}}
+
+{{define "operation-console"}}
+<section class="operation-console" aria-labelledby="operation-console-heading">
+  <h2 id="operation-console-heading">Operation status</h2>
+  <p class="operation-guidance">Preparation is side-effect-free. Review the normalized scope before confirming. Closing this page does not cancel accepted work.</p>
+  <div id="operation-confirmation" hidden></div>
+  <div id="operation-live" role="status" aria-live="polite">No operation selected.</div>
+  <ol id="operation-timeline" class="operation-timeline" aria-label="Recent operation progress"></ol>
+  <button id="operation-cancel" type="button" hidden>Cancel operation</button>
+  <noscript><p>JavaScript is required for live cancellation. Use the equivalent <code>ultraplan</code> CLI command and its normal interrupt handling.</p></noscript>
+</section>
 {{end}}
 
 {{define "findings"}}

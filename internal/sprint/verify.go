@@ -37,6 +37,14 @@ type VerifyResult struct {
 // Verify is the sole review-to-smoke transition. It requires complete execute
 // evidence, reuses current canonical review evidence, and applies the smoke gate.
 func (s Service) Verify(ctx context.Context, projectRef, sprintRef string, req VerifyRequest) (VerifyResult, error) {
+	if !req.DryRun {
+		lockedCtx, release, lockErr := s.acquireMutationContext(ctx, projectRef, sprintRef)
+		if lockErr != nil {
+			return VerifyResult{}, lockErr
+		}
+		defer release()
+		ctx = lockedCtx
+	}
 	if req.To == "" {
 		req.To = StageSmoke
 	}

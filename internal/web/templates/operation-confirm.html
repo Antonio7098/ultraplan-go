@@ -1,0 +1,26 @@
+{{define "operation-confirm"}}{{template "top" .}}
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Confirm operation</nav>
+{{with .Preparation}}
+<section aria-labelledby="confirmation-heading">
+  <h2 id="confirmation-heading">Normalized impact</h2>
+  <dl class="metadata">
+    <div><dt>Kind</dt><dd>{{index .Preparation.Operation "kind"}}</dd></div>
+    <div><dt>Mutation class</dt><dd>{{.Preparation.MutationClass}}</dd></div>
+    <div><dt>Expires</dt><dd>{{.Preparation.ExpiresAt}}</dd></div>
+  </dl>
+  <h3>Affected paths</h3><ul>{{range .Preparation.AffectedPaths}}<li><code>{{.}}</code></li>{{end}}</ul>
+  <h3>Prerequisites</h3><ul>{{range .Preparation.Prerequisites}}<li>{{.}}</li>{{end}}</ul>
+  <form method="post" action="/operations/start">
+    <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+    <input type="hidden" name="confirmation_token" value="{{.Preparation.ConfirmationToken}}">
+    <input type="hidden" name="kind" value="{{.Spec.Kind}}">
+    <input type="hidden" name="project" value="{{.Spec.Scope.Project}}">
+    <input type="hidden" name="sprint" value="{{.Spec.Scope.Sprint}}">
+    <input type="hidden" name="study" value="{{.Spec.Scope.Study}}">
+    <input type="hidden" name="stage" value="{{.Spec.Options.ToStage}}">
+    <input type="hidden" name="parallelism" value="{{.Spec.Options.Parallelism}}">
+    <button type="submit">Confirm and start</button>
+  </form>
+</section>
+{{end}}
+{{template "bottom" .}}{{end}}

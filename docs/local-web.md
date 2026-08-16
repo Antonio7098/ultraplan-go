@@ -1,7 +1,7 @@
 # Local Web Dashboard
 
-UltraPlan can serve a read-only browser view of the current workspace from the
-same Go binary:
+UltraPlan can serve a guarded browser view of the current workspace and its
+existing operations from the same Go binary:
 
 ```bash
 ultraplan serve
@@ -43,6 +43,12 @@ The browser pages and bundled `/api/v1` resources inspect:
 - existing validation findings
 - governed Markdown and JSON artifacts through bounded source previews
 
+Project, sprint, and study pages also expose allowlisted operations backed by
+the same typed app capability as the TUI: validation, prompt/dry-run and sprint
+flow, execute, review, smoke, verify, study run-loop, status, and explicit
+cancellation. The browser cannot submit arbitrary commands, paths, prompts, or
+executables.
+
 Each request reads current app-owned workspace state. Responses use
 `Cache-Control: no-store`; there is no server snapshot, browser database,
 watcher, hidden preload, automatic polling, or browser-owned product state.
@@ -51,7 +57,7 @@ A response is a bounded point-in-time projection, not a cross-request
 transactional snapshot.
 
 Collections and finding lists return at most 200 entries and report returned,
-total, and truncated counts in JSON. Sprint 30 does not expose pagination,
+total, and truncated counts in JSON. The current API does not expose pagination,
 search, or caller-configurable bounds.
 
 ## Artifact Previews
@@ -78,26 +84,33 @@ reduces local exposure through:
 
 - numeric loopback-only binding
 - an exact canonical Host authority
-- exact same-origin validation when `Origin` is present
+- exact same-origin validation, a per-process session cookie, and independent
+  CSRF proof for mutation requests
 - no permissive CORS response
 - 8 KiB request-target, 64 KiB declared-body, and 128-byte identifier limits
-- rejection of all request bodies and undocumented query parameters
+- rejection of undocumented request bodies and query parameters, with JSON
+  command bodies limited to 64 KiB
 - 32 in-flight request bound and fixed HTTP timeouts
 - restrictive CSP, frame denial, `nosniff`, no-referrer, and no-store headers
 - server-generated request IDs, safe error projection, and redacted diagnostics
 
 An absent Origin is allowed for top-level navigation and local `GET`/`HEAD`
-clients after Host validation. `Origin: null`, malformed, cross-origin, and
-non-loopback origins are rejected. IPv4 and IPv6 server origins are distinct.
+clients after Host validation. Operation `POST`/`DELETE` requires the exact
+server Origin, a valid same-process session cookie, and the session's CSRF
+header. Operation confirmation is separate: it binds the normalized request
+and current governed-input fingerprint for two minutes and is consumed once.
+`Origin: null`, malformed, cross-origin, and non-loopback origins are rejected.
+IPv4 and IPv6 server origins are distinct.
 
 Loopback is not an authentication or isolation boundary against another process
-running as the same OS user or a compromised local account. Sprint 30 uses no
-cookies, accounts, authentication, TLS, tenant model, remote worker protocol, or
-remote/LAN exposure. Do not proxy or port-forward this server.
+running as the same OS user or a compromised local account. The local cookie is
+session policy, not an account, tenant, TLS, or remote authentication model.
+There is no remote-worker or LAN/public exposure. Do not proxy or port-forward
+this server.
 
 ## API And Health
 
-The bundled browser uses versioned, read-only `/api/v1` JSON resources. Success
+The bundled browser uses versioned `/api/v1` JSON resources. Success
 responses use `{data, meta}`; errors use `{error, meta}` with safe stable codes.
 Unknown `/api/` paths and unsupported versions always return JSON rather than an
 HTML page.
@@ -105,6 +118,62 @@ HTML page.
 This API is compatibility-controlled for the bundled browser. It is not yet a
 promised public integration API and has no remote-client or pagination support.
 Breaking DTO changes require an explicit version or coordinated migration.
+
+### Guarded operation API
+
+The command lifecycle is:
+
+1. `POST /api/v1/operations/prepare` performs side-effect-free normalization,
+   prerequisite inspection, affected-path projection, and fingerprinting.
+2. The user reviews the returned scope and short-lived confirmation.
+3. `POST /api/v1/operations` repeats the specification, re-normalizes it, and
+   starts server-owned work only if the confirmation remains current. Success
+   is `202` with a `Location` header.
+4. `GET /api/v1/operations/{id}` returns retained status and terminal result.
+5. `GET /api/v1/operations/{id}/events` observes progress through SSE.
+6. `DELETE /api/v1/operations/{id}` requests canonical cancellation and is
+   idempotent.
+
+Stable states are `accepted`, `running`, `cancelling`, `succeeded`, `failed`,
+`cancelled`, `interrupted`, and `cleanup_uncertain`. Stable SSE event names are
+`snapshot`, `progress`, `warning`, `finding`, `artifact`, `cancel_requested`,
+`recovery_required`, and `terminal`. Event IDs are decimal and monotonic within
+one operation. SSE is progress-only: disconnecting closes only that
+subscription, while cancellation requires `DELETE`.
+
+Accepted product failures remain terminal operation results returned from the
+status resource with HTTP `200`. Pre-acceptance and transport errors use stable
+codes including `invalid_request`, `csrf_failed`, `origin_rejected`,
+`session_required`, `operation_not_found`, `confirmation_expired`,
+`confirmation_mismatch`, `confirmation_replayed`, `stale_confirmation`,
+`operation_conflict`, `validation_failed`, `prerequisite_unavailable`,
+`operation_capacity`, `subscriber_capacity`, `server_draining`, and
+`internal_failure`.
+
+The hub is deliberately ephemeral. Durable workspace and product run state are
+the recovery authority after eviction or restart. A replay gap emits
+`recovery_required` plus a current snapshot; it never fabricates missing
+progress. Before accepting traffic, server startup reconciles dead-owner sprint
+execute/review/smoke attempts to explicit interrupted evidence while leaving
+live cross-process mutation leases untouched.
+
+### Operation bounds
+
+| Resource | Bound |
+| --- | --- |
+| JSON command body | 64 KiB |
+| Active operations | 8 |
+| Preparations | 128 for 2 minutes |
+| Retained events | 256 and 256 KiB per operation |
+| Encoded event | 16 KiB |
+| Terminal result | 256 KiB |
+| Subscribers | 8 per operation, 32 server-wide |
+| Subscriber queue | 32 events |
+| Terminal retention | 10 minutes |
+| Heartbeat / stream lifetime | 15 seconds / 30 minutes |
+
+Slow subscriber queues are disconnected without blocking product work. New
+work is never queued: capacity returns `429`, and draining returns `503`.
 
 `GET /api/v1/health` reports only server readiness and lightweight availability
 of the configured workspace query. `200`/`ok` means the server can answer that
@@ -114,9 +183,13 @@ smoke. It is not proof that the whole product state is valid.
 
 ## Shutdown And Troubleshooting
 
-Press Ctrl-C or send the process its normal termination signal. UltraPlan stops
-accepting requests, propagates cancellation to active reads, waits up to 10
-seconds for graceful HTTP cleanup, and reports lifecycle diagnostics on stderr.
+Press Ctrl-C or send the process its normal termination signal. UltraPlan first
+enters draining, rejects preparation/start, requests `server_shutdown`
+cancellation exactly once for every active server-owned operation, waits up to
+10 seconds for canonical product/runtime/harness cleanup and durable terminal
+reconciliation, publishes terminal SSE, then stops HTTP. Deadline expiry is
+reported as interrupted or cleanup-uncertain rather than success. Browser
+disconnect never triggers this sequence.
 
 Common failures:
 
@@ -134,5 +207,9 @@ Common failures:
 - artifact not found after a refresh: the opaque reference is stale or the
   governed artifact changed; reload its project/sprint/study detail page.
 
-There is no Node.js, Vite, frontend build, separate asset server, database,
-runtime/provider, or smoke-harness prerequisite for normal dashboard use.
+There is no Node.js, Vite, frontend build, separate asset server, database, or
+web-owned durable job store. Runtime/provider and smoke-harness prerequisites
+apply only when their existing operations are selected.
+
+Sprint 32 retains browser compatibility hardening, release accessibility audit,
+packaging, and gated real-runtime/browser evidence.

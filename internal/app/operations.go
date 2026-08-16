@@ -22,14 +22,25 @@ import (
 // Its values deliberately contain no CLI, runtime-provider, or TUI framework types.
 type OperationalUseCases interface {
 	ReadOnlyUseCases
+	WebOperations
+}
+
+// WebOperations is the closed operation capability available to transport
+// adapters. It deliberately excludes surface-specific dashboard result types.
+type WebOperations interface {
 	Validate(context.Context, ValidationRequest) (ValidationOperationResult, error)
 	PrepareOperation(context.Context, OperationRequest) (Confirmation, error)
 	RunOperation(context.Context, OperationRequest, func(OperationEvent)) (OperationResult, error)
 }
 
+type OperationReconciler interface {
+	ReconcileOperations(context.Context) error
+}
+
 type OperationKind string
 
 const (
+	OperationValidate      OperationKind = "validate"
 	OperationSprintStatus  OperationKind = "sprint-status"
 	OperationPrompt        OperationKind = "sprint-prompt"
 	OperationFlowDryRun    OperationKind = "sprint-flow-dry-run"
@@ -124,12 +135,15 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	}
 	req.ExpectedFingerprint = ""
 	req = normalizeOperationRequest(req)
+	if err := validateOperationScope(req); err != nil {
+		return Confirmation{}, err
+	}
 	if (req.Kind == OperationReviewStart || req.Kind == OperationReviewDryRun) && req.Parallelism <= 0 {
 		req.Parallelism = u.reviewConcurrency
 	}
 	c := Confirmation{Request: req, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study), Permission: "workspace policy enforced"}
 	switch req.Kind {
-	case OperationPrompt, OperationFlowDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus, OperationSmokeStatus:
+	case OperationValidate, OperationPrompt, OperationFlowDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus, OperationSmokeStatus:
 		c.Scope = []string{req.Stage}
 		c.Warning = "runtime-free; no runtime-backed writes"
 	case OperationSprintStatus:
@@ -186,8 +200,13 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		return c, fmt.Errorf("unsupported operation %q", req.Kind)
 	}
 	if req.Project != "" {
-		c.Paths = []string{"projects/" + req.Project + "/sprints/" + req.Sprint}
-		c.DurableRefreshPath = "/api/v1/projects/" + req.Project + "/sprints/" + req.Sprint
+		if req.Sprint != "" {
+			c.Paths = []string{"projects/" + req.Project + "/sprints/" + req.Sprint}
+			c.DurableRefreshPath = "/api/v1/projects/" + req.Project + "/sprints/" + req.Sprint
+		} else {
+			c.Paths = []string{"projects/" + req.Project}
+			c.DurableRefreshPath = "/api/v1/projects/" + req.Project
+		}
 	} else {
 		c.Paths = []string{"studies/" + req.Study}
 		c.DurableRefreshPath = "/api/v1/studies/" + req.Study
@@ -201,6 +220,9 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	} else {
 		c.MutationClass = "read_only"
 	}
+	if c.Runtime {
+		c.ModelSource = operationRuntimeIdentity(req, u.stageRuntime)
+	}
 	c.Prerequisites = operationPrerequisites(req)
 	canonical, err := canonicalOperationRequest(req)
 	if err != nil {
@@ -208,7 +230,8 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	}
 	c.CanonicalRequest = canonical
 	c.GovernedInputs = governedOperationInputs(req)
-	fingerprint, err := fingerprintOperationInputs(u.root, canonical, c.GovernedInputs)
+	fingerprintBasis := canonical + "\nruntime=" + c.ModelSource + "\nscope=" + strings.Join(c.Scope, "\x00")
+	fingerprint, err := fingerprintOperationInputs(u.root, fingerprintBasis, c.GovernedInputs)
 	if err != nil {
 		return c, err
 	}
@@ -239,6 +262,22 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 	result := OperationResult{State: OperationComplete, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study)}
 	stage := sprint.PlanningStage(req.Stage)
 	switch req.Kind {
+	case OperationValidate:
+		validationReq := ValidationRequest{Project: req.Project, Sprint: req.Sprint, Study: req.Study, Stage: req.Stage}
+		switch {
+		case req.Study != "":
+			validationReq.Subject = ValidationStudy
+		case req.Sprint != "":
+			validationReq.Subject = ValidationSprint
+		default:
+			validationReq.Subject = ValidationProject
+		}
+		validation, err := u.Validate(ctx, validationReq)
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Message = validation.Status
+		result.Findings = append(result.Findings, validation.Findings...)
 	case OperationSprintStatus:
 		r, err := ss.Status(req.Project, req.Sprint)
 		if err != nil {
@@ -337,6 +376,24 @@ func normalizeOperationRequest(req OperationRequest) OperationRequest {
 	return req
 }
 
+func validateOperationScope(req OperationRequest) error {
+	for name, value := range map[string]string{"project": req.Project, "sprint": req.Sprint, "study": req.Study} {
+		if value == "" {
+			continue
+		}
+		if value == "." || value == ".." || len(value) > 128 || strings.ContainsAny(value, `/\\`) {
+			return fmt.Errorf("invalid operation %s reference", name)
+		}
+		for _, r := range value {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+				continue
+			}
+			return fmt.Errorf("invalid operation %s reference", name)
+		}
+	}
+	return nil
+}
+
 func normalizedStrings(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
 	out := make([]string, 0, len(values))
@@ -378,6 +435,25 @@ func operationPrerequisites(req OperationRequest) []string {
 	return prerequisites
 }
 
+func operationRuntimeIdentity(req OperationRequest, stages map[sprint.PlanningStage]sprint.StageRuntime) string {
+	stage := sprint.PlanningStage(req.Stage)
+	switch req.Kind {
+	case OperationExecuteStart, OperationExecuteResume:
+		stage = sprint.StageExecute
+	case OperationReviewStart:
+		stage = sprint.StageReview
+	case OperationSmokeStart, OperationVerifyStart:
+		stage = sprint.StageSmoke
+	}
+	if runtime, ok := stages[stage]; ok && (runtime.Model != "" || runtime.Variant != "") {
+		return strings.TrimSpace(runtime.Model + " variant=" + runtime.Variant)
+	}
+	if req.Kind == OperationSmokeStart {
+		return "configured smoke author and harness"
+	}
+	return "effective workspace runtime configuration"
+}
+
 func governedOperationInputs(req OperationRequest) []string {
 	if req.Project != "" {
 		base := filepath.ToSlash(filepath.Join("projects", req.Project))
@@ -391,10 +467,11 @@ func governedOperationInputs(req OperationRequest) []string {
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "reasoning.md")),
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "plan.md")),
 		}
-		return inputs
+		return append([]string{"ultraplan.yml"}, inputs...)
 	}
 	if req.Study != "" {
 		return []string{
+			"ultraplan.yml",
 			filepath.ToSlash(filepath.Join("studies", req.Study, "study.yml")),
 			filepath.ToSlash(filepath.Join("studies", req.Study, "study.yaml")),
 			filepath.ToSlash(filepath.Join("studies", req.Study, ".ultraplan", "run-state.json")),
@@ -408,18 +485,24 @@ func fingerprintOperationInputs(root, canonical string, inputs []string) (string
 	_, _ = hash.Write([]byte(canonical))
 	for _, rel := range inputs {
 		path := filepath.Join(root, filepath.FromSlash(rel))
-		info, err := os.Stat(path)
+		info, err := os.Lstat(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
 			return "", fmt.Errorf("inspect governed input %s: %w", rel, err)
 		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("governed input %s must not be a symbolic link", rel)
+		}
 		if info.IsDir() {
 			var files []string
 			if err := filepath.WalkDir(path, func(item string, entry fs.DirEntry, walkErr error) error {
 				if walkErr != nil {
 					return walkErr
+				}
+				if entry.Type()&os.ModeSymlink != 0 {
+					return fmt.Errorf("governed input %s must not contain symbolic links", rel)
 				}
 				if !entry.IsDir() {
 					files = append(files, item)

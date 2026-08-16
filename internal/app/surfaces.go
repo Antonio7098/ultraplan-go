@@ -10,7 +10,7 @@ import (
 type ServeRunOptions struct {
 	Listen      string
 	OpenBrowser bool
-	UseCases    WebQueries
+	UseCases    WebUseCases
 	Stdout      io.Writer
 	Diagnostics io.Writer
 }

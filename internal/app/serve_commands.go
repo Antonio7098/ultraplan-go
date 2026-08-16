@@ -44,10 +44,16 @@ func runServe(deps dependencies, args []string) error {
 	if deps.webRunner == nil {
 		return classified(ExitError, "serve.start: web runner is not configured")
 	}
+	dashboard := dashboardUseCases{
+		root: root.Path, stageRuntime: planningStageRuntime(effective.Config),
+		reviewConcurrency: effective.Config.Execution.DefaultParallel,
+		smokeSettings:     smokeSettings(effective, envLookup(deps.env)), readOnly: true,
+	}
 	useCases := NewWebUseCases(root.Path, WebUseCaseOptions{
 		StageRuntime:      planningStageRuntime(effective.Config),
 		ReviewConcurrency: effective.Config.Execution.DefaultParallel,
 		SmokeSettings:     smokeSettings(effective, envLookup(deps.env)),
+		Runner:            sharedOperationRunner(deps, root, effective, dashboard),
 	})
 	err = deps.webRunner(deps.ctx, ServeRunOptions{
 		Listen:      *listen,
@@ -102,9 +108,10 @@ func serveHelp() string {
 Usage:
   ultraplan [--workspace <path>] serve [--listen <address>] [--open-browser]
 
-Starts the read-only local browser dashboard. The server accepts only numeric
-loopback addresses, reads the configured workspace on each request, and shuts
-down gracefully on interrupt or process cancellation.
+Starts the guarded local browser dashboard. The server accepts only numeric
+loopback addresses, exposes allowlisted app operations with current
+confirmation and bounded SSE progress, and shuts down owned operations
+gracefully on interrupt or process cancellation.
 
 Options:
   --listen <address>   Loopback IP and port (default 127.0.0.1:8080).

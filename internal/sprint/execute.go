@@ -56,6 +56,14 @@ func (s Service) PromptExecute(projectRef, sprintRef string, req ExecuteRequest)
 }
 
 func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req ExecuteRequest) (ExecuteResult, error) {
+	if !req.DryRun {
+		lockedCtx, release, lockErr := s.acquireMutationContext(ctx, projectRef, sprintRef)
+		if lockErr != nil {
+			return ExecuteResult{}, lockErr
+		}
+		defer release()
+		ctx = lockedCtx
+	}
 	sp, tasks, target, selection, findings, err := s.prepareExecute(projectRef, sprintRef, req)
 	if err != nil {
 		return ExecuteResult{}, err

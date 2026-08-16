@@ -55,6 +55,13 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 			return FlowResult{Project: verified.Project, Sprint: verified.Sprint, To: req.To, DryRun: true, Message: message}, verifyErr
 		}
 		stages = []PlanningStage{req.To}
+	} else {
+		var release func()
+		ctx, release, err = s.acquireMutationContext(ctx, projectRef, sprintRef)
+		if err != nil {
+			return FlowResult{}, err
+		}
+		defer release()
 	}
 	var result FlowResult
 	for _, stage := range stages {

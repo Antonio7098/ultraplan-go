@@ -54,6 +54,34 @@ func LoadExecuteRunState(root string, s Sprint) (ExecuteRunState, error) {
 	return state, nil
 }
 
+// legacyTerminalExecuteRunState reports the pre-plan-executor summary shape
+// used by older completed sprints. Those files contain no resumable task
+// ownership, so startup recovery must leave them untouched instead of making
+// the web server unavailable.
+func legacyTerminalExecuteRunState(root string, s Sprint) bool {
+	path, err := ExecuteRunStatePath(root, s)
+	if err != nil {
+		return false
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var header struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Status        string `json:"status"`
+	}
+	if err := json.Unmarshal(content, &header); err != nil || header.SchemaVersion != 0 {
+		return false
+	}
+	switch header.Status {
+	case "complete", "failed", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
 func SaveExecuteRunState(root string, s Sprint, state ExecuteRunState) error {
 	return saveExecuteRunStateWithHooks(root, s, state, atomicWriteHooks{})
 }

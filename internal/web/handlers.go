@@ -35,9 +35,10 @@ type successEnvelope struct {
 }
 
 type errorBody struct {
-	Code    string         `json:"code"`
-	Message string         `json:"message"`
-	Details map[string]any `json:"details,omitempty"`
+	Code      string         `json:"code"`
+	Message   string         `json:"message"`
+	Retryable bool           `json:"retryable,omitempty"`
+	Details   map[string]any `json:"details,omitempty"`
 }
 
 type errorEnvelope struct {
@@ -166,6 +167,10 @@ type pageModel struct {
 	Health      *app.WebHealthResult
 	Status      int
 	Error       string
+	CSRF        string
+	Preparation *operationPreparationView
+	Operation   *operationDocument
+	Page        string
 }
 
 func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMatch) {
@@ -205,14 +210,30 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			h.handleQueryError(w, r, false, err)
 			return
 		}
-		h.render(w, r, http.StatusOK, "project", pageModel{Title: "Project " + result.Name, Heading: result.Name, Project: &result})
+		h.render(w, r, http.StatusOK, "project", pageModel{Title: "Project " + result.Name, Heading: result.Name, Project: &result, Page: "overview"})
+	case "project_page":
+		result, err := h.queries.Project(r.Context(), match.params[0])
+		if err != nil {
+			h.handleQueryError(w, r, false, err)
+			return
+		}
+		page := match.params[1]
+		h.render(w, r, http.StatusOK, "project", pageModel{Title: projectPageTitle(page) + " · " + result.Name, Heading: result.Name, Project: &result, Page: page})
 	case "sprint":
 		result, err := h.queries.Sprint(r.Context(), match.params[0], match.params[1])
 		if err != nil {
 			h.handleQueryError(w, r, false, err)
 			return
 		}
-		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: "Sprint " + result.Slug, Heading: result.Slug, Sprint: &result})
+		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: "Sprint " + result.Slug, Heading: result.Slug, Sprint: &result, Page: "overview"})
+	case "sprint_page":
+		result, err := h.queries.Sprint(r.Context(), match.params[0], match.params[1])
+		if err != nil {
+			h.handleQueryError(w, r, false, err)
+			return
+		}
+		page := match.params[2]
+		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: sprintPageTitle(page) + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Page: page})
 	case "studies":
 		result, err := h.queries.Studies(r.Context())
 		if err != nil {
@@ -226,7 +247,15 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			h.handleQueryError(w, r, false, err)
 			return
 		}
-		h.render(w, r, http.StatusOK, "study", pageModel{Title: "Study " + result.Name, Heading: result.Name, Study: &result})
+		h.render(w, r, http.StatusOK, "study", pageModel{Title: "Study " + result.Name, Heading: result.Name, Study: &result, Page: "overview"})
+	case "study_page":
+		result, err := h.queries.Study(r.Context(), match.params[0])
+		if err != nil {
+			h.handleQueryError(w, r, false, err)
+			return
+		}
+		page := match.params[1]
+		h.render(w, r, http.StatusOK, "study", pageModel{Title: studyPageTitle(page) + " · " + result.Name, Heading: result.Name, Study: &result, Page: page})
 	case "artifact":
 		result, err := h.queries.Artifact(r.Context(), match.params[0])
 		if err != nil {
@@ -315,8 +344,71 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			status = http.StatusServiceUnavailable
 		}
 		h.writeSuccess(w, r, status, map[string]any{"status": result.Status, "server": result.Server, "workspace": result.Workspace}, nil)
+	case "api_operation_prepare":
+		h.handleOperationPrepare(w, r)
+	case "api_operations":
+		h.handleOperationStart(w, r)
+	case "api_operation":
+		if r.Method == http.MethodDelete {
+			h.handleOperationCancel(w, r, match.params[0])
+		} else {
+			h.handleOperationStatus(w, r, match.params[0])
+		}
+	case "api_operation_events":
+		h.handleOperationEvents(w, r, match.params[0])
+	case "operation_prepare":
+		h.handleHTMLOperationPrepare(w, r)
+	case "operation_start":
+		h.handleHTMLOperationStart(w, r)
+	case "operation":
+		h.handleHTMLOperationStatus(w, r, match.params[0])
 	default:
 		h.writeRouteError(w, r, match.api, http.StatusNotFound, "not_found", "The requested resource was not found.")
+	}
+}
+
+func projectPageTitle(page string) string {
+	switch page {
+	case "documentation":
+		return "Documentation"
+	case "sprints":
+		return "Sprints"
+	case "operations":
+		return "Operations"
+	case "validation":
+		return "Validation"
+	default:
+		return "Artifacts"
+	}
+}
+
+func sprintPageTitle(page string) string {
+	switch page {
+	case "plan":
+		return "Plan"
+	case "delivery":
+		return "Delivery"
+	case "operations":
+		return "Operations"
+	case "validation":
+		return "Validation"
+	default:
+		return "Artifacts"
+	}
+}
+
+func studyPageTitle(page string) string {
+	switch page {
+	case "inputs":
+		return "Inputs"
+	case "progress":
+		return "Progress"
+	case "operations":
+		return "Operations"
+	case "validation":
+		return "Validation"
+	default:
+		return "Artifacts"
 	}
 }
 
@@ -413,7 +505,8 @@ func templateText(value string) string {
 	return template.HTMLEscapeString(value)
 }
 
-func (h *handler) render(w http.ResponseWriter, _ *http.Request, status int, name string, page pageModel) {
+func (h *handler) render(w http.ResponseWriter, r *http.Request, status int, name string, page pageModel) {
+	page.CSRF = csrfToken(r.Context())
 	var buf bytes.Buffer
 	if err := h.templates.ExecuteTemplate(&buf, name, page); err != nil {
 		http.Error(w, "page rendering failed", http.StatusInternalServerError)

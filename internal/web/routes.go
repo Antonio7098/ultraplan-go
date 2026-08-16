@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"html/template"
@@ -18,16 +19,22 @@ var assets embed.FS
 
 type HandlerOptions struct {
 	Queries     app.WebQueries
+	Operations  app.WebOperations
 	Authority   string
 	Diagnostics io.Writer
 	Now         func() time.Time
 	RequestID   func() string
+	RootContext context.Context
+	Hub         *operationHub
 }
 
 type handler struct {
-	queries   app.WebQueries
-	templates *template.Template
-	now       func() time.Time
+	queries      app.WebQueries
+	templates    *template.Template
+	now          func() time.Time
+	hub          *operationHub
+	preparations *preparationStore
+	diagnostics  io.Writer
 }
 
 func NewHandler(opts HandlerOptions) (http.Handler, error) {
@@ -41,7 +48,14 @@ func NewHandler(opts HandlerOptions) (http.Handler, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	h := &handler{queries: opts.Queries, templates: templates, now: opts.Now}
+	if opts.Diagnostics == nil {
+		opts.Diagnostics = io.Discard
+	}
+	hub := opts.Hub
+	if hub == nil {
+		hub = newOperationHub(opts.RootContext, opts.Operations, opts.Now, opts.RequestID)
+	}
+	h := &handler{queries: opts.Queries, templates: templates, now: opts.Now, hub: hub, preparations: newPreparationStore(opts.Now, opts.RequestID), diagnostics: opts.Diagnostics}
 	security := newSecurityMiddleware(opts.Authority, opts.Diagnostics, opts.Now, opts.RequestID)
 	return security.wrap(h), nil
 }
@@ -64,9 +78,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		h.writeRouteError(w, r, match.api, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET and HEAD are supported.")
+	allowed := allowedMethods(match)
+	if !methodAllowed(r.Method, allowed) {
+		w.Header().Set("Allow", strings.Join(allowed, ", "))
+		h.writeRouteError(w, r, match.api, http.StatusMethodNotAllowed, "method_not_allowed", "The method is not supported for this resource.")
 		return
 	}
 	if r.Method == http.MethodHead {
@@ -77,6 +92,30 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.dispatch(w, r, match)
+}
+
+func allowedMethods(match routeMatch) []string {
+	switch match.name {
+	case "api_operation_prepare", "api_operations":
+		return []string{http.MethodPost}
+	case "operation_prepare", "operation_start":
+		return []string{http.MethodPost}
+	case "api_operation":
+		return []string{http.MethodGet, http.MethodDelete}
+	case "api_operation_events":
+		return []string{http.MethodGet}
+	default:
+		return []string{http.MethodGet, http.MethodHead}
+	}
+}
+
+func methodAllowed(method string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if method == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func matchRoute(path string) routeMatch {
@@ -104,16 +143,36 @@ func matchRoute(path string) routeMatch {
 	if path == "/api/v1/health" {
 		return routeMatch{name: "api_health", known: true, api: true}
 	}
+	if path == "/api/v1/operations/prepare" {
+		return routeMatch{name: "api_operation_prepare", known: true, api: true}
+	}
+	if path == "/api/v1/operations" {
+		return routeMatch{name: "api_operations", known: true, api: true}
+	}
+	if path == "/operations/prepare" {
+		return routeMatch{name: "operation_prepare", known: true}
+	}
+	if path == "/operations/start" {
+		return routeMatch{name: "operation_start", known: true}
+	}
 	parts := splitPath(path)
 	switch {
+	case len(parts) == 3 && parts[0] == "projects" && validProjectPage(parts[2]):
+		return routeMatch{name: "project_page", params: []string{parts[1], parts[2]}, known: true}
 	case len(parts) == 2 && parts[0] == "projects":
 		return routeMatch{name: "project", params: parts[1:], known: true}
+	case len(parts) == 5 && parts[0] == "projects" && parts[2] == "sprints" && validSprintPage(parts[4]):
+		return routeMatch{name: "sprint_page", params: []string{parts[1], parts[3], parts[4]}, known: true}
 	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "sprints":
 		return routeMatch{name: "sprint", params: []string{parts[1], parts[3]}, known: true}
+	case len(parts) == 3 && parts[0] == "studies" && validStudyPage(parts[2]):
+		return routeMatch{name: "study_page", params: []string{parts[1], parts[2]}, known: true}
 	case len(parts) == 2 && parts[0] == "studies":
 		return routeMatch{name: "study", params: parts[1:], known: true}
 	case len(parts) == 2 && parts[0] == "artifacts":
 		return routeMatch{name: "artifact", params: parts[1:], known: true}
+	case len(parts) == 2 && parts[0] == "operations":
+		return routeMatch{name: "operation", params: parts[1:], known: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects":
 		return routeMatch{name: "api_project", params: parts[3:], known: true, api: true}
 	case len(parts) == 6 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints":
@@ -122,10 +181,41 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "api_study", params: parts[3:], known: true, api: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "artifacts":
 		return routeMatch{name: "api_artifact", params: parts[3:], known: true, api: true}
+	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "operations":
+		return routeMatch{name: "api_operation", params: parts[3:], known: true, api: true}
+	case len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "operations" && parts[4] == "events":
+		return routeMatch{name: "api_operation_events", params: []string{parts[3]}, known: true, api: true}
 	case len(parts) == 2 && parts[0] == "static" && (parts[1] == "app.css" || parts[1] == "app.js"):
 		return routeMatch{name: "static", params: parts[1:], known: true, static: true}
 	}
 	return routeMatch{api: strings.HasPrefix(path, "/api/")}
+}
+
+func validProjectPage(page string) bool {
+	switch page {
+	case "documentation", "sprints", "operations", "validation", "artifacts":
+		return true
+	default:
+		return false
+	}
+}
+
+func validSprintPage(page string) bool {
+	switch page {
+	case "plan", "delivery", "operations", "validation", "artifacts":
+		return true
+	default:
+		return false
+	}
+}
+
+func validStudyPage(page string) bool {
+	switch page {
+	case "inputs", "progress", "operations", "validation", "artifacts":
+		return true
+	default:
+		return false
+	}
 }
 
 func splitPath(path string) []string {

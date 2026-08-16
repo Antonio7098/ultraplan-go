@@ -32,6 +32,7 @@ func main() {
 				Listen:        opts.Listen,
 				OpenBrowser:   opts.OpenBrowser,
 				Queries:       opts.UseCases,
+				Operations:    opts.UseCases,
 				Stdout:        opts.Stdout,
 				Diagnostics:   opts.Diagnostics,
 				LaunchBrowser: openBrowser,

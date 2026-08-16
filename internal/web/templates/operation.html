@@ -1,0 +1,15 @@
+{{define "operation"}}{{template "top" .}}
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Operation</nav>
+{{with .Operation}}
+<dl class="metadata">
+  <div><dt>ID</dt><dd><code>{{.ID}}</code></dd></div>
+  <div><dt>Kind</dt><dd>{{.Kind}}</dd></div>
+  <div><dt>State</dt><dd>{{.State}}</dd></div>
+  <div><dt>Reason</dt><dd>{{if .Reason}}{{.Reason}}{{else}}none{{end}}</dd></div>
+</dl>
+{{if .Result}}<section><h2>Result</h2><p>{{.Result.Message}}</p>{{if .Result.Findings}}<ul class="findings">{{range .Result.Findings}}<li><span class="status status-{{.Severity}}">{{.Severity}}</span><strong>{{.Problem}}</strong></li>{{end}}</ul>{{end}}</section>{{end}}
+<p><a class="refresh-link" href="/operations/{{.ID}}">Refresh operation status</a></p>
+{{if .DurableStatus.Available}}<p><a href="{{.DurableStatus.RefreshPath}}">Refresh durable product status</a></p>{{end}}
+{{if or (eq .State "accepted") (eq .State "running") (eq .State "cancelling")}}<p>Without JavaScript, cancel from the matching CLI/TUI operation using its normal interrupt or cancellation control.</p>{{end}}
+{{end}}
+{{template "bottom" .}}{{end}}

@@ -2,9 +2,12 @@ package sprint
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
+
+var unresolvedTemplatePlaceholder = regexp.MustCompile(`\{\{\s*[A-Za-z][A-Za-z0-9_-]*\s*\}\}`)
 
 type SprintIndex struct {
 	Contracts          []SelectedItem
@@ -214,7 +217,7 @@ func first(values ...string) string {
 
 func containsPlaceholder(content string) bool {
 	lower := strings.ToLower(content)
-	return strings.Contains(lower, "todo") || strings.Contains(lower, "tbd") || strings.Contains(lower, "{{") || strings.Contains(lower, "<placeholder")
+	return strings.Contains(lower, "todo") || strings.Contains(lower, "tbd") || unresolvedTemplatePlaceholder.MatchString(content) || strings.Contains(lower, "<placeholder")
 }
 
 func sectionName(section string) string {

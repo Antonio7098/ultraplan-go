@@ -1,8 +1,39 @@
 {{define "sprint"}}{{template "top" .}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / <a href="/projects/{{.Sprint.Project}}">{{.Sprint.Project}}</a> / {{.Sprint.Slug}}</nav>
-<dl class="metadata"><div><dt>Status</dt><dd>{{.Sprint.Status}}</dd></div><div><dt>Assessment</dt><dd>{{if .Sprint.Assessment}}{{.Sprint.Assessment}}{{else}}not available{{end}}</dd></div><div><dt>Next action</dt><dd>{{if .Sprint.NextAction}}{{.Sprint.NextAction}}{{else}}none recorded{{end}}</dd></div></dl>
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / <a href="/projects/{{.Sprint.Project}}">{{.Sprint.Project}}</a> / {{.Sprint.Slug}}{{if ne .Page "overview"}} / {{if eq .Page "plan"}}Plan{{else if eq .Page "delivery"}}Delivery{{else if eq .Page "operations"}}Operations{{else if eq .Page "validation"}}Validation{{else}}Artifacts{{end}}{{end}}</nav>
+<div class="detail-layout">
+<aside class="detail-sidebar">
+<nav aria-label="Sprint navigation"><h2>Sprint</h2><ul>
+<li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
+<li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/plan"{{if eq .Page "plan"}} aria-current="page"{{end}}>Plan</a></li>
+<li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/delivery"{{if eq .Page "delivery"}} aria-current="page"{{end}}>Delivery</a></li>
+<li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/operations"{{if eq .Page "operations"}} aria-current="page"{{end}}>Operations</a></li>
+<li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/validation"{{if eq .Page "validation"}} aria-current="page"{{end}}>Validation</a></li>
+<li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts"{{if eq .Page "artifacts"}} aria-current="page"{{end}}>Artifacts</a></li>
+</ul></nav>
+</aside>
+<div class="detail-content">
+{{if eq .Page "overview"}}
+<section><h2>Overview</h2><dl class="metadata"><div><dt>Status</dt><dd>{{.Sprint.Status}}</dd></div><div><dt>Assessment</dt><dd>{{if .Sprint.Assessment}}{{.Sprint.Assessment}}{{else}}not available{{end}}</dd></div><div><dt>Next action</dt><dd>{{if .Sprint.NextAction}}{{.Sprint.NextAction}}{{else}}none recorded{{end}}</dd></div><div><dt>Validation findings</dt><dd>{{len .Sprint.Findings}}</dd></div></dl></section>
+<nav class="destination-grid" aria-label="Sprint overview destinations"><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/plan"><strong>Plan</strong><span>Review governed planning-stage state.</span></a><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/delivery"><strong>Delivery</strong><span>See execution, review, and smoke status.</span></a><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/operations"><strong>Operations</strong><span>Prepare the next guarded sprint action.</span></a><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts"><strong>Artifacts</strong><span>Open sprint plans and generated evidence.</span></a></nav>
+{{else if eq .Page "plan"}}
 <section><h2>Planning stages</h2>{{if .Sprint.Stages}}<div class="table-wrap"><table><caption>Current governed stage state</caption><thead><tr><th>Stage</th><th>Status</th></tr></thead><tbody>{{range .Sprint.Stages}}<tr><td>{{.Name}}</td><td>{{.Status}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="empty">No stage state available.</p>{{end}}</section>
-<section><h2>Execute, review, and smoke</h2><dl class="metadata"><div><dt>Execute complete</dt><dd>{{.Sprint.Execute.Complete}} / {{.Sprint.Execute.Total}}</dd></div><div><dt>Review</dt><dd>{{if .Sprint.Review.Available}}{{.Sprint.Review.Status}} {{.Sprint.Review.Verdict}}{{else}}not available{{end}}</dd></div><div><dt>Smoke</dt><dd>{{if .Sprint.Smoke.Available}}{{.Sprint.Smoke.Status}} {{.Sprint.Smoke.Verdict}}{{else}}not available{{end}}</dd></div></dl></section>
+{{else if eq .Page "delivery"}}
+<section><h2>Execute, review, and smoke</h2><dl class="metadata"><div><dt>Execute complete</dt><dd>{{.Sprint.Execute.Complete}} / {{.Sprint.Execute.Total}}</dd></div><div><dt>Execute pending</dt><dd>{{.Sprint.Execute.Pending}}</dd></div><div><dt>Execute failed</dt><dd>{{.Sprint.Execute.Failed}}</dd></div><div><dt>Review</dt><dd>{{if .Sprint.Review.Available}}{{.Sprint.Review.Status}} {{.Sprint.Review.Verdict}}{{else}}not available{{end}}</dd></div><div><dt>Smoke</dt><dd>{{if .Sprint.Smoke.Available}}{{.Sprint.Smoke.Status}} {{.Sprint.Smoke.Verdict}}{{else}}not available{{end}}</dd></div></dl></section>
+{{else if eq .Page "operations"}}
+<section><h2>Sprint operations</h2><div class="operation-actions">
+<form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="validation" data-project="{{.Sprint.Project}}" data-sprint="{{.Sprint.Slug}}" data-stage="plan"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="validation"><input type="hidden" name="project" value="{{.Sprint.Project}}"><input type="hidden" name="sprint" value="{{.Sprint.Slug}}"><input type="hidden" name="stage" value="plan"><button type="submit">Prepare plan validation</button></form>
+<form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="sprint_flow" data-project="{{.Sprint.Project}}" data-sprint="{{.Sprint.Slug}}" data-stage="plan"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="sprint_flow"><input type="hidden" name="project" value="{{.Sprint.Project}}"><input type="hidden" name="sprint" value="{{.Sprint.Slug}}"><input type="hidden" name="stage" value="plan"><button type="submit">Prepare sprint flow</button></form>
+<form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="execute" data-project="{{.Sprint.Project}}" data-sprint="{{.Sprint.Slug}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="execute"><input type="hidden" name="project" value="{{.Sprint.Project}}"><input type="hidden" name="sprint" value="{{.Sprint.Slug}}"><button type="submit">Prepare execute</button></form>
+<form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="review" data-project="{{.Sprint.Project}}" data-sprint="{{.Sprint.Slug}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="review"><input type="hidden" name="project" value="{{.Sprint.Project}}"><input type="hidden" name="sprint" value="{{.Sprint.Slug}}"><button type="submit">Prepare review</button></form>
+<form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="smoke" data-project="{{.Sprint.Project}}" data-sprint="{{.Sprint.Slug}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="smoke"><input type="hidden" name="project" value="{{.Sprint.Project}}"><input type="hidden" name="sprint" value="{{.Sprint.Slug}}"><button type="submit">Prepare smoke</button></form>
+<form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="verify" data-project="{{.Sprint.Project}}" data-sprint="{{.Sprint.Slug}}" data-stage="smoke"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="verify"><input type="hidden" name="project" value="{{.Sprint.Project}}"><input type="hidden" name="sprint" value="{{.Sprint.Slug}}"><input type="hidden" name="stage" value="smoke"><button type="submit">Prepare verify</button></form>
+</div></section>
+{{template "operation-console" .}}
+{{else if eq .Page "validation"}}
 <section><h2>Validation findings</h2>{{template "findings" .Sprint.Findings}}</section>
+{{else}}
 <section><h2>Artifacts</h2>{{template "artifacts" .Sprint.Artifacts}}</section>
+{{end}}
+</div>
+</div>
 {{template "bottom" .}}{{end}}

@@ -1,6 +1,6 @@
 # CLI Reference
 
-This release includes study commands and governed sprint planning, execute, resumable automated review, integrated `verify`, focused review reruns, review-gated deep smoke, the terminal dashboard, and a loopback-only read-only browser dashboard. Issue management, Git mutation, hosted services, and browser-triggered operations remain deferred.
+This release includes study commands and governed sprint planning, execute, resumable automated review, integrated `verify`, focused review reruns, review-gated deep smoke, the terminal dashboard, and a loopback-only browser dashboard with guarded operations and SSE progress. Issue management, Git mutation, and hosted services remain deferred.
 
 ## Global Usage
 
@@ -362,7 +362,7 @@ Extracts cited code snippets from one or more reports. Text output is human-orie
 ultraplan [--workspace <path>] serve [--listen <address>] [--open-browser]
 ```
 
-Starts the read-only local browser dashboard. Workspace selection uses the
+Starts the guarded local browser dashboard. Workspace selection uses the
 normal precedence: global `--workspace`, `ULTRAPLAN_WORKSPACE`, then current
 directory ancestry. Configuration is loaded and validated before a listener is
 opened.
@@ -375,13 +375,18 @@ opened.
   bound URL after listening succeeds. A launcher failure is a redacted warning;
   the healthy server continues and the printed URL can be opened manually.
 - Startup/listen failures use the existing error exit class. Interrupt or
-  process-context cancellation performs a timeout-bounded graceful shutdown and
-  exits successfully when cleanup succeeds.
+  process-context cancellation first drains new commands, cancels every active
+  server-owned operation through its canonical app context, waits for bounded
+  durable reconciliation, then shuts down HTTP. Cleanup uncertainty is not
+  reported as success.
 
 `serve --help` never opens a listener or parses the embedded templates.
-Existing CLI commands and `ultraplan tui` remain independent adapters over the
-same typed app services. The browser cannot start, cancel, review, smoke,
-execute, validate-now, edit files, or mutate Git. See
+Existing CLI commands, `ultraplan tui`, and the browser remain independent
+adapters over the same typed app operation services. Browser commands use a
+two-step current confirmation, bounded ephemeral status/SSE, and explicit
+`DELETE` cancellation. They do not change CLI flags or automation semantics;
+the browser cannot edit arbitrary files, submit arbitrary commands, or mutate
+Git. See
 [Local Web Dashboard](local-web.md) for routes, limits, trust boundaries, and
 troubleshooting.
 

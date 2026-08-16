@@ -26,6 +26,7 @@ type Options struct {
 	Listen        string
 	OpenBrowser   bool
 	Queries       app.WebQueries
+	Operations    app.WebOperations
 	Stdout        io.Writer
 	Diagnostics   io.Writer
 	ListenFunc    func(string, string) (net.Listener, error)
@@ -68,13 +69,25 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("listener resolved outside loopback policy: %w", err)
 	}
 	origin := "http://" + authority
+	if reconciler, ok := opts.Operations.(app.OperationReconciler); ok {
+		if err := reconciler.ReconcileOperations(ctx); err != nil {
+			_ = listener.Close()
+			return fmt.Errorf("reconcile interrupted operations: %w", err)
+		}
+	}
 
+	operationRoot, cancelOperations := context.WithCancel(context.Background())
+	defer cancelOperations()
+	hub := newOperationHub(operationRoot, opts.Operations, opts.Now, opts.RequestID)
 	handler, err := NewHandler(HandlerOptions{
 		Queries:     opts.Queries,
+		Operations:  opts.Operations,
 		Authority:   authority,
 		Diagnostics: diagnostics,
 		Now:         opts.Now,
 		RequestID:   opts.RequestID,
+		RootContext: operationRoot,
+		Hub:         hub,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize web presentation: %w", err)
@@ -114,7 +127,12 @@ func Run(ctx context.Context, opts Options) error {
 		started := time.Now()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 		defer cancel()
+		cleanupErr := hub.drainAndWait(shutdownCtx)
+		cancelOperations()
 		err := server.Shutdown(shutdownCtx)
+		if cleanupErr != nil {
+			return fmt.Errorf("operation cleanup during shutdown: %w", cleanupErr)
+		}
 		if err != nil {
 			_ = server.Close()
 		}

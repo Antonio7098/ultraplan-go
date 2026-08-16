@@ -65,7 +65,7 @@ func (s Service) WithoutStatusWrites() Service {
 var ErrVerificationConflict = errors.New("verification mutation already in progress")
 
 func (s Service) acquireMutation(projectRef, sprintRef string) (func(), error) {
-	sp, _, _, err := s.resolveSprintInputs(projectRef, sprintRef)
+	sp, err := s.resolveMutationSprint(projectRef, sprintRef)
 	if err != nil {
 		return nil, err
 	}

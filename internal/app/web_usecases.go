@@ -42,10 +42,16 @@ type WebQueries interface {
 	Health(context.Context) (WebHealthResult, error)
 }
 
+type WebUseCases interface {
+	WebQueries
+	WebOperations
+}
+
 type WebUseCaseOptions struct {
 	StageRuntime      map[sprint.PlanningStage]sprint.StageRuntime
 	ReviewConcurrency int
 	SmokeSettings     sprint.SmokeSettings
+	Runner            func(context.Context, OperationRequest, func(OperationEvent)) (OperationResult, error)
 }
 
 type CollectionInfo struct {
@@ -160,7 +166,7 @@ type webUseCases struct {
 	refs      map[string]webRefTarget
 }
 
-func NewWebUseCases(root string, opts WebUseCaseOptions) WebQueries {
+func NewWebUseCases(root string, opts WebUseCaseOptions) WebUseCases {
 	u := &webUseCases{
 		root: root,
 		dashboard: dashboardUseCases{
@@ -169,6 +175,7 @@ func NewWebUseCases(root string, opts WebUseCaseOptions) WebQueries {
 			reviewConcurrency: opts.ReviewConcurrency,
 			smokeSettings:     opts.SmokeSettings,
 			readOnly:          true,
+			runner:            opts.Runner,
 		},
 		refs: make(map[string]webRefTarget),
 	}
@@ -176,6 +183,35 @@ func NewWebUseCases(root string, opts WebUseCaseOptions) WebQueries {
 		u.secret = sha256.Sum256([]byte(filepath.Clean(root)))
 	}
 	return u
+}
+
+func (u *webUseCases) Validate(ctx context.Context, req ValidationRequest) (ValidationOperationResult, error) {
+	return u.dashboard.Validate(ctx, req)
+}
+
+func (u *webUseCases) PrepareOperation(ctx context.Context, req OperationRequest) (Confirmation, error) {
+	return u.dashboard.PrepareOperation(ctx, req)
+}
+
+func (u *webUseCases) RunOperation(ctx context.Context, req OperationRequest, emit func(OperationEvent)) (OperationResult, error) {
+	return u.dashboard.RunOperation(ctx, req, emit)
+}
+
+func (u *webUseCases) ReconcileOperations(ctx context.Context) error {
+	summaries, err := u.dashboard.SprintSummaries(ctx)
+	if err != nil {
+		return err
+	}
+	service := sprint.NewService(u.root)
+	for _, summary := range summaries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := service.ReconcileInterruptedMutation(ctx, summary.Project, summary.Slug); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (u *webUseCases) Dashboard(ctx context.Context) (WebDashboardResult, error) {

@@ -110,6 +110,17 @@ func TestPlanValidationAllowsNestedTaskChecklistWithoutRepeatedTrace(t *testing.
 	}
 }
 
+func TestPlaceholderDetectionAllowsGoTemplateExpressions(t *testing.T) {
+	if containsPlaceholder("Run `go list -f '{{join .Imports \"\\n\"}}' ./internal/web`.") {
+		t.Fatal("Go template expression was treated as unresolved scaffold content")
+	}
+	for _, content := range []string{"{{source_name}}", "{{ source-name }}", "TODO", "TBD", "<placeholder>"} {
+		if !containsPlaceholder(content) {
+			t.Fatalf("expected placeholder detection for %q", content)
+		}
+	}
+}
+
 type writePlanRuntime struct {
 	sp Sprint
 }
