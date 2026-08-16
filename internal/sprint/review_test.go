@@ -456,6 +456,27 @@ func TestExtractReviewResultUsesUntruncatedTerminalOutput(t *testing.T) {
 	}
 }
 
+func TestExtractReviewResultFindsJSONAfterReasoningObjectSyntax(t *testing.T) {
+	want := ReviewCoverageResult{
+		SchemaVersion: 1,
+		CoverageID:    "contract-security",
+		Applicability: "partial",
+		Summary:       "checked",
+	}
+	data, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := "Reasoning about findings: [{id, severity, citations: [{path, startLine, endLine}]}]\n" + string(data)
+	var got ReviewCoverageResult
+	if !extractReviewResult(pruntime.Result{TerminalOutput: terminal}, &got) {
+		t.Fatal("review result was not extracted from mixed reasoning and JSON output")
+	}
+	if got.CoverageID != want.CoverageID || got.Summary != want.Summary {
+		t.Fatalf("result = %#v, want %#v", got, want)
+	}
+}
+
 func TestReviewerGetsOneStructuredOutputRepair(t *testing.T) {
 	root, _ := reviewFixture(t)
 	runtime := &repairReviewRuntime{}

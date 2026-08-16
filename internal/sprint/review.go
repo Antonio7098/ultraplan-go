@@ -733,10 +733,15 @@ func reviewCoverageCheckpointValid(root string, m ReviewManifest, result ReviewC
 
 func (s Service) saveReviewResumeSession(projectRef, sprintRef, fingerprint, coverageID, sessionID string) error {
 	return s.updateReviewResume(projectRef, sprintRef, fingerprint, coverageID, func(checkpoint *ReviewCoverageCheckpoint, now time.Time) {
-		checkpoint.SessionID = sessionID
-		if checkpoint.Status != AttemptCompleted {
-			checkpoint.Status = AttemptRunning
+		// Session events and completed results arrive on separate channels. A
+		// buffered session event may therefore be persisted after the terminal
+		// result; never let that late event restore a cleared session or regress a
+		// terminal checkpoint to running.
+		if checkpoint.Status == AttemptCompleted || checkpoint.Status == AttemptFailed {
+			return
 		}
+		checkpoint.SessionID = sessionID
+		checkpoint.Status = AttemptRunning
 		checkpoint.UpdatedAt = now
 	})
 }
@@ -1497,15 +1502,31 @@ func extractReviewValue(v any, out *ReviewCoverageResult) bool {
 			}
 		}
 	case string:
-		start := strings.Index(x, "{")
-		end := strings.LastIndex(x, "}")
-		var candidate ReviewCoverageResult
-		if start >= 0 && end > start && json.Unmarshal([]byte(x[start:end+1]), &candidate) == nil && candidate.CoverageID != "" {
-			*out = candidate
-			return true
-		}
+		return extractReviewJSON(x, out)
 	}
 	return false
+}
+
+// extractReviewJSON tolerates runtime output that contains reasoning, Markdown,
+// or other prose before the canonical result. Trying each object boundary with
+// a streaming decoder avoids the brittle first-"{"/last-"}" assumption while
+// still accepting only an object that decodes as an actual review result.
+func extractReviewJSON(value string, out *ReviewCoverageResult) bool {
+	found := false
+	for offset := 0; offset < len(value); {
+		relative := strings.IndexByte(value[offset:], '{')
+		if relative < 0 {
+			break
+		}
+		start := offset + relative
+		var candidate ReviewCoverageResult
+		if err := json.NewDecoder(strings.NewReader(value[start:])).Decode(&candidate); err == nil && candidate.CoverageID != "" {
+			*out = candidate
+			found = true
+		}
+		offset = start + 1
+	}
+	return found
 }
 func validReviewCitation(root string, m ReviewManifest, c ReviewCitation) bool {
 	if c.StartLine < 1 || c.EndLine < c.StartLine {
