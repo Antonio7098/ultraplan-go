@@ -331,6 +331,51 @@ func TestReviewResultSchemaCanonicalizesLegacyDeferredAndRejectsDuplicateFinding
 	}
 }
 
+func TestReviewResultCanonicalizesFrozenReadPathCitation(t *testing.T) {
+	root, _ := reviewFixture(t)
+	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	manifest, findings, err := service.PrepareReview("proj", "01", ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare: err=%v findings=%+v", err, findings)
+	}
+	manifest.ReviewerRoot = filepath.Join(root, "frozen-review")
+	input := manifest.Inputs[0]
+	result := ReviewCoverageResult{
+		SchemaVersion: 1,
+		CoverageID:    manifest.Coverage[0].ID,
+		Applicability: "direct",
+		Summary:       "Checked.",
+		Findings: []ReviewFinding{{
+			ID: "READ-PATH-1", Severity: "low", Applicability: "direct", Title: "Issue", Detail: "Actionable deviation.",
+			Citations: []ReviewCitation{{Path: reviewInputReadPath(manifest, input), StartLine: 1, EndLine: 1}},
+		}},
+	}
+	normalizeReviewResultForManifest(manifest, &result)
+	if got := result.Findings[0].Citations[0].Path; got != input.Path {
+		t.Fatalf("citation path=%q want logical %q", got, input.Path)
+	}
+	if problems := reviewResultProblems(root, manifest, result.CoverageID, result); len(problems) != 0 {
+		t.Fatalf("canonical citation rejected: %+v", problems)
+	}
+}
+
+func TestReviewRepairPromptRetainsPriorOutputAndFrozenCitationMap(t *testing.T) {
+	root, _ := reviewFixture(t)
+	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	manifest, findings, err := service.PrepareReview("proj", "01", ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare: err=%v findings=%+v", err, findings)
+	}
+	manifest.ReviewerRoot = filepath.Join(root, "frozen-review")
+	coverage := manifest.Coverage[0]
+	prompt := buildReviewRepairPrompt(manifest, coverage, []string{"citation is invalid"}, `{"coverageId":"prior"}`)
+	for _, want := range []string{coverage.ID, "citation is invalid", manifest.Inputs[0].Path, reviewInputReadPath(manifest, manifest.Inputs[0]), `{"coverageId":"prior"}`} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("repair prompt missing %q: %s", want, prompt)
+		}
+	}
+}
+
 func hasReviewDiagnostic(values []ReviewDiagnostic, code string) bool {
 	for _, value := range values {
 		if value.Code == code {

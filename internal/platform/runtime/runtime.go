@@ -181,6 +181,7 @@ type ValidationSummary struct {
 	Passed     bool
 	Failures   int
 	Errors     int
+	Details    []string
 }
 
 type PermissionSummary struct {

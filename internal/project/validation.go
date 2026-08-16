@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
+
+var deprecatedSmokeHarnessDirectoryField = regexp.MustCompile(`(?im)^\s*-\s+(?:\*\*)?Smoke Harness Directory(?:\*\*)?\s*:`)
 
 func ValidateProject(root string, p Project, files ProjectFiles) ValidationResult {
 	var findings []ValidationFinding
@@ -37,6 +40,9 @@ func ValidateProject(root string, p Project, files ProjectFiles) ValidationResul
 		add(projectRel(p.Name, "sprints"), "missing sprints directory", "sprints directory was not found", "Create sprints/ for planning sprint artifacts.", nil)
 	}
 	if files.ProjectIndexExists {
+		if deprecatedSmokeHarnessDirectoryField.MatchString(files.IndexContent) {
+			add(projectRel(p.Name, "project-index.md"), "duplicate smoke harness source", "Project Scope declares Smoke Harness Directory even though the Smoke Harnesses catalog is authoritative", "Remove Smoke Harness Directory from Project Scope and keep the root only in the Smoke Harnesses catalog Path column.", nil)
+		}
 		index, parseFindings := ParseProjectIndex(files.IndexContent)
 		findings = append(findings, parseFindings...)
 		for _, entry := range index.Entries {

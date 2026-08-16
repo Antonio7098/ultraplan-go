@@ -90,12 +90,18 @@ func mapPolicy(value agentwrap.PolicyMetadata) PolicySummary {
 }
 
 func mapValidation(value agentwrap.ValidationMetadata) ValidationSummary {
-	return ValidationSummary{
+	out := ValidationSummary{
 		Configured: value.Configured,
 		Passed:     value.Final.Passed,
 		Failures:   value.Final.FailedCount,
 		Errors:     len(value.Final.Errors),
 	}
+	for _, failure := range value.Final.Failures {
+		if detail := truncateDiagnosticString(failure.Observed); detail != "" {
+			out.Details = append(out.Details, detail)
+		}
+	}
+	return out
 }
 
 func mapPermissions(value agentwrap.PermissionMetadata) PermissionSummary {

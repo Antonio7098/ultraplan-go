@@ -3,6 +3,7 @@ package sprint
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -15,7 +16,7 @@ func extractValidatedReviewResult(root string, manifest ReviewManifest, coverage
 	if !extractReviewResult(runtimeResult, &result) {
 		return result, []string{"runtime did not return a structured review result"}
 	}
-	normalizeReviewResult(&result)
+	normalizeReviewResultForManifest(manifest, &result)
 	return result, reviewResultProblems(root, manifest, coverageID, result)
 }
 
@@ -35,7 +36,7 @@ func (s Service) reviewValidationSpec(m ReviewManifest, coverage ReviewInput) *a
 			if !extractReviewValue(vctx.Result.TerminalOutput, &result) {
 				return reviewValidationCheck(coverage.ID, []string{"terminal output did not contain one review result JSON object"})
 			}
-			normalizeReviewResult(&result)
+			normalizeReviewResultForManifest(m, &result)
 			return reviewValidationCheck(coverage.ID, reviewResultProblems(s.root, m, coverage.ID, result))
 		})},
 		Repair: agentwrap.RepairConfig{
@@ -44,7 +45,7 @@ func (s Service) reviewValidationSpec(m ReviewManifest, coverage ReviewInput) *a
 			AllowFreshSessionFallback:   true,
 			FreshSessionFallbackOnError: true,
 			BuildPrompt: func(ctx agentwrap.RepairContext) string {
-				return buildReviewRepairPrompt(coverage.ID, validationFailureDetails(ctx.Validation.Failures))
+				return buildReviewRepairPrompt(m, coverage, validationFailureDetails(ctx.Validation.Failures), ctx.CurrentResult.TerminalOutput)
 			},
 			OverrideRequest: func(ctx agentwrap.RepairContext, req agentwrap.RunRequest) agentwrap.RunRequest {
 				// A semantically invalid same-session repair gets one clean retry.
@@ -87,15 +88,28 @@ func validationFailureDetails(failures []agentwrap.ValidationFailure) []string {
 	return details
 }
 
-func buildReviewRepairPrompt(coverageID string, problems []string) string {
+func buildReviewRepairPrompt(manifest ReviewManifest, coverage ReviewInput, problems []string, priorOutput string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Return only one corrected JSON object for coverageId %q. Do not perform more tool calls.\n", coverageID)
+	fmt.Fprintf(&b, "Return only one corrected JSON object for coverageId %q. Do not perform more tool calls. Preserve the prior review's substantive conclusions while correcting its structure and citations.\n", coverage.ID)
 	fmt.Fprintln(&b, `Canonical schema: {"schemaVersion":1,"coverageId":string,"applicability":"direct|partial|not_triggered|explicitly_deferred","summary":string,"findings":[{"id":string,"severity":"info|low|medium|high|blocker","applicability":"direct|partial|not_triggered|explicitly_deferred","title":string,"detail":string,"action":string,"citations":[{"path":string,"startLine":number,"endLine":number}]}]}`)
 	if len(problems) > 0 {
 		fmt.Fprintln(&b, "Validation failures:")
 		for _, problem := range problems {
 			fmt.Fprintf(&b, "- %s\n", problem)
 		}
+	}
+	fmt.Fprintln(&b, "Allowed citation paths and inclusive line ranges (use the logical path exactly):")
+	for _, input := range manifest.Inputs {
+		if data, ok := manifest.Contents[input.Path]; ok {
+			fmt.Fprintf(&b, "- `%s`: 1-%d (read path `%s`)\n", input.Path, len(strings.Split(data, "\n")), reviewInputReadPath(manifest, input))
+		}
+	}
+	if value := strings.TrimSpace(priorOutput); value != "" {
+		const maxPriorOutputBytes = 48 << 10
+		if len(value) > maxPriorOutputBytes {
+			value = value[len(value)-maxPriorOutputBytes:]
+		}
+		fmt.Fprintf(&b, "Prior output to correct:\n%s\n", value)
 	}
 	fmt.Fprintln(&b, "Use findings only for actionable deviations. Put confirmed conformance in summary, not in info findings.")
 	return b.String()
@@ -111,6 +125,31 @@ func normalizeReviewResult(result *ReviewCoverageResult) {
 	}
 }
 
+// normalizeReviewResultForManifest accepts the exact read path exposed to a
+// reviewer and stores its stable logical manifest path. This keeps persisted
+// citations portable without rejecting an otherwise valid reviewer result for
+// citing the path it actually read.
+func normalizeReviewResultForManifest(manifest ReviewManifest, result *ReviewCoverageResult) {
+	normalizeReviewResult(result)
+	if result == nil {
+		return
+	}
+	readPaths := make(map[string]string, len(manifest.Inputs))
+	for _, input := range manifest.Inputs {
+		if path := reviewInputReadPath(manifest, input); path != "<embedded>" {
+			readPaths[filepath.Clean(path)] = input.Path
+		}
+	}
+	for findingIndex := range result.Findings {
+		for citationIndex := range result.Findings[findingIndex].Citations {
+			citation := &result.Findings[findingIndex].Citations[citationIndex]
+			if logical, ok := readPaths[filepath.Clean(citation.Path)]; ok {
+				citation.Path = logical
+			}
+		}
+	}
+}
+
 func canonicalReviewApplicability(value string) string {
 	if value == "deferred" { // compatibility with protocol revisions before schema v1 was clarified
 		return "explicitly_deferred"
@@ -119,6 +158,7 @@ func canonicalReviewApplicability(value string) string {
 }
 
 func reviewResultProblems(root string, manifest ReviewManifest, expectedCoverageID string, result ReviewCoverageResult) []string {
+	normalizeReviewResultForManifest(manifest, &result)
 	var problems []string
 	if result.SchemaVersion != 1 {
 		problems = append(problems, "schemaVersion must be 1")

@@ -854,6 +854,9 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 	// fallback here so the product boundary remains deterministic in tests and
 	// alternate adapters.
 	if r.Validation.Configured {
+		if len(problems) == 0 && !r.Validation.Passed && len(r.Validation.Details) > 0 {
+			problems = append(problems, r.Validation.Details...)
+		}
 		if len(problems) > 0 {
 			out.Error = safeReviewText(s.root, strings.Join(problems, "; "))
 		} else if err != nil {
@@ -867,7 +870,7 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 	for attempt := 1; attempt <= 2; attempt++ {
 		repair := req
 		repair.Validation = nil
-		repair.Prompt = buildReviewRepairPrompt(c.ID, problems)
+		repair.Prompt = buildReviewRepairPrompt(m, c, problems, r.TerminalOutput)
 		if attempt == 1 && sessionID != "" {
 			repair.SessionID, repair.SessionAction = sessionID, "continue"
 		} else {
@@ -914,7 +917,7 @@ func validateReviewCoverage(root string, m ReviewManifest, results []ReviewCover
 			diagnostics = append(diagnostics, ReviewDiagnostic{Code: "reviewer-failed", CoverageID: expectedID, Message: r.Error})
 			continue
 		}
-		normalizeReviewResult(&r)
+		normalizeReviewResultForManifest(m, &r)
 		problems := reviewResultProblems(root, m, expectedID, r)
 		if len(problems) > 0 {
 			diagnostics = append(diagnostics, ReviewDiagnostic{Code: "invalid-result", CoverageID: expectedID, Message: safeReviewText(root, strings.Join(problems, "; "))})

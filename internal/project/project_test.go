@@ -105,6 +105,24 @@ func TestValidateFindsEmptyDocs(t *testing.T) {
 	assertFinding(t, result.Findings, "empty docs directory")
 }
 
+func TestValidateRejectsDuplicateSmokeHarnessScopeField(t *testing.T) {
+	root := workspaceFixture(t)
+	writeValidProject(t, root, "duplicate-smoke-root")
+	base := filepath.Join(root, "projects", "duplicate-smoke-root")
+	content, err := os.ReadFile(filepath.Join(base, "project-index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(content), "# Project Index", "# Project Index\n\n## Project Scope\n\n- **Smoke Harness Directory:** `/tmp/smoke`", 1)
+	writeFileContent(t, base, updated, "project-index.md")
+
+	result, err := NewService(root).Validate("duplicate-smoke-root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFinding(t, result.Findings, "duplicate smoke harness source")
+}
+
 func TestValidateRejectsCrossProjectReasoningTemplate(t *testing.T) {
 	root := workspaceFixture(t)
 	writeValidProject(t, root, "alpha")
