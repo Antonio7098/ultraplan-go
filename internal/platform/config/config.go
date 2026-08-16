@@ -156,7 +156,7 @@ func Defaults() Config {
 		Models:    Models{Default: "provider/model", Primary: "provider/model", Backup: "provider/model"},
 		Execution: Execution{DefaultVariant: "high", DefaultParallel: 3, DefaultTimeout: "30m", DefaultRetries: 3},
 		Planning:  Planning{},
-		Smoke:     Smoke{DiscoveryTimeout: "30s", RunTimeout: "30m", StdoutLimit: 4 << 20, StderrLimit: 1 << 20, CleanupGrace: "5s", Environment: []string{"TMPDIR", "LANG", "LC_ALL"}},
+		Smoke:     Smoke{DiscoveryTimeout: "30s", RunTimeout: "30m", StdoutLimit: 4 << 20, StderrLimit: 1 << 20, CleanupGrace: "5s", Environment: []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"}},
 		Logging:   Logging{Format: "text", Level: "info"},
 		Agentwrap: Agentwrap{Executable: "opencode", StderrLimit: 16 * 1024, RequiredHealth: []string{"runtime_available", "structured_output", "workdir"}, RequiredCapabilities: []string{"structured_events", "cancellation"}, Sandbox: "workspace_write", PermissionMode: "restricted", PermissionDefault: "ask"},
 	}

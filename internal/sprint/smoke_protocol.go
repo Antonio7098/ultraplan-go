@@ -234,8 +234,10 @@ func validateSmokeDiscovery(d smokeDiscovery, m smokeManifest) error {
 	if d.SchemaVersion != 1 || d.ProtocolVersion != m.ProtocolVersion || d.HarnessID != m.Harness.ID || d.EvidenceSchema != 1 {
 		return smokeError("smoke_discovery_identity", "protocol", "discovery identity does not match the manifest", "Fix the harness protocol response.", nil)
 	}
-	seen := map[string]string{}
 	prerequisites := map[string]bool{}
+	levels := map[string]bool{}
+	suites := map[string]bool{}
+	tests := map[string]bool{}
 	for _, prerequisite := range d.Prerequisites {
 		if prerequisite.ID == "" || prerequisites[prerequisite.ID] {
 			return smokeError("smoke_discovery_duplicate", "protocol", "discovery contains duplicate/empty prerequisite identity", "Fix discovery identities.", nil)
@@ -246,36 +248,36 @@ func validateSmokeDiscovery(d smokeDiscovery, m smokeManifest) error {
 		prerequisites[prerequisite.ID] = true
 	}
 	for _, level := range d.Levels {
-		if level.ID == "" || seen[level.ID] != "" {
+		if level.ID == "" || levels[level.ID] {
 			return smokeError("smoke_discovery_duplicate", "protocol", "discovery contains duplicate/empty level identity", "Fix discovery identities.", nil)
 		}
-		seen[level.ID] = "level"
+		levels[level.ID] = true
 	}
 	for _, suite := range d.Suites {
-		if suite.ID == "" || seen[suite.ID] != "" {
+		if suite.ID == "" || suites[suite.ID] {
 			return smokeError("smoke_discovery_duplicate", "protocol", "discovery contains duplicate/empty suite identity", "Fix discovery identities.", nil)
 		}
-		seen[suite.ID] = "suite"
+		suites[suite.ID] = true
 	}
 	for _, test := range d.Tests {
-		if test.ID == "" || seen[test.ID] != "" {
+		if test.ID == "" || tests[test.ID] {
 			return smokeError("smoke_discovery_duplicate", "protocol", "discovery contains duplicate/empty test identity", "Fix discovery identities.", nil)
 		}
-		seen[test.ID] = "test"
+		tests[test.ID] = true
 	}
 	for _, level := range d.Levels {
 		if len(level.Suites) == 0 {
 			return smokeError("smoke_discovery_relationship", "protocol", "level has no suites", "Declare at least one suite for every level.", nil)
 		}
 		for _, id := range level.Suites {
-			if seen[id] != "suite" {
+			if !suites[id] {
 				return smokeError("smoke_discovery_relationship", "protocol", "level references unknown suite "+id, "Fix discovery relationships.", nil)
 			}
 		}
 	}
 	for _, suite := range d.Suites {
 		for _, id := range suite.Tests {
-			if seen[id] != "test" {
+			if !tests[id] {
 				return smokeError("smoke_discovery_relationship", "protocol", "suite references unknown test "+id, "Fix discovery relationships.", nil)
 			}
 		}
@@ -286,7 +288,7 @@ func validateSmokeDiscovery(d smokeDiscovery, m smokeManifest) error {
 		}
 	}
 	for _, test := range d.Tests {
-		if seen[test.Suite] != "suite" {
+		if !suites[test.Suite] {
 			return smokeError("smoke_discovery_relationship", "protocol", "test references unknown suite "+test.Suite, "Fix discovery relationships.", nil)
 		}
 	}
@@ -295,7 +297,7 @@ func validateSmokeDiscovery(d smokeDiscovery, m smokeManifest) error {
 			return smokeError("smoke_discovery_relationship", "protocol", "sprint mapping is empty or contradictory", "Fix discovery mappings.", nil)
 		}
 		for _, id := range mapping.Suites {
-			if seen[id] != "suite" {
+			if !suites[id] {
 				return smokeError("smoke_discovery_relationship", "protocol", "mapping references unknown suite "+id, "Fix discovery mappings.", nil)
 			}
 		}

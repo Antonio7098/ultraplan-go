@@ -65,6 +65,28 @@ func TestSmokeSelectionAndVerdicts(t *testing.T) {
 	}
 }
 
+func TestDefaultSmokeEnvironmentPreservesInterpreterPath(t *testing.T) {
+	settings := DefaultSmokeSettings()
+	values := map[string]string{
+		"PATH":              "/opt/node/bin:/usr/bin",
+		"HOME":              "/home/smoke",
+		"TMPDIR":            "/tmp",
+		"UNDECLARED_SECRET": "must-not-pass",
+	}
+	env := smokeEnvironment(settings, smokeManifest{}, func(name string) string { return values[name] })
+	if !contains(env, "PATH=/opt/node/bin:/usr/bin") {
+		t.Fatalf("environment=%v, want PATH for contained script interpreters", env)
+	}
+	if !contains(env, "HOME=/home/smoke") {
+		t.Fatalf("environment=%v, want HOME for bounded tool caches and configuration", env)
+	}
+	for _, value := range env {
+		if strings.HasPrefix(value, "UNDECLARED_SECRET=") {
+			t.Fatalf("environment leaked a non-allowlisted value: %v", env)
+		}
+	}
+}
+
 func TestSmokeExplicitScopeMustCoverCompleteMapping(t *testing.T) {
 	d := smokeDiscovery{
 		Levels:         []smokeLevel{{ID: "all", Suites: []string{"suite-a", "suite-b"}}, {ID: "partial", Suites: []string{"suite-a"}}},
@@ -95,6 +117,26 @@ func TestSmokeDiscoveryRejectsBrokenRelationships(t *testing.T) {
 	d.Tests = []smokeTest{{ID: "test", Suite: "missing"}}
 	if err := validateSmokeDiscovery(d, m); err == nil {
 		t.Fatal("expected unknown test suite rejection")
+	}
+}
+
+func TestSmokeDiscoveryAllowsIdentityReuseAcrossKinds(t *testing.T) {
+	m := smokeManifest{ProtocolVersion: "1.0", Harness: smokeHarnessIdentity{ID: "fake"}}
+	d := smokeDiscovery{
+		SchemaVersion:   1,
+		ProtocolVersion: "1.0",
+		HarnessID:       "fake",
+		EvidenceSchema:  1,
+		Levels:          []smokeLevel{{ID: "runtime", Suites: []string{"runtime"}}},
+		Suites:          []smokeSuite{{ID: "runtime", Tests: []string{"runtime"}}},
+		Tests:           []smokeTest{{ID: "runtime", Suite: "runtime"}},
+	}
+	if err := validateSmokeDiscovery(d, m); err != nil {
+		t.Fatalf("cross-kind identity reuse should be valid: %v", err)
+	}
+	d.Suites = append(d.Suites, smokeSuite{ID: "runtime"})
+	if err := validateSmokeDiscovery(d, m); err == nil {
+		t.Fatal("same-kind duplicate suite identity should be rejected")
 	}
 }
 
