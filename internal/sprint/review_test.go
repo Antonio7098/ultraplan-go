@@ -222,7 +222,7 @@ func TestReviewFingerprintIgnoresSmokeOnlyProjectIndexChanges(t *testing.T) {
 	}
 }
 
-func TestReviewResumesValidatedCoverageAndOpenCodeSession(t *testing.T) {
+func TestReviewResumesValidatedCoverageInFreshSession(t *testing.T) {
 	root, sp := reviewFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	runtime := &resumableReviewRuntime{cancel: cancel, interruptOnCall: 2}
@@ -236,15 +236,15 @@ func TestReviewResumesValidatedCoverageAndOpenCodeSession(t *testing.T) {
 	if err != nil || state.Review == nil || state.Review.Resume == nil {
 		t.Fatalf("missing resume state: review=%+v err=%v", state.Review, err)
 	}
-	completed, retainedSession := 0, ""
+	completed, staleSessions := 0, 0
 	for _, checkpoint := range state.Review.Resume.Coverage {
 		if checkpoint.Status == AttemptCompleted {
 			completed++
 		} else if checkpoint.SessionID != "" {
-			retainedSession = checkpoint.SessionID
+			staleSessions++
 		}
 	}
-	if completed != 1 || retainedSession == "" {
+	if completed != 1 || staleSessions != 0 {
 		t.Fatalf("resume checkpoints=%+v", state.Review.Resume.Coverage)
 	}
 
@@ -259,8 +259,8 @@ func TestReviewResumesValidatedCoverageAndOpenCodeSession(t *testing.T) {
 		t.Fatalf("runtime calls=%d want 3", len(runtime.calls))
 	}
 	last := runtime.calls[2]
-	if last.SessionID != retainedSession || last.SessionAction != "continue" {
-		t.Fatalf("resume request session=%q action=%q want %q/continue", last.SessionID, last.SessionAction, retainedSession)
+	if last.SessionID != "" || last.SessionAction != "" {
+		t.Fatalf("resume reused snapshot-bound session %q with action %q", last.SessionID, last.SessionAction)
 	}
 }
 

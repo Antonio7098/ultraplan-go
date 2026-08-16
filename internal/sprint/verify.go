@@ -162,7 +162,7 @@ func (s Service) VerificationStatus(projectRef, sprintRef string) (VerificationS
 					out.Review.RetainedSessions++
 				}
 			}
-			out.Review.Resumable = out.Review.Completed > 0 || out.Review.RetainedSessions > 0
+			out.Review.Resumable = out.Review.Completed > 0
 		}
 		manifest, findings, prepareErr := s.PrepareReview(projectRef, sprintRef, ReviewRequest{})
 		if prepareErr != nil || len(findings) > 0 {

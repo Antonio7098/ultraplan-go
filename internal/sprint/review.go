@@ -701,6 +701,11 @@ func reviewResumePlan(root string, m ReviewManifest, state ReviewResumeState) ([
 		checkpoints[item.CoverageID] = item
 	}
 	coverage := make([]ReviewCoverageResult, len(m.Coverage))
+	// Reviewer sessions are bound by OpenCode to the frozen snapshot directory
+	// in which they were created. That directory is intentionally removed when
+	// an attempt ends, so cross-attempt continuation would resume into a deleted
+	// workdir. Reuse validated results, but always start incomplete coverage in a
+	// fresh session against the new snapshot.
 	sessions := map[string]string{}
 	run := make([]ReviewInput, 0, len(m.Coverage))
 	completed := 0
@@ -712,9 +717,6 @@ func reviewResumePlan(root string, m ReviewManifest, state ReviewResumeState) ([
 			continue
 		}
 		run = append(run, item)
-		if checkpoint.SessionID != "" {
-			sessions[item.ID] = checkpoint.SessionID
-		}
 	}
 	return run, coverage, sessions, completed
 }
@@ -739,11 +741,9 @@ func (s Service) saveReviewResumeSession(projectRef, sprintRef, fingerprint, cov
 	})
 }
 
-func (s Service) saveReviewResumeResult(projectRef, sprintRef, fingerprint string, result ReviewCoverageResult, sessionID string) error {
+func (s Service) saveReviewResumeResult(projectRef, sprintRef, fingerprint string, result ReviewCoverageResult, _ string) error {
 	return s.updateReviewResume(projectRef, sprintRef, fingerprint, result.CoverageID, func(checkpoint *ReviewCoverageCheckpoint, now time.Time) {
-		if sessionID != "" {
-			checkpoint.SessionID = sessionID
-		}
+		checkpoint.SessionID = ""
 		checkpoint.UpdatedAt = now
 		if result.Error == "" {
 			checkpoint.Status = AttemptCompleted
