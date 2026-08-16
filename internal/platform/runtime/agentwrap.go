@@ -97,9 +97,6 @@ func mapPermissionPolicy(policy PermissionPolicy) (*agentwrap.PermissionPolicy, 
 	if err := agentwrap.ValidatePermissionPolicy(out); err != nil {
 		return nil, err
 	}
-	if len(out.PathRules) > 0 && out.UnsupportedBehavior != agentwrap.PermissionUnsupportedBestEffort {
-		return nil, fmt.Errorf("permission path rules are unsupported by the current OpenCode adapter")
-	}
 	return out, nil
 }
 

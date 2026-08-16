@@ -77,8 +77,13 @@ Every stage skill:
    performs the stage.
 7. Uses the effective CLI prompt when one exists, so project and workspace
    overrides retain precedence over the embedded baseline.
-8. Validates the result and reconciles flow state with `sprint status --json`.
-9. Checks whether downstream references were made stale and reports any stage
+8. Performs the actual stage work itself rather than asking an UltraPlan CLI
+   stage or flow command to run another agent/runtime. The CLI remains available
+   for discovery, prompt resolution, dry-run previews, status, validation, and
+   reconciliation. Review is the sole exception because its governed CLI owns
+   reviewer subagent fan-out and aggregation.
+9. Validates the result and reconciles flow state with `sprint status --json`.
+10. Checks whether downstream references were made stale and reports any stage
    that must be revisited.
 
 The two reasoning skills add an explicit deep-dive path. When requested, the
@@ -91,16 +96,20 @@ only.
 
 ## State Ownership
 
-Agents must not hand-edit `flow-state.json`, `.run-state.json`, `review.md`, or
-`smoke.md` to manufacture completion.
+Agents must not hand-edit `flow-state.json` or manufacture completion evidence.
+They create and maintain stage artifacts themselves when the applicable prompt
+requires those artifacts; `review.md` remains owned by the governed review CLI.
 
 - Planning artifacts may be written by the invoking agent, then validated and
   reconciled by `sprint status`.
-- Execute must use the governed `sprint execute --resume` path so task state
-  and execution evidence remain durable.
+- Execute is performed directly by the invoking agent, which maintains the plan,
+  run state, execution summary, and verification evidence required by the
+  effective execution prompt. It must not delegate the work to `sprint execute`.
 - Review must use the governed review orchestrator.
-- Smoke must use the review-gated smoke command and its bounded external
-  harness protocol.
+- Smoke is performed directly by the invoking agent within the review gate and
+  declared harness/mutation boundaries. CLI dry runs and validation may inform
+  and verify that work, but the agent must not delegate it to `sprint smoke`,
+  `verify --to smoke`, or a flow command.
 
 Running `sprint status` persists the newly derived planning-stage state while
 preserving review and smoke evidence. Existing malformed or unsupported flow

@@ -58,7 +58,7 @@ Use `area-reasoning` only when the selected sprint-index includes reasoning temp
 
 ## Review-Gated Deep Smoke
 
-The project catalog must contain one `Smoke Harnesses` row with an absolute harness root and a manifest contained by that root. The manifest is strict protocol v1 and supplies direct executable/argv forms, discovery/run commands, evidence roots, capabilities, and environment names.
+The project catalog must contain one `Smoke Harnesses` row with an absolute harness root and a manifest contained by that root. The manifest is strict protocol v1 and supplies direct executable/argv forms, discovery/run commands, bounded authoring paths, evidence roots, capabilities, and environment names. Configure `planning.smoke_model` and `planning.smoke_variant` for the authoring agent.
 
 ```bash
 ultraplan sprint <project> <sprint> review
@@ -68,11 +68,13 @@ ultraplan sprint <project> <sprint> validate smoke
 ultraplan sprint <project> <sprint> status --json
 ```
 
-A current `pass` or `pass_with_findings` review runs normally. A current `fail` or `blocked` review requires an explicitly confirmed `--force-review` diagnostic run; missing, malformed, or stale review evidence cannot be overridden. Use only one of `--level`, `--suite`, or `--test`. A narrow diagnostic test does not replace required containing-suite evidence unless discovery declares complete equivalence.
+A current `pass` or `pass_with_findings` review runs normally. A current `fail` or `blocked` review requires an explicitly confirmed `--force-review` diagnostic run; missing, malformed, or stale review evidence cannot be overridden. Use only one of `--level`, `--suite`, or `--test`.
+
+Every non-dry run has an author phase before discovery. The smoke model reads the governed sprint evidence, target implementation and deterministic tests, then creates or updates a durable sprint suite inside the manifest-declared authoring paths. It must target real boundaries that ordinary unit/integration tests cannot settle—real provider/model calls where the product path uses them, OS processes/signals, filesystems, network listeners, browser engines, credentials, cancellation, timing and platform behavior. Discovery must enumerate required coverage IDs, non-empty suite test IDs and per-test coverage ownership. Empty or self-declared coverage is blocked. A narrow diagnostic test does not replace required containing-suite evidence.
 
 Cancellation terminates the owned process group, waits for cleanup, and escalates within the configured grace period. Timeout, cancellation, malformed output, missing evidence, path escape, hash mismatch, or uncertain cleanup never creates a passing summary and does not replace the last valid `smoke.md`.
 
-Raw JSON, stdout/stderr, per-test artifacts, and issues remain in the manifest-declared harness `runs/` and `issues/` roots. The sprint owns only `smoke.md` and smoke flow state.
+Durable sprint suites remain in the manifest-declared harness authoring paths. Raw JSON, stdout/stderr, per-test artifacts, and issues remain in the manifest-declared harness `runs/` and `issues/` roots. The sprint owns only `smoke.md` and smoke flow state; the summary records the author run/model, changed harness paths and exact executed test IDs.
 
 The real harness lane is explicit:
 
@@ -91,7 +93,7 @@ Without the gate, harness, current review, runtime, credentials, or network, rec
 - `projects/<project>/sprints/<sprint>/plan.md`
 - `projects/<project>/sprints/<sprint>/flow-state.json`
 
-Deep smoke may write only the current sprint `smoke.md`, smoke flow state, and manifest-declared external run/issue evidence. It never mutates product source/tests, governed planning inputs, harness maintenance files, or Git state.
+Deep smoke may write only the current sprint `smoke.md`, smoke flow state, manifest-declared harness authoring paths, and manifest-declared external run/issue evidence. It never mutates product source/tests, governed planning inputs, other harness paths, or Git state.
 
 ## Skip Path
 

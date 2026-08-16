@@ -128,3 +128,27 @@ func TestReviewSkillResolvesSprintPathAndDelegatesFanOut(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyReviewDelegatesStageExecutionToCLI(t *testing.T) {
+	for _, skill := range StageSkills() {
+		body := renderStageSkill(skill)
+		if !strings.Contains(body, "The invoking agent owns the actual stage work") {
+			t.Fatalf("%s skill is missing the agent-owned execution contract", skill.Name)
+		}
+		if skill.Stage == "review" {
+			if !strings.Contains(body, "ultraplan sprint <project> <sprint> review") {
+				t.Fatal("review skill does not invoke the governed CLI review")
+			}
+			continue
+		}
+		for _, forbidden := range []string{
+			"    ultraplan sprint <project> <sprint> execute --resume",
+			"    ultraplan sprint <project> <sprint> smoke --yes",
+			"    ultraplan sprint <project> <sprint> flow --to " + skill.Stage,
+		} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("%s delegates stage execution through forbidden CLI instruction %q", skill.Name, forbidden)
+			}
+		}
+	}
+}

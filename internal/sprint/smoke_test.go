@@ -10,7 +10,17 @@ import (
 	"time"
 
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
+	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
+
+type smokeAuthorRuntime struct {
+	requests []pruntime.Request
+}
+
+func (r *smokeAuthorRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
+	r.requests = append(r.requests, req)
+	return pruntime.Result{RunID: "author-1", Permissions: pruntime.PermissionSummary{Mode: "restricted"}}, nil
+}
 
 type smokeRecordingRunner struct {
 	discovery smokeDiscovery
@@ -38,7 +48,7 @@ func (r *smokeRecordingRunner) Run(_ context.Context, req pprocess.Request) (ppr
 }
 
 func TestSmokeSelectionAndVerdicts(t *testing.T) {
-	d := smokeDiscovery{SprintMappings: []smokeSprintMapping{{Sprint: "27", Suites: []string{"suite-b", "suite-a"}, Complete: true, Rationale: "complete"}}, Suites: []smokeSuite{{ID: "suite-a"}, {ID: "suite-b"}}, Tests: []smokeTest{{ID: "test-a", Suite: "suite-a"}}}
+	d := smokeDiscovery{SprintMappings: []smokeSprintMapping{{Sprint: "27", Suites: []string{"suite-b", "suite-a"}, Complete: true, Rationale: "complete", RequiredCoverage: []string{"coverage-a"}}}, Suites: []smokeSuite{{ID: "suite-a", Tests: []string{"test-a"}}, {ID: "suite-b", Tests: []string{"test-b"}}}, Tests: []smokeTest{{ID: "test-a", Suite: "suite-a", Coverage: []string{"coverage-a"}}, {ID: "test-b", Suite: "suite-b", Coverage: []string{"coverage-a"}}}}
 	selection, err := selectSmoke(d, "27", SmokeRequest{})
 	if err != nil || strings.Join(selection.IDs, ",") != "suite-a,suite-b" || selection.Kind != "suite" {
 		t.Fatalf("selection=%+v err=%v", selection, err)
@@ -90,8 +100,9 @@ func TestDefaultSmokeEnvironmentPreservesInterpreterPath(t *testing.T) {
 func TestSmokeExplicitScopeMustCoverCompleteMapping(t *testing.T) {
 	d := smokeDiscovery{
 		Levels:         []smokeLevel{{ID: "all", Suites: []string{"suite-a", "suite-b"}}, {ID: "partial", Suites: []string{"suite-a"}}},
-		Suites:         []smokeSuite{{ID: "suite-a"}, {ID: "suite-b"}},
-		SprintMappings: []smokeSprintMapping{{Sprint: "27", Suites: []string{"suite-a", "suite-b"}, Complete: true}},
+		Suites:         []smokeSuite{{ID: "suite-a", Tests: []string{"test-a"}}, {ID: "suite-b", Tests: []string{"test-b"}}},
+		Tests:          []smokeTest{{ID: "test-a", Suite: "suite-a", Coverage: []string{"coverage"}}, {ID: "test-b", Suite: "suite-b", Coverage: []string{"coverage"}}},
+		SprintMappings: []smokeSprintMapping{{Sprint: "27", Suites: []string{"suite-a", "suite-b"}, Complete: true, RequiredCoverage: []string{"coverage"}}},
 	}
 	selection, err := selectSmoke(d, "27", SmokeRequest{Suite: "suite-a"})
 	if err != nil || !selection.DiagnosticOnly {
@@ -140,6 +151,47 @@ func TestSmokeDiscoveryAllowsIdentityReuseAcrossKinds(t *testing.T) {
 	}
 }
 
+func TestLegacyMappingsDoNotBlockAuthoredSprintButCannotPass(t *testing.T) {
+	m := smokeManifest{ProtocolVersion: "1.0", Harness: smokeHarnessIdentity{ID: "fake"}}
+	d := smokeDiscovery{
+		SchemaVersion:   1,
+		ProtocolVersion: "1.0",
+		HarnessID:       "fake",
+		EvidenceSchema:  1,
+		Suites:          []smokeSuite{{ID: "legacy"}, {ID: "current", Tests: []string{"live"}}},
+		Tests:           []smokeTest{{ID: "live", Suite: "current", Coverage: []string{"real-boundary"}}},
+		SprintMappings: []smokeSprintMapping{
+			{Sprint: "old", Suites: []string{"legacy"}, Complete: true},
+			{Sprint: "new", Suites: []string{"current"}, Complete: true, RequiredCoverage: []string{"real-boundary"}},
+		},
+	}
+	if err := validateSmokeDiscovery(d, m); err != nil {
+		t.Fatalf("unrelated legacy mapping blocked authored discovery: %v", err)
+	}
+	selection, err := selectSmoke(d, "old", SmokeRequest{})
+	if err != nil || selection.Verdict != SmokeBlockedVerdict {
+		t.Fatalf("legacy mapping must not establish complete smoke: selection=%+v err=%v", selection, err)
+	}
+	selection, err = selectSmoke(d, "new", SmokeRequest{})
+	if err != nil || selection.Verdict != "" || strings.Join(selection.IDs, ",") != "current" {
+		t.Fatalf("authored mapping was not selectable: selection=%+v err=%v", selection, err)
+	}
+}
+
+func TestSmokeAuthoringPathAllowlist(t *testing.T) {
+	allowed := []string{"src/tests", "src/protocol.ts"}
+	for _, path := range []string{"src/tests/sprint-31.ts", "src/protocol.ts"} {
+		if !smokeAuthorPathAllowed(path, allowed) {
+			t.Fatalf("expected authoring path %q to be allowed", path)
+		}
+	}
+	for _, path := range []string{"src/cli.ts", "src/tests-escape/file.ts", "runs/run.json"} {
+		if smokeAuthorPathAllowed(path, allowed) {
+			t.Fatalf("expected authoring path %q to be rejected", path)
+		}
+	}
+}
+
 func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing.T) {
 	root, sp := reviewFixture(t)
 	harness := t.TempDir()
@@ -153,7 +205,7 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	if err := os.MkdirAll(filepath.Join(harness, "issues"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"schemaVersion":1,"protocolVersion":"1.0","harness":{"id":"fake","version":"1"},"executable":"runner","cwd":".","commands":{"discover":["discover"],"run":["run"]},"evidence":{"runs":"runs","issues":"issues"},"capabilities":["discovery","run","evidence-v1","scope-mapping"],"environment":[]}`
+	manifest := `{"schemaVersion":1,"protocolVersion":"1.0","harness":{"id":"fake","version":"1"},"executable":"runner","cwd":".","commands":{"discover":["discover"],"run":["run"]},"evidence":{"runs":"runs","issues":"issues"},"authoring":{"paths":["suite"]},"capabilities":["discovery","run","evidence-v1","scope-mapping","authoring-v1"],"environment":[]}`
 	writeFileContent(t, harness, manifest, "manifest.json")
 	projectIndexPath := filepath.Join(root, "projects", "proj", "project-index.md")
 	data, _ := os.ReadFile(projectIndexPath)
@@ -176,13 +228,17 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 		t.Fatal(err)
 	}
 	runner := &smokeRecordingRunner{
-		discovery: smokeDiscovery{SchemaVersion: 1, ProtocolVersion: "1.0", HarnessID: "fake", EvidenceSchema: 1, Suites: []smokeSuite{{ID: "sprint"}}, SprintMappings: []smokeSprintMapping{{Sprint: sp.Slug, Suites: []string{"sprint"}, Complete: true, Rationale: "dedicated"}}},
-		run:       smokeRunResponse{SchemaVersion: 1, ProtocolVersion: "1.0", HarnessID: "fake", RunID: runID, ScopeKind: "suite", Scope: []string{"sprint"}, Counts: SmokeCountsWire{Total: 1, Passed: 1}, DurationMs: 10, Evidence: []smokeEvidenceWire{{Kind: "run", Path: "runs/" + runID + ".json"}, {Kind: "summary", Path: "runs/" + runID + "-summary.md"}}},
+		discovery: smokeDiscovery{SchemaVersion: 1, ProtocolVersion: "1.0", HarnessID: "fake", EvidenceSchema: 1, Suites: []smokeSuite{{ID: "sprint", Tests: []string{"live"}}}, Tests: []smokeTest{{ID: "live", Suite: "sprint", Coverage: []string{"real-boundary"}}}, SprintMappings: []smokeSprintMapping{{Sprint: sp.Slug, Suites: []string{"sprint"}, Complete: true, RequiredCoverage: []string{"real-boundary"}, Rationale: "dedicated"}}},
+		run:       smokeRunResponse{SchemaVersion: 1, ProtocolVersion: "1.0", HarnessID: "fake", RunID: runID, ScopeKind: "suite", Scope: []string{"sprint"}, Counts: SmokeCountsWire{Total: 1, Passed: 1}, Tests: []SmokeTestResult{{ID: "live", Status: "passed"}}, DurationMs: 10, Evidence: []smokeEvidenceWire{{Kind: "run", Path: "runs/" + runID + ".json"}, {Kind: "summary", Path: "runs/" + runID + "-summary.md"}}},
 	}
-	service = NewService(root).WithProcessRunner(runner).WithSmokeSettings(DefaultSmokeSettings()).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "test/model"}})
+	author := &smokeAuthorRuntime{}
+	service = NewService(root).WithRuntime(author).WithProcessRunner(runner).WithSmokeSettings(DefaultSmokeSettings()).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "test/model"}, StageSmoke: {Model: "test/author"}})
 	result, err := service.RunSmoke(context.Background(), "proj", "01", SmokeRequest{})
 	if err != nil || result.Verdict != SmokePass || len(runner.calls) != 2 {
 		t.Fatalf("result=%+v calls=%v err=%v", result, runner.calls, err)
+	}
+	if len(author.requests) != 1 || author.requests[0].WorkDir != harness || author.requests[0].Model != "author" || !strings.Contains(author.requests[0].Prompt, "required deep-smoke coverage ID") {
+		t.Fatalf("smoke author request was not sprint-specific and model-routed: %+v", author.requests)
 	}
 	artifact := filepath.Join(sp.Path, "smoke.md")
 	prior, err := os.ReadFile(artifact)
@@ -219,7 +275,7 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 }
 
 func TestSmokeManifestRejectsUnsupportedAndUnsafeValues(t *testing.T) {
-	m := smokeManifest{SchemaVersion: 1, ProtocolVersion: "2.0", Harness: smokeHarnessIdentity{ID: "h", Version: "1"}, Executable: "run", CWD: ".", Commands: smokeCommands{Discover: []string{"d"}, Run: []string{"r"}}, Evidence: smokeEvidenceRoots{Runs: "runs", Issues: "issues"}, Capabilities: []string{"discovery", "run", "evidence-v1", "scope-mapping"}}
+	m := smokeManifest{SchemaVersion: 1, ProtocolVersion: "2.0", Harness: smokeHarnessIdentity{ID: "h", Version: "1"}, Executable: "run", CWD: ".", Commands: smokeCommands{Discover: []string{"d"}, Run: []string{"r"}}, Evidence: smokeEvidenceRoots{Runs: "runs", Issues: "issues"}, Authoring: smokeAuthoring{Paths: []string{"src/tests"}}, Capabilities: []string{"discovery", "run", "evidence-v1", "scope-mapping", "authoring-v1"}}
 	if err := validateSmokeManifest(m); err == nil {
 		t.Fatal("expected unsupported protocol")
 	}
@@ -238,6 +294,14 @@ func TestSmokeManifestRejectsUnsupportedAndUnsafeValues(t *testing.T) {
 	m.Defaults.Timeout = "2m"
 	if err := validateSmokeManifest(m); err != nil {
 		t.Fatalf("valid timeout rejected: %v", err)
+	}
+	m.Authoring.Paths = []string{"src", "src/tests"}
+	if err := validateSmokeManifest(m); err == nil {
+		t.Fatal("expected overlapping authoring paths to be rejected")
+	}
+	m.Authoring.Paths = []string{"."}
+	if err := validateSmokeManifest(m); err == nil {
+		t.Fatal("expected harness-root authoring to be rejected")
 	}
 	argv := safeArgv("/opt/harness", []string{"run", "--authorization", "Bearer top-secret", "--credential=value", "--scope", "suite"})
 	if strings.Contains(argv, "top-secret") || strings.Contains(argv, "value") || strings.Contains(argv, "suite") || !strings.Contains(argv, "--authorization") {

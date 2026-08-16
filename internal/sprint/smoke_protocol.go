@@ -21,6 +21,7 @@ type smokeManifest struct {
 	CWD             string               `json:"cwd"`
 	Commands        smokeCommands        `json:"commands"`
 	Evidence        smokeEvidenceRoots   `json:"evidence"`
+	Authoring       smokeAuthoring       `json:"authoring"`
 	Capabilities    []string             `json:"capabilities"`
 	Environment     []string             `json:"environment"`
 	Defaults        smokeDefaults        `json:"defaults"`
@@ -29,6 +30,9 @@ type smokeManifest struct {
 type smokeHarnessIdentity struct{ ID, Version string }
 type smokeCommands struct{ Discover, Run []string }
 type smokeEvidenceRoots struct{ Runs, Issues string }
+type smokeAuthoring struct {
+	Paths []string `json:"paths"`
+}
 type smokeDefaults struct{ Level, Timeout, DurationClass, CostClass string }
 
 type smokeDiscovery struct {
@@ -56,13 +60,15 @@ type smokeSuite struct {
 }
 type smokeTest struct {
 	ID, Suite          string
-	EquivalentComplete bool `json:"equivalentComplete"`
+	EquivalentComplete bool     `json:"equivalentComplete"`
+	Coverage           []string `json:"coverage"`
 }
 type smokeSprintMapping struct {
 	Sprint                  string
 	Suites                  []string
 	Complete, NotApplicable bool
 	Rationale               string
+	RequiredCoverage        []string `json:"requiredCoverage"`
 }
 type smokePrerequisite struct{ ID, Description, Status, Action string }
 
@@ -79,6 +85,7 @@ type smokeRunResponse struct {
 	Model           string              `json:"model,omitempty"`
 	Evidence        []smokeEvidenceWire `json:"evidence"`
 	Issues          []SmokeIssue        `json:"issues,omitempty"`
+	Tests           []SmokeTestResult   `json:"tests"`
 }
 type SmokeCountsWire struct{ Total, Passed, Failed, Skipped, Errors int }
 type smokeEvidenceWire struct{ Kind, Path, SHA256 string }
@@ -214,11 +221,29 @@ func validateSmokeManifest(m smokeManifest) error {
 			return smokeError("smoke_manifest_timeout", "configuration", "manifest default timeout is invalid", "Use a positive Go duration no greater than 24h.", err)
 		}
 	}
-	required := []string{"discovery", "run", "evidence-v1", "scope-mapping"}
+	required := []string{"discovery", "run", "evidence-v1", "scope-mapping", "authoring-v1"}
 	for _, capability := range required {
 		if !contains(m.Capabilities, capability) {
 			return smokeError("smoke_capability_missing", "protocol", "manifest lacks capability "+capability, "Upgrade the smoke harness.", nil)
 		}
+	}
+	if len(m.Authoring.Paths) == 0 {
+		return smokeError("smoke_authoring_paths", "protocol", "manifest has no smoke-authoring paths", "Declare the contained harness paths the smoke author may modify.", nil)
+	}
+	seenAuthoring := map[string]bool{}
+	runsPath := filepath.ToSlash(filepath.Clean(m.Evidence.Runs))
+	issuesPath := filepath.ToSlash(filepath.Clean(m.Evidence.Issues))
+	for _, path := range m.Authoring.Paths {
+		path = filepath.ToSlash(filepath.Clean(path))
+		if path == "." || !safeRelPath(path) || seenAuthoring[path] || smokePathsOverlap(path, runsPath) || smokePathsOverlap(path, issuesPath) {
+			return smokeError("smoke_authoring_paths", "protocol", "manifest contains an unsafe or duplicate smoke-authoring path", "Use unique contained paths outside the evidence roots.", nil)
+		}
+		for prior := range seenAuthoring {
+			if smokePathsOverlap(path, prior) {
+				return smokeError("smoke_authoring_paths", "protocol", "manifest contains overlapping smoke-authoring paths", "Use non-overlapping contained paths outside the evidence roots.", nil)
+			}
+		}
+		seenAuthoring[path] = true
 	}
 	seen := map[string]bool{}
 	for _, name := range m.Environment {
@@ -275,10 +300,17 @@ func validateSmokeDiscovery(d smokeDiscovery, m smokeManifest) error {
 			}
 		}
 	}
+	testByID := map[string]smokeTest{}
+	for _, test := range d.Tests {
+		testByID[test.ID] = test
+	}
 	for _, suite := range d.Suites {
 		for _, id := range suite.Tests {
 			if !tests[id] {
 				return smokeError("smoke_discovery_relationship", "protocol", "suite references unknown test "+id, "Fix discovery relationships.", nil)
+			}
+			if testByID[id].Suite != suite.ID {
+				return smokeError("smoke_discovery_relationship", "protocol", "suite/test ownership is inconsistent", "Make each enumerated test name its containing suite.", nil)
 			}
 		}
 		for _, id := range suite.Prerequisites {
@@ -299,6 +331,39 @@ func validateSmokeDiscovery(d smokeDiscovery, m smokeManifest) error {
 		for _, id := range mapping.Suites {
 			if !suites[id] {
 				return smokeError("smoke_discovery_relationship", "protocol", "mapping references unknown suite "+id, "Fix discovery mappings.", nil)
+			}
+		}
+		// Legacy mappings may be present for unrelated sprints. They cannot be
+		// selected as complete until the smoke author upgrades them, but they do
+		// not make discovery unusable for the sprint being authored now.
+		if mapping.Complete && len(mapping.RequiredCoverage) > 0 {
+			covered := map[string]bool{}
+			for _, suiteID := range mapping.Suites {
+				var selected smokeSuite
+				for _, suite := range d.Suites {
+					if suite.ID == suiteID {
+						selected = suite
+						break
+					}
+				}
+				if len(selected.Tests) == 0 {
+					return smokeError("smoke_discovery_coverage", "protocol", "complete sprint mapping references an empty suite", "Enumerate non-empty test identities for every complete sprint suite.", nil)
+				}
+				for _, testID := range selected.Tests {
+					for _, coverageID := range testByID[testID].Coverage {
+						covered[coverageID] = true
+					}
+				}
+			}
+			seenCoverage := map[string]bool{}
+			for _, coverageID := range mapping.RequiredCoverage {
+				if strings.TrimSpace(coverageID) == "" || seenCoverage[coverageID] {
+					return smokeError("smoke_discovery_coverage", "protocol", "complete sprint mapping has empty or duplicate coverage IDs", "Use unique stable coverage IDs.", nil)
+				}
+				seenCoverage[coverageID] = true
+				if !covered[coverageID] {
+					return smokeError("smoke_discovery_coverage", "protocol", "complete sprint mapping leaves coverage unassigned: "+coverageID, "Add a deep-smoke test that declares this coverage ID.", nil)
+				}
 			}
 		}
 	}
@@ -359,7 +424,7 @@ func selectSmoke(d smokeDiscovery, sprint string, req SmokeRequest) (smokeSelect
 		if !ok {
 			return smokeSelection{Verdict: SmokeBlockedVerdict, Prerequisites: missing, NextAction: "Satisfy the listed prerequisites and rerun smoke."}, nil
 		}
-		complete := mapping != nil && mapping.Complete && containsAll(level.Suites, mapping.Suites)
+		complete := mapping != nil && mapping.Complete && len(mapping.RequiredCoverage) > 0 && containsAll(level.Suites, mapping.Suites)
 		return smokeSelection{Kind: "level", IDs: []string{level.ID}, Rationale: "explicit level override", DiagnosticOnly: !complete, DurationClass: level.DurationClass, CostClass: level.CostClass}, nil
 	}
 	if req.Suite != "" {
@@ -371,7 +436,7 @@ func selectSmoke(d smokeDiscovery, sprint string, req SmokeRequest) (smokeSelect
 		if !ok {
 			return smokeSelection{Verdict: SmokeBlockedVerdict, Prerequisites: missing, NextAction: "Satisfy the listed prerequisites and rerun smoke."}, nil
 		}
-		complete := mapping != nil && mapping.Complete && len(mapping.Suites) == 1 && mapping.Suites[0] == suite.ID
+		complete := mapping != nil && mapping.Complete && len(mapping.RequiredCoverage) > 0 && len(mapping.Suites) == 1 && mapping.Suites[0] == suite.ID
 		return smokeSelection{Kind: "suite", IDs: []string{suite.ID}, Rationale: "explicit suite override", DiagnosticOnly: !complete, DurationClass: suite.DurationClass, CostClass: suite.CostClass}, nil
 	}
 	if req.Test != "" {
@@ -386,8 +451,8 @@ func selectSmoke(d smokeDiscovery, sprint string, req SmokeRequest) (smokeSelect
 		}
 		return smokeSelection{Kind: "test", IDs: []string{test.ID}, Rationale: "explicit diagnostic test override", DiagnosticOnly: true, DurationClass: suite.DurationClass, CostClass: suite.CostClass}, nil
 	}
-	if mapping == nil || !mapping.Complete || len(mapping.Suites) == 0 {
-		return smokeSelection{Verdict: SmokeBlockedVerdict, Rationale: "discovery cannot prove complete sprint coverage", NextAction: "Select an explicit sufficient level or update the harness sprint mapping."}, nil
+	if mapping == nil || !mapping.Complete || len(mapping.Suites) == 0 || len(mapping.RequiredCoverage) == 0 {
+		return smokeSelection{Verdict: SmokeBlockedVerdict, Rationale: "discovery cannot prove enumerated deep-smoke coverage for this sprint", NextAction: "Update the harness with required coverage IDs and non-empty sprint-specific tests, then rerun smoke."}, nil
 	}
 	ids := append([]string(nil), mapping.Suites...)
 	sort.Strings(ids)
@@ -443,6 +508,12 @@ func firstSuffix(value, prefix string) string {
 		return ""
 	}
 	return prefix + value
+}
+
+func smokePathsOverlap(left, right string) bool {
+	left = filepath.ToSlash(filepath.Clean(left))
+	right = filepath.ToSlash(filepath.Clean(right))
+	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
 }
 
 func canonicalDirectory(path string) (string, error) {

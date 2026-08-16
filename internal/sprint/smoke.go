@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -55,6 +56,12 @@ func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req
 	result.ReviewOverride = req.ForceReview
 	result.Ready = true
 	result.EffectiveTimeout, result.TimeoutSource = smokeTimeout(s.smokeSettings, prepared.Manifest, req)
+	if !req.DryRun {
+		emit(SmokeProgress{Phase: SmokePhaseAuthoring, Message: "authoring sprint-specific deep-smoke coverage"})
+		if err := s.authorSmokeSuite(ctx, prepared, &result); err != nil {
+			return smokeFailedResult(result, err)
+		}
+	}
 
 	getenv := s.smokeSettings.Getenv
 	if getenv == nil {
@@ -106,7 +113,7 @@ func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req
 		result.NextAction = "Run the complete containing suite before treating smoke as current."
 	}
 	runArgs := append(append([]string{}, prepared.Manifest.Args...), prepared.Manifest.Commands.Run...)
-	runArgs = append(runArgs, "--project", prepared.Sprint.Project, "--sprint", prepared.Sprint.Slug, "--target", prepared.Target, "--scope-kind", selection.Kind, "--scope", strings.Join(selection.IDs, ","))
+	runArgs = append(runArgs, "--project", prepared.Sprint.Project, "--sprint", prepared.Sprint.Slug, "--workspace", s.root, "--target", prepared.Target, "--scope-kind", selection.Kind, "--scope", strings.Join(selection.IDs, ","))
 	result.SafeArgv = safeArgv(prepared.Executable, runArgs)
 	if req.DryRun {
 		result.Status = SmokeReady
@@ -134,14 +141,14 @@ func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req
 		return smokeFailedResult(result, classifyProcessSmokeError("run", runProcess, runErr))
 	}
 	emit(SmokeProgress{Phase: SmokePhaseValidatingEvidence, Message: "validating external evidence identity"})
-	validated, issues, err := validateSmokeRun(prepared, selection, response, runProcess)
+	validated, issues, tests, err := validateSmokeRun(prepared, discovery, selection, response, runProcess)
 	if err != nil {
 		return smokeFailedResult(result, err)
 	}
 	result.RunID, result.Runtime, result.Model = response.RunID, response.Runtime, response.Model
 	result.Duration = time.Duration(response.DurationMs) * time.Millisecond
 	result.Counts = SmokeCounts{Total: response.Counts.Total, Passed: response.Counts.Passed, Failed: response.Counts.Failed, Skipped: response.Counts.Skipped, Errors: response.Counts.Errors}
-	result.Evidence, result.Issues = validated, issues
+	result.Evidence, result.Issues, result.Tests = validated, issues, tests
 	result.Verdict = synthesizeSmokeVerdict(result.Counts, issues)
 	result.Status = SmokeCompleted
 	result.NextAction = nextSmokeAction(result)
@@ -269,19 +276,46 @@ func (s Service) ValidateSmoke(projectRef, sprintRef string) (ValidationResult, 
 	return ValidationResult{Project: sp.Project, Sprint: sp.Slug, Artifact: ArtifactRelPath(sp, StageSmoke), Findings: findings}, nil
 }
 
-func validateSmokeRun(p smokePrepared, selection smokeSelection, response smokeRunResponse, proc pprocess.Result) ([]SmokeEvidence, []SmokeIssue, error) {
+func validateSmokeRun(p smokePrepared, discovery smokeDiscovery, selection smokeSelection, response smokeRunResponse, proc pprocess.Result) ([]SmokeEvidence, []SmokeIssue, []SmokeTestResult, error) {
 	if response.SchemaVersion != 1 || response.ProtocolVersion != p.Manifest.ProtocolVersion || response.HarnessID != p.Manifest.Harness.ID || response.RunID == "" {
-		return nil, nil, smokeError("smoke_evidence_identity", "evidence", "run identity does not match manifest/discovery", "Inspect the external run response.", nil)
+		return nil, nil, nil, smokeError("smoke_evidence_identity", "evidence", "run identity does not match manifest/discovery", "Inspect the external run response.", nil)
 	}
 	if response.ScopeKind != selection.Kind || strings.Join(response.Scope, ",") != strings.Join(selection.IDs, ",") {
-		return nil, nil, smokeError("smoke_evidence_scope", "evidence", "reported scope does not match the request", "Fix the harness scope identity.", nil)
+		return nil, nil, nil, smokeError("smoke_evidence_scope", "evidence", "reported scope does not match the request", "Fix the harness scope identity.", nil)
 	}
 	c := response.Counts
 	if c.Total < 0 || c.Passed < 0 || c.Failed < 0 || c.Skipped < 0 || c.Errors < 0 || c.Passed+c.Failed+c.Skipped+c.Errors != c.Total {
-		return nil, nil, smokeError("smoke_evidence_counts", "evidence", "result counts are inconsistent", "Fix the harness count summary.", nil)
+		return nil, nil, nil, smokeError("smoke_evidence_counts", "evidence", "result counts are inconsistent", "Fix the harness count summary.", nil)
 	}
 	if response.DurationMs < 0 || len(response.Evidence) == 0 {
-		return nil, nil, smokeError("smoke_evidence_missing", "evidence", "duration or evidence identity is missing", "Emit complete protocol-v1 evidence.", nil)
+		return nil, nil, nil, smokeError("smoke_evidence_missing", "evidence", "duration or evidence identity is missing", "Emit complete protocol-v1 evidence.", nil)
+	}
+	expected := expectedSmokeTests(discovery, selection)
+	actual := make([]string, 0, len(response.Tests))
+	statusCounts := SmokeCountsWire{}
+	for _, test := range response.Tests {
+		if test.ID == "" {
+			return nil, nil, nil, smokeError("smoke_evidence_tests", "evidence", "run contains an empty test identity", "Return every executed discovered test identity.", nil)
+		}
+		actual = append(actual, test.ID)
+		switch test.Status {
+		case "passed":
+			statusCounts.Passed++
+		case "failed":
+			statusCounts.Failed++
+		case "skipped":
+			statusCounts.Skipped++
+		case "error":
+			statusCounts.Errors++
+		default:
+			return nil, nil, nil, smokeError("smoke_evidence_tests", "evidence", "run contains an unsupported test status", "Use passed, failed, skipped, or error.", nil)
+		}
+	}
+	statusCounts.Total = len(response.Tests)
+	sort.Strings(expected)
+	sort.Strings(actual)
+	if strings.Join(expected, "\x00") != strings.Join(actual, "\x00") || statusCounts != c {
+		return nil, nil, nil, smokeError("smoke_evidence_tests", "evidence", "executed test identities/statuses do not match discovery and counts", "Run exactly the selected discovered tests and return their identities.", nil)
 	}
 	var evidence []SmokeEvidence
 	for _, item := range response.Evidence {
@@ -295,28 +329,28 @@ func validateSmokeRun(p smokePrepared, selection smokeSelection, response smokeR
 		}
 		resolved, err := canonicalFileInside(root, full)
 		if err != nil {
-			return nil, nil, smokeError("smoke_evidence_path", "evidence", "evidence path escapes or is missing", "Keep evidence inside declared roots.", err)
+			return nil, nil, nil, smokeError("smoke_evidence_path", "evidence", "evidence path escapes or is missing", "Keep evidence inside declared roots.", err)
 		}
 		info, err := os.Stat(resolved)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		hash, err := hashFile(resolved)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if item.SHA256 != "" && !strings.EqualFold(item.SHA256, hash) {
-			return nil, nil, smokeError("smoke_evidence_hash", "evidence", "evidence hash mismatch", "Restore immutable run evidence or rerun smoke.", nil)
+			return nil, nil, nil, smokeError("smoke_evidence_hash", "evidence", "evidence hash mismatch", "Restore immutable run evidence or rerun smoke.", nil)
 		}
 		if !strings.Contains(filepath.Base(resolved), response.RunID) && item.Kind != "issue" {
-			return nil, nil, smokeError("smoke_evidence_run", "evidence", "evidence path does not identify the reported run", "Use run-ID-addressed evidence.", nil)
+			return nil, nil, nil, smokeError("smoke_evidence_run", "evidence", "evidence path does not identify the reported run", "Use run-ID-addressed evidence.", nil)
 		}
 		evidence = append(evidence, SmokeEvidence{Kind: item.Kind, Path: resolved, SHA256: hash, Size: info.Size(), ModifiedAt: info.ModTime().UTC()})
 	}
 	issues := append([]SmokeIssue(nil), response.Issues...)
 	for i := range issues {
 		if issues[i].ID == "" || (issues[i].Status != "open" && issues[i].Status != "resolved") {
-			return nil, nil, smokeError("smoke_issue_identity", "evidence", "issue identity/status is invalid", "Emit open or resolved issue metadata.", nil)
+			return nil, nil, nil, smokeError("smoke_issue_identity", "evidence", "issue identity/status is invalid", "Emit open or resolved issue metadata.", nil)
 		}
 		full := issues[i].Path
 		if !filepath.IsAbs(full) {
@@ -324,14 +358,39 @@ func validateSmokeRun(p smokePrepared, selection smokeSelection, response smokeR
 		}
 		resolved, err := canonicalFileInside(p.IssuesRoot, full)
 		if err != nil || !strings.Contains(filepath.Base(resolved), issues[i].ID) {
-			return nil, nil, smokeError("smoke_issue_path", "evidence", "issue path is missing, escaping, or mismatched", "Use an issue-ID-addressed file under the issues root.", err)
+			return nil, nil, nil, smokeError("smoke_issue_path", "evidence", "issue path is missing, escaping, or mismatched", "Use an issue-ID-addressed file under the issues root.", err)
 		}
 		issues[i].Path = resolved
 	}
 	if proc.ExitCode != 0 && c.Failed+c.Errors == 0 {
-		return nil, nil, smokeError("smoke_process_unexplained", "process", "non-zero process exit has no matching failed evidence", "Inspect external evidence before retrying.", nil)
+		return nil, nil, nil, smokeError("smoke_process_unexplained", "process", "non-zero process exit has no matching failed evidence", "Inspect external evidence before retrying.", nil)
 	}
-	return evidence, issues, nil
+	return evidence, issues, append([]SmokeTestResult(nil), response.Tests...), nil
+}
+
+func expectedSmokeTests(discovery smokeDiscovery, selection smokeSelection) []string {
+	testBySuite := map[string][]string{}
+	for _, suite := range discovery.Suites {
+		testBySuite[suite.ID] = append([]string(nil), suite.Tests...)
+	}
+	var out []string
+	switch selection.Kind {
+	case "test":
+		out = append(out, selection.IDs...)
+	case "suite":
+		for _, suite := range selection.IDs {
+			out = append(out, testBySuite[suite]...)
+		}
+	case "level":
+		for _, level := range discovery.Levels {
+			if len(selection.IDs) > 0 && level.ID == selection.IDs[0] {
+				for _, suite := range level.Suites {
+					out = append(out, testBySuite[suite]...)
+				}
+			}
+		}
+	}
+	return out
 }
 
 func (s Service) commitSmoke(p smokePrepared, result SmokeResult) (SmokeResult, error) {
@@ -371,7 +430,7 @@ func (s Service) commitSmoke(p smokePrepared, result SmokeResult) (SmokeResult, 
 	if state.Smoke != nil {
 		active = state.Smoke.ActiveAttempt
 	}
-	state.Smoke = &SmokeStageState{Status: result.Status, Verdict: result.Verdict, Path: ArtifactRelPath(p.Sprint, StageSmoke), LastRunAt: &now, ReviewFingerprint: result.ReviewFingerprint, SmokeFingerprint: artifactDigest, ArtifactDigest: artifactDigest, InputFingerprint: inputFingerprint, RunID: result.RunID, EvidenceID: evidenceID, ReviewOverride: result.ReviewOverride, Diagnostics: result.Diagnostics, Issues: append([]SmokeIssue(nil), result.Issues...), Evidence: refs, Override: override, ActiveAttempt: active, LastComplete: &SmokeCompletion{Verdict: result.Verdict, Artifact: ArtifactRelPath(p.Sprint, StageSmoke), ArtifactDigest: artifactDigest, InputFingerprint: inputFingerprint, CompletedAt: now, RunID: result.RunID, EvidenceID: evidenceID, Evidence: identityRefs, Issues: append([]SmokeIssue(nil), result.Issues...), Override: override}}
+	state.Smoke = &SmokeStageState{Status: result.Status, Verdict: result.Verdict, Path: ArtifactRelPath(p.Sprint, StageSmoke), LastRunAt: &now, ReviewFingerprint: result.ReviewFingerprint, SmokeFingerprint: artifactDigest, ArtifactDigest: artifactDigest, InputFingerprint: inputFingerprint, RunID: result.RunID, AuthorRunID: result.AuthorRunID, AuthorModel: result.AuthorModel, AuthorChangedPaths: append([]string(nil), result.AuthorChangedPaths...), EvidenceID: evidenceID, ReviewOverride: result.ReviewOverride, Diagnostics: result.Diagnostics, Issues: append([]SmokeIssue(nil), result.Issues...), Evidence: refs, Override: override, ActiveAttempt: active, LastComplete: &SmokeCompletion{Verdict: result.Verdict, Artifact: ArtifactRelPath(p.Sprint, StageSmoke), ArtifactDigest: artifactDigest, InputFingerprint: inputFingerprint, CompletedAt: now, RunID: result.RunID, AuthorRunID: result.AuthorRunID, AuthorModel: result.AuthorModel, AuthorChangedPaths: append([]string(nil), result.AuthorChangedPaths...), EvidenceID: evidenceID, Evidence: identityRefs, Issues: append([]SmokeIssue(nil), result.Issues...), Override: override}}
 	if err := SaveFlowState(s.root, p.Sprint, state); err != nil {
 		result.Reconciliation = true
 		return result, smokeError("smoke_reconciliation", "reconciliation", "smoke.md committed but flow state update failed", "Reconcile flow state by rerunning smoke.", err)
@@ -385,10 +444,26 @@ func RenderSmoke(r SmokeResult) string {
 	fmt.Fprintf(&b, "## Smoke Context\n\nProject: `%s`\nSprint: `%s`\nArtifact: `%s`\n\n", r.Project, r.Sprint, r.Artifact)
 	fmt.Fprintf(&b, "## Review Gate\n\nReview verdict: `%s`\nReview fingerprint: `%s`\nDiagnostic override: `%t`\nOverride rationale: %s\n\n", r.ReviewVerdict, r.ReviewFingerprint, r.ReviewOverride, printable(r.OverrideRationale))
 	fmt.Fprintf(&b, "## Harness And Protocol\n\nHarness: `%s`\nProtocol: `%s`\n\n", r.Harness, r.Protocol)
+	fmt.Fprintf(&b, "## Smoke Authoring\n\nAuthor run ID: `%s`\nAuthor model: `%s`\nChanged harness paths:\n", printable(r.AuthorRunID), printable(r.AuthorModel))
+	if len(r.AuthorChangedPaths) == 0 {
+		b.WriteString("- none; existing traceable suite retained after agent inspection\n")
+	} else {
+		for _, path := range r.AuthorChangedPaths {
+			fmt.Fprintf(&b, "- `%s`\n", path)
+		}
+	}
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "## Selected Scope And Rationale\n\nScope kind: `%s`\nScope: `%s`\nRationale: %s\nDuration class: `%s`\nCost class: `%s`\nDiagnostic only: `%t`\n\n", printable(r.ScopeKind), printable(r.Scope), printable(r.ScopeRationale), printable(r.DurationClass), printable(r.CostClass), r.DiagnosticOnly)
 	fmt.Fprintf(&b, "## Preconditions And Environment\n\nPrerequisites: %s\nEnvironment: bounded allowlist; values not persisted\nEvidence roots: `%s`\nEffective timeout: `%s` (source `%s`)\n\n", printable(strings.Join(r.Prerequisites, "; ")), printable(strings.Join(r.EvidenceRoots, ", ")), r.EffectiveTimeout, printable(r.TimeoutSource))
 	fmt.Fprintf(&b, "## Safe Invocation\n\nArgv: `%s`\n\n", printable(r.SafeArgv))
 	fmt.Fprintf(&b, "## Run Evidence\n\nRun ID: `%s`\nTotal: `%d`\nPassed: `%d`\nFailed: `%d`\nSkipped: `%d`\nErrors: `%d`\nDuration: `%s`\nRuntime: `%s`\nModel: `%s`\n\n", printable(r.RunID), r.Counts.Total, r.Counts.Passed, r.Counts.Failed, r.Counts.Skipped, r.Counts.Errors, r.Duration, printable(r.Runtime), printable(r.Model))
+	if len(r.Tests) > 0 {
+		b.WriteString("Executed tests:\n")
+		for _, test := range r.Tests {
+			fmt.Fprintf(&b, "- `%s`: `%s`\n", test.ID, test.Status)
+		}
+		b.WriteString("\n")
+	}
 	b.WriteString("### External Evidence Identity And Links\n\n")
 	if len(r.Evidence) == 0 {
 		b.WriteString("- none (preflight classification)\n")
@@ -427,7 +502,7 @@ func RenderSmoke(r SmokeResult) string {
 	if !resolved {
 		b.WriteString("- none\n")
 	}
-	b.WriteString("\n## Mutation And Safety Check\n\nOnly smoke.md, flow-state.json, and manifest-declared external evidence roots were approved for mutation.\n\n")
+	b.WriteString("\n## Mutation And Safety Check\n\nOnly smoke.md, flow-state.json, manifest-declared harness authoring paths, and manifest-declared external evidence roots were approved for mutation. Product source and governed sprint inputs were identity-checked before and after authoring.\n\n")
 	fmt.Fprintf(&b, "## Verdict And Next Action\n\nVerdict: `%s`\nNext action: %s\n", r.Verdict, printable(r.NextAction))
 	return b.String()
 }
@@ -437,7 +512,7 @@ func ValidateSmokeContent(content string) []ValidationFinding {
 	if strings.TrimSpace(content) == "" || containsPlaceholder(content) {
 		findings = append(findings, finding("smoke.md", "", "", "empty or placeholder smoke summary", "summary is incomplete", "Generate a complete evidence-backed summary."))
 	}
-	for _, heading := range []string{"Smoke Context", "Review Gate", "Harness And Protocol", "Selected Scope And Rationale", "Preconditions And Environment", "Safe Invocation", "Run Evidence", "Findings", "Open Issues", "Resolved Issues", "Mutation And Safety Check", "Verdict And Next Action"} {
+	for _, heading := range []string{"Smoke Context", "Review Gate", "Harness And Protocol", "Smoke Authoring", "Selected Scope And Rationale", "Preconditions And Environment", "Safe Invocation", "Run Evidence", "Findings", "Open Issues", "Resolved Issues", "Mutation And Safety Check", "Verdict And Next Action"} {
 		if !markdownHeadingPresent(content, heading) {
 			findings = append(findings, finding("smoke.md", heading, "", "missing required section", "section was not found", "Regenerate smoke.md."))
 		}
@@ -533,7 +608,7 @@ func synthesizeSmokeVerdict(counts SmokeCounts, issues []SmokeIssue) SmokeVerdic
 func nextSmokeAction(r SmokeResult) string {
 	switch r.Verdict {
 	case SmokePass:
-		return "Proceed to integrated verification when Sprint 28 is available."
+		return "Deep smoke is complete; proceed to the next roadmap stage."
 	case SmokePassWithOpenIssues:
 		return "Review the linked open issues before proceeding."
 	case SmokeFailVerdict:

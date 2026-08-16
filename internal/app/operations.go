@@ -2,8 +2,14 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -67,6 +73,10 @@ type OperationRequest struct {
 	ReviewFocus                         []string
 	Sources, Dimensions                 []string
 	Parallelism                         int
+	// ExpectedFingerprint is server-issued authority. Transport decoders must
+	// never accept it from a caller; it is populated by PrepareOperation and
+	// checked again immediately before execution.
+	ExpectedFingerprint string
 }
 type Confirmation struct {
 	Request                          OperationRequest
@@ -74,6 +84,12 @@ type Confirmation struct {
 	Paths, Scope                     []string
 	Runtime, Mutates                 bool
 	Warning, ModelSource, Permission string
+	MutationClass                    string
+	Prerequisites                    []string
+	GovernedInputs                   []string
+	CanonicalRequest                 string
+	InputFingerprint                 string
+	DurableRefreshPath               string
 }
 type OperationEvent struct {
 	State                                                                         OperationState
@@ -100,10 +116,14 @@ type OperationError struct {
 	Retryable                                                      bool
 }
 
+var ErrStaleOperation = errors.New("operation inputs changed after preparation")
+
 func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRequest) (Confirmation, error) {
 	if err := ctx.Err(); err != nil {
 		return Confirmation{}, err
 	}
+	req.ExpectedFingerprint = ""
+	req = normalizeOperationRequest(req)
 	if (req.Kind == OperationReviewStart || req.Kind == OperationReviewDryRun) && req.Parallelism <= 0 {
 		req.Parallelism = u.reviewConcurrency
 	}
@@ -167,13 +187,47 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	}
 	if req.Project != "" {
 		c.Paths = []string{"projects/" + req.Project + "/sprints/" + req.Sprint}
+		c.DurableRefreshPath = "/api/v1/projects/" + req.Project + "/sprints/" + req.Sprint
 	} else {
 		c.Paths = []string{"studies/" + req.Study}
+		c.DurableRefreshPath = "/api/v1/studies/" + req.Study
 	}
+	if c.Mutates {
+		if req.Project != "" {
+			c.MutationClass = "sprint_mutation"
+		} else {
+			c.MutationClass = "study_mutation"
+		}
+	} else {
+		c.MutationClass = "read_only"
+	}
+	c.Prerequisites = operationPrerequisites(req)
+	canonical, err := canonicalOperationRequest(req)
+	if err != nil {
+		return c, err
+	}
+	c.CanonicalRequest = canonical
+	c.GovernedInputs = governedOperationInputs(req)
+	fingerprint, err := fingerprintOperationInputs(u.root, canonical, c.GovernedInputs)
+	if err != nil {
+		return c, err
+	}
+	c.InputFingerprint = fingerprint
+	c.Request.ExpectedFingerprint = fingerprint
 	return c, nil
 }
 
 func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationRequest, emit func(OperationEvent)) (OperationResult, error) {
+	expected := req.ExpectedFingerprint
+	req.ExpectedFingerprint = ""
+	prepared, err := u.PrepareOperation(ctx, req)
+	if err != nil {
+		return failedOperation(OperationResult{Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study)}, err)
+	}
+	if expected != "" && expected != prepared.InputFingerprint {
+		return failedOperation(OperationResult{Subject: prepared.Subject}, ErrStaleOperation)
+	}
+	req = prepared.Request
 	if emit == nil {
 		emit = func(OperationEvent) {}
 	}
@@ -264,6 +318,140 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 	}
 	emit(OperationEvent{State: OperationComplete, Stage: req.Stage, Message: operationFirstNonEmpty(result.Message, "operation complete")})
 	return result, nil
+}
+
+func normalizeOperationRequest(req OperationRequest) OperationRequest {
+	req.Project = strings.TrimSpace(req.Project)
+	req.Sprint = strings.TrimSpace(req.Sprint)
+	req.Study = strings.TrimSpace(req.Study)
+	req.Stage = strings.TrimSpace(req.Stage)
+	req.Task = strings.TrimSpace(req.Task)
+	req.Level = strings.TrimSpace(req.Level)
+	req.Suite = strings.TrimSpace(req.Suite)
+	req.Test = strings.TrimSpace(req.Test)
+	req.Timeout = strings.TrimSpace(req.Timeout)
+	req.OverrideRationale = strings.TrimSpace(req.OverrideRationale)
+	req.ReviewFocus = normalizedStrings(req.ReviewFocus)
+	req.Sources = normalizedStrings(req.Sources)
+	req.Dimensions = normalizedStrings(req.Dimensions)
+	return req
+}
+
+func normalizedStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func canonicalOperationRequest(req OperationRequest) (string, error) {
+	req.ExpectedFingerprint = ""
+	data, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize operation: %w", err)
+	}
+	return string(data), nil
+}
+
+func operationPrerequisites(req OperationRequest) []string {
+	prerequisites := []string{"workspace readable"}
+	if req.Project != "" {
+		prerequisites = append(prerequisites, "project and sprint resolvable")
+	}
+	if req.Study != "" {
+		prerequisites = append(prerequisites, "study resolvable")
+	}
+	if req.Kind == OperationExecuteStart || req.Kind == OperationExecuteResume {
+		prerequisites = append(prerequisites, "validated plan", "approved target implementation directory")
+	}
+	return prerequisites
+}
+
+func governedOperationInputs(req OperationRequest) []string {
+	if req.Project != "" {
+		base := filepath.ToSlash(filepath.Join("projects", req.Project))
+		inputs := []string{
+			filepath.ToSlash(filepath.Join(base, "project-index.md")),
+			filepath.ToSlash(filepath.Join(base, "roadmap.md")),
+			filepath.ToSlash(filepath.Join(base, "docs")),
+			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "requirements.md")),
+			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "sprint-index.md")),
+			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "technical-handbook.md")),
+			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "reasoning.md")),
+			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "plan.md")),
+		}
+		return inputs
+	}
+	if req.Study != "" {
+		return []string{
+			filepath.ToSlash(filepath.Join("studies", req.Study, "study.yml")),
+			filepath.ToSlash(filepath.Join("studies", req.Study, "study.yaml")),
+			filepath.ToSlash(filepath.Join("studies", req.Study, ".ultraplan", "run-state.json")),
+		}
+	}
+	return nil
+}
+
+func fingerprintOperationInputs(root, canonical string, inputs []string) (string, error) {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte(canonical))
+	for _, rel := range inputs {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		info, err := os.Stat(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("inspect governed input %s: %w", rel, err)
+		}
+		if info.IsDir() {
+			var files []string
+			if err := filepath.WalkDir(path, func(item string, entry fs.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+				if !entry.IsDir() {
+					files = append(files, item)
+				}
+				return nil
+			}); err != nil {
+				return "", fmt.Errorf("scan governed input %s: %w", rel, err)
+			}
+			sort.Strings(files)
+			for _, item := range files {
+				itemRel, _ := filepath.Rel(root, item)
+				if err := hashOperationFile(hash, item, filepath.ToSlash(itemRel)); err != nil {
+					return "", err
+				}
+			}
+			continue
+		}
+		if err := hashOperationFile(hash, path, rel); err != nil {
+			return "", err
+		}
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func hashOperationFile(hash interface{ Write([]byte) (int, error) }, path, rel string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read governed input %s: %w", rel, err)
+	}
+	_, _ = hash.Write([]byte("\x00" + rel + "\x00"))
+	_, _ = hash.Write(data)
+	return nil
 }
 
 func summarizeSprintStatus(status sprint.StatusSummary) string {

@@ -52,6 +52,8 @@ type Planning struct {
 	ExecuteVariant           string `json:"execute_variant"`
 	ReviewModel              string `json:"review_model"`
 	ReviewVariant            string `json:"review_variant"`
+	SmokeModel               string `json:"smoke_model"`
+	SmokeVariant             string `json:"smoke_variant"`
 }
 type Logging struct {
 	Format string `json:"format"`
@@ -126,7 +128,7 @@ func EnvOverrides() []EnvOverride {
 
 func Load(opts LoadOptions) (Effective, error) {
 	e := Effective{Config: Defaults(), Sources: map[string]string{}}
-	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "planning.execute_model", "planning.execute_variant", "planning.review_model", "planning.review_variant", "smoke.discovery_timeout", "smoke.run_timeout", "smoke.stdout_limit", "smoke.stderr_limit", "smoke.cleanup_grace", "smoke.environment", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
+	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "planning.execute_model", "planning.execute_variant", "planning.review_model", "planning.review_variant", "planning.smoke_model", "planning.smoke_variant", "smoke.discovery_timeout", "smoke.run_timeout", "smoke.stdout_limit", "smoke.stderr_limit", "smoke.cleanup_grace", "smoke.environment", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
 		e.Sources[field] = "default"
 	}
 	if opts.WorkspaceRoot != "" {
@@ -316,6 +318,10 @@ func setField(c *Config, field, value string) error {
 		c.Planning.ReviewModel = value
 	case "planning.review_variant":
 		c.Planning.ReviewVariant = value
+	case "planning.smoke_model":
+		c.Planning.SmokeModel = value
+	case "planning.smoke_variant":
+		c.Planning.SmokeVariant = value
 	case "smoke.discovery_timeout":
 		c.Smoke.DiscoveryTimeout = value
 	case "smoke.run_timeout":

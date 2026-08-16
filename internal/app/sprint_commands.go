@@ -352,7 +352,14 @@ func runSprint(deps dependencies, args []string) error {
 				fmt.Fprintf(deps.stderr, " | %s\n", config.RedactValue("smoke.progress", progress.Message))
 			}
 		}
-		result, runErr := service.RunSmoke(deps.ctx, args[0], args[1], req)
+		smokeService := service
+		if !req.DryRun {
+			smokeService, err = sprintRuntimeService(deps, root)
+			if err != nil {
+				return err
+			}
+		}
+		result, runErr := smokeService.RunSmoke(deps.ctx, args[0], args[1], req)
 		if jsonOut {
 			_ = json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.smoke", "status": result.Status, "result": result})
 		} else {
@@ -543,6 +550,7 @@ func planningStageRuntime(c config.Config) map[sprint.PlanningStage]sprint.Stage
 			Variant: c.Planning.ExecuteVariant,
 		},
 		sprint.StageReview: {Model: c.Planning.ReviewModel, Variant: c.Planning.ReviewVariant},
+		sprint.StageSmoke:  {Model: c.Planning.SmokeModel, Variant: c.Planning.SmokeVariant},
 	}
 }
 
@@ -941,6 +949,9 @@ func renderSprintSmoke(deps dependencies, result sprint.SmokeResult) {
 	fmt.Fprintf(deps.stdout, "Project: %s\nSprint: %s\nSmoke status: %s\nVerdict: %s\n", result.Project, result.Sprint, result.Status, result.Verdict)
 	fmt.Fprintf(deps.stdout, "Review gate: %s fingerprint=%s override=%t\n", result.ReviewVerdict, result.ReviewFingerprint, result.ReviewOverride)
 	fmt.Fprintf(deps.stdout, "Harness: %s protocol=%s\nScope: %s %s\nRationale: %s\n", result.Harness, result.Protocol, result.ScopeKind, result.Scope, result.ScopeRationale)
+	if result.AuthorRunID != "" {
+		fmt.Fprintf(deps.stdout, "Smoke author: %s model=%s changed=%d\n", result.AuthorRunID, result.AuthorModel, len(result.AuthorChangedPaths))
+	}
 	fmt.Fprintf(deps.stdout, "Duration/cost class: %s/%s\nEvidence roots: %s\n", result.DurationClass, result.CostClass, strings.Join(result.EvidenceRoots, ", "))
 	fmt.Fprintf(deps.stdout, "Effective timeout: %s (source=%s)\n", result.EffectiveTimeout, result.TimeoutSource)
 	if result.SafeArgv != "" {

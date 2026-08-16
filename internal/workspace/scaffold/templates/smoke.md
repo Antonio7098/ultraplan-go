@@ -15,6 +15,11 @@ Current review verdict, governed-input fingerprint, and diagnostic override fact
 
 Cataloged harness identity and supported protocol-v1 version.
 
+## Smoke Authoring
+
+Authoring runtime/model identity and the bounded harness paths created or
+changed before authoritative execution.
+
 ## Selected Scope And Rationale
 
 Narrowest sufficient level, suite set, or diagnostic test and its selection reason.
@@ -49,7 +54,8 @@ Relevant external issue identities and links.
 
 ## Mutation And Safety Check
 
-Approved product and harness mutation roots.
+Approved product and harness mutation roots, including confirmation that the
+product target and governed sprint inputs were unchanged during authoring.
 
 ## Verdict And Next Action
 

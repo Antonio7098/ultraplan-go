@@ -115,7 +115,6 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 		planTask := taskByID(tasks, task.ID)
 		runtimeReq := s.runtimeRequest(RenderExecutePrompt(sp, planTask, target, selection), map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageExecute), "task": task.ID, "model_source": selection.Source})
 		runtimeReq.WorkDir = target.Path
-		runtimeReq.Policy.PathRules = append(runtimeReq.Policy.PathRules, pruntime.PermissionPathRule{Path: target.Path, Action: "allow"})
 		run, runErr := s.runtime.StartRun(ctx, runtimeReq)
 		result.Runtime = append(result.Runtime, run)
 		finish := s.now().UTC()

@@ -54,6 +54,9 @@ var defaultPlanSprintPrompt string
 //go:embed scaffold/prompts/review.md
 var defaultReviewPrompt string
 
+//go:embed scaffold/prompts/smoke.md
+var defaultSmokePrompt string
+
 //go:embed scaffold/templates/README.md
 var defaultTemplatesReadme string
 
@@ -107,6 +110,7 @@ var defaultOverrideFiles = map[string]string{
 	"prompts/meta-synthesize.md":           defaultMetaSynthesizePrompt,
 	"prompts/plan-sprint.md":               defaultPlanSprintPrompt,
 	"prompts/review.md":                    defaultReviewPrompt,
+	"prompts/smoke.md":                     defaultSmokePrompt,
 	"prompts/synthesize.md":                defaultSynthesizePrompt,
 	"templates/README.md":                  defaultTemplatesReadme,
 	"templates/meta-report.md":             defaultMetaReportTemplate,
@@ -134,6 +138,9 @@ execution:
   default_parallel: 3
   default_timeout: 30m
   default_retries: 3
+planning:
+  smoke_model: provider/model
+  smoke_variant: high
 smoke:
   discovery_timeout: 30s
   run_timeout: 30m

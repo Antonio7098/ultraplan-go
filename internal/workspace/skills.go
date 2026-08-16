@@ -107,15 +107,9 @@ Carry decisions forward rather than reopening them. Make tasks ordered, bounded,
 			Prerequisites:    []string{"validated plan and all planning artifacts", "resolvable target implementation directory"},
 			Prompt:           defaultExecuteSprintPrompt,
 			PromptAvailable:  true,
-			StageWorkflow: `Run a dry-run first:
+			StageWorkflow: `Use the resolved execution prompt and approved plan to perform the implementation yourself in the target implementation directory.
 
-    ultraplan sprint <project> <sprint> execute --dry-run
-
-Then execute or resume the governed plan:
-
-    ultraplan sprint <project> <sprint> execute --resume
-
-Follow progress, inspect partial failures, and continue until the execution state is complete or a genuine blocker requires the user. Do not replace this governed execution with untracked ad-hoc implementation.`,
+Work through incomplete plan tasks in order. Inspect the code, edit the implementation, run the required checks, and maintain plan checkboxes, execution evidence, and the execution artifacts required by the prompt. Continue until the plan is complete or a genuine blocker requires the user. The UltraPlan CLI may be used to inspect status, resolve the effective prompt, preview scope, and validate the result, but do not call ` + "`sprint execute`" + ` or ` + "`flow --to execute`" + ` to have another agent/runtime perform this stage.`,
 		},
 		{
 			Stage:            "review",
@@ -149,16 +143,10 @@ If publication is blocked because inputs changed, report the exact changed logic
 			Prerequisites:    []string{"fresh completed review", "discoverable protocol-v1 smoke harness"},
 			Prompt: `# Sprint Smoke Verification
 
-Use UltraPlan's deterministic, review-gated smoke orchestration. The smoke harness, allowed mutation roots, timeouts, evidence capture, result validation, and flow-state reconciliation belong to UltraPlan; do not reproduce them with ad-hoc shell commands.`,
-			StageWorkflow: `Inspect the bounded smoke plan first:
+Verify the implemented sprint against the current review gate and the project's smoke requirements. Keep the work bounded to the declared target and harness mutation roots, capture reproducible evidence, and report failures or blockers honestly.`,
+			StageWorkflow: `Use CLI status, validation, or a dry-run preview when useful to discover the review gate, bounded smoke scope, harness, and safety constraints.
 
-    ultraplan sprint <project> <sprint> smoke --dry-run
-
-If the dry-run is valid, run the manually requested smoke stage:
-
-    ultraplan sprint <project> <sprint> smoke --yes
-
-Report the authoritative verdict, evidence paths, issues, and next action. A failed or blocked result is not a pass. Do not bypass a stale/missing review gate unless the user explicitly requests and confirms a supported diagnostic override.`,
+Perform the smoke verification yourself: inspect the declared harness, run the selected checks directly with your tools, capture the required evidence, and create or update the governed smoke artifact according to the resolved contract. Do not call ` + "`sprint smoke`" + `, ` + "`verify --to smoke`" + `, or ` + "`flow --to smoke`" + ` to execute or complete the stage. Then use validation and status commands to verify and reconcile the result. A failed or blocked result is not a pass. Do not bypass a stale or missing review gate unless the user explicitly requests a supported diagnostic override.`,
 		},
 	}
 }
@@ -321,12 +309,13 @@ Run this stage interactively while preserving UltraPlan's governed artifact chai
 5. Validate every prerequisite that has a sprint validation command. If anything is missing, invalid, stale, or internally inconsistent, show the exact gaps and ask whether to fill them. Do not fill prerequisite gaps until the user agrees. If they agree, run the corresponding earlier UltraPlan skills in canonical order, then return to this stage.
 6. If the target is already complete and valid, summarize that state and ask before regenerating or materially changing it.
 7. If the user explicitly asks for a proposal, analysis, or discussion only, inspect all relevant evidence and return that without writing artifacts or advancing state. Otherwise, do the stage now; do not stop at a proposal.
-8. %s
-9. Complete the stage-specific workflow, preserve unrelated user edits, and do not cross declared mutation boundaries.
-10. Run `+"`ultraplan sprint <project> <sprint> validate %s`"+` when supported. Fix validation findings within this stage rather than declaring success early.
-11. Run `+"`ultraplan sprint <project> <sprint> status --json`"+` after writes or governed execution so flow-state, freshness, and artifact status are reconciled. Re-run project status if the project or sprint index changed.
-12. Inspect downstream artifacts for references made stale by this change. Update directly coupled indexes/references when safe; otherwise report the exact dependent stage that must be revisited. Never delete or silently rewrite downstream decisions.
-13. Finish with the artifact/result paths, validation outcome, state transition, and any remaining blocker or dependent stage.
+8. The invoking agent owns the actual stage work. Except for the review stage, do not call an UltraPlan stage, flow, execute, verify, or smoke command to have the CLI or another runtime execute or complete the stage. CLI commands remain appropriate for discovery, effective-prompt resolution, dry-run previews, status inspection, validation, and post-write reconciliation. Review is the deliberate exception: invoke its governed CLI command because UltraPlan owns reviewer subagent fan-out, aggregation, and review state.
+9. %s
+10. Complete the stage-specific workflow, preserve unrelated user edits, and do not cross declared mutation boundaries.
+11. Run `+"`ultraplan sprint <project> <sprint> validate %s`"+` when supported. Fix validation findings within this stage rather than declaring success early.
+12. Run `+"`ultraplan sprint <project> <sprint> status --json`"+` after writes or governed review execution so flow-state, freshness, and artifact status are reconciled. Re-run project status if the project or sprint index changed.
+13. Inspect downstream artifacts for references made stale by this change. Update directly coupled indexes/references when safe; otherwise report the exact dependent stage that must be revisited. Never delete or silently rewrite downstream decisions.
+14. Finish with the artifact/result paths, validation outcome, state transition, and any remaining blocker or dependent stage.
 
 ## Stage workflow
 

@@ -57,6 +57,8 @@ func redactPlanning(p Planning) Planning {
 	p.ExecuteVariant = RedactValue("planning.execute_variant", p.ExecuteVariant)
 	p.ReviewModel = RedactValue("planning.review_model", p.ReviewModel)
 	p.ReviewVariant = RedactValue("planning.review_variant", p.ReviewVariant)
+	p.SmokeModel = RedactValue("planning.smoke_model", p.SmokeModel)
+	p.SmokeVariant = RedactValue("planning.smoke_variant", p.SmokeVariant)
 	return p
 }
 

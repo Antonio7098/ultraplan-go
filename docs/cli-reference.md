@@ -326,7 +326,7 @@ ultraplan sprint ultraplan-go 28-review-to-smoke-flow review --focus architectur
 ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
 ```
 
-Discovers the cataloged protocol-v1 harness, gates on the current review fingerprint, selects sufficient scope, invokes direct bounded argv, validates external evidence, and atomically writes `smoke.md` before smoke flow state. `--force-review` additionally requires `--override-reason`; the resulting run is diagnostic and cannot promote the review or overall assessment. Raw streams and run/issue evidence remain external. Timeout, cancellation, malformed evidence, path escape, and uncertain cleanup never replace a valid summary.
+Gates on the current review fingerprint, then uses `planning.smoke_model` to create or update a durable sprint-specific suite in the cataloged protocol-v1 harness. Authoring is restricted to manifest-declared paths and targets non-deterministic real boundaries not already settled by normal tests. UltraPlan then discovers enumerated coverage/tests, selects sufficient scope, invokes direct bounded argv, verifies the exact executed test identities and external evidence, and atomically writes `smoke.md` before smoke flow state. `--force-review` additionally requires `--override-reason`; the resulting run is diagnostic and cannot promote the review or overall assessment. Raw streams and run/issue evidence remain external. Timeout, cancellation, missing coverage, out-of-scope author changes, malformed evidence, path escape, and uncertain cleanup never replace a valid summary.
 
 Example:
 

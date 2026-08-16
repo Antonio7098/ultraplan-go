@@ -423,23 +423,15 @@ func TestAdapterMapsPolicyRetryFallbackAndValidationMetadata(t *testing.T) {
 	}
 }
 
-func TestPermissionPathRulesFailUnlessBestEffort(t *testing.T) {
-	_, err := mapPermissionPolicy(PermissionPolicy{
+func TestPermissionPathRulesMapToAdapterPolicy(t *testing.T) {
+	policy, err := mapPermissionPolicy(PermissionPolicy{
 		Default:   "ask",
 		PathRules: []PermissionPathRule{{Path: "secret", Action: "deny"}},
-	})
-	if err == nil {
-		t.Fatal("expected unsupported path rule error")
-	}
-	policy, err := mapPermissionPolicy(PermissionPolicy{
-		Default:             "ask",
-		UnsupportedBehavior: "best_effort",
-		PathRules:           []PermissionPathRule{{Path: "secret", Action: "deny"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.UnsupportedBehavior != agentwrap.PermissionUnsupportedBestEffort {
+	if len(policy.PathRules) != 1 || policy.PathRules[0].Path != "secret" || policy.PathRules[0].Action != agentwrap.PermissionActionDeny {
 		t.Fatalf("unexpected policy: %+v", policy)
 	}
 }
