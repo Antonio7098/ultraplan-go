@@ -242,7 +242,7 @@ func testProjectIndex() string {
 
 ## Project Scope
 
-- **Target Implementation Directory:** /home/antonioborgerees/coding/ultraplan-go
+- **Target Implementation Directory:** /home/antonioborgerees/coding/ultraplan/ultraplan-go
 
 ## Active Contract Pool
 

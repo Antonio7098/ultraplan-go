@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ApprovedExecuteTargetPath = "/home/antonioborgerees/coding/ultraplan-go"
+const ApprovedExecuteTargetPath = "/home/antonioborgerees/coding/ultraplan/ultraplan-go"
 
 func ResolveExecuteTarget(projectIndexContent string) (ExecuteTargetRef, []ValidationFinding) {
 	target := extractTargetImplementationDirectory(projectIndexContent)

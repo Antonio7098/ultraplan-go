@@ -141,7 +141,7 @@ func TestExecuteRunStateLoadMissingAndMalformed(t *testing.T) {
 func validExecuteRunState(sp Sprint, now time.Time) ExecuteRunState {
 	return NewExecuteRunState(
 		sp,
-		ExecuteTargetRef{Path: "/home/antonioborgerees/coding/ultraplan-go", Source: "project-index.md"},
+		ExecuteTargetRef{Path: "/home/antonioborgerees/coding/ultraplan/ultraplan-go", Source: "project-index.md"},
 		ArtifactRelPath(sp, StagePlan),
 		"sha256:abc123",
 		[]ExecuteTaskRecord{{
