@@ -183,12 +183,14 @@ func (s Service) prepareSmokeStatic(projectRef, sprintRef string, req SmokeReque
 	}
 	review := *state.Review
 	reviewManifest, reviewFindings, reviewErr := s.PrepareReview(projectRef, sprintRef, ReviewRequest{})
-	if reviewErr != nil || len(reviewFindings) > 0 || reviewManifest.Fingerprint != review.Fingerprint {
-		review.Stale = true
-	}
+	review.Stale = reviewErr != nil || len(reviewFindings) > 0 || (strictCompletedReviewSnapshotFreshness && reviewManifest.Fingerprint != review.Fingerprint)
 	if !review.Stale {
 		content, readErr := s.store.ReadArtifact(sp, StageReview)
-		review.Stale = readErr != nil || len(ValidateReviewContent(content, reviewManifest)) > 0 || review.ArtifactDigest == "" || hashBytes([]byte(content)) != review.ArtifactDigest
+		validationManifest := reviewManifest
+		if !strictCompletedReviewSnapshotFreshness {
+			validationManifest.Fingerprint = review.Fingerprint
+		}
+		review.Stale = readErr != nil || len(ValidateReviewContent(content, validationManifest)) > 0 || review.ArtifactDigest == "" || hashBytes([]byte(content)) != review.ArtifactDigest
 	}
 	if review.Stale {
 		return smokePrepared{}, smokeError("smoke_review_stale", "review_gate", "review is stale", "Run sprint review again; stale reviews cannot be overridden.", nil)

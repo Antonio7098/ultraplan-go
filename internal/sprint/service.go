@@ -157,10 +157,14 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 		refreshed.Smoke = state.Smoke
 		if refreshed.Review != nil && refreshed.Review.Fingerprint != "" {
 			manifest, reviewFindings, reviewErr := s.PrepareReview(projectRef, sprintRef, ReviewRequest{})
-			refreshed.Review.Stale = reviewErr != nil || len(reviewFindings) > 0 || manifest.Fingerprint != refreshed.Review.Fingerprint
+			refreshed.Review.Stale = reviewErr != nil || len(reviewFindings) > 0 || (strictCompletedReviewSnapshotFreshness && manifest.Fingerprint != refreshed.Review.Fingerprint)
 			if !refreshed.Review.Stale {
 				content, readErr := s.store.ReadArtifact(sp, StageReview)
-				refreshed.Review.Stale = readErr != nil || len(ValidateReviewContent(content, manifest)) > 0
+				validationManifest := manifest
+				if !strictCompletedReviewSnapshotFreshness {
+					validationManifest.Fingerprint = refreshed.Review.Fingerprint
+				}
+				refreshed.Review.Stale = readErr != nil || len(ValidateReviewContent(content, validationManifest)) > 0 || refreshed.Review.ArtifactDigest == "" || hashBytes([]byte(content)) != refreshed.Review.ArtifactDigest
 			}
 		}
 		if refreshed.Smoke != nil {
