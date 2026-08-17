@@ -28,6 +28,23 @@
     });
   }
 
+  for (const details of document.querySelectorAll(".detail-sidebar details")) {
+    let pinnedOpen = details.open;
+    details.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "touch") return;
+      details.open = true;
+    });
+    details.addEventListener("pointerleave", (event) => {
+      if (event.pointerType === "touch") return;
+      details.open = pinnedOpen;
+    });
+    details.querySelector(":scope > summary")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      pinnedOpen = !pinnedOpen;
+      details.open = pinnedOpen;
+    });
+  }
+
   for (const workspace of document.querySelectorAll("[data-stage-workspace]")) {
     const buttons = [...workspace.querySelectorAll("[data-stage-select]")];
     const panels = [...workspace.querySelectorAll("[data-stage-panel]")];

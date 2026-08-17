@@ -141,6 +141,7 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .internal-state summary, .artifact-tree summary { cursor: pointer; font-weight: 600; }
 .artifact-tree details { padding: .2rem 0; }
 .artifact-tree summary { padding: .35rem .55rem; color: var(--muted); font-size: .78rem; }
+.detail-sidebar details > summary:hover { border-radius: .4rem; background: var(--panel-hover); color: var(--text); }
 .artifact-tree ul { margin-left: .7rem; padding-left: .55rem; border-left: 1px solid var(--border); }
 .artifact-explorer-preview { background: var(--panel); }
 .markdown-body { padding: clamp(1.2rem, 4vw, 3rem); border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: #c9c9cf; line-height: 1.72; overflow-wrap: anywhere; }
