@@ -140,9 +140,11 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .internal-state { grid-column: 1 / -1; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
 .internal-state summary, .artifact-tree summary { cursor: pointer; font-weight: 600; }
 .artifact-tree details { padding: .2rem 0; }
+.artifact-tree > li { position: relative; }
 .artifact-tree summary { padding: .35rem .55rem; color: var(--muted); font-size: .78rem; }
 .detail-sidebar details > summary:hover { border-radius: .4rem; background: var(--panel-hover); color: var(--text); }
 .artifact-tree ul { margin-left: .7rem; padding-left: .55rem; border-left: 1px solid var(--border); }
+.artifact-tree details.sidebar-hover-preview:not([open]) > ul { position: absolute; z-index: 20; top: 0; left: calc(100% + .55rem); display: block; width: min(16rem, 45vw); margin: 0; padding: .4rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-raised); box-shadow: 0 16px 40px rgb(0 0 0 / 35%); }
 .artifact-explorer-preview { background: var(--panel); }
 .markdown-body { padding: clamp(1.2rem, 4vw, 3rem); border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: #c9c9cf; line-height: 1.72; overflow-wrap: anywhere; }
 .markdown-body > :first-child { margin-top: 0; }
@@ -207,6 +209,7 @@ footer { min-height: 3.25rem; margin-left: var(--sidebar-width); display: flex; 
   .detail-layout, .sprint-detail-layout, .sprint-artifact-layout, .project-docs-layout, .artifact-groups, .run-layout { grid-template-columns: 1fr; }
   .detail-sidebar, .sidebar-stack .detail-sidebar, .stage-timeline { position: static; }
   .detail-sidebar ul { display: flex; flex-wrap: wrap; gap: .15rem; }
+  .artifact-tree details.sidebar-hover-preview:not([open]) > ul { position: static; display: none; }
   .sprint-status-summary { flex-direction: column; }
 }
 @media (max-width: 32rem) {

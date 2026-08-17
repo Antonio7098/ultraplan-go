@@ -32,15 +32,16 @@
     let pinnedOpen = details.open;
     details.addEventListener("pointerenter", (event) => {
       if (event.pointerType === "touch") return;
-      details.open = true;
+      if (!pinnedOpen) details.classList.add("sidebar-hover-preview");
     });
     details.addEventListener("pointerleave", (event) => {
       if (event.pointerType === "touch") return;
-      details.open = pinnedOpen;
+      details.classList.remove("sidebar-hover-preview");
     });
     details.querySelector(":scope > summary")?.addEventListener("click", (event) => {
       event.preventDefault();
       pinnedOpen = !pinnedOpen;
+      details.classList.remove("sidebar-hover-preview");
       details.open = pinnedOpen;
     });
   }
