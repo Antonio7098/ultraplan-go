@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo="${1:-github.com/Antonio7098/ultraplan-go/cmd/ultraplan@main}"
 gobin="${GOBIN:-$HOME/.local/bin}"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "$script_dir/.." && pwd)"
 
 mkdir -p "$gobin"
-GOBIN="$gobin" go install "$repo"
+if (( $# > 0 )); then
+  GOBIN="$gobin" go install "$1"
+else
+  (
+    cd "$repo_root"
+    GOBIN="$gobin" go install ./cmd/ultraplan
+  )
+fi
 
 echo "installed ultraplan to $gobin/ultraplan"

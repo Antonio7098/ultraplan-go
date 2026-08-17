@@ -14,7 +14,7 @@ Install to your user bin directory, which keeps the `ultraplan` command in the s
 ./scripts/install-ultraplan.sh
 ```
 
-That script installs `ultraplan` to `~/.local/bin` by default. If you prefer a different bin directory, set `GOBIN` first:
+That script installs `ultraplan` from the current checkout to `~/.local/bin` by default. It can be run from any directory. If you prefer a different bin directory, set `GOBIN` first:
 
 ```bash
 GOBIN="$HOME/bin" ./scripts/install-ultraplan.sh
