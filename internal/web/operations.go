@@ -335,6 +335,7 @@ func (h *operationHub) subscribe(session, id string, lastID uint64) ([]operation
 }
 
 func (h *operationHub) appendEventLocked(record *operationRecord, name string, payload any) {
+	name = stableOperationEventName(name)
 	record.nextEventID++
 	body := map[string]any{
 		"operation_id": record.doc.ID,
@@ -375,6 +376,15 @@ func (h *operationHub) appendEventLocked(record *operationRecord, name string, p
 	}
 }
 
+func stableOperationEventName(name string) string {
+	switch name {
+	case "snapshot", "progress", "warning", "finding", "artifact", "cancel_requested", "recovery_required", "terminal":
+		return name
+	default:
+		return "progress"
+	}
+}
+
 func (h *operationHub) drainAndWait(ctx context.Context) error {
 	h.mu.Lock()
 	h.draining = true
@@ -393,11 +403,40 @@ func (h *operationHub) drainAndWait(ctx context.Context) error {
 		select {
 		case <-record.done:
 		case <-ctx.Done():
+			persistErr := h.persistCleanupUncertain(records)
 			h.markCleanupUncertain(records)
-			return ctx.Err()
+			return errors.Join(ctx.Err(), persistErr)
 		}
 	}
 	return nil
+}
+
+func (h *operationHub) persistCleanupUncertain(records []*operationRecord) error {
+	recorder, ok := h.ops.(app.OperationCleanupRecorder)
+	if !ok {
+		return errors.New("operation capability cannot persist cleanup uncertainty")
+	}
+	var result error
+	for _, record := range records {
+		h.mu.Lock()
+		terminal := terminalOperationState(record.doc.State)
+		h.mu.Unlock()
+		if terminal {
+			continue
+		}
+		persistCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		err := recorder.RecordOperationCleanupUncertain(persistCtx, app.OperationCleanupUncertain{
+			OperationID: record.doc.ID,
+			Request:     record.request,
+			Reason:      "server_shutdown",
+			RecordedAt:  h.now().UTC(),
+		})
+		cancel()
+		if err != nil {
+			result = errors.Join(result, fmt.Errorf("persist cleanup uncertainty for %s: %w", record.doc.ID, err))
+		}
+	}
+	return result
 }
 
 func (h *operationHub) markCleanupUncertain(records []*operationRecord) {

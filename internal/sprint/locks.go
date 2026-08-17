@@ -3,6 +3,8 @@ package sprint
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/Antonio7098/ultraplan-go/internal/project"
@@ -35,6 +37,11 @@ func (s Service) ReconcileInterruptedMutation(ctx context.Context, projectRef, s
 		return false, err
 	}
 	now := s.now().UTC()
+	_, uncertaintyErr := loadCleanupUncertain(sp)
+	hasUncertainty := uncertaintyErr == nil
+	if uncertaintyErr != nil && !errors.Is(uncertaintyErr, os.ErrNotExist) {
+		return false, uncertaintyErr
+	}
 	changed := false
 	state, err := LoadExecuteRunState(s.root, sp)
 	if err == nil {
@@ -68,6 +75,14 @@ func (s Service) ReconcileInterruptedMutation(ctx context.Context, projectRef, s
 		}
 	} else if !errors.Is(flowErr, ErrFlowStateMissing) && !legacyFlowState(s.root, sp) {
 		return false, flowErr
+	}
+	if hasUncertainty && changed {
+		if err := removeCleanupUncertain(sp); err != nil {
+			return false, err
+		}
+	}
+	if hasUncertainty && !changed {
+		return false, fmt.Errorf("%w: %s", ErrCleanupUncertain, filepath.Join(sp.Path, cleanupUncertainFileName))
 	}
 	return changed, nil
 }

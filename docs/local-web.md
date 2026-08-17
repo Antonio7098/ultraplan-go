@@ -188,8 +188,14 @@ enters draining, rejects preparation/start, requests `server_shutdown`
 cancellation exactly once for every active server-owned operation, waits up to
 10 seconds for canonical product/runtime/harness cleanup and durable terminal
 reconciliation, publishes terminal SSE, then stops HTTP. Deadline expiry is
-reported as interrupted or cleanup-uncertain rather than success. Browser
-disconnect never triggers this sequence.
+reported as interrupted or cleanup-uncertain rather than success. Before the
+ephemeral hub closes, the app atomically writes a product-owned
+`.cleanup-uncertain.json` marker in the affected sprint. Startup reconciles the
+marker under the normal sprint mutation lease; if no canonical running record
+can be reconciled, the marker remains available for inspection. Server startup
+fails closed until that uncertainty is resolved, rather than accepting
+new sprint mutations over ambiguous state. Browser disconnect never triggers
+this sequence.
 
 Common failures:
 
@@ -213,3 +219,11 @@ apply only when their existing operations are selected.
 
 Sprint 32 retains browser compatibility hardening, release accessibility audit,
 packaging, and gated real-runtime/browser evidence.
+
+Smoke authoring snapshots the product target and governed project inputs before
+and after the runtime call. Snapshot drift without an observed OpenCode
+write-capable tool call against a protected path is retained as a
+`concurrent_target_change` diagnostic and does not fail the run. Attribution is
+captured from the live event callback rather than the bounded retained-event
+tail. An attributed protected-path write remains a hard authoring failure.
+Harness changes outside its manifest allowlist remain hard failures.

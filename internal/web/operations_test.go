@@ -24,6 +24,14 @@ type fakeWebOperations struct {
 	done    chan struct{}
 	once    sync.Once
 	runs    int
+	cleanup []app.OperationCleanupUncertain
+}
+
+func (f *fakeWebOperations) RecordOperationCleanupUncertain(_ context.Context, record app.OperationCleanupUncertain) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cleanup = append(f.cleanup, record)
+	return nil
 }
 
 func newFakeWebOperations() *fakeWebOperations {
@@ -104,6 +112,32 @@ func TestOperationHubDrainCancelsOwnedWorkAndRejectsNewStarts(t *testing.T) {
 	<-ops.done
 	if _, err := hub.start("session", prepared); !errors.Is(err, errServerDraining) {
 		t.Fatalf("start while draining error=%v", err)
+	}
+}
+
+func TestOperationHubDeadlinePersistsCleanupUncertaintyBeforeTerminalProjection(t *testing.T) {
+	ops := newFakeWebOperations()
+	hub := newOperationHub(context.Background(), ops, time.Now, func() string { return "deadline" })
+	prepared, _ := ops.PrepareOperation(context.Background(), app.OperationRequest{Kind: app.OperationFlow, Project: "alpha", Sprint: "31-web", Stage: "plan"})
+	doc, err := hub.start("session", prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-ops.started
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := hub.drainAndWait(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("drain error=%v", err)
+	}
+	ops.mu.Lock()
+	cleanup := append([]app.OperationCleanupUncertain(nil), ops.cleanup...)
+	ops.mu.Unlock()
+	if len(cleanup) != 1 || cleanup[0].OperationID != doc.ID || cleanup[0].Reason != "server_shutdown" || cleanup[0].Request.Project != "alpha" {
+		t.Fatalf("cleanup records=%+v", cleanup)
+	}
+	terminal, err := hub.status("session", doc.ID)
+	if err != nil || terminal.State != "cleanup_uncertain" {
+		t.Fatalf("terminal=%+v err=%v", terminal, err)
 	}
 }
 

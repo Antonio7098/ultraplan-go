@@ -109,8 +109,19 @@ arbitration point. Slow or disconnected SSE subscribers cannot block or cancel
 product work. Graceful shutdown enters draining, rejects new work, requests
 `server_shutdown` cancellation once per owner, waits outside hub/product locks
 for bounded cleanup and durable reconciliation, publishes a truthful terminal
-event, closes subscribers, and only then shuts down HTTP. No detached operation
-is intentionally allowed to outlive the server.
+event, closes subscribers, and only then shuts down HTTP. If the deadline
+expires, the app boundary atomically persists a product-owned sprint recovery
+marker before transport closure. That marker is separate from canonical run
+state so the web layer never races a live lease holder; startup consumes it
+only after canonical state is reconciled under the normal product lease. No
+detached operation is intentionally allowed to outlive the server.
+
+Smoke authoring uses before/after target identities for diagnosis and retained
+runtime tool events for write attribution. Concurrent target drift without an
+observed protected-path write is recorded but does not fail a local smoke run;
+an author-attributed protected write and any out-of-allowlist harness mutation
+remain hard failures. Attribution observes the live runtime event callback and
+does not depend on the bounded retained-event tail.
 
 ## Deferred Phase 4 Capabilities
 

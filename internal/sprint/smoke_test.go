@@ -3,6 +3,7 @@ package sprint
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,6 +94,68 @@ func TestDefaultSmokeEnvironmentPreservesInterpreterPath(t *testing.T) {
 	for _, value := range env {
 		if strings.HasPrefix(value, "UNDECLARED_SECRET=") {
 			t.Fatalf("environment leaked a non-allowlisted value: %v", env)
+		}
+	}
+}
+
+func TestSmokeAuthorProtectedWriteAttribution(t *testing.T) {
+	root := "/workspace/product"
+	cases := []struct {
+		name   string
+		events []pruntime.Event
+		want   bool
+	}{
+		{
+			name: "write tool under protected root",
+			events: []pruntime.Event{{Kind: "tool", Payload: map[string]any{
+				"part": map[string]any{"tool": "write", "state": map[string]any{"input": map[string]any{"filePath": root + "/internal/web/server.go"}}},
+			}}},
+			want: true,
+		},
+		{
+			name: "read tool under protected root",
+			events: []pruntime.Event{{Kind: "tool", Payload: map[string]any{
+				"part": map[string]any{"tool": "read", "state": map[string]any{"input": map[string]any{"filePath": root + "/internal/web/server.go"}}},
+			}}},
+		},
+		{
+			name: "write tool in harness",
+			events: []pruntime.Event{{Kind: "tool", Payload: map[string]any{
+				"part": map[string]any{"tool": "write", "state": map[string]any{"input": map[string]any{"filePath": "/workspace/harness/src/test.ts"}}},
+			}}},
+		},
+		{
+			name: "shell edit command under protected root",
+			events: []pruntime.Event{{Kind: "tool", Payload: map[string]any{
+				"part": map[string]any{"tool": "bash", "state": map[string]any{"input": map[string]any{"command": "sed -i s/old/new/ " + root + "/go.mod"}}},
+			}}},
+			want: true,
+		},
+		{
+			name: "non-tool event cannot attribute",
+			events: []pruntime.Event{{Kind: "message", Payload: map[string]any{
+				"text": "edited " + root + "/go.mod",
+			}}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := smokeAuthorAttributedProtectedWrite(tc.events, root); got != tc.want {
+				t.Fatalf("attributed=%t want=%t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSmokeConcurrentChangeDiagnosticIsBounded(t *testing.T) {
+	paths := make([]string, 25)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("path-%02d", i)
+	}
+	got := smokeConcurrentChangeDiagnostic("product target", paths)
+	for _, want := range []string{"concurrent_target_change", "path-00", "(+5 more)"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("diagnostic %q missing %q", got, want)
 		}
 	}
 }

@@ -2,12 +2,15 @@ package sprint
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
@@ -26,11 +29,13 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 	if err != nil {
 		return smokeError("smoke_author_target_identity", "authoring", "target identity could not be captured", "Restore a readable target before smoke authoring.", err)
 	}
+	targetFilesBefore := smokeDiagnosticTargetSnapshot(prepared.Target)
 	projectRoot := filepath.Join(s.root, "projects", prepared.Sprint.Project)
 	projectBefore, err := targetIdentity(projectRoot)
 	if err != nil {
 		return smokeError("smoke_author_workspace_identity", "authoring", "governed project identity could not be captured", "Restore readable governed sprint inputs.", err)
 	}
+	projectFilesBefore := smokeDiagnosticTargetSnapshot(projectRoot)
 
 	prompt := s.renderSmokeAuthorPrompt(prepared)
 	req := s.runtimeRequest(prompt, map[string]string{"project": prepared.Sprint.Project, "sprint": prepared.Sprint.Slug, "stage": string(StageSmoke), "operation": "author"})
@@ -39,6 +44,15 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 	req.Policy.UnsupportedBehavior = "best_effort"
 	for _, rel := range prepared.Manifest.Authoring.Paths {
 		req.Policy.PathRules = append(req.Policy.PathRules, pruntime.PermissionPathRule{Path: filepath.Join(prepared.HarnessRoot, filepath.FromSlash(rel)), Action: "allow"})
+	}
+	var targetWrite, projectWrite atomic.Bool
+	req.OnEvent = func(event pruntime.Event) {
+		if smokeAuthorAttributedProtectedWrite([]pruntime.Event{event}, prepared.Target) {
+			targetWrite.Store(true)
+		}
+		if smokeAuthorAttributedProtectedWrite([]pruntime.Event{event}, projectRoot) {
+			projectWrite.Store(true)
+		}
 	}
 	run, runErr := s.runtime.StartRun(ctx, req)
 	result.AuthorRunID = run.RunID
@@ -57,11 +71,19 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 	}
 	targetAfter, identityErr := targetIdentity(prepared.Target)
 	if identityErr != nil || targetAfter != targetBefore {
-		return smokeError("smoke_author_target_mutation", "authoring", "smoke author changed or obscured the product target", "Restore the product target and rerun with harness-only authoring authority.", identityErr)
+		changedPaths := changedSmokeHarnessPaths(targetFilesBefore, smokeDiagnosticTargetSnapshot(prepared.Target))
+		if targetWrite.Load() || smokeAuthorAttributedProtectedWrite(run.Events, prepared.Target) {
+			return smokeError("smoke_author_target_mutation", "authoring", "smoke author made a write-capable tool call against the product target", "Restore the product target and rerun with harness-only authoring authority.", identityErr)
+		}
+		result.Diagnostics = append(result.Diagnostics, smokeConcurrentChangeDiagnostic("product target", changedPaths))
 	}
 	projectAfter, identityErr := targetIdentity(projectRoot)
 	if identityErr != nil || projectAfter != projectBefore {
-		return smokeError("smoke_author_workspace_mutation", "authoring", "smoke author changed or obscured governed project inputs", "Restore governed inputs and rerun with harness-only authoring authority.", identityErr)
+		changedPaths := changedSmokeHarnessPaths(projectFilesBefore, smokeDiagnosticTargetSnapshot(projectRoot))
+		if projectWrite.Load() || smokeAuthorAttributedProtectedWrite(run.Events, projectRoot) {
+			return smokeError("smoke_author_workspace_mutation", "authoring", "smoke author made a write-capable tool call against governed project inputs", "Restore governed inputs and rerun with harness-only authoring authority.", identityErr)
+		}
+		result.Diagnostics = append(result.Diagnostics, smokeConcurrentChangeDiagnostic("governed project inputs", changedPaths))
 	}
 	if runErr != nil {
 		return smokeError("smoke_author_runtime", "runtime", "smoke authoring runtime failed", "Inspect the bounded runtime diagnostics and rerun authoring.", runErr)
@@ -73,6 +95,95 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 		return smokeError("smoke_author_cancelled", "cancellation", "smoke authoring was cancelled", "Rerun smoke when authoring can complete.", ctx.Err())
 	}
 	return nil
+}
+
+func smokeConcurrentChangeDiagnostic(scope string, paths []string) string {
+	detail := "none identified"
+	if len(paths) > 0 {
+		const maxPaths = 20
+		shown := paths
+		if len(shown) > maxPaths {
+			shown = shown[:maxPaths]
+		}
+		detail = strings.Join(shown, ", ")
+		if len(paths) > len(shown) {
+			detail += fmt.Sprintf(" (+%d more)", len(paths)-len(shown))
+		}
+	}
+	return fmt.Sprintf("concurrent_target_change: %s changed during smoke authoring without an observed OpenCode protected-path write; changed paths: %s", scope, detail)
+}
+
+func smokeAuthorAttributedProtectedWrite(events []pruntime.Event, protectedRoot string) bool {
+	root := filepath.ToSlash(filepath.Clean(protectedRoot))
+	for _, event := range events {
+		if event.Kind != "tool" {
+			continue
+		}
+		data, err := json.Marshal(event.Payload)
+		if err != nil {
+			continue
+		}
+		text := strings.ToLower(filepath.ToSlash(string(data)))
+		if !strings.Contains(text, strings.ToLower(root)) {
+			continue
+		}
+		for _, marker := range []string{
+			`"tool":"write`, `"tool":"edit`, `"tool":"patch`,
+			`"name":"write`, `"name":"edit`, `"name":"patch`,
+			"apply_patch", "write_file", "writefile", "filesystem_write",
+		} {
+			if strings.Contains(text, marker) {
+				return true
+			}
+		}
+		if strings.Contains(text, `"command"`) {
+			for _, marker := range []string{
+				"apply_patch", " > ", ">>", "sed -i", "perl -pi", "gofmt -w",
+				" tee ", " touch ", " chmod ", " rm ", " mv ", " cp ",
+			} {
+				if strings.Contains(text, marker) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// smokeDiagnosticTargetSnapshot is diagnostic only. Failure to enumerate a
+// target never changes the authoring verdict; the authoritative identity check
+// still reports that drift occurred.
+func smokeDiagnosticTargetSnapshot(root string) map[string]string {
+	out := map[string]string{}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return out
+	}
+	listed, err := exec.Command("git", "-C", root, "ls-files", "-co", "--exclude-standard", "-z").Output()
+	if err != nil {
+		return out
+	}
+	for _, rel := range strings.Split(string(listed), "\x00") {
+		if rel == "" {
+			continue
+		}
+		rel = filepath.ToSlash(filepath.Clean(rel))
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		info, err := os.Lstat(path)
+		if err != nil {
+			out[rel] = "missing"
+			continue
+		}
+		if !info.Mode().IsRegular() || info.Size() > 64<<20 {
+			out[rel] = fmt.Sprintf("mode:%s:size:%d", info.Mode(), info.Size())
+			continue
+		}
+		digest, err := hashFile(path)
+		if err == nil {
+			out[rel] = digest
+		}
+	}
+	return out
 }
 
 func (s Service) renderSmokeAuthorPrompt(prepared smokePrepared) string {

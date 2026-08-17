@@ -203,6 +203,21 @@ func (u *webUseCases) RunOperation(ctx context.Context, req OperationRequest, em
 	return u.dashboard.RunOperation(ctx, req, emit)
 }
 
+func (u *webUseCases) RecordOperationCleanupUncertain(ctx context.Context, record OperationCleanupUncertain) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if record.Request.Project == "" || record.Request.Sprint == "" {
+		return fmt.Errorf("durable cleanup uncertainty is unavailable for operation %q", record.Request.Kind)
+	}
+	return sprint.NewService(u.root).RecordCleanupUncertain(ctx, record.Request.Project, record.Request.Sprint, sprint.CleanupUncertainRecord{
+		OperationID: record.OperationID,
+		Kind:        string(record.Request.Kind),
+		Reason:      record.Reason,
+		RecordedAt:  record.RecordedAt,
+	})
+}
+
 func (u *webUseCases) ReconcileOperations(ctx context.Context) error {
 	summaries, err := u.dashboard.SprintSummaries(ctx)
 	if err != nil {

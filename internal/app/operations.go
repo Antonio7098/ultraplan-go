@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/project"
 	"github.com/Antonio7098/ultraplan-go/internal/sprint"
@@ -31,6 +32,20 @@ type WebOperations interface {
 	Validate(context.Context, ValidationRequest) (ValidationOperationResult, error)
 	PrepareOperation(context.Context, OperationRequest) (Confirmation, error)
 	RunOperation(context.Context, OperationRequest, func(OperationEvent)) (OperationResult, error)
+}
+
+// OperationCleanupRecorder is an optional durability capability used by a
+// server that can no longer prove cleanup before its shutdown deadline.
+// Transport adapters supply identity and reason; product modules own storage.
+type OperationCleanupRecorder interface {
+	RecordOperationCleanupUncertain(context.Context, OperationCleanupUncertain) error
+}
+
+type OperationCleanupUncertain struct {
+	OperationID string
+	Request     OperationRequest
+	Reason      string
+	RecordedAt  time.Time
 }
 
 type OperationReconciler interface {
