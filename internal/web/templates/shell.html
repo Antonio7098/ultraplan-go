@@ -31,6 +31,13 @@
 
 {{define "bottom"}}
   </main>
+  <dialog id="reviewer-result-dialog" class="reviewer-result-dialog" aria-labelledby="reviewer-result-title">
+    <div class="reviewer-result-heading">
+      <h2 id="reviewer-result-title">Reviewer result</h2>
+      <button id="reviewer-result-close" type="button">Close</button>
+    </div>
+    <pre id="reviewer-result-content" tabindex="0"></pre>
+  </dialog>
   <footer>
     <span class="status status-ok">Server ready</span>
     <span>Workspace files and product run state remain authoritative.</span>

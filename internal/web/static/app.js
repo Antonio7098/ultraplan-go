@@ -11,7 +11,10 @@
   const forms = [...document.querySelectorAll(".operation-form")];
   const statusRoot = document.querySelector("[data-operation-id]");
   const reviewStatus = document.querySelector("[data-review-status]");
-  if (forms.length === 0 && !statusRoot && !reviewStatus) return;
+  const reviewerDialog = document.getElementById("reviewer-result-dialog");
+  const reviewerDialogContent = document.getElementById("reviewer-result-content");
+  const reviewerDialogClose = document.getElementById("reviewer-result-close");
+  if (forms.length === 0 && !statusRoot && !reviewStatus && !document.querySelector(".reviewer-card")) return;
 
   const csrf = document.querySelector('meta[name="ultraplan-csrf"]')?.content || "";
   const confirmation = document.getElementById("operation-confirmation");
@@ -25,6 +28,18 @@
   let reviewRefreshActive = false;
   let currentOperationID = "";
   let lastSequence = 0;
+
+  document.addEventListener("click", (event) => {
+    const trigger = event.target.closest?.(".reviewer-result-open");
+    if (!trigger || !reviewerDialog || !reviewerDialogContent) return;
+    const fullResult = trigger.parentElement?.querySelector(".reviewer-full-result")?.textContent || "";
+    reviewerDialogContent.textContent = fullResult;
+    reviewerDialog.showModal();
+  });
+  reviewerDialogClose?.addEventListener("click", () => reviewerDialog.close());
+  reviewerDialog?.addEventListener("click", (event) => {
+    if (event.target === reviewerDialog) reviewerDialog.close();
+  });
 
   function specification(form, submitter) {
     const scope = {};
@@ -124,8 +139,18 @@
         }
         if (reviewer.summary) {
           const summary = document.createElement("p");
+          summary.className = "reviewer-summary";
           summary.textContent = reviewer.summary;
-          card.append(summary);
+          const openResult = document.createElement("button");
+          openResult.type = "button";
+          openResult.className = "reviewer-result-open";
+          openResult.setAttribute("aria-haspopup", "dialog");
+          openResult.textContent = "View full result";
+          const fullResult = document.createElement("div");
+          fullResult.className = "reviewer-full-result";
+          fullResult.hidden = true;
+          fullResult.textContent = reviewer.summary;
+          card.append(summary, openResult, fullResult);
         }
         fragment.append(card);
       }

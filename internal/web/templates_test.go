@@ -49,7 +49,7 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 		}
 	}
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "refreshReviewers", "setInterval(refreshReviewers, 2000)", "live-reviewer-grid"} {
+	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "refreshReviewers", "setInterval(refreshReviewers, 2000)", "live-reviewer-grid", "reviewer-result-open", "showModal"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("JavaScript missing %q", want)
 		}
@@ -65,6 +65,18 @@ func TestReviewOperationTemplateContainsLiveReviewerGrid(t *testing.T) {
 	for _, want := range []string{`eq .Kind "review-start"`, `data-review-status`, `id="live-reviewer-grid"`, `id="review-count-running"`, "Loading reviewer checkpoints"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("live review template missing %q", want)
+		}
+	}
+}
+
+func TestShellContainsAccessibleReviewerResultDialog(t *testing.T) {
+	body, err := assets.ReadFile("templates/shell.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`<dialog id="reviewer-result-dialog"`, `aria-labelledby="reviewer-result-title"`, `id="reviewer-result-close"`, `id="reviewer-result-content"`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("reviewer result dialog missing %q", want)
 		}
 	}
 }
