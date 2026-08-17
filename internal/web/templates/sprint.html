@@ -1,6 +1,16 @@
 {{define "sprint"}}{{template "top" .}}
 <nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / <a href="/projects/{{.Sprint.Project}}">{{.Sprint.Project}}</a> / {{.Sprint.Slug}}{{if ne .Page "overview"}} / {{if eq .Page "run"}}Run{{else}}Artefact Navigator{{end}}{{end}}</nav>
-<div class="detail-layout">
+<div class="detail-layout sprint-detail-layout">
+<aside class="detail-sidebar project-context-sidebar">
+<nav aria-label="Project navigation"><h2>Project</h2><ul>
+<li><a href="/projects/{{.Sprint.Project}}">Overview</a></li>
+<li><a href="/projects/{{.Sprint.Project}}/documentation">Documentation</a></li>
+<li><a href="/projects/{{.Sprint.Project}}/sprints" aria-current="page">Sprints</a></li>
+<li><a href="/projects/{{.Sprint.Project}}/operations">Operations</a></li>
+<li><a href="/projects/{{.Sprint.Project}}/validation">Validation</a></li>
+<li><a href="/projects/{{.Sprint.Project}}/artifacts">Artifacts</a></li>
+</ul></nav>
+</aside>
 <aside class="detail-sidebar">
 <nav aria-label="Sprint navigation"><h2>Sprint</h2><ul>
 <li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>

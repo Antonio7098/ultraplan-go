@@ -132,6 +132,10 @@ func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
 			t.Errorf("%s does not identify the current page", tt.path)
 		}
 	}
+	sprintBody := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
+	if !strings.Contains(sprintBody, `class="detail-layout sprint-detail-layout"`) || !strings.Contains(sprintBody, `aria-label="Project navigation"`) || !strings.Contains(sprintBody, `/projects/alpha/sprints" aria-current="page"`) {
+		t.Errorf("sprint page is missing persistent project navigation: %s", sprintBody)
+	}
 }
 
 func TestDetailOverviewPagesStayFocused(t *testing.T) {

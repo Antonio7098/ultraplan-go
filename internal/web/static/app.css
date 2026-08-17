@@ -19,15 +19,16 @@ button:disabled { cursor: wait; opacity: .65; }
 select { font: inherit; padding: .55rem .8rem; border: 1px solid var(--border); border-radius: .3rem; background: var(--panel); color: var(--text); }
 .skip-link { position: absolute; left: .75rem; top: -5rem; background: var(--focus); color: #111; padding: .6rem; z-index: 10; }
 .skip-link:focus { top: .75rem; }
-.site-header, footer { display: flex; gap: 1.25rem; align-items: center; justify-content: space-between; padding: 1rem max(1rem, calc((100% - 78rem) / 2)); border-bottom: 1px solid var(--border); }
+.site-header, footer { display: flex; gap: 1.25rem; align-items: center; justify-content: space-between; padding: 1rem; border-bottom: 1px solid var(--border); }
 .site-header nav { display: flex; gap: 1rem; flex-wrap: wrap; }
 .brand { font-weight: 800; font-size: 1.2rem; }
-main { max-width: 78rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+main { width: 100%; max-width: none; margin: 0; padding: 1.5rem 1rem 3rem; }
 .heading-row { display: flex; justify-content: space-between; align-items: end; gap: 1rem; }
 .eyebrow { color: var(--muted); margin: 0; text-transform: uppercase; letter-spacing: .08em; }
 h1 { margin-top: .15rem; }
 h2 { margin-top: 2rem; }
 .detail-layout { display: grid; grid-template-columns: minmax(11rem, 15rem) minmax(0, 1fr); gap: 1.25rem; align-items: start; margin-top: 1rem; }
+.sprint-detail-layout { grid-template-columns: minmax(10rem, 13rem) minmax(10rem, 13rem) minmax(0, 1fr); }
 .detail-sidebar { position: sticky; top: 1rem; border: 1px solid var(--border); border-radius: .35rem; background: var(--panel); padding: 1rem; }
 .detail-sidebar h2 { margin: 0 0 .65rem; font-size: 1rem; }
 .detail-sidebar ul { list-style: none; margin: 0; padding: 0; }
@@ -126,7 +127,7 @@ footer { border-top: 1px solid var(--border); border-bottom: 0; color: var(--mut
   .site-header, .heading-row { align-items: flex-start; flex-direction: column; }
   main { padding-top: 1rem; }
   section { padding: .75rem; }
-  .detail-layout { grid-template-columns: 1fr; }
+  .detail-layout, .sprint-detail-layout { grid-template-columns: 1fr; }
   .detail-sidebar { position: static; }
   .detail-sidebar ul { display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
   .detail-sidebar li + li { border-top: 0; }
