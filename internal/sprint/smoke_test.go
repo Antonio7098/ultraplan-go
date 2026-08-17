@@ -76,6 +76,30 @@ func TestSmokeSelectionAndVerdicts(t *testing.T) {
 	}
 }
 
+func TestRenderSmokeIncludesDetailedIssueFinding(t *testing.T) {
+	content := RenderSmoke(SmokeResult{
+		Status: SmokeCompleted, Verdict: SmokeFailVerdict,
+		Issues: []SmokeIssue{{
+			ID: "runtime-live-capacity", Status: "open", Path: "/harness/issues/runtime-live-capacity.md",
+			TestID: "live-capacity", Severity: "high", Title: "capacity was not enforced",
+			Summary: "the ninth start returned 202", Theory: "active operations may be counted after admission",
+			Evidence: "nine operation_started events were recorded", Action: "inspect the active-count transition",
+		}},
+	})
+	for _, want := range []string{
+		"### `live-capacity` — capacity was not enforced",
+		"Observed: the ninth start returned 202",
+		"Working theory: active operations may be counted after admission",
+		"Supporting evidence: nine operation_started events were recorded",
+		"Next investigation: inspect the active-count transition",
+		"`runtime-live-capacity` (high, test `live-capacity`)",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("rendered smoke missing %q:\n%s", want, content)
+		}
+	}
+}
+
 func TestDefaultSmokeEnvironmentPreservesInterpreterPath(t *testing.T) {
 	settings := DefaultSmokeSettings()
 	values := map[string]string{

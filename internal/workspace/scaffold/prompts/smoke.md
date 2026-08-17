@@ -33,6 +33,11 @@ recovery, security boundaries, and cross-surface integration.
 6. Leave concise maintainable tests and deterministic cleanup. Use unique
    temporary paths and ports, disable language test caches where freshness is
    evidence, and never depend on an already-running local service.
+7. A failed or errored authoritative probe must file and return one open issue.
+   Its protocol metadata must identify the test and include severity, title,
+   observed summary, a falsifiable working theory, concrete supporting evidence,
+   and the next investigation action. Keep raw logs in external evidence; the
+   metadata must be safe and concise enough for `smoke.md`.
 
 ## Safety
 

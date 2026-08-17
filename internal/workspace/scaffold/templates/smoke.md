@@ -42,7 +42,8 @@ Contained external evidence paths with hashes or fallback identity metadata.
 
 ## Findings
 
-Safe diagnostics and selected test findings.
+For every failed or errored test: severity, observed behavior, falsifiable
+working theory, concrete supporting evidence, and next investigation action.
 
 ## Open Issues
 

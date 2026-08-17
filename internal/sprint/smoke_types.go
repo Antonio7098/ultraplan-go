@@ -91,14 +91,24 @@ type SmokeEvidence struct {
 }
 
 type SmokeIssue struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Path   string `json:"path"`
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Path     string `json:"path"`
+	TestID   string `json:"test_id,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Summary  string `json:"summary,omitempty"`
+	Theory   string `json:"theory,omitempty"`
+	Evidence string `json:"evidence,omitempty"`
+	Action   string `json:"action,omitempty"`
 }
 
 type SmokeTestResult struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Summary  string `json:"summary,omitempty"`
+	Theory   string `json:"theory,omitempty"`
+	Evidence string `json:"evidence,omitempty"`
 }
 
 type SmokeResult struct {

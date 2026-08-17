@@ -349,6 +349,13 @@ func validateSmokeRun(p smokePrepared, discovery smokeDiscovery, selection smoke
 		evidence = append(evidence, SmokeEvidence{Kind: item.Kind, Path: resolved, SHA256: hash, Size: info.Size(), ModifiedAt: info.ModTime().UTC()})
 	}
 	issues := append([]SmokeIssue(nil), response.Issues...)
+	failedTests := make(map[string]struct{}, c.Failed+c.Errors)
+	for _, test := range response.Tests {
+		if test.Status == "failed" || test.Status == "error" {
+			failedTests[test.ID] = struct{}{}
+		}
+	}
+	filedTests := make(map[string]struct{}, len(issues))
 	for i := range issues {
 		if issues[i].ID == "" || (issues[i].Status != "open" && issues[i].Status != "resolved") {
 			return nil, nil, nil, smokeError("smoke_issue_identity", "evidence", "issue identity/status is invalid", "Emit open or resolved issue metadata.", nil)
@@ -362,6 +369,17 @@ func validateSmokeRun(p smokePrepared, discovery smokeDiscovery, selection smoke
 			return nil, nil, nil, smokeError("smoke_issue_path", "evidence", "issue path is missing, escaping, or mismatched", "Use an issue-ID-addressed file under the issues root.", err)
 		}
 		issues[i].Path = resolved
+		if _, failed := failedTests[issues[i].TestID]; failed && issues[i].Status == "open" {
+			filedTests[issues[i].TestID] = struct{}{}
+		}
+		if issues[i].Status == "open" && (issues[i].TestID == "" || issues[i].Severity == "" || issues[i].Title == "" || issues[i].Summary == "" || issues[i].Theory == "" || issues[i].Evidence == "" || issues[i].Action == "") {
+			return nil, nil, nil, smokeError("smoke_issue_detail", "evidence", "open issue metadata is incomplete", "For every open issue emit test_id, severity, title, summary, theory, evidence, and action.", nil)
+		}
+	}
+	for testID := range failedTests {
+		if _, ok := filedTests[testID]; !ok {
+			return nil, nil, nil, smokeError("smoke_issue_missing", "evidence", "failed test has no detailed open issue: "+testID, "File and return one detailed issue for every failed or errored test.", nil)
+		}
 	}
 	if proc.ExitCode != 0 && c.Failed+c.Errors == 0 {
 		return nil, nil, nil, smokeError("smoke_process_unexplained", "process", "non-zero process exit has no matching failed evidence", "Inspect external evidence before retrying.", nil)
@@ -474,7 +492,20 @@ func RenderSmoke(r SmokeResult) string {
 		}
 	}
 	b.WriteString("\n## Findings\n\n")
-	if len(r.Diagnostics) == 0 {
+	findings := 0
+	for _, issue := range r.Issues {
+		if issue.Status != "open" {
+			continue
+		}
+		findings++
+		fmt.Fprintf(&b, "### `%s` — %s\n\n", issue.TestID, printable(issue.Title))
+		fmt.Fprintf(&b, "- Severity: `%s`\n", printable(issue.Severity))
+		fmt.Fprintf(&b, "- Observed: %s\n", printable(issue.Summary))
+		fmt.Fprintf(&b, "- Working theory: %s\n", printable(issue.Theory))
+		fmt.Fprintf(&b, "- Supporting evidence: %s\n", printable(issue.Evidence))
+		fmt.Fprintf(&b, "- Next investigation: %s\n\n", printable(issue.Action))
+	}
+	if len(r.Diagnostics) == 0 && findings == 0 {
 		b.WriteString("- none\n")
 	} else {
 		for _, diagnostic := range r.Diagnostics {
@@ -486,7 +517,7 @@ func RenderSmoke(r SmokeResult) string {
 	for _, issue := range r.Issues {
 		if issue.Status == "open" {
 			open = true
-			fmt.Fprintf(&b, "- `%s` `%s`\n", issue.ID, issue.Path)
+			fmt.Fprintf(&b, "- `%s` (%s, test `%s`): `%s`\n", issue.ID, printable(issue.Severity), printable(issue.TestID), issue.Path)
 		}
 	}
 	if !open {
