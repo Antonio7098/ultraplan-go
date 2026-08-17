@@ -320,6 +320,9 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 	for _, selected := range idx.ReviewProtocols {
 		resolve(selected, project.SectionReviewProtocols, "protocol", "protocol", false)
 	}
+	if unresolvedExecutePlanTasks(manifest.Contents[ArtifactRelPath(sp, StagePlan)], manifest.Contents[runPath], planManifest) {
+		findings = append(findings, finding("Plan Execution", "tasks", ArtifactRelPath(sp, StagePlan), "plan tasks are not resolved", "one or more unchecked top-level tasks lack an explicit deferred run-state outcome", "Complete each executable task or defer it with an explicit rationale before review."))
+	}
 	// The handbook receives an independent reviewer even though it is also a governed input.
 	if handbook := findReviewInput(manifest.Inputs, "technical-handbook"); handbook.Path != "" {
 		handbook.ID, handbook.Kind, handbook.Name = "handbook", "handbook", "Technical Handbook"
@@ -327,9 +330,6 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 	}
 	if strings.TrimSpace(manifest.Model) == "" || manifest.Model == "unresolved" {
 		findings = append(findings, finding("Configuration", "review model", "", "missing review model", "no review, plan, or runtime model is configured", "Set planning.review_model or planning.plan_model."))
-	}
-	if plan := manifest.Contents[ArtifactRelPath(sp, StagePlan)]; strings.Contains(plan, "- [ ] Task ") || strings.Contains(plan, "- [ ] **Task ") {
-		findings = append(findings, finding("Plan Execution", "tasks", ArtifactRelPath(sp, StagePlan), "plan tasks are not complete", "one or more top-level plan tasks remain unchecked", "Complete execute evidence and mark implemented tasks complete before review."))
 	}
 	for _, command := range reviewVerificationCommands(manifest.Contents[ArtifactRelPath(sp, StagePlan)]) {
 		if !strings.Contains(manifest.Contents[ArtifactRelPath(sp, StageExecute)], command) {
@@ -826,13 +826,15 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 	req.Permissions = "restricted"
 	req.RequireCaps = appendUnique(req.RequireCaps, "permissions")
 	req.Policy = pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": "allow", "list": "allow", "search": "allow"}}
-	req.Validation = s.reviewValidationSpec(m, c)
+	captured := &reviewOutputCapture{}
+	req.Validation = s.reviewValidationSpec(m, c, captured)
 	if resumeSession != "" {
 		req.SessionID, req.SessionAction = resumeSession, "continue"
 		req.Prompt = "Resume the interrupted review using the refreshed frozen snapshot paths in this request. " + req.Prompt
 	}
 	previousOnEvent := req.OnEvent
 	req.OnEvent = func(event pruntime.Event) {
+		captured.observe(event.Payload)
 		if previousOnEvent != nil {
 			previousOnEvent(event)
 		}
@@ -1357,7 +1359,33 @@ func reviewRunStateIncomplete(data []byte) bool {
 		return true
 	}
 	for _, t := range raw.Tasks {
-		if t.Status != "complete" {
+		if t.Status != "complete" && t.Status != "deferred" {
+			return true
+		}
+	}
+	return false
+}
+
+func unresolvedExecutePlanTasks(plan, runState string, manifest PlanManifest) bool {
+	tasks, findings := extractExecutePlanTasks(plan, manifest, true)
+	if len(findings) > 0 {
+		return true
+	}
+	var raw struct {
+		Tasks []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"tasks"`
+	}
+	if json.Unmarshal([]byte(runState), &raw) != nil {
+		return true
+	}
+	status := make(map[string]string, len(raw.Tasks))
+	for _, task := range raw.Tasks {
+		status[task.ID] = task.Status
+	}
+	for _, task := range tasks {
+		if !task.Checked && status[task.ID] != string(ExecuteTaskDeferred) {
 			return true
 		}
 	}

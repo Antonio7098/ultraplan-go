@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/Antonio7098/agentwrap"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
@@ -26,14 +27,45 @@ const (
 	maxReviewFindingTextBytes    = 8 << 10
 )
 
-func (s Service) reviewValidationSpec(m ReviewManifest, coverage ReviewInput) *agentwrap.ValidationSpec {
+// reviewOutputCapture bridges structured assistant events into the validation
+// boundary. Some runtimes retain the final assistant text in events/DB while
+// returning an empty TerminalOutput, so terminal-only validation can reject a
+// valid result that the platform adapter can recover immediately afterwards.
+type reviewOutputCapture struct {
+	mu     sync.RWMutex
+	result ReviewCoverageResult
+	found  bool
+}
+
+func (c *reviewOutputCapture) observe(payload map[string]any) {
+	var result ReviewCoverageResult
+	if !extractReviewValue(payload, &result) {
+		return
+	}
+	c.mu.Lock()
+	c.result = result
+	c.found = true
+	c.mu.Unlock()
+}
+
+func (c *reviewOutputCapture) load() (ReviewCoverageResult, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.result, c.found
+}
+
+func (s Service) reviewValidationSpec(m ReviewManifest, coverage ReviewInput, captured *reviewOutputCapture) *agentwrap.ValidationSpec {
 	return &agentwrap.ValidationSpec{
 		Validators: []agentwrap.Validator{agentwrap.ValidatorFunc(func(ctx context.Context, vctx agentwrap.ValidationContext) agentwrap.ValidationCheck {
 			if err := ctx.Err(); err != nil {
 				return reviewValidationCheck(coverage.ID, []string{"validation cancelled: " + err.Error()})
 			}
 			var result ReviewCoverageResult
-			if !extractReviewValue(vctx.Result.TerminalOutput, &result) {
+			found := extractReviewValue(vctx.Result.TerminalOutput, &result)
+			if !found && captured != nil {
+				result, found = captured.load()
+			}
+			if !found {
 				return reviewValidationCheck(coverage.ID, []string{"terminal output did not contain one review result JSON object"})
 			}
 			normalizeReviewResultForManifest(m, &result)

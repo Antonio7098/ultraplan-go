@@ -1,15 +1,25 @@
 {{define "operation"}}{{template "top" .}}
 <nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Operation</nav>
 {{with .Operation}}
+<div class="operation-status-page"{{if or (eq .State "accepted") (eq .State "running") (eq .State "cancelling")}} data-operation-id="{{.ID}}" data-operation-state="{{.State}}"{{end}}>
 <dl class="metadata">
   <div><dt>ID</dt><dd><code>{{.ID}}</code></dd></div>
   <div><dt>Kind</dt><dd>{{.Kind}}</dd></div>
   <div><dt>State</dt><dd>{{.State}}</dd></div>
   <div><dt>Reason</dt><dd>{{if .Reason}}{{.Reason}}{{else}}none{{end}}</dd></div>
+  <div><dt>Created</dt><dd>{{.CreatedAt}}</dd></div>
+  <div><dt>Started</dt><dd>{{if .StartedAt}}{{.StartedAt}}{{else}}not started{{end}}</dd></div>
 </dl>
-{{if .Result}}<section><h2>Result</h2><p>{{.Result.Message}}</p>{{if .Result.Findings}}<ul class="findings">{{range .Result.Findings}}<li><span class="status status-{{.Severity}}">{{.Severity}}</span><strong>{{.Problem}}</strong></li>{{end}}</ul>{{end}}</section>{{end}}
-<p><a class="refresh-link" href="/operations/{{.ID}}">Refresh operation status</a></p>
+{{if or (eq .Kind "review-start") (eq .Kind "review-dry-run") (eq .Kind "review-status")}}
+<section aria-labelledby="live-reviewers-heading" data-review-status data-review-status-path="{{.DurableStatus.RefreshPath}}"><h2 id="live-reviewers-heading">Reviewers</h2><dl class="metadata review-counts"><div><dt>Complete</dt><dd id="review-count-complete">0</dd></div><div><dt>Running</dt><dd id="review-count-running">0</dd></div><div><dt>Pending</dt><dd id="review-count-pending">0</dd></div><div><dt>Failed or blocked</dt><dd id="review-count-failed">0</dd></div></dl><p id="reviewer-grid-empty" class="empty">Loading reviewer checkpoints…</p><ul id="live-reviewer-grid" class="reviewer-grid" aria-live="polite"></ul></section>
+{{end}}
+{{if or (eq .State "accepted") (eq .State "running") (eq .State "cancelling")}}
+<section class="operation-console" aria-labelledby="run-progress-heading"><h2 id="run-progress-heading">Live run progress</h2><div id="operation-live" role="status" aria-live="polite">Connecting to the run…</div><ol id="operation-timeline" class="operation-timeline" aria-label="Run progress"></ol><button id="operation-cancel" type="button">Cancel operation</button><noscript><p>This page refreshes manually without JavaScript; the operation continues on the server.</p></noscript></section>
+{{end}}
+{{if .Result}}<section><h2>Result</h2><p>{{.Result.Message}}</p>{{with .Result.Error}}<div class="operation-failure" role="alert"><h3>Why it failed</h3><dl><div><dt>Code</dt><dd><code>{{.Code}}</code></dd></div>{{with index .Details "cause"}}<div><dt>Cause</dt><dd>{{.}}</dd></div>{{end}}{{with index .Details "guidance"}}<div><dt>What to do next</dt><dd>{{.}}</dd></div>{{end}}</dl></div>{{end}}{{if .Result.Content}}<div class="code-wrap"><pre>{{.Result.Content}}</pre></div>{{end}}{{if .Result.Findings}}<ul class="findings">{{range .Result.Findings}}<li><span class="status status-{{.Severity}}">{{.Severity}}</span><strong>{{.Problem}}</strong>{{if .Cause}}<p>{{.Cause}}</p>{{end}}{{if .Suggestion}}<p>{{.Suggestion}}</p>{{end}}</li>{{end}}</ul>{{end}}</section>{{end}}
+<p><a class="refresh-link" href="/operations/{{.ID}}">Refresh run status</a></p>
 {{if .DurableStatus.Available}}<p><a href="{{.DurableStatus.RefreshPath}}">Refresh durable product status</a></p>{{end}}
 {{if or (eq .State "accepted") (eq .State "running") (eq .State "cancelling")}}<p>Without JavaScript, cancel from the matching CLI/TUI operation using its normal interrupt or cancellation control.</p>{{end}}
+</div>
 {{end}}
 {{template "bottom" .}}{{end}}

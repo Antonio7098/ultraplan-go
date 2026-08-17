@@ -62,6 +62,7 @@ const (
 	ExecuteTaskPending   ExecuteTaskStatus = "pending"
 	ExecuteTaskRunning   ExecuteTaskStatus = "running"
 	ExecuteTaskComplete  ExecuteTaskStatus = "complete"
+	ExecuteTaskDeferred  ExecuteTaskStatus = "deferred"
 	ExecuteTaskFailed    ExecuteTaskStatus = "failed"
 	ExecuteTaskCancelled ExecuteTaskStatus = "cancelled"
 )
@@ -273,7 +274,7 @@ func StageStatuses() []StageStatus {
 }
 
 func ExecuteTaskStatuses() []ExecuteTaskStatus {
-	return []ExecuteTaskStatus{ExecuteTaskPending, ExecuteTaskRunning, ExecuteTaskComplete, ExecuteTaskFailed, ExecuteTaskCancelled}
+	return []ExecuteTaskStatus{ExecuteTaskPending, ExecuteTaskRunning, ExecuteTaskComplete, ExecuteTaskDeferred, ExecuteTaskFailed, ExecuteTaskCancelled}
 }
 
 func ValidStage(stage PlanningStage) bool {

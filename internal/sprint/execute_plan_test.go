@@ -1,6 +1,7 @@
 package sprint
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,53 @@ func TestExtractExecutePlanTasksRejectsUnsupportedAmbiguousAndDuplicateTasks(t *
 				t.Fatalf("expected findings")
 			}
 		})
+	}
+}
+
+func TestExtractExecutePlanTasksForResumeKeepsCheckedParentAndChildren(t *testing.T) {
+	content := strings.ReplaceAll(validPlan(), "- [ ] Task 1:", "- [x] Task 1:")
+	tasks, findings := extractExecutePlanTasks(content, executePlanManifest(), true)
+	if len(findings) != 0 {
+		t.Fatalf("findings = %+v", findings)
+	}
+	if len(tasks) != 1 || !tasks[0].Checked || len(tasks[0].Steps) == 0 {
+		t.Fatalf("tasks = %+v", tasks)
+	}
+}
+
+func TestExtractExecutePlanTasksRecognizesAgentDeferralWithoutChangingID(t *testing.T) {
+	original, findings := extractExecutePlanTasks(validPlan(), executePlanManifest(), true)
+	if len(findings) != 0 {
+		t.Fatal(findings)
+	}
+	content := strings.Replace(validPlan(), "- [ ] Task 1: Add plan behavior for Decision 1 / AC-01", "- [/] Task 1: Add plan behavior for Decision 1 / AC-01 — Deferred: accepted for Sprint 2", 1)
+	deferred, findings := extractExecutePlanTasks(content, executePlanManifest(), true)
+	if len(findings) != 0 {
+		t.Fatalf("findings = %+v", findings)
+	}
+	if len(deferred) != 1 || !deferred[0].Deferred || deferred[0].DeferReason != "accepted for Sprint 2" {
+		t.Fatalf("tasks = %+v", deferred)
+	}
+	if deferred[0].ID != original[0].ID {
+		t.Fatalf("deferral changed stable id: %s != %s", deferred[0].ID, original[0].ID)
+	}
+	withoutReason := strings.Replace(validPlan(), "- [ ] Task 1:", "- [/] Task 1:", 1)
+	if _, findings := extractExecutePlanTasks(withoutReason, executePlanManifest(), true); len(findings) == 0 {
+		t.Fatal("[/] marker without reason passed validation")
+	}
+}
+
+func TestUnresolvedExecutePlanTasksAcceptsExplicitDeferral(t *testing.T) {
+	tasks, findings := extractExecutePlanTasks(validPlan(), executePlanManifest(), true)
+	if len(findings) != 0 || len(tasks) != 1 {
+		t.Fatalf("tasks=%+v findings=%+v", tasks, findings)
+	}
+	runState := fmt.Sprintf(`{"tasks":[{"id":%q,"status":"deferred"}]}`, tasks[0].ID)
+	if unresolvedExecutePlanTasks(validPlan(), runState, executePlanManifest()) {
+		t.Fatal("explicitly deferred task remained unresolved")
+	}
+	if !unresolvedExecutePlanTasks(validPlan(), strings.Replace(runState, "deferred", "complete", 1), executePlanManifest()) {
+		t.Fatal("unchecked task without deferral was accepted")
 	}
 }
 

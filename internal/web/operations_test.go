@@ -264,6 +264,7 @@ func TestOperationProjectionRedactsBeforeRetention(t *testing.T) {
 	result := projectOperationResult(app.OperationResult{
 		State: app.OperationFailed, Message: "token=super-secret /home/user/private",
 		Content: "authorization: bearer-secret", Findings: []app.DisplayFinding{{Severity: "error", Problem: "/home/user/private"}},
+		Error: &app.OperationError{Code: "validation.reference", Category: "validation", Cause: "secret=hidden", Guidance: "Complete execute evidence before review."},
 	})
 	data, err := json.Marshal(result)
 	if err != nil {
@@ -273,6 +274,23 @@ func TestOperationProjectionRedactsBeforeRetention(t *testing.T) {
 	for _, forbidden := range []string{"super-secret", "bearer-secret", "/home/user"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("projection retained %q: %s", forbidden, text)
+		}
+	}
+	if result.Error == nil || result.Error.Details["guidance"] != "Complete execute evidence before review." {
+		t.Fatalf("safe failure guidance was not retained: %+v", result.Error)
+	}
+}
+
+func TestOperationErrorResponseIncludesSafeCauseAndGuidance(t *testing.T) {
+	h := &handler{now: func() time.Time { return time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC) }}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operations/prepare", nil)
+	req = req.WithContext(context.WithValue(req.Context(), requestIDKey{}, "reason-id"))
+	res := httptest.NewRecorder()
+	h.writeOperationError(res, req, errors.New("execute evidence is incomplete: task implementation is failed"))
+	body := res.Body.String()
+	for _, want := range []string{`"reason":"execute evidence is incomplete`, `"guidance":"`, `"code":"validation_failed"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("response missing %q: %s", want, body)
 		}
 	}
 }
@@ -297,11 +315,26 @@ func TestServerRenderedOperationFlowWorksWithoutJavaScript(t *testing.T) {
 	}
 	<-ops.started
 	status := operationSessionRequest(h, http.MethodGet, started.Header().Get("Location"), cookie)
-	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "Operation status") || !strings.Contains(status.Body.String(), "Refresh operation status") {
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "Operation status") || !strings.Contains(status.Body.String(), "Refresh run status") || !strings.Contains(status.Body.String(), `data-operation-id="`) {
 		t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
 	}
 	close(ops.release)
 	<-ops.done
+}
+
+func TestSingleStageOperationMapping(t *testing.T) {
+	for _, tc := range []struct {
+		kind string
+		want app.OperationKind
+	}{
+		{kind: "sprint-stage", want: app.OperationStage},
+		{kind: "sprint-stage-dry-run", want: app.OperationStageDryRun},
+	} {
+		req, err := mapOperationRequest(operationSpecRequest{Kind: tc.kind, Scope: operationScopeRequest{Project: "alpha", Sprint: "31-web"}, Options: operationOptionsRequest{ToStage: "reasoning"}})
+		if err != nil || req.Kind != tc.want || req.Stage != "reasoning" {
+			t.Fatalf("kind=%s req=%+v err=%v", tc.kind, req, err)
+		}
+	}
 }
 
 func operationTestHandler(t *testing.T, operations app.WebOperations) http.Handler {

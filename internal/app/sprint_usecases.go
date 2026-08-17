@@ -30,12 +30,18 @@ type SprintSummary struct {
 }
 
 type ReviewSummary struct {
-	Available        bool
-	Status, Verdict  string
-	Stale            bool
-	Completed, Total int
-	Artifact, Digest string
-	FreshnessReasons []string
+	Available                bool
+	Status, Verdict          string
+	Stale                    bool
+	Completed, Total         int
+	Pending, Running, Failed int
+	Artifact, Digest         string
+	FreshnessReasons         []string
+	Reviewers                []ReviewItemSummary
+}
+
+type ReviewItemSummary struct {
+	ID, Name, Kind, Path, Status, Summary string
 }
 
 type SmokeSummary struct {
@@ -61,6 +67,7 @@ type ExecuteSummary struct {
 	Pending   int
 	Running   int
 	Complete  int
+	Deferred  int
 	Failed    int
 	Cancelled int
 	Message   string
@@ -110,6 +117,23 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				})
 				continue
 			}
+			review := summarizeReview(status.Review)
+			manifest, _, manifestErr := service.PrepareReview(p.Name, sp.Slug, sprint.ReviewRequest{})
+			if manifestErr == nil {
+				review.Reviewers = summarizeReviewers(status.Review, manifest.Coverage)
+			} else {
+				review.Reviewers = summarizeReviewers(status.Review, nil)
+			}
+			for _, reviewer := range review.Reviewers {
+				switch reviewer.Status {
+				case "pending":
+					review.Pending++
+				case "running":
+					review.Running++
+				case "failed", "cancelled", "timed_out", "blocked":
+					review.Failed++
+				}
+			}
 			summary := SprintSummary{
 				Project:           p.Name,
 				Slug:              sp.Slug,
@@ -122,7 +146,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				RefreshMayWrite:   !u.readOnly,
 				RefreshActionNote: "refresh derives verification freshness and assessment from current evidence without caching them as authoritative state",
 				Execute:           summarizeExecute(status.ExecuteState),
-				Review:            summarizeReview(status.Review),
+				Review:            review,
 				Smoke:             summarizeSmoke(status.Smoke),
 				Assessment:        string(status.Verification.Assessment),
 				NextAction:        status.Verification.NextAction,
@@ -202,6 +226,46 @@ func summarizeReview(state *sprint.ReviewStageState) ReviewSummary {
 	return ReviewSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), Stale: state.Stale, Completed: state.Completed, Total: state.Total}
 }
 
+func summarizeReviewers(state *sprint.ReviewStageState, coverage []sprint.ReviewInput) []ReviewItemSummary {
+	items := make([]ReviewItemSummary, 0, len(coverage))
+	positions := make(map[string]int, len(coverage))
+	for _, input := range coverage {
+		if input.ID == "" {
+			continue
+		}
+		positions[input.ID] = len(items)
+		items = append(items, ReviewItemSummary{ID: input.ID, Name: input.Name, Kind: input.Kind, Path: input.Path, Status: "pending"})
+	}
+	ensure := func(id string) int {
+		if index, ok := positions[id]; ok {
+			return index
+		}
+		positions[id] = len(items)
+		items = append(items, ReviewItemSummary{ID: id, Name: id, Status: "pending"})
+		return len(items) - 1
+	}
+	if state == nil {
+		return items
+	}
+	if state.LastComplete != nil {
+		for _, result := range state.LastComplete.Coverage {
+			index := ensure(result.CoverageID)
+			items[index].Status = "completed"
+			items[index].Summary = displaySafe(result.Summary)
+		}
+	}
+	if state.Resume != nil {
+		for _, checkpoint := range state.Resume.Coverage {
+			index := ensure(checkpoint.CoverageID)
+			items[index].Status = string(checkpoint.Status)
+			if checkpoint.Result != nil {
+				items[index].Summary = displaySafe(checkpoint.Result.Summary)
+			}
+		}
+	}
+	return items
+}
+
 func summarizeExecute(state *sprint.ExecuteRunState) ExecuteSummary {
 	if state == nil {
 		return ExecuteSummary{Message: "execute run-state unavailable"}
@@ -215,6 +279,8 @@ func summarizeExecute(state *sprint.ExecuteRunState) ExecuteSummary {
 			summary.Running++
 		case sprint.ExecuteTaskComplete:
 			summary.Complete++
+		case sprint.ExecuteTaskDeferred:
+			summary.Deferred++
 		case sprint.ExecuteTaskFailed:
 			summary.Failed++
 		case sprint.ExecuteTaskCancelled:

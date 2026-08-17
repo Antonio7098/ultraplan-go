@@ -14,6 +14,9 @@ type ExecutePlanTask struct {
 	ID           string
 	Name         string
 	PlanLine     int
+	Checked      bool
+	Deferred     bool
+	DeferReason  string
 	Steps        []string
 	Decisions    []string
 	Requirements []string
@@ -21,6 +24,10 @@ type ExecutePlanTask struct {
 }
 
 func ExtractExecutePlanTasks(content string, manifest PlanManifest) ([]ExecutePlanTask, []ValidationFinding) {
+	return extractExecutePlanTasks(content, manifest, false)
+}
+
+func extractExecutePlanTasks(content string, manifest PlanManifest, allowChecked bool) ([]ExecutePlanTask, []ValidationFinding) {
 	var findings []ValidationFinding
 	planFindings := ValidatePlanContent(content, manifest)
 	if len(planFindings) > 0 {
@@ -53,15 +60,26 @@ func ExtractExecutePlanTasks(content string, manifest PlanManifest) ([]ExecutePl
 		if isTopLevelTaskCheckbox(line) {
 			flush()
 			title, checked, ok := parseTopLevelTaskLine(line)
+			deferred := isDeferredTaskLine(line)
+			deferReason := deferredTaskReason(line)
 			if !ok {
 				findings = append(findings, finding("Tasks", "", manifest.OutputPath, "unsupported task syntax", strings.TrimSpace(line), "Use '- [ ] Task N: Name' or '- [ ] **Task N: Name**'."))
 				continue
 			}
 			if checked {
-				findings = append(findings, finding("Tasks", title, manifest.OutputPath, "completed task cannot be executed", "top-level task is already checked", "Leave executable plan tasks unchecked until execute records completion."))
-				continue
+				if !allowChecked {
+					findings = append(findings, finding("Tasks", title, manifest.OutputPath, "completed task cannot be executed", "top-level task is already checked", "Leave executable plan tasks unchecked until execute records completion."))
+				}
 			}
-			current = &ExecutePlanTask{Name: title, PlanLine: baseLine + i + 1}
+			if deferred {
+				if deferReason == "" {
+					findings = append(findings, finding("Tasks", title, manifest.OutputPath, "deferred task lacks rationale", "top-level task uses [/] without an inline Deferred reason", "Use '- [/] Task N: Name — Deferred: concrete reason'."))
+				}
+				if !allowChecked {
+					findings = append(findings, finding("Tasks", title, manifest.OutputPath, "deferred task cannot start a new execution", "top-level task is already marked deferred", "Start with [ ] and let execute record the agent's deferral, or resume the matching run state."))
+				}
+			}
+			current = &ExecutePlanTask{Name: title, PlanLine: baseLine + i + 1, Checked: checked, Deferred: deferred, DeferReason: deferReason}
 			current.Decisions = append(current.Decisions, extractRefs(title, `Decision\s+\d+`)...)
 			current.Requirements = append(current.Requirements, extractRefs(title, `(?:REQ-\d+-\d+|AC-\d+)`)...)
 			continue
@@ -146,12 +164,31 @@ func parseTopLevelTaskLine(line string) (string, bool, bool) {
 	trimmed := strings.TrimSpace(line)
 	checked := strings.HasPrefix(strings.ToLower(trimmed), "- [x]")
 	body := strings.TrimSpace(trimmed[5:])
+	body, _ = splitDeferredTaskReason(body)
 	body = strings.Trim(body, "* ")
 	if !regexp.MustCompile(`(?i)^Task\s+\d+\s*:`).MatchString(body) {
 		return "", checked, false
 	}
 	body = strings.TrimSpace(strings.Trim(body, "* "))
 	return body, checked, true
+}
+
+func isDeferredTaskLine(line string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "- [/]")
+}
+
+func deferredTaskReason(line string) string {
+	_, reason := splitDeferredTaskReason(strings.TrimSpace(line)[5:])
+	return reason
+}
+
+func splitDeferredTaskReason(body string) (string, string) {
+	re := regexp.MustCompile(`(?i)\s+(?:—|-)\s+deferred:\s*(.+?)\s*$`)
+	match := re.FindStringSubmatchIndex(body)
+	if match == nil {
+		return body, ""
+	}
+	return strings.TrimSpace(body[:match[0]]), strings.TrimSpace(body[match[2]:match[3]])
 }
 
 func stripCheckbox(line string) string {

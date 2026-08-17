@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Antonio7098/agentwrap"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
@@ -437,6 +438,28 @@ func TestExtractReviewResultReadsOpenCodeTextPart(t *testing.T) {
 	}
 	if out.CoverageID != "contract-testing" || out.Summary != "checked" {
 		t.Fatalf("unexpected result: %+v", out)
+	}
+}
+
+func TestReviewValidationUsesCapturedEventWhenTerminalOutputIsEmpty(t *testing.T) {
+	root, sp := reviewFixture(t)
+	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	manifest, findings, err := service.PrepareReview(sp.Project, sp.Slug, ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare review: findings=%+v err=%v", findings, err)
+	}
+	coverage := manifest.Coverage[0]
+	want := ReviewCoverageResult{SchemaVersion: 1, CoverageID: coverage.ID, Applicability: "direct", Summary: "checked"}
+	data, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured := &reviewOutputCapture{}
+	captured.observe(map[string]any{"part": map[string]any{"type": "text", "text": string(data)}})
+	spec := service.reviewValidationSpec(manifest, coverage, captured)
+	check := spec.Validators[0].Validate(context.Background(), agentwrap.ValidationContext{Result: agentwrap.RunResult{TerminalOutput: ""}})
+	if !check.Passed {
+		t.Fatalf("captured event result was rejected: %+v", check)
 	}
 }
 

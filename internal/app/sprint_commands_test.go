@@ -42,6 +42,22 @@ func TestSprintHelpIsRegistered(t *testing.T) {
 	}
 }
 
+func TestParseSprintExecuteDeferralRequiresTaskAndReason(t *testing.T) {
+	req, err := parseSprintExecuteArgs([]string{"--task", "task-123", "--defer", "--reason", "accepted follow-up"})
+	if err != nil || req.TaskID != "task-123" || req.DeferReason != "accepted follow-up" {
+		t.Fatalf("req=%+v err=%v", req, err)
+	}
+	for _, args := range [][]string{
+		{"--defer", "--reason", "why"},
+		{"--task", "task-123", "--defer"},
+		{"--task", "task-123", "--defer", "--reason", "why", "--resume"},
+	} {
+		if _, err := parseSprintExecuteArgs(args); err == nil {
+			t.Fatalf("expected invalid deferral arguments: %v", args)
+		}
+	}
+}
+
 func TestSprintStatusRefreshesStateAndRendersDeterministically(t *testing.T) {
 	dir := initializedWorkspace(t)
 	writeCommandSprintProject(t, dir, "proj", "01-alpha")

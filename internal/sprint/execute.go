@@ -10,6 +10,7 @@ import (
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
@@ -20,6 +21,59 @@ type ExecuteRequest struct {
 	DryRun        bool
 	Resume        bool
 	ModelOverride string
+	DeferReason   string
+}
+
+func (s Service) DeferExecuteTask(ctx context.Context, projectRef, sprintRef, taskID, reason string) (ExecuteResult, error) {
+	reason = strings.TrimSpace(reason)
+	if taskID == "" || reason == "" {
+		return ExecuteResult{}, fmt.Errorf("task id and deferral reason are required")
+	}
+	if len(reason) > 1000 || strings.ContainsAny(reason, "\x00\r\n") {
+		return ExecuteResult{}, fmt.Errorf("deferral reason must be a single line of at most 1000 characters")
+	}
+	ctx, release, err := s.acquireMutationContext(ctx, projectRef, sprintRef)
+	if err != nil {
+		return ExecuteResult{}, err
+	}
+	defer release()
+	_ = ctx
+	sp, err := s.resolveMutationSprint(projectRef, sprintRef)
+	if err != nil {
+		return ExecuteResult{}, err
+	}
+	state, err := LoadExecuteRunState(s.root, sp)
+	if err != nil {
+		return ExecuteResult{}, err
+	}
+	now := s.now().UTC()
+	found := false
+	for i := range state.Tasks {
+		task := &state.Tasks[i]
+		if task.ID != taskID {
+			continue
+		}
+		found = true
+		if task.Status == ExecuteTaskComplete || task.Status == ExecuteTaskDeferred {
+			return ExecuteResult{}, fmt.Errorf("completed task %q cannot be deferred", taskID)
+		}
+		task.Status = ExecuteTaskDeferred
+		task.UpdatedAt = now
+		task.CompletedAt = &now
+		task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "deferred", Message: safeExecuteText("execute.defer_reason", reason), At: now})
+		break
+	}
+	if !found {
+		return ExecuteResult{}, fmt.Errorf("unknown execute task %q", taskID)
+	}
+	if err := SaveExecuteRunState(s.root, sp, state); err != nil {
+		return ExecuteResult{}, err
+	}
+	if err := WriteExecuteSummary(s.root, sp, state); err != nil {
+		return ExecuteResult{}, err
+	}
+	statePath, _ := ExecuteRunStatePath(s.root, sp)
+	return ExecuteResult{Project: sp.Project, Sprint: sp.Slug, RunStatePath: workspace.Rel(s.root, statePath), SummaryPath: ArtifactRelPath(sp, StageExecute), Tasks: state.Tasks, Message: "execute task deferred"}, nil
 }
 
 type ExecuteResult struct {
@@ -111,7 +165,7 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 			task.CompletedAt = ptrTime(now)
 			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "stale-running", Message: "recovered stale running task before resume", At: now})
 		}
-		if task.Status != ExecuteTaskPending && task.Status != ExecuteTaskFailed {
+		if task.Status != ExecuteTaskPending && task.Status != ExecuteTaskFailed && task.Status != ExecuteTaskCancelled {
 			continue
 		}
 		start := s.now().UTC()
@@ -129,7 +183,14 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 		task.Runtime = runtimeSummary(run, selection)
 		task.UpdatedAt = finish
 		task.CompletedAt = &finish
+		deferReason, deferErr := s.agentDeferredTaskReason(sp, task.ID)
 		switch {
+		case deferErr != nil:
+			task.Status = ExecuteTaskFailed
+			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "invalid-deferral", Message: safeExecuteText("execute.defer_error", deferErr.Error()), At: finish})
+		case deferReason != "":
+			task.Status = ExecuteTaskDeferred
+			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "deferred", Message: safeExecuteText("execute.defer_reason", deferReason), At: finish})
 		case ctx.Err() != nil:
 			task.Status = ExecuteTaskCancelled
 			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "cancelled", Message: safeExecuteText("execute.cancelled", ctx.Err().Error()), At: finish})
@@ -187,7 +248,10 @@ func (s Service) prepareExecute(projectRef, sprintRef string, req ExecuteRequest
 		if readErr != nil {
 			findings = append(findings, finding("plan.md", "", ArtifactRelPath(sp, StagePlan), "missing plan", readErr.Error(), "Generate and validate plan.md before execute."))
 		} else {
-			tasks, findings = ExtractExecutePlanTasks(data, manifest)
+			tasks, findings = extractExecutePlanTasks(data, manifest, req.Resume)
+			if req.Resume && len(findings) == 0 {
+				findings = append(findings, s.validateResolvedResumeTasks(sp, tasks, manifest.OutputPath)...)
+			}
 		}
 	}
 	if req.TaskID != "" && len(findings) == 0 && taskByID(tasks, req.TaskID).ID == "" {
@@ -199,6 +263,72 @@ func (s Service) prepareExecute(projectRef, sprintRef string, req ExecuteRequest
 	}
 	sortSprintFindings(findings)
 	return sp, tasks, target, selection, findings, nil
+}
+
+func (s Service) validateResolvedResumeTasks(sp Sprint, tasks []ExecutePlanTask, planPath string) []ValidationFinding {
+	var resolved []ExecutePlanTask
+	for _, task := range tasks {
+		if task.Checked || task.Deferred {
+			resolved = append(resolved, task)
+		}
+	}
+	if len(resolved) == 0 {
+		return nil
+	}
+	state, err := LoadExecuteRunState(s.root, sp)
+	if err != nil {
+		return []ValidationFinding{finding("Tasks", "", planPath, "checked tasks lack execution state", "one or more top-level tasks are checked but no valid resumable execution state exists", "Restore the matching .run-state.json or leave tasks unchecked for a new execution.")}
+	}
+	byID := make(map[string]ExecuteTaskStatus, len(state.Tasks))
+	for _, task := range state.Tasks {
+		byID[task.ID] = task.Status
+	}
+	var findings []ValidationFinding
+	for _, task := range resolved {
+		expected := ExecuteTaskComplete
+		problem := "checked task is not complete in execution state"
+		detail := "top-level task is checked without a matching complete run-state record"
+		suggestion := "Restore the task checkbox to unchecked or reconcile the execution state before resuming."
+		if task.Deferred {
+			expected = ExecuteTaskDeferred
+			problem = "plan deferral is not recorded in execution state"
+			detail = "top-level task uses [/] without a matching deferred run-state record"
+			suggestion = "Resume the owning execute attempt so it can record the deferral, or restore the task marker to unchecked."
+		}
+		if byID[task.ID] != expected {
+			findings = append(findings, finding("Tasks", task.Name, planPath, problem, detail, suggestion))
+		}
+	}
+	return findings
+}
+
+func (s Service) agentDeferredTaskReason(sp Sprint, taskID string) (string, error) {
+	data, err := s.store.ReadArtifact(sp, StagePlan)
+	if err != nil {
+		return "", err
+	}
+	inputs, err := s.store.ReadPlanningInputs(sp)
+	if err != nil {
+		return "", err
+	}
+	catalog, parseFindings := project.ParseProjectIndex(inputs.ProjectIndex)
+	if len(parseFindings) > 0 {
+		return "", fmt.Errorf("project-index.md has malformed catalog rows")
+	}
+	manifest, findings := s.planManifest(sp, inputs, catalog)
+	if len(findings) > 0 {
+		return "", fmt.Errorf("plan manifest is invalid")
+	}
+	tasks, findings := extractExecutePlanTasks(data, manifest, true)
+	if len(findings) > 0 {
+		return "", fmt.Errorf("plan changed to an invalid task state")
+	}
+	for _, task := range tasks {
+		if task.ID == taskID && task.Deferred {
+			return task.DeferReason, nil
+		}
+	}
+	return "", nil
 }
 
 func RenderExecutePrompt(sp Sprint, task ExecutePlanTask, target ExecuteTargetRef, selection ExecuteModelSelection) string {
@@ -225,6 +355,7 @@ func RenderExecutePrompt(sp Sprint, task ExecutePlanTask, target ExecuteTargetRe
 		fmt.Fprintf(&b, "- %s\n", line)
 	}
 	fmt.Fprintln(&b, "\nComplete only after producing verifiable evidence or an explicit safe diagnostic explaining why evidence cannot be machine-validated.")
+	fmt.Fprintln(&b, "If remaining work is explicitly accepted for later follow-up, change this task's top-level plan marker to `[/]` and append `— Deferred: <concrete reason>` on the same line. Do not use `[/]` without a reason and do not mark deferred work complete.")
 	return b.String()
 }
 

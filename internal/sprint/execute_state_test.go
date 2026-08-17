@@ -1,9 +1,11 @@
 package sprint
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -135,6 +137,52 @@ func TestExecuteRunStateLoadMissingAndMalformed(t *testing.T) {
 	writeFileContent(t, sp.Path, "{not json", ".run-state.json")
 	if _, err := LoadExecuteRunState(root, sp); !errors.Is(err, ErrExecuteRunStateMalformed) {
 		t.Fatalf("malformed err = %v", err)
+	}
+}
+
+func TestDeferredExecuteTaskRequiresRationaleAndIsResolved(t *testing.T) {
+	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	sp := Sprint{Project: "proj", Slug: "01-alpha", Path: "/workspace/projects/proj/sprints/01-alpha"}
+	state := validExecuteRunState(sp, now)
+	state.Tasks[0].Status = ExecuteTaskDeferred
+	state.Tasks[0].CompletedAt = &now
+	if err := ValidateExecuteRunState("/workspace", sp, state, "state.json"); err == nil {
+		t.Fatal("deferred task without rationale passed validation")
+	}
+	state.Tasks[0].Diagnostics = []ExecuteDiagnostic{{Code: "deferred", Message: "Accepted follow-up work", At: now}}
+	if err := ValidateExecuteRunState("/workspace", sp, state, "state.json"); err != nil {
+		t.Fatalf("deferred task with rationale failed validation: %v", err)
+	}
+	if hasFailedExecuteTask(state.Tasks) {
+		t.Fatal("deferred task was treated as failed")
+	}
+}
+
+func TestDeferExecuteTaskPersistsRationaleAndSummary(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-alpha")
+	writeFixtureProjectIndex(t, root, "proj")
+	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	if err := SaveExecuteRunState(root, sp, validExecuteRunState(sp, now)); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewService(root).DeferExecuteTask(context.Background(), "proj", "01", "task-abc123", "Accepted for Sprint 32")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := LoadExecuteRunState(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Tasks[0].Status != ExecuteTaskDeferred || state.Tasks[0].Diagnostics[len(state.Tasks[0].Diagnostics)-1].Message != "Accepted for Sprint 32" {
+		t.Fatalf("state = %+v", state.Tasks[0])
+	}
+	if result.Message != "execute task deferred" {
+		t.Fatalf("result = %+v", result)
+	}
+	data, err := os.ReadFile(filepath.Join(sp.Path, "execute.md"))
+	if err != nil || !strings.Contains(string(data), "deferred") || !strings.Contains(string(data), "Accepted for Sprint 32") {
+		t.Fatalf("summary=%q err=%v", data, err)
 	}
 }
 

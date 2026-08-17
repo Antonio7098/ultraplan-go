@@ -45,6 +45,8 @@ const (
 	OperationPrompt        OperationKind = "sprint-prompt"
 	OperationFlowDryRun    OperationKind = "sprint-flow-dry-run"
 	OperationFlow          OperationKind = "sprint-flow"
+	OperationStageDryRun   OperationKind = "sprint-stage-dry-run"
+	OperationStage         OperationKind = "sprint-stage"
 	OperationExecuteStatus OperationKind = "execute-status"
 	OperationExecuteDryRun OperationKind = "execute-dry-run"
 	OperationExecuteStart  OperationKind = "execute-start"
@@ -143,7 +145,7 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	}
 	c := Confirmation{Request: req, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study), Permission: "workspace policy enforced"}
 	switch req.Kind {
-	case OperationValidate, OperationPrompt, OperationFlowDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus, OperationSmokeStatus:
+	case OperationValidate, OperationPrompt, OperationFlowDryRun, OperationStageDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus, OperationSmokeStatus:
 		c.Scope = []string{req.Stage}
 		c.Warning = "runtime-free; no runtime-backed writes"
 	case OperationSprintStatus:
@@ -155,6 +157,11 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Mutates = true
 		c.Scope = []string{"planning stages through " + req.Stage}
 		c.Warning = "RUNTIME + WORKSPACE MUTATION"
+	case OperationStage:
+		c.Runtime = true
+		c.Mutates = true
+		c.Scope = []string{"selected planning stage only: " + req.Stage}
+		c.Warning = "RUNTIME + WORKSPACE MUTATION; PREREQUISITES MUST ALREADY BE VALID"
 	case OperationExecuteStart, OperationExecuteResume:
 		c.Runtime = true
 		c.Mutates = true
@@ -298,6 +305,14 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 		}
 		result.Content, result.Truncated = boundContent(r.Message)
 		result.Message = fmt.Sprintf("flow to %s dry run", stage)
+	case OperationStageDryRun:
+		r, err := ss.FlowStage(ctx, req.Project, req.Sprint, sprint.FlowRequest{To: stage, DryRun: true})
+		if err != nil {
+			result = operationWithSprintFindings(result, r.Findings)
+			return failedOperation(result, err)
+		}
+		result.Content, result.Truncated = boundContent(r.Message)
+		result.Message = fmt.Sprintf("single-stage %s dry run", stage)
 	case OperationExecuteDryRun:
 		r, err := ss.Execute(ctx, req.Project, req.Sprint, sprint.ExecuteRequest{DryRun: true, TaskID: req.Task})
 		if err != nil {
@@ -585,14 +600,14 @@ func failedOperation(r OperationResult, err error) (OperationResult, error) {
 	switch {
 	case errors.Is(err, context.Canceled):
 		code, category, guidance = "workflow.cancelled", "cancellation", "Resume the operation when ready."
-	case strings.Contains(s, "validation") || strings.Contains(s, "unsupported") || strings.Contains(s, "parallelism"):
-		code, category, guidance = "validation.reference", "validation", "Correct the selected scope or artifacts and retry."
+	case strings.Contains(s, "validation") || strings.Contains(s, "unsupported") || strings.Contains(s, "parallelism") || strings.Contains(s, "incomplete") || strings.Contains(s, "prerequisite") || strings.Contains(s, "missing"):
+		code, category, guidance = "validation.reference", "validation", "Complete or repair the reported governed evidence, inspect validation findings, and retry."
 	case strings.Contains(s, "runtime") || strings.Contains(s, "provider"):
 		code, category, guidance = "provider.runtime", "runtime", "Check runtime configuration and provider availability."
 	case strings.Contains(s, "lock"):
 		code, category, guidance = "workflow.locked", "concurrency", "Inspect the active or stale study lock before retrying."
 	}
-	r.Error = &OperationError{Code: code, Category: category, Operation: "tui.operation", Component: "app", Message: r.Message, Cause: r.Message, Guidance: guidance, Retryable: category == "runtime" || category == "concurrency"}
+	r.Error = &OperationError{Code: code, Category: category, Operation: "workflow.operation", Component: "app", Message: r.Message, Cause: r.Message, Guidance: guidance, Retryable: category == "runtime" || category == "concurrency"}
 	return r, err
 }
 func boundContent(s string) (string, bool) {

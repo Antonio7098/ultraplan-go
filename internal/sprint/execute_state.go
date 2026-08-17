@@ -184,6 +184,21 @@ func ValidateExecuteRunState(root string, s Sprint, state ExecuteRunState, path 
 		if !ValidExecuteTaskStatus(task.Status) {
 			return fmt.Errorf("%w: %s: task %q has unsupported status %q", ErrExecuteRunStateMalformed, path, task.ID, task.Status)
 		}
+		if task.Status == ExecuteTaskDeferred {
+			if task.CompletedAt == nil {
+				return fmt.Errorf("%w: %s: deferred task %q has no completion time", ErrExecuteRunStateMalformed, path, task.ID)
+			}
+			hasReason := false
+			for _, diagnostic := range task.Diagnostics {
+				if diagnostic.Code == "deferred" && strings.TrimSpace(diagnostic.Message) != "" {
+					hasReason = true
+					break
+				}
+			}
+			if !hasReason {
+				return fmt.Errorf("%w: %s: deferred task %q has no rationale", ErrExecuteRunStateMalformed, path, task.ID)
+			}
+		}
 		if task.Attempts < 0 {
 			return fmt.Errorf("%w: %s: task %q has invalid attempts", ErrExecuteRunStateMalformed, path, task.ID)
 		}
@@ -211,7 +226,7 @@ func ValidateExecuteRunState(root string, s Sprint, state ExecuteRunState, path 
 }
 
 func isTerminalExecuteStatus(status ExecuteTaskStatus) bool {
-	return status == ExecuteTaskComplete || status == ExecuteTaskFailed || status == ExecuteTaskCancelled
+	return status == ExecuteTaskComplete || status == ExecuteTaskDeferred || status == ExecuteTaskFailed || status == ExecuteTaskCancelled
 }
 
 func safeRelPath(path string) bool {

@@ -306,6 +306,22 @@ ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume]
 
 Executes validated top-level `plan.md` task checkboxes through the generic runtime boundary. It writes `.run-state.json` and `execute.md`, requires runtime evidence or a safe diagnostic before marking a task complete, and constrains work to the project index target implementation directory.
 
+Explicitly defer accepted follow-up work with a required rationale:
+
+```text
+ultraplan sprint <project> <sprint> execute --task <id> --defer --reason "accepted rationale and follow-up owner"
+```
+
+Deferral is a durable terminal outcome shown in `execute.md` and status counts. The plan checkbox remains unchecked so deferred work is not represented as implemented. Review accepts it only when the unchecked task's stable ID has a matching governed `deferred` outcome; arbitrary unchecked or manually checked tasks cannot bypass execution.
+
+The normal agent-owned path uses the plan itself. During an active execute attempt, the execute agent may replace the task's top-level `[ ]` marker with `[/]` and append an inline rationale:
+
+```markdown
+- [/] **Task 6: Persist shutdown uncertainty** — Deferred: requires a separately governed owner capability in Sprint 32
+```
+
+After the runtime returns, UltraPlan validates the reason, preserves the task's stable ID, records the durable `deferred` outcome, and continues with the next task. A `[/]` marker without `— Deferred: <reason>` is invalid. A pre-existing marker cannot bypass a new execution or review unless the matching run-state already records that deferral.
+
 ### `ultraplan sprint <project> <sprint> review`
 
 ```text

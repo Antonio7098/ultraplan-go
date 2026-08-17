@@ -120,7 +120,7 @@ func (s Service) requireCompleteExecute(projectRef, sprintRef string) error {
 		return fmt.Errorf("execute evidence is incomplete: no planned tasks")
 	}
 	for _, task := range state.Tasks {
-		if task.Status != ExecuteTaskComplete {
+		if task.Status != ExecuteTaskComplete && task.Status != ExecuteTaskDeferred {
 			return fmt.Errorf("execute evidence is incomplete: task %q is %s", task.Identity.Name, task.Status)
 		}
 	}

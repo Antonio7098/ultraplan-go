@@ -19,6 +19,19 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 	return func(ctx context.Context, req OperationRequest, emit func(OperationEvent)) (OperationResult, error) {
 		result := OperationResult{State: OperationComplete, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study)}
 		switch req.Kind {
+		case OperationStage:
+			service, e := sprintRuntimeService(deps, root, tuiSprintRuntimeProgress(emit))
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			r, e := service.FlowStage(ctx, req.Project, req.Sprint, sprint.FlowRequest{To: sprint.PlanningStage(req.Stage), Progress: func(progress sprint.FlowProgress) {
+				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Message: progress.State + ": " + displaySafe(progress.Message)})
+			}})
+			result.Message = r.Message
+			result = operationWithSprintFindings(result, r.Findings)
+			if e != nil {
+				return failedOperation(result, e)
+			}
 		case OperationFlow:
 			service, e := sprintRuntimeService(deps, root, tuiSprintRuntimeProgress(emit))
 			if e != nil {

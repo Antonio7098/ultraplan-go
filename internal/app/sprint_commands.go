@@ -271,13 +271,18 @@ func runSprint(deps dependencies, args []string) error {
 			return classified(ExitUsage, "sprint.execute: %w", err)
 		}
 		execService := service
-		if !req.DryRun {
+		if !req.DryRun && req.DeferReason == "" {
 			execService, err = sprintRuntimeService(deps, root)
 			if err != nil {
 				return err
 			}
 		}
-		result, err := execService.Execute(deps.ctx, args[0], args[1], req)
+		var result sprint.ExecuteResult
+		if req.DeferReason != "" {
+			result, err = execService.DeferExecuteTask(deps.ctx, args[0], args[1], req.TaskID, req.DeferReason)
+		} else {
+			result, err = execService.Execute(deps.ctx, args[0], args[1], req)
+		}
 		renderSprintExecute(deps, result)
 		if err != nil {
 			if len(result.Findings) > 0 {
@@ -748,6 +753,15 @@ func parseSprintExecuteArgs(args []string) (sprint.ExecuteRequest, error) {
 			req.DryRun = true
 		case "--resume":
 			req.Resume = true
+		case "--defer":
+			if i+1 >= len(args) || args[i+1] != "--reason" {
+				return req, fmt.Errorf("--defer requires --reason <text>")
+			}
+			if i+2 >= len(args) {
+				return req, fmt.Errorf("--reason requires text")
+			}
+			req.DeferReason = args[i+2]
+			i += 2
 		case "--model":
 			if i+1 >= len(args) {
 				return req, fmt.Errorf("--model requires a provider/model value")
@@ -757,6 +771,12 @@ func parseSprintExecuteArgs(args []string) (sprint.ExecuteRequest, error) {
 		default:
 			return req, fmt.Errorf("unsupported argument %q", args[i])
 		}
+	}
+	if req.DeferReason != "" && req.TaskID == "" {
+		return req, fmt.Errorf("--defer requires --task <id>")
+	}
+	if req.DeferReason != "" && (req.DryRun || req.Resume || req.ModelOverride != "") {
+		return req, fmt.Errorf("--defer cannot be combined with --dry-run, --resume, or --model")
 	}
 	return req, nil
 }
@@ -1027,6 +1047,7 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
   ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run]
   ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
+  ultraplan sprint <project> <sprint> execute --task <id> --defer --reason <text>
   ultraplan sprint <project> <sprint> review [--restart] [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
   ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
   ultraplan sprint <project> <sprint> verify [--to review|smoke] [--focus-review <id>] [--restart-review] [--level <id>|--suite <id>|--test <id>] [--yes] [--json]
@@ -1062,8 +1083,9 @@ func sprintExecuteHelp() string {
 
 Usage:
   ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
+  ultraplan sprint <project> <sprint> execute --task <id> --defer --reason <text>
 
-Executes validated plan tasks through the configured generic runtime. Dry-run prints the frozen execution prompt without invoking the runtime.
+Executes validated plan tasks through the configured generic runtime. Dry-run prints the frozen execution prompt without invoking the runtime. Deferral requires an explicit task ID and rationale, records both durably, and leaves the plan checkbox visibly unchecked.
 `
 }
 

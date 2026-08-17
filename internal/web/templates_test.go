@@ -49,9 +49,49 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 		}
 	}
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"new EventSource", "while (timeline.children.length > 100)", `method = "POST"`, `"DELETE"`, "stream.close()"} {
+	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "refreshReviewers", "setInterval(refreshReviewers, 2000)", "live-reviewer-grid"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("JavaScript missing %q", want)
+		}
+	}
+}
+
+func TestReviewOperationTemplateContainsLiveReviewerGrid(t *testing.T) {
+	data, err := assets.ReadFile("templates/operation.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	for _, want := range []string{`eq .Kind "review-start"`, `data-review-status`, `id="live-reviewer-grid"`, `id="review-count-running"`, "Loading reviewer checkpoints"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("live review template missing %q", want)
+		}
+	}
+}
+
+func TestSprintOperationsExposeExplicitStageControls(t *testing.T) {
+	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/operations", nil).Body.String()
+	for _, want := range []string{`name="stage"`, `value="requirements"`, `value="technical-handbook"`, `value="reasoning"`, `data-operation-kind="sprint-stage"`, "Run this stage", "Run through this stage", "Preview prompt", "read only", "writes files"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("stage controls missing %q in %s", want, body)
+		}
+	}
+}
+
+func TestSprintOperationsExposeFailurePreflights(t *testing.T) {
+	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/operations", nil).Body.String()
+	for _, want := range []string{"Execute status", "Check execute", "Review status", "Check review prerequisites", "Smoke status", "Check smoke scope", "Check verification"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("delivery observability missing %q", want)
+		}
+	}
+}
+
+func TestSprintDeliveryShowsReviewerStatusGrid(t *testing.T) {
+	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/delivery", nil).Body.String()
+	for _, want := range []string{`class="reviewer-grid"`, "Security contract", "contract-security", "completed", "API contract", "running", "Technical handbook", "pending", "Failed or blocked"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("reviewer grid missing %q in %s", want, body)
 		}
 	}
 }

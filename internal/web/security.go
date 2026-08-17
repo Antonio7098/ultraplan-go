@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -126,33 +127,39 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 				<-m.sem
 			}()
 		case <-r.Context().Done():
-			writePolicyError(tracked, r, http.StatusServiceUnavailable, "unavailable", "The service is unavailable.")
+			m.reject(tracked, r, http.StatusServiceUnavailable, "unavailable", "The service is unavailable.")
 			return
 		}
 
 		apiOperationMutation := (r.Method == http.MethodPost || r.Method == http.MethodDelete) && strings.HasPrefix(r.URL.Path, "/api/v1/operations")
 		htmlOperationMutation := r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/operations/")
 		operationMutation := apiOperationMutation || htmlOperationMutation
+		matchedRoute := matchRoute(r.URL.Path)
+		operationRead := (r.Method == http.MethodGet || r.Method == http.MethodHead) && (matchedRoute.name == "api_operation" || matchedRoute.name == "api_operation_events")
 		staticAsset := (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.HasPrefix(r.URL.Path, "/static/")
 		hasBody := r.ContentLength > 0 || len(r.TransferEncoding) > 0
 		operationBody := r.Method == http.MethodPost && (r.URL.Path == "/api/v1/operations/prepare" || r.URL.Path == "/api/v1/operations" || r.URL.Path == "/operations/prepare" || r.URL.Path == "/operations/start")
 		switch {
 		case len(r.RequestURI) > MaxRequestTarget:
-			writePolicyError(tracked, r, http.StatusBadRequest, "invalid_request", "The request target is too long.")
+			m.reject(tracked, r, http.StatusBadRequest, "invalid_request", "The request target is too long.")
 		case r.Host != m.authority:
-			writePolicyError(tracked, r, http.StatusForbidden, "request_rejected", "The request was rejected.")
+			m.reject(tracked, r, http.StatusForbidden, "host_rejected", hostRejectionMessage(m.authority, r.Host))
 		case operationMutation && !validSession:
-			writePolicyError(tracked, r, http.StatusForbidden, "session_required", "Establish a browser session before submitting commands.")
-		case operationMutation && r.Header.Get("Origin") != m.origin:
-			writePolicyError(tracked, r, http.StatusForbidden, "origin_rejected", "The request origin was rejected.")
+			m.reject(tracked, r, http.StatusForbidden, "session_required", "Establish a browser session before submitting commands.")
+		case operationMutation && !validCommandOrigin(r.Header.Get("Origin"), m.origin):
+			m.reject(tracked, r, http.StatusForbidden, "origin_rejected", originRejectionMessage(m.origin, r.Header.Get("Origin")))
 		case apiOperationMutation && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(csrf)) != 1:
-			writePolicyError(tracked, r, http.StatusForbidden, "csrf_failed", "The CSRF proof is invalid.")
-		case !operationMutation && !staticAsset && !validOrigin(r.Header.Get("Origin"), m.origin):
-			writePolicyError(tracked, r, http.StatusForbidden, "origin_rejected", "The request origin was rejected.")
+			m.reject(tracked, r, http.StatusForbidden, "csrf_failed", "The CSRF proof did not match this browser session. Refresh the UltraPlan page and prepare the operation again.")
+		case operationRead && !validSession:
+			m.reject(tracked, r, http.StatusForbidden, "session_required", "The operation stream belongs to a browser session that is no longer available. Refresh the owning UltraPlan page.")
+		case operationRead && !validOperationReadOrigin(r.Header.Get("Origin"), m.origin):
+			m.reject(tracked, r, http.StatusForbidden, "origin_rejected", originRejectionMessage(m.origin, r.Header.Get("Origin")))
+		case !operationMutation && !operationRead && !staticAsset && !validOrigin(r.Header.Get("Origin"), m.origin):
+			m.reject(tracked, r, http.StatusForbidden, "origin_rejected", originRejectionMessage(m.origin, r.Header.Get("Origin")))
 		case r.ContentLength > MaxBodyBytes:
-			writePolicyError(tracked, r, http.StatusRequestEntityTooLarge, "request_too_large", "The request is too large.")
+			m.reject(tracked, r, http.StatusRequestEntityTooLarge, "request_too_large", "The request is too large.")
 		case hasBody && !operationBody:
-			writePolicyError(tracked, r, http.StatusBadRequest, "invalid_request", "Request bodies are not accepted.")
+			m.reject(tracked, r, http.StatusBadRequest, "invalid_request", "Request bodies are not accepted.")
 		default:
 			if operationBody {
 				r.Body = http.MaxBytesReader(tracked, r.Body, MaxBodyBytes)
@@ -166,6 +173,49 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 			"event=http_request request_id=%s route=%s method=%s status=%d duration_ms=%d response_bytes=%d\n",
 			id, normalizedRoute(r.URL.Path), r.Method, tracked.status, m.now().Sub(started).Milliseconds(), tracked.bytes)
 	})
+}
+
+func (m *securityMiddleware) reject(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	fmt.Fprintf(m.diagnostics, "event=security_rejection request_id=%s route=%s method=%s status=%d code=%s\n", requestID(r.Context()), normalizedRoute(r.URL.Path), r.Method, status, code)
+	writePolicyError(w, r, status, code, message)
+}
+
+func originRejectionMessage(expected, received string) string {
+	return fmt.Sprintf("The browser sent the request from %s, but this server only accepts commands from %s. Open the exact Dashboard URL printed by UltraPlan, refresh it, and retry.", displayOrigin(received), expected)
+}
+
+func hostRejectionMessage(expected, received string) string {
+	return fmt.Sprintf("The request used host %s, but this server is listening as %s. Open the exact Dashboard URL printed by UltraPlan.", displayAuthority(received), expected)
+}
+
+func displayOrigin(value string) string {
+	if value == "" {
+		return "a request with no Origin header"
+	}
+	if value == "null" {
+		return "the opaque origin 'null'"
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil {
+		return "an invalid origin"
+	}
+	return parsed.Scheme + "://" + displayAuthority(parsed.Host)
+}
+
+func displayAuthority(value string) string {
+	value = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, value)
+	if len(value) > 256 {
+		value = value[:256] + "…"
+	}
+	if value == "" {
+		return "an empty host"
+	}
+	return value
 }
 
 func (m *securityMiddleware) signSession(session string) string {
@@ -206,12 +256,35 @@ func validOrigin(origin, expected string) bool {
 	if origin == "" {
 		return true
 	}
-	if origin == "null" || origin != expected {
-		return false
+	return validCommandOrigin(origin, expected)
+}
+
+// validCommandOrigin permits a browser shell or local reverse proxy to omit or
+// rewrite only the port while preserving the exact numeric loopback address.
+// Mutating requests still require the signed session and CSRF proof.
+func validCommandOrigin(origin, expected string) bool {
+	if origin == expected {
+		return true
 	}
-	parsed, err := url.Parse(origin)
-	return err == nil && parsed.Scheme == "http" && parsed.Host != "" &&
-		parsed.User == nil && parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == ""
+	actualURL, actualIP, actualOK := numericLoopbackOrigin(origin)
+	expectedURL, expectedIP, expectedOK := numericLoopbackOrigin(expected)
+	return actualOK && expectedOK && actualURL.Scheme == expectedURL.Scheme && actualIP.Equal(expectedIP)
+}
+
+func validOperationReadOrigin(origin, expected string) bool {
+	return origin == "" || validCommandOrigin(origin, expected)
+}
+
+func numericLoopbackOrigin(value string) (*url.URL, net.IP, bool) {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, nil, false
+	}
+	ip := net.ParseIP(parsed.Hostname())
+	if ip == nil || !ip.IsLoopback() {
+		return nil, nil, false
+	}
+	return parsed, ip, true
 }
 
 func requestID(ctx context.Context) string {

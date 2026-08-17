@@ -80,24 +80,7 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 			emitFlow(req.Progress, FlowProgress{Stage: stage, State: "running", Message: "starting runtime-backed stage"})
 		}
 		var stageErr error
-		switch stage {
-		case StageRequirements:
-			result, stageErr = s.FlowRequirements(ctx, projectRef, sprintRef, stageReq)
-		case StageSprintIndex:
-			result, stageErr = s.FlowSprintIndex(ctx, projectRef, sprintRef, stageReq)
-		case StageTechnicalHandbook:
-			result, stageErr = s.FlowTechnicalHandbook(ctx, projectRef, sprintRef, stageReq)
-		case StageAreaReasoning, StageReasoning:
-			result, stageErr = s.FlowReasoning(ctx, projectRef, sprintRef, stageReq)
-		case StagePlan:
-			result, stageErr = s.FlowPlan(ctx, projectRef, sprintRef, stageReq)
-		case StageExecute:
-			execute, executeErr := s.Execute(ctx, projectRef, sprintRef, ExecuteRequest{DryRun: req.DryRun, Resume: true})
-			result = FlowResult{Project: execute.Project, Sprint: execute.Sprint, To: StageExecute, DryRun: execute.DryRun, Message: firstNonEmptyString(execute.Prompt, execute.Message), Findings: execute.Findings}
-			stageErr = executeErr
-		default:
-			stageErr = fmt.Errorf("unsupported flow stage %q", stage)
-		}
+		result, stageErr = s.runFlowStage(ctx, projectRef, sprintRef, stageReq)
 		if stageErr != nil {
 			emitFlow(req.Progress, FlowProgress{Stage: stage, State: "failed", Message: stageErr.Error()})
 			return result, stageErr
@@ -111,6 +94,60 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 	}
 	result.To = req.To
 	return result, nil
+}
+
+// FlowStage runs exactly one planning stage. It preserves the stage's normal
+// prerequisite validation while deliberately not scheduling earlier stages.
+func (s Service) FlowStage(ctx context.Context, projectRef, sprintRef string, req FlowRequest) (FlowResult, error) {
+	if err := validatePlanningStageTarget(req.To); err != nil {
+		return FlowResult{}, err
+	}
+	if !req.DryRun {
+		var release func()
+		var err error
+		ctx, release, err = s.acquireMutationContext(ctx, projectRef, sprintRef)
+		if err != nil {
+			return FlowResult{}, err
+		}
+		defer release()
+	}
+	emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "running", Message: "running selected stage only"})
+	result, err := s.runFlowStage(ctx, projectRef, sprintRef, req)
+	if err != nil {
+		emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "failed", Message: err.Error()})
+		return result, err
+	}
+	emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "complete", Message: firstNonEmptyString(result.Message, "stage complete")})
+	return result, nil
+}
+
+func (s Service) runFlowStage(ctx context.Context, projectRef, sprintRef string, req FlowRequest) (FlowResult, error) {
+	switch req.To {
+	case StageRequirements:
+		return s.FlowRequirements(ctx, projectRef, sprintRef, req)
+	case StageSprintIndex:
+		return s.FlowSprintIndex(ctx, projectRef, sprintRef, req)
+	case StageTechnicalHandbook:
+		return s.FlowTechnicalHandbook(ctx, projectRef, sprintRef, req)
+	case StageAreaReasoning, StageReasoning:
+		return s.FlowReasoning(ctx, projectRef, sprintRef, req)
+	case StagePlan:
+		return s.FlowPlan(ctx, projectRef, sprintRef, req)
+	case StageExecute:
+		execute, err := s.Execute(ctx, projectRef, sprintRef, ExecuteRequest{DryRun: req.DryRun, Resume: true})
+		return FlowResult{Project: execute.Project, Sprint: execute.Sprint, To: StageExecute, DryRun: execute.DryRun, Message: firstNonEmptyString(execute.Prompt, execute.Message), Findings: execute.Findings}, err
+	default:
+		return FlowResult{}, fmt.Errorf("unsupported flow stage %q", req.To)
+	}
+}
+
+func validatePlanningStageTarget(stage PlanningStage) error {
+	switch stage {
+	case StageRequirements, StageSprintIndex, StageTechnicalHandbook, StageAreaReasoning, StageReasoning, StagePlan:
+		return nil
+	default:
+		return fmt.Errorf("unsupported single planning stage %q", stage)
+	}
 }
 
 func flowStages(target PlanningStage) ([]PlanningStage, error) {

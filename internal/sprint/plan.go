@@ -68,7 +68,7 @@ func ValidatePlanContent(content string, manifest PlanManifest) []ValidationFind
 		}
 	}
 	taskSection := sections["Tasks"]
-	if !strings.Contains(taskSection, "- [ ]") && !strings.Contains(taskSection, "- [x]") && !strings.Contains(taskSection, "- [X]") {
+	if !strings.Contains(taskSection, "- [ ]") && !strings.Contains(taskSection, "- [x]") && !strings.Contains(taskSection, "- [X]") && !strings.Contains(taskSection, "- [/]") {
 		findings = append(findings, finding("Tasks", "", manifest.OutputPath, "missing task checklist", "tasks section has no Markdown checkbox items", "Add executable sprint task checkboxes."))
 	}
 	if len(manifest.DecisionNames) > 0 && containsTaskWithoutTrace(taskSection) {
@@ -149,7 +149,7 @@ func isTopLevelTaskCheckbox(line string) bool {
 		return false
 	}
 	lower := strings.ToLower(trimmed)
-	return strings.HasPrefix(lower, "- [ ]") || strings.HasPrefix(lower, "- [x]")
+	return strings.HasPrefix(lower, "- [ ]") || strings.HasPrefix(lower, "- [x]") || strings.HasPrefix(lower, "- [/]")
 }
 
 func forbiddenPlanStageContent(content string) []string {

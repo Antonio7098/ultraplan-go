@@ -26,9 +26,13 @@ func sampleQueries() *fakeQueries {
 	sprint := app.WebSprintResult{
 		Ref: "sprint_ref", Project: "alpha", Slug: "30-web", Status: "available",
 		Assessment: "pass", NextAction: "none",
-		Stages:   []app.StageSummary{{Name: "plan", Status: "complete"}},
-		Execute:  app.ExecuteSummary{Available: true, Total: 1, Complete: 1},
-		Review:   app.ReviewSummary{Available: true, Status: "complete", Verdict: "pass"},
+		Stages:  []app.StageSummary{{Name: "plan", Status: "complete"}},
+		Execute: app.ExecuteSummary{Available: true, Total: 1, Complete: 1},
+		Review: app.ReviewSummary{Available: true, Status: "running", Verdict: "", Completed: 1, Total: 3, Pending: 1, Running: 1, Reviewers: []app.ReviewItemSummary{
+			{ID: "contract-security", Name: "Security contract", Kind: "contract", Path: "contracts/security.md", Status: "completed", Summary: "Security requirements checked."},
+			{ID: "contract-api", Name: "API contract", Kind: "contract", Path: "contracts/api.md", Status: "running"},
+			{ID: "handbook", Name: "Technical handbook", Kind: "handbook", Path: "technical-handbook.md", Status: "pending"},
+		}},
 		Smoke:    app.SmokeSummary{Available: true, Status: "complete", Verdict: "pass"},
 		Findings: []app.DisplayFinding{finding}, Artifacts: []app.WebArtifactLink{artifact},
 	}

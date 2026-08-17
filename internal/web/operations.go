@@ -453,7 +453,9 @@ func projectOperationResult(result app.OperationResult) *operationResultDTO {
 		})
 	}
 	if result.Error != nil {
-		out.Error = &errorBody{Code: safeWebText(result.Error.Code), Message: safeWebText(result.Error.Message)}
+		out.Error = &errorBody{Code: safeWebText(result.Error.Code), Message: safeWebText(result.Error.Message), Retryable: result.Error.Retryable, Details: map[string]any{
+			"category": safeWebText(result.Error.Category), "component": safeWebText(result.Error.Component), "cause": safeWebText(result.Error.Cause), "guidance": safeWebText(result.Error.Guidance),
+		}}
 	}
 	if data, _ := json.Marshal(out); len(data) > MaxTerminalResultBytes {
 		out.Content = ""

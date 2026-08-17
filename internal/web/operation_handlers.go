@@ -249,7 +249,7 @@ func (h *handler) handleHTMLOperationPrepare(w http.ResponseWriter, r *http.Requ
 	}
 	prepared, err := h.hub.ops.PrepareOperation(r.Context(), req)
 	if err != nil {
-		h.renderError(w, r, http.StatusUnprocessableEntity, "Preparation failed", "The operation could not be prepared from current governed state.")
+		h.renderError(w, r, http.StatusUnprocessableEntity, "Preparation failed", htmlOperationFailure("The operation could not be prepared from current governed state.", err))
 		return
 	}
 	record, err := h.preparations.issue(sessionID(r.Context()), prepared)
@@ -283,7 +283,7 @@ func (h *handler) handleHTMLOperationStart(w http.ResponseWriter, r *http.Reques
 	}
 	current, err := h.hub.ops.PrepareOperation(r.Context(), req)
 	if err != nil {
-		h.renderError(w, r, http.StatusUnprocessableEntity, "Preparation stale", "The operation can no longer be prepared. Return to the owning page and prepare again.")
+		h.renderError(w, r, http.StatusUnprocessableEntity, "Preparation stale", htmlOperationFailure("The operation can no longer be prepared. Return to the owning page and prepare again.", err))
 		return
 	}
 	doc, err := h.hub.startConfirmed(sessionID(r.Context()), func() (app.Confirmation, error) {
@@ -365,6 +365,14 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 		} else {
 			req.Kind = app.OperationFlow
 		}
+	case "sprint-stage":
+		if options.DryRun {
+			req.Kind = app.OperationStageDryRun
+		} else {
+			req.Kind = app.OperationStage
+		}
+	case "sprint-stage-dry-run":
+		req.Kind = app.OperationStageDryRun
 	case "execute", "execute-start":
 		switch {
 		case options.Action == "status":
@@ -506,7 +514,7 @@ func (h *handler) writeOperationError(w http.ResponseWriter, r *http.Request, er
 		w.Header().Set("Retry-After", "2")
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		status, code, message, retryable = http.StatusServiceUnavailable, "server_draining", "The server is shutting down.", true
-	case strings.Contains(strings.ToLower(err.Error()), "validation"):
+	case strings.Contains(strings.ToLower(err.Error()), "validation"), strings.Contains(strings.ToLower(err.Error()), "incomplete"), strings.Contains(strings.ToLower(err.Error()), "prerequisite"):
 		status, code, message = http.StatusUnprocessableEntity, "validation_failed", "The governed inputs failed validation."
 	case strings.Contains(strings.ToLower(err.Error()), "lock"), strings.Contains(strings.ToLower(err.Error()), "in progress"):
 		status, code, message, retryable = http.StatusConflict, "operation_conflict", "A conflicting operation is already running.", true
@@ -515,7 +523,43 @@ func (h *handler) writeOperationError(w http.ResponseWriter, r *http.Request, er
 	case !isClientOperationError(err):
 		status, code, message = http.StatusInternalServerError, "internal_failure", "The operation could not be completed."
 	}
+	if cause := safeOperationCause(err); cause != "" && status < http.StatusInternalServerError {
+		details["reason"] = cause
+		details["guidance"] = operationFailureGuidance(code)
+	}
 	h.writeErrorDetails(w, r, status, errorBody{Code: code, Message: message, Retryable: retryable, Details: details})
+}
+
+func safeOperationCause(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := strings.ToLower(err.Error())
+	if isClientOperationError(err) || strings.Contains(text, "validation") || strings.Contains(text, "incomplete") || strings.Contains(text, "prerequisite") || strings.Contains(text, "lock") || strings.Contains(text, "in progress") || strings.Contains(text, "unavailable") {
+		return safeWebText(err.Error())
+	}
+	return ""
+}
+
+func operationFailureGuidance(code string) string {
+	switch code {
+	case "validation_failed":
+		return "Open the sprint Plan and Delivery pages, correct the reported incomplete or invalid evidence, then retry."
+	case "operation_conflict":
+		return "Wait for the active operation to finish or inspect and cancel it before retrying."
+	case "prerequisite_unavailable":
+		return "Restore the missing prerequisite or runtime capability, then prepare the operation again."
+	default:
+		return "Correct the reported reason and prepare the operation again."
+	}
+}
+
+func htmlOperationFailure(summary string, err error) string {
+	cause := safeOperationCause(err)
+	if cause == "" {
+		return summary
+	}
+	return summary + " Reason: " + cause + " Correct the reported prerequisite or governed artifact, then retry."
 }
 
 func isClientOperationError(err error) bool {
