@@ -220,10 +220,12 @@ apply only when their existing operations are selected.
 Sprint 32 retains browser compatibility hardening, release accessibility audit,
 packaging, and gated real-runtime/browser evidence.
 
-Smoke authoring snapshots the product target and governed project inputs before
-and after the runtime call. Snapshot drift without an observed OpenCode
-write-capable tool call against a protected path is retained as a
-`concurrent_target_change` diagnostic and does not fail the run. Attribution is
-captured from the live event callback rather than the bounded retained-event
-tail. An attributed protected-path write remains a hard authoring failure.
-Harness changes outside its manifest allowlist remain hard failures.
+Snapshot-based invalidation of completed reviews, completed smoke evidence, and
+smoke-author changes to the product target or governed project inputs is
+temporarily disabled. Small or concurrent filesystem edits were making valid
+results unnecessarily stale or failing authoring runs. The implementation is
+retained behind explicit policy switches and can be reintroduced after change
+attribution and relevance rules are designed reliably. Canonical artifact
+existence, format, and recorded digest checks remain active, as does the smoke
+harness authoring allowlist; harness changes outside that allowlist are still
+hard failures.

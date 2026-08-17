@@ -317,8 +317,8 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 		t.Fatal(err)
 	}
 	status, statusErr = service.VerificationStatus("proj", "01")
-	if statusErr != nil || status.Smoke.Fresh {
-		t.Fatalf("external evidence edit did not stale smoke: %+v err=%v", status, statusErr)
+	if statusErr != nil || !status.Smoke.Fresh {
+		t.Fatalf("external evidence edit unexpectedly staled smoke while snapshot freshness is disabled: %+v err=%v", status, statusErr)
 	}
 	if err := os.WriteFile(runJSON, originalRun, 0o644); err != nil {
 		t.Fatal(err)

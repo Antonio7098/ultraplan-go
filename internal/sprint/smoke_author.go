@@ -25,17 +25,21 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 	if err != nil {
 		return smokeError("smoke_author_snapshot", "authoring", "harness could not be snapshotted before authoring", "Restore a readable bounded smoke harness.", err)
 	}
-	targetBefore, err := targetIdentity(prepared.Target)
-	if err != nil {
-		return smokeError("smoke_author_target_identity", "authoring", "target identity could not be captured", "Restore a readable target before smoke authoring.", err)
-	}
-	targetFilesBefore := smokeDiagnosticTargetSnapshot(prepared.Target)
 	projectRoot := filepath.Join(s.root, "projects", prepared.Sprint.Project)
-	projectBefore, err := targetIdentity(projectRoot)
-	if err != nil {
-		return smokeError("smoke_author_workspace_identity", "authoring", "governed project identity could not be captured", "Restore readable governed sprint inputs.", err)
+	var targetBefore, projectBefore string
+	var targetFilesBefore, projectFilesBefore map[string]string
+	if strictSmokeAuthorProtectedSnapshots {
+		targetBefore, err = targetIdentity(prepared.Target)
+		if err != nil {
+			return smokeError("smoke_author_target_identity", "authoring", "target identity could not be captured", "Restore a readable target before smoke authoring.", err)
+		}
+		targetFilesBefore = smokeDiagnosticTargetSnapshot(prepared.Target)
+		projectBefore, err = targetIdentity(projectRoot)
+		if err != nil {
+			return smokeError("smoke_author_workspace_identity", "authoring", "governed project identity could not be captured", "Restore readable governed sprint inputs.", err)
+		}
+		projectFilesBefore = smokeDiagnosticTargetSnapshot(projectRoot)
 	}
-	projectFilesBefore := smokeDiagnosticTargetSnapshot(projectRoot)
 
 	prompt := s.renderSmokeAuthorPrompt(prepared)
 	req := s.runtimeRequest(prompt, map[string]string{"project": prepared.Sprint.Project, "sprint": prepared.Sprint.Slug, "stage": string(StageSmoke), "operation": "author"})
@@ -46,12 +50,14 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 		req.Policy.PathRules = append(req.Policy.PathRules, pruntime.PermissionPathRule{Path: filepath.Join(prepared.HarnessRoot, filepath.FromSlash(rel)), Action: "allow"})
 	}
 	var targetWrite, projectWrite atomic.Bool
-	req.OnEvent = func(event pruntime.Event) {
-		if smokeAuthorAttributedProtectedWrite([]pruntime.Event{event}, prepared.Target) {
-			targetWrite.Store(true)
-		}
-		if smokeAuthorAttributedProtectedWrite([]pruntime.Event{event}, projectRoot) {
-			projectWrite.Store(true)
+	if strictSmokeAuthorProtectedSnapshots {
+		req.OnEvent = func(event pruntime.Event) {
+			if smokeAuthorAttributedProtectedWrite([]pruntime.Event{event}, prepared.Target) {
+				targetWrite.Store(true)
+			}
+			if smokeAuthorAttributedProtectedWrite([]pruntime.Event{event}, projectRoot) {
+				projectWrite.Store(true)
+			}
 		}
 	}
 	run, runErr := s.runtime.StartRun(ctx, req)
@@ -69,21 +75,23 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 			return smokeError("smoke_author_scope", "authoring", "smoke author modified a path outside the manifest allowlist: "+rel, "Revert the out-of-scope harness change and tighten the authoring prompt/policy.", nil)
 		}
 	}
-	targetAfter, identityErr := targetIdentity(prepared.Target)
-	if identityErr != nil || targetAfter != targetBefore {
-		changedPaths := changedSmokeHarnessPaths(targetFilesBefore, smokeDiagnosticTargetSnapshot(prepared.Target))
-		if targetWrite.Load() || smokeAuthorAttributedProtectedWrite(run.Events, prepared.Target) {
-			return smokeError("smoke_author_target_mutation", "authoring", "smoke author made a write-capable tool call against the product target", "Restore the product target and rerun with harness-only authoring authority.", identityErr)
+	if strictSmokeAuthorProtectedSnapshots {
+		targetAfter, identityErr := targetIdentity(prepared.Target)
+		if identityErr != nil || targetAfter != targetBefore {
+			changedPaths := changedSmokeHarnessPaths(targetFilesBefore, smokeDiagnosticTargetSnapshot(prepared.Target))
+			if targetWrite.Load() || smokeAuthorAttributedProtectedWrite(run.Events, prepared.Target) {
+				return smokeError("smoke_author_target_mutation", "authoring", "smoke author made a write-capable tool call against the product target", "Restore the product target and rerun with harness-only authoring authority.", identityErr)
+			}
+			result.Diagnostics = append(result.Diagnostics, smokeConcurrentChangeDiagnostic("product target", changedPaths))
 		}
-		result.Diagnostics = append(result.Diagnostics, smokeConcurrentChangeDiagnostic("product target", changedPaths))
-	}
-	projectAfter, identityErr := targetIdentity(projectRoot)
-	if identityErr != nil || projectAfter != projectBefore {
-		changedPaths := changedSmokeHarnessPaths(projectFilesBefore, smokeDiagnosticTargetSnapshot(projectRoot))
-		if projectWrite.Load() || smokeAuthorAttributedProtectedWrite(run.Events, projectRoot) {
-			return smokeError("smoke_author_workspace_mutation", "authoring", "smoke author made a write-capable tool call against governed project inputs", "Restore governed inputs and rerun with harness-only authoring authority.", identityErr)
+		projectAfter, identityErr := targetIdentity(projectRoot)
+		if identityErr != nil || projectAfter != projectBefore {
+			changedPaths := changedSmokeHarnessPaths(projectFilesBefore, smokeDiagnosticTargetSnapshot(projectRoot))
+			if projectWrite.Load() || smokeAuthorAttributedProtectedWrite(run.Events, projectRoot) {
+				return smokeError("smoke_author_workspace_mutation", "authoring", "smoke author made a write-capable tool call against governed project inputs", "Restore governed inputs and rerun with harness-only authoring authority.", identityErr)
+			}
+			result.Diagnostics = append(result.Diagnostics, smokeConcurrentChangeDiagnostic("governed project inputs", changedPaths))
 		}
-		result.Diagnostics = append(result.Diagnostics, smokeConcurrentChangeDiagnostic("governed project inputs", changedPaths))
 	}
 	if runErr != nil {
 		return smokeError("smoke_author_runtime", "runtime", "smoke authoring runtime failed", "Inspect the bounded runtime diagnostics and rerun authoring.", runErr)

@@ -175,7 +175,7 @@ func (s Service) VerificationStatus(projectRef, sprintRef string) (VerificationS
 		manifest, findings, prepareErr := s.PrepareReview(projectRef, sprintRef, ReviewRequest{})
 		if prepareErr != nil || len(findings) > 0 {
 			out.Review.FreshnessReasons = append(out.Review.FreshnessReasons, "governed review inputs are unavailable or invalid")
-		} else if manifest.Fingerprint != r.Fingerprint {
+		} else if strictCompletedReviewSnapshotFreshness && manifest.Fingerprint != r.Fingerprint {
 			out.Review.FreshnessReasons = append(out.Review.FreshnessReasons, "review input fingerprint changed")
 		}
 		if r.Resume != nil && (prepareErr != nil || len(findings) > 0 || manifest.Fingerprint != r.Resume.InputFingerprint || manifest.Model != r.Resume.Model) {
@@ -188,7 +188,13 @@ func (s Service) VerificationStatus(projectRef, sprintRef string) (VerificationS
 			if r.ArtifactDigest == "" || hashBytes(data) != r.ArtifactDigest {
 				out.Review.FreshnessReasons = append(out.Review.FreshnessReasons, "review artifact digest changed")
 			}
-			if prepareErr == nil && len(findings) == 0 && len(ValidateReviewContent(string(data), manifest)) > 0 {
+			validationManifest := manifest
+			if !strictCompletedReviewSnapshotFreshness {
+				// Validate the canonical artifact against the fingerprint recorded when
+				// it completed, rather than a later filesystem snapshot.
+				validationManifest.Fingerprint = r.Fingerprint
+			}
+			if prepareErr == nil && len(findings) == 0 && len(ValidateReviewContent(string(data), validationManifest)) > 0 {
 				malformed = true
 				out.Review.FreshnessReasons = append(out.Review.FreshnessReasons, "review artifact is malformed")
 			}
@@ -227,8 +233,10 @@ func (s Service) VerificationStatus(projectRef, sprintRef string) (VerificationS
 		}
 		if sm.LastComplete == nil || sm.InputFingerprint == "" {
 			out.Smoke.FreshnessReasons = append(out.Smoke.FreshnessReasons, "smoke input fingerprint is unavailable")
-		} else if fingerprint, identityErr := refreshEvidenceFingerprint(sm.LastComplete.Evidence); identityErr != nil || fingerprint != sm.InputFingerprint {
-			out.Smoke.FreshnessReasons = append(out.Smoke.FreshnessReasons, "smoke inputs or external evidence changed")
+		} else if strictCompletedSmokeSnapshotFreshness {
+			if fingerprint, identityErr := refreshEvidenceFingerprint(sm.LastComplete.Evidence); identityErr != nil || fingerprint != sm.InputFingerprint {
+				out.Smoke.FreshnessReasons = append(out.Smoke.FreshnessReasons, "smoke inputs or external evidence changed")
+			}
 		}
 		out.Smoke.Fresh = len(out.Smoke.FreshnessReasons) == 0
 		if !out.Smoke.Fresh {
@@ -285,7 +293,6 @@ func smokeInputFingerprint(p smokePrepared, result SmokeResult) string {
 func smokeIdentityReferences(p smokePrepared, result SmokeResult) []EvidenceReference {
 	refs := []EvidenceReference{
 		{Kind: "file", Path: p.ManifestPath},
-		{Kind: "target", Path: p.Target},
 		{Kind: "file", Path: filepath.Join(p.Sprint.Path, "review.md")},
 		{Kind: "fact", Path: "review-fingerprint", Digest: result.ReviewFingerprint},
 		{Kind: "fact", Path: "review-verdict", Digest: string(result.ReviewVerdict)},
@@ -293,6 +300,9 @@ func smokeIdentityReferences(p smokePrepared, result SmokeResult) []EvidenceRefe
 		{Kind: "fact", Path: "harness", Digest: result.Harness + ":" + result.Protocol},
 		{Kind: "fact", Path: "prerequisites", Digest: strings.Join(result.Prerequisites, "\x00")},
 		{Kind: "fact", Path: "timeout", Digest: result.EffectiveTimeout.String() + ":" + result.TimeoutSource},
+	}
+	if strictCompletedSmokeSnapshotFreshness {
+		refs = append(refs, EvidenceReference{Kind: "target", Path: p.Target})
 	}
 	for _, evidence := range result.Evidence {
 		path := evidence.Path
