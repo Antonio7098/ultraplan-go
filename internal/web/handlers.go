@@ -14,6 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+
 	"github.com/Antonio7098/ultraplan-go/internal/app"
 )
 
@@ -166,24 +169,25 @@ type artifactPreviewDTO struct {
 }
 
 type pageModel struct {
-	Title       string
-	Heading     string
-	Description string
-	Workspace   string
-	Projects    []app.WebProjectResult
-	Project     *app.WebProjectResult
-	Sprints     []app.WebSprintResult
-	Sprint      *app.WebSprintResult
-	Studies     []app.WebStudyResult
-	Study       *app.WebStudyResult
-	Artifact    *app.WebArtifactPreview
-	Health      *app.WebHealthResult
-	Status      int
-	Error       string
-	CSRF        string
-	Preparation *operationPreparationView
-	Operation   *operationDocument
-	Page        string
+	Title        string
+	Heading      string
+	Description  string
+	Workspace    string
+	Projects     []app.WebProjectResult
+	Project      *app.WebProjectResult
+	Sprints      []app.WebSprintResult
+	Sprint       *app.WebSprintResult
+	Studies      []app.WebStudyResult
+	Study        *app.WebStudyResult
+	Artifact     *app.WebArtifactPreview
+	ArtifactHTML template.HTML
+	Health       *app.WebHealthResult
+	Status       int
+	Error        string
+	CSRF         string
+	Preparation  *operationPreparationView
+	Operation    *operationDocument
+	Page         string
 }
 
 func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMatch) {
@@ -231,7 +235,22 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		page := match.params[1]
+		if page == "artifacts" || page == "validation" {
+			page = "documentation"
+		}
 		h.render(w, r, http.StatusOK, "project", pageModel{Title: projectPageTitle(page) + " · " + result.Name, Heading: result.Name, Project: &result, Page: page})
+	case "project_artifact":
+		result, err := h.queries.Project(r.Context(), match.params[0])
+		if err != nil {
+			h.handleQueryError(w, r, false, err)
+			return
+		}
+		artifact, err := h.queries.Artifact(r.Context(), match.params[1])
+		if err != nil {
+			h.handleQueryError(w, r, false, err)
+			return
+		}
+		h.render(w, r, http.StatusOK, "project", pageModel{Title: artifact.DisplayPath + " · " + result.Name, Heading: result.Name, Project: &result, Artifact: &artifact, ArtifactHTML: renderMarkdown(artifact), Page: "documentation"})
 	case "sprint":
 		result, err := h.queries.Sprint(r.Context(), match.params[0], match.params[1])
 		if err != nil {
@@ -261,7 +280,7 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			h.handleQueryError(w, r, false, err)
 			return
 		}
-		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: artifact.DisplayPath + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Artifact: &artifact, Page: "artifacts"})
+		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: artifact.DisplayPath + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Artifact: &artifact, ArtifactHTML: renderMarkdown(artifact), Page: "artifacts"})
 	case "studies":
 		result, err := h.queries.Studies(r.Context())
 		if err != nil {
@@ -294,7 +313,7 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			h.handleQueryError(w, r, false, err)
 			return
 		}
-		h.render(w, r, http.StatusOK, "artifact", pageModel{Title: "Artifact preview", Heading: result.DisplayPath, Artifact: &result})
+		h.render(w, r, http.StatusOK, "artifact", pageModel{Title: "Artifact preview", Heading: result.DisplayPath, Artifact: &result, ArtifactHTML: renderMarkdown(result)})
 	case "api_dashboard":
 		result, err := h.queries.Dashboard(r.Context())
 		if err != nil {
@@ -397,17 +416,23 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 
 func projectPageTitle(page string) string {
 	switch page {
-	case "documentation":
-		return "Documentation"
 	case "sprints":
 		return "Sprints"
-	case "operations":
-		return "Operations"
-	case "validation":
-		return "Validation"
 	default:
-		return "Artifacts"
+		return "Docs"
 	}
+}
+
+func renderMarkdown(artifact app.WebArtifactPreview) template.HTML {
+	if artifact.MediaType != "text/markdown" {
+		return ""
+	}
+	var out bytes.Buffer
+	md := goldmark.New(goldmark.WithExtensions(extension.GFM))
+	if err := md.Convert([]byte(artifact.Content), &out); err != nil {
+		return ""
+	}
+	return template.HTML(out.String()) // Goldmark omits raw HTML and filters unsafe link destinations by default.
 }
 
 func sprintPageTitle(page string) string {

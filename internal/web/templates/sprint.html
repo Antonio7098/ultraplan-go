@@ -52,7 +52,7 @@
 <section class="artifact-preview-heading"><p class="eyebrow">Artefact preview</p><h2>{{.Artifact.DisplayPath}}</h2><dl class="metadata"><div><dt>Media type</dt><dd>{{.Artifact.MediaType}}</dd></div><div><dt>Returned bytes</dt><dd>{{.Artifact.ReturnedBytes}} of {{.Artifact.SizeBytes}}</dd></div><div><dt>Truncated</dt><dd>{{if .Artifact.Truncated}}yes{{else}}no{{end}}</dd></div></dl></section>
 {{if .Artifact.Truncated}}<p class="notice" role="status">Preview truncated at the safe 256 KiB limit.</p>{{end}}
 {{if and (eq .Artifact.MediaType "application/json") (not .Artifact.JSONValid)}}<p class="notice" role="status">The bounded source is not valid JSON.</p>{{end}}
-<div class="code-wrap artifact-explorer-preview"><pre aria-label="Escaped artifact source"><code>{{.Artifact.Content}}</code></pre></div>
+{{if .ArtifactHTML}}<article class="markdown-body">{{.ArtifactHTML}}</article>{{else}}<div class="code-wrap artifact-explorer-preview"><pre aria-label="Escaped artifact source"><code>{{.Artifact.Content}}</code></pre></div>{{end}}
 {{else}}
 <section><p class="eyebrow">Sprint knowledge</p><h2>Artefact Navigator</h2><p>Browse the sprint by purpose. Governed documents explain the work; internal state is kept separate.</p></section>
 <div class="artifact-groups">

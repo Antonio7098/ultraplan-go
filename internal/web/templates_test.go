@@ -99,7 +99,7 @@ func TestSprintArtifactNavigatorKeepsExplorerContext(t *testing.T) {
 		}
 	}
 	preview := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/artifacts/artifact_ref", nil).Body.String()
-	for _, want := range []string{`class="detail-layout sprint-detail-layout sprint-artifact-layout"`, `aria-label="Project navigation"`, `aria-label="Sprint navigation"`, `aria-label="Artefact navigation"`, `aria-label="Escaped artifact source"`, "# Plan"} {
+	for _, want := range []string{`class="detail-layout sprint-detail-layout sprint-artifact-layout"`, `aria-label="Project navigation"`, `aria-label="Sprint navigation"`, `aria-label="Artefact navigation"`, `class="markdown-body"`, "<h1>Plan</h1>"} {
 		if !strings.Contains(preview, want) {
 			t.Errorf("nested artefact preview missing %q", want)
 		}
@@ -130,7 +130,7 @@ func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
 		path, label, active string
 		links               []string
 	}{
-		{path: "/projects/alpha/documentation", label: "Project navigation", active: "/projects/alpha/documentation", links: []string{"/projects/alpha", "/projects/alpha/sprints", "/projects/alpha/operations", "/projects/alpha/validation", "/projects/alpha/artifacts"}},
+		{path: "/projects/alpha/documentation", label: "Project navigation", active: "/projects/alpha/documentation", links: []string{"/projects/alpha", "/projects/alpha/documentation", "/projects/alpha/sprints"}},
 		{path: "/projects/alpha/sprints/30-web/run", label: "Sprint navigation", active: "/projects/alpha/sprints/30-web/run", links: []string{"/projects/alpha/sprints/30-web", "/projects/alpha/sprints/30-web/run", "/projects/alpha/sprints/30-web/artifacts"}},
 		{path: "/studies/research/progress", label: "Study navigation", active: "/studies/research/progress", links: []string{"/studies/research", "/studies/research/inputs", "/studies/research/operations", "/studies/research/validation", "/studies/research/artifacts"}},
 	}
