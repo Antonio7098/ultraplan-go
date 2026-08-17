@@ -49,41 +49,42 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 		}
 	}
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "refreshReviewers", "setInterval(refreshReviewers, 2000)", "live-reviewer-grid", "reviewer-result-open", "showModal"} {
+	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("JavaScript missing %q", want)
 		}
 	}
 }
 
-func TestReviewOperationTemplateContainsLiveReviewerGrid(t *testing.T) {
+func TestOperationTemplateUsesOneLiveStatusPanelWithoutReviewers(t *testing.T) {
 	data, err := assets.ReadFile("templates/operation.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(data)
-	for _, want := range []string{`eq .Kind "review-start"`, `data-review-status`, `id="live-reviewer-grid"`, `id="review-count-running"`, "Loading reviewer checkpoints"} {
+	for _, want := range []string{`class="operation-run-panel"`, `id="operation-live"`, `id="operation-timeline"`, "Cancel run"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("live review template missing %q", want)
+			t.Errorf("live operation template missing %q", want)
 		}
+	}
+	if strings.Contains(body, "Reviewer") || strings.Contains(body, "reviewer") {
+		t.Errorf("operation panel still contains reviewer UI")
 	}
 }
 
-func TestShellContainsAccessibleReviewerResultDialog(t *testing.T) {
+func TestShellDoesNotContainReviewerResultDialog(t *testing.T) {
 	body, err := assets.ReadFile("templates/shell.html")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`<dialog id="reviewer-result-dialog"`, `aria-labelledby="reviewer-result-title"`, `id="reviewer-result-close"`, `id="reviewer-result-content"`} {
-		if !strings.Contains(string(body), want) {
-			t.Errorf("reviewer result dialog missing %q", want)
-		}
+	if strings.Contains(string(body), "reviewer-result") {
+		t.Error("shell still contains the reviewer result dialog")
 	}
 }
 
 func TestSprintRunExposesStageControls(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, want := range []string{`class="stage-timeline"`, `id="stage-requirements"`, `data-operation-kind="sprint-stage"`, "Run stage", "Run flow to here", "Preview prompt", "Check readiness"} {
+	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `data-stage-select="stage-requirements"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("stage controls missing %q in %s", want, body)
 		}
@@ -106,20 +107,20 @@ func TestSprintArtifactNavigatorKeepsExplorerContext(t *testing.T) {
 	}
 }
 
-func TestSprintRunExposesDeliveryActions(t *testing.T) {
+func TestSprintRunOnlyExposesFlowToStageAction(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, want := range []string{"Run execute", "Run review", "Check prerequisites", "Run smoke", "Check scope"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("delivery observability missing %q", want)
+	for _, unwanted := range []string{"Run execute", "Run review", "Check prerequisites", "Check scope", "Preview prompt", "Check readiness"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("run panel contains extra action %q", unwanted)
 		}
 	}
 }
 
-func TestSprintDeliveryShowsReviewerStatusGrid(t *testing.T) {
+func TestSprintRunDoesNotShowReviewerStatusGrid(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, want := range []string{`class="reviewer-grid"`, "Security contract", "completed", "API contract", "running", "Technical handbook", "pending"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("reviewer grid missing %q in %s", want, body)
+	for _, unwanted := range []string{`class="reviewer-grid"`, "Security contract", "API contract", "Technical handbook"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("reviewer UI remains in run panel: %q", unwanted)
 		}
 	}
 }

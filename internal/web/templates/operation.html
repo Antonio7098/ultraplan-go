@@ -12,42 +12,14 @@
 <nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Operation</nav>
 {{with .Operation}}
 {{$active := or (eq .State "accepted") (eq .State "running") (eq .State "cancelling")}}
-{{$review := or (eq .Kind "review-start") (eq .Kind "review-dry-run") (eq .Kind "review-status")}}
 <div class="operation-status-page"{{if $active}} data-operation-id="{{.ID}}" data-operation-state="{{.State}}"{{end}}>
-{{if $review}}
+  <section class="operation-run-panel" aria-labelledby="run-progress-heading"><header><h2 id="run-progress-heading">Run status</h2><span class="status status-{{if $active}}info{{else if eq .State "succeeded"}}ok{{else}}error{{end}}">{{.State}}</span></header>
   {{if $active}}
-  <section class="review-operation-status" aria-labelledby="review-operation-status-heading">
-    <h2 id="review-operation-status-heading">Status</h2>
-    <p><span class="status status-info">{{.State}}</span></p>
-    <div id="operation-live" role="status" aria-live="polite">Connecting to live review status…</div>
-    <button id="operation-cancel" type="button">Cancel review</button>
-  </section>
-  <section aria-labelledby="live-reviewers-heading" data-review-status data-review-status-path="{{.DurableStatus.RefreshPath}}">
-    <h2 id="live-reviewers-heading">Reviewers</h2>
-    <dl class="metadata review-counts"><div><dt>Complete</dt><dd id="review-count-complete">0</dd></div><div><dt>Running</dt><dd id="review-count-running">0</dd></div><div><dt>Pending</dt><dd id="review-count-pending">0</dd></div><div><dt>Failed or blocked</dt><dd id="review-count-failed">0</dd></div></dl>
-    <p id="reviewer-grid-empty" class="empty">Loading reviewer checkpoints…</p>
-    <ul id="live-reviewer-grid" class="reviewer-grid" aria-live="polite"></ul>
-  </section>
+  <div id="operation-live" role="status" aria-live="polite">Connecting to the run…</div><ol id="operation-timeline" class="operation-timeline" aria-label="Run progress"></ol><button id="operation-cancel" type="button">Cancel run</button><noscript><p>Refresh this page to see the latest status. The run continues on the server.</p></noscript>
   {{else}}
-    {{template "operation-result" .}}
-  {{end}}
-{{else}}
-  <dl class="metadata">
-    <div><dt>ID</dt><dd><code>{{.ID}}</code></dd></div>
-    <div><dt>Kind</dt><dd>{{.Kind}}</dd></div>
-    <div><dt>State</dt><dd>{{.State}}</dd></div>
-    <div><dt>Reason</dt><dd>{{if .Reason}}{{.Reason}}{{else}}none{{end}}</dd></div>
-    <div><dt>Created</dt><dd>{{.CreatedAt}}</dd></div>
-    <div><dt>Started</dt><dd>{{if .StartedAt}}{{.StartedAt}}{{else}}not started{{end}}</dd></div>
-  </dl>
-  {{if $active}}
-  <section class="operation-console" aria-labelledby="run-progress-heading"><h2 id="run-progress-heading">Live run progress</h2><div id="operation-live" role="status" aria-live="polite">Connecting to the run…</div><ol id="operation-timeline" class="operation-timeline" aria-label="Run progress"></ol><button id="operation-cancel" type="button">Cancel operation</button><noscript><p>This page refreshes manually without JavaScript; the operation continues on the server.</p></noscript></section>
-  {{end}}
   {{template "operation-result" .}}
-{{end}}
-{{if not $review}}<p><a class="refresh-link" href="/operations/{{.ID}}">Refresh run status</a></p>{{end}}
-{{if .DurableStatus.Available}}<p><a href="{{.DurableStatus.RefreshPath}}">Refresh durable product status</a></p>{{end}}
-{{if and $active (not $review)}}<p>Without JavaScript, cancel from the matching CLI/TUI operation using its normal interrupt or cancellation control.</p>{{end}}
+  {{end}}
+  </section>
 </div>
 {{end}}
 {{template "bottom" .}}{{end}}

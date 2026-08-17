@@ -349,7 +349,7 @@ func TestServerRenderedOperationFlowWorksWithoutJavaScript(t *testing.T) {
 	}
 	<-ops.started
 	status := operationSessionRequest(h, http.MethodGet, started.Header().Get("Location"), cookie)
-	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "Operation status") || !strings.Contains(status.Body.String(), "Refresh run status") || !strings.Contains(status.Body.String(), `data-operation-id="`) {
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "Run status") || !strings.Contains(status.Body.String(), "Run progress") || !strings.Contains(status.Body.String(), `data-operation-id="`) {
 		t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
 	}
 	close(ops.release)

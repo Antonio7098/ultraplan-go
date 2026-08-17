@@ -28,6 +28,31 @@
     });
   }
 
+  for (const workspace of document.querySelectorAll("[data-stage-workspace]")) {
+    const buttons = [...workspace.querySelectorAll("[data-stage-select]")];
+    const panels = [...workspace.querySelectorAll("[data-stage-panel]")];
+    const selectStage = (id, moveFocus = false) => {
+      const panel = panels.find((item) => item.id === id);
+      if (!panel) return;
+      for (const item of panels) item.hidden = item !== panel;
+      for (const button of buttons) {
+        const selected = button.dataset.stageSelect === id;
+        button.setAttribute("aria-selected", String(selected));
+        button.tabIndex = selected ? 0 : -1;
+      }
+      if (moveFocus) panel.focus();
+      history.replaceState(null, "", `#${id}`);
+    };
+    for (const button of buttons) button.addEventListener("click", () => selectStage(button.dataset.stageSelect, true));
+    const requested = location.hash.slice(1);
+    const initial = panels.some((item) => item.id === requested)
+      ? requested
+      : buttons.find((button) => button.closest(".stage-running"))?.dataset.stageSelect
+        || buttons.find((button) => !button.closest(".stage-complete, .stage-completed, .stage-skipped"))?.dataset.stageSelect
+        || buttons[buttons.length - 1]?.dataset.stageSelect;
+    if (initial) selectStage(initial);
+  }
+
   const forms = [...document.querySelectorAll(".operation-form")];
   const statusRoot = document.querySelector("[data-operation-id]");
   const reviewStatus = document.querySelector("[data-review-status]");
@@ -37,10 +62,9 @@
   if (forms.length === 0 && !statusRoot && !reviewStatus && !document.querySelector(".reviewer-card")) return;
 
   const csrf = document.querySelector('meta[name="ultraplan-csrf"]')?.content || "";
-  const confirmation = document.getElementById("operation-confirmation");
-  const live = document.getElementById("operation-live");
-  const timeline = document.getElementById("operation-timeline");
-  const cancelButton = document.getElementById("operation-cancel");
+  let live = document.getElementById("operation-live");
+  let timeline = document.getElementById("operation-timeline");
+  let cancelButton = document.getElementById("operation-cancel");
   const reviewerGrid = document.getElementById("live-reviewer-grid");
   const reviewerEmpty = document.getElementById("reviewer-grid-empty");
   let stream = null;
@@ -108,6 +132,7 @@
     item.dataset.event = name;
     timeline.append(item);
     while (timeline.children.length > 100) timeline.firstElementChild.remove();
+    timeline.scrollTop = timeline.scrollHeight;
   }
 
   function reviewerStatusClass(status) {
@@ -233,9 +258,12 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
+        const confirmation = form.closest("[data-stage-panel]")?.querySelector("[data-stage-confirmation]")
+          || document.getElementById("operation-confirmation");
         const operation = specification(form, event.submitter);
         announce("Preparing normalized operation scope.");
         const prepared = await command("/api/v1/operations/prepare", {operation});
+        if (!confirmation) throw new Error("The run confirmation panel is unavailable.");
         confirmation.hidden = false;
         confirmation.replaceChildren();
         const heading = document.createElement("h3");
@@ -257,7 +285,31 @@
           confirmButton.disabled = true;
           try {
             const started = await command("/api/v1/operations", {operation, confirmation_token: prepared.confirmation_token});
-            window.location.assign(`/operations/${encodeURIComponent(started.id)}`);
+            const stagePanel = form.closest("[data-stage-panel]");
+            if (!stagePanel) {
+              window.location.assign(`/operations/${encodeURIComponent(started.id)}`);
+              return;
+            }
+            form.hidden = true;
+            confirmation.hidden = true;
+            const stageLive = document.createElement("div");
+            stageLive.id = "operation-live";
+            stageLive.setAttribute("role", "status");
+            stageLive.setAttribute("aria-live", "polite");
+            const stageTimeline = document.createElement("ol");
+            stageTimeline.id = "operation-timeline";
+            stageTimeline.className = "operation-timeline";
+            stageTimeline.setAttribute("aria-label", "Live stage events");
+            const stageCancel = document.createElement("button");
+            stageCancel.id = "operation-cancel";
+            stageCancel.type = "button";
+            stageCancel.textContent = "Cancel run";
+            stagePanel.append(stageLive, stageTimeline, stageCancel);
+            live = stageLive;
+            timeline = stageTimeline;
+            cancelButton = stageCancel;
+            stageCancel.addEventListener("click", cancelCurrentOperation);
+            follow(started);
           } catch (error) {
             confirmButton.disabled = false;
             announce(error.message, true);
@@ -269,7 +321,7 @@
     });
   }
 
-  cancelButton?.addEventListener("click", async () => {
+  async function cancelCurrentOperation() {
     if (!currentOperationID) return;
     cancelButton.disabled = true;
     try {
@@ -280,7 +332,9 @@
     } finally {
       cancelButton.disabled = false;
     }
-  });
+  }
+
+  cancelButton?.addEventListener("click", cancelCurrentOperation);
 
   if (statusRoot) {
     follow({id: statusRoot.dataset.operationId, state: statusRoot.dataset.operationState});
