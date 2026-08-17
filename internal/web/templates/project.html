@@ -1,11 +1,7 @@
 {{define "project"}}{{template "top" .}}
 <nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / {{.Project.Name}}{{if ne .Page "overview"}} / {{if eq .Page "sprints"}}Sprints{{else}}Docs{{end}}{{end}}</nav>
 <div class="detail-layout project-detail-layout{{if eq .Page "documentation"}} project-docs-layout{{end}}">
-<aside class="detail-sidebar"><nav aria-label="Project navigation"><h2>Project</h2><ul>
-<li><a href="/projects/{{.Project.Name}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
-<li><a href="/projects/{{.Project.Name}}/documentation"{{if eq .Page "documentation"}} aria-current="page"{{end}}>Docs</a></li>
-<li><a href="/projects/{{.Project.Name}}/sprints"{{if eq .Page "sprints"}} aria-current="page"{{end}}>Sprints</a></li>
-</ul></nav></aside>
+{{template "project-navigation" .}}
 {{if eq .Page "documentation"}}<aside class="detail-sidebar artifact-explorer-sidebar"><nav aria-label="Documentation navigation"><h2>Docs</h2><ul class="artifact-tree">
 <li><a href="/projects/{{.Project.Name}}/documentation"{{if not .Artifact}} aria-current="page"{{end}}>Overview</a></li>
 <li><details open><summary>Project</summary><ul>{{range .Project.Artifacts}}{{if or (eq .Label "project-index") (eq .Label "roadmap")}}<li><a href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>

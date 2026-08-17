@@ -55,6 +55,15 @@
 {{else}}<p class="empty">No previewable artifacts.</p>{{end}}
 {{end}}
 
+{{define "project-navigation"}}
+{{$name := ""}}{{if .Project}}{{$name = .Project.Name}}{{else if .Sprint}}{{$name = .Sprint.Project}}{{end}}
+<aside class="detail-sidebar"><nav aria-label="Project navigation"><h2>Project</h2><ul>
+  <li><a href="/projects/{{$name}}"{{if and .Project (eq .Page "overview")}} aria-current="page"{{end}}>Overview</a></li>
+  <li><a href="/projects/{{$name}}/documentation"{{if and .Project (eq .Page "documentation")}} aria-current="page"{{end}}>Docs</a></li>
+  <li><a href="/projects/{{$name}}/sprints"{{if or .Sprint (eq .Page "sprints")}} aria-current="page"{{end}}>Sprints</a></li>
+</ul></nav></aside>
+{{end}}
+
 {{define "operation-console"}}
 <section class="operation-console" aria-labelledby="operation-console-heading">
   <h2 id="operation-console-heading">Operation status</h2>

@@ -154,6 +154,23 @@ func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
 	}
 }
 
+func TestProjectNavigationIsSharedWithSprintPages(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	for _, path := range []string{"/projects/alpha", "/projects/alpha/sprints/30-web"} {
+		body := request(h, http.MethodGet, path, nil).Body.String()
+		for _, want := range []string{">Overview</a>", ">Docs</a>", ">Sprints</a>"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s missing shared project item %q", path, want)
+			}
+		}
+		for _, stale := range []string{">Documentation</a>", ">Operations</a>", ">Validation</a>", ">Artifacts</a>"} {
+			if strings.Contains(body, stale) {
+				t.Errorf("%s retained stale project item %q", path, stale)
+			}
+		}
+	}
+}
+
 func TestDetailOverviewPagesStayFocused(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	for _, path := range []string{"/projects/alpha", "/studies/research"} {
