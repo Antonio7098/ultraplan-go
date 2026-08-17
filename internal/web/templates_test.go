@@ -42,7 +42,7 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 	h := testHandler(t, sampleQueries(), nil)
 	for _, path := range []string{"/projects/alpha/operations", "/projects/alpha/sprints/30-web/operations", "/studies/research/operations"} {
 		body := request(h, http.MethodGet, path, nil).Body.String()
-		for _, want := range []string{`class="operation-form"`, `aria-live="polite"`, `id="operation-timeline"`, `type="button"`, `<noscript>`} {
+		for _, want := range []string{`class="operation-form`, `aria-live="polite"`, `id="operation-timeline"`, `type="button"`, `<noscript>`} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s missing %q in %s", path, want, body)
 			}
@@ -81,18 +81,18 @@ func TestShellContainsAccessibleReviewerResultDialog(t *testing.T) {
 	}
 }
 
-func TestSprintOperationsExposeExplicitStageControls(t *testing.T) {
-	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/operations", nil).Body.String()
-	for _, want := range []string{`name="stage"`, `value="requirements"`, `value="technical-handbook"`, `value="reasoning"`, `data-operation-kind="sprint-stage"`, "Run this stage", "Run through this stage", "Preview prompt", "read only", "writes files"} {
+func TestSprintRunExposesStageControls(t *testing.T) {
+	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
+	for _, want := range []string{`class="stage-timeline"`, `id="stage-requirements"`, `data-operation-kind="sprint-stage"`, "Run stage", "Run flow to here", "Preview prompt", "Check readiness"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("stage controls missing %q in %s", want, body)
 		}
 	}
 }
 
-func TestSprintOperationsExposeFailurePreflights(t *testing.T) {
-	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/operations", nil).Body.String()
-	for _, want := range []string{"Execute status", "Check execute", "Review status", "Check review prerequisites", "Smoke status", "Check smoke scope", "Check verification"} {
+func TestSprintRunExposesDeliveryActions(t *testing.T) {
+	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
+	for _, want := range []string{"Run execute", "Run review", "Check prerequisites", "Run smoke", "Check scope"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("delivery observability missing %q", want)
 		}
@@ -100,8 +100,8 @@ func TestSprintOperationsExposeFailurePreflights(t *testing.T) {
 }
 
 func TestSprintDeliveryShowsReviewerStatusGrid(t *testing.T) {
-	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/delivery", nil).Body.String()
-	for _, want := range []string{`class="reviewer-grid"`, "Security contract", "contract-security", "completed", "API contract", "running", "Technical handbook", "pending", "Failed or blocked"} {
+	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
+	for _, want := range []string{`class="reviewer-grid"`, "Security contract", "completed", "API contract", "running", "Technical handbook", "pending"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("reviewer grid missing %q in %s", want, body)
 		}
@@ -115,7 +115,7 @@ func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
 		links               []string
 	}{
 		{path: "/projects/alpha/documentation", label: "Project navigation", active: "/projects/alpha/documentation", links: []string{"/projects/alpha", "/projects/alpha/sprints", "/projects/alpha/operations", "/projects/alpha/validation", "/projects/alpha/artifacts"}},
-		{path: "/projects/alpha/sprints/30-web/delivery", label: "Sprint navigation", active: "/projects/alpha/sprints/30-web/delivery", links: []string{"/projects/alpha/sprints/30-web", "/projects/alpha/sprints/30-web/plan", "/projects/alpha/sprints/30-web/operations", "/projects/alpha/sprints/30-web/validation", "/projects/alpha/sprints/30-web/artifacts"}},
+		{path: "/projects/alpha/sprints/30-web/run", label: "Sprint navigation", active: "/projects/alpha/sprints/30-web/run", links: []string{"/projects/alpha/sprints/30-web", "/projects/alpha/sprints/30-web/run", "/projects/alpha/sprints/30-web/artifacts"}},
 		{path: "/studies/research/progress", label: "Study navigation", active: "/studies/research/progress", links: []string{"/studies/research", "/studies/research/inputs", "/studies/research/operations", "/studies/research/validation", "/studies/research/artifacts"}},
 	}
 	for _, tt := range tests {
@@ -136,10 +136,16 @@ func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
 
 func TestDetailOverviewPagesStayFocused(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
-	for _, path := range []string{"/projects/alpha", "/projects/alpha/sprints/30-web", "/studies/research"} {
+	for _, path := range []string{"/projects/alpha", "/studies/research"} {
 		body := request(h, http.MethodGet, path, nil).Body.String()
 		if !strings.Contains(body, `class="destination-grid"`) || strings.Contains(body, `class="operation-form"`) || strings.Contains(body, `<h2>Artifacts</h2>`) {
 			t.Errorf("%s is not a focused overview: %s", path, body)
+		}
+	}
+	sprintBody := request(h, http.MethodGet, "/projects/alpha/sprints/30-web", nil).Body.String()
+	for _, want := range []string{"What this sprint is", "Make sprint delivery easier to understand.", "Current status", "Run flow"} {
+		if !strings.Contains(sprintBody, want) {
+			t.Errorf("sprint overview missing %q", want)
 		}
 	}
 }

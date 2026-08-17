@@ -246,6 +246,9 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		page := match.params[2]
+		if page == "plan" || page == "delivery" || page == "operations" || page == "validation" {
+			page = "run"
+		}
 		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: sprintPageTitle(page) + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Page: page})
 	case "studies":
 		result, err := h.queries.Studies(r.Context())
@@ -397,16 +400,10 @@ func projectPageTitle(page string) string {
 
 func sprintPageTitle(page string) string {
 	switch page {
-	case "plan":
-		return "Plan"
-	case "delivery":
-		return "Delivery"
-	case "operations":
-		return "Operations"
-	case "validation":
-		return "Validation"
+	case "run":
+		return "Run"
 	default:
-		return "Artifacts"
+		return "Artefact Navigator"
 	}
 }
 

@@ -25,8 +25,10 @@ func sampleQueries() *fakeQueries {
 	finding := app.DisplayFinding{Severity: "warn", Section: "plan", Problem: "Review this item", Suggestion: "Inspect the plan."}
 	sprint := app.WebSprintResult{
 		Ref: "sprint_ref", Project: "alpha", Slug: "30-web", Status: "available",
-		Assessment: "pass", NextAction: "none",
-		Stages:  []app.StageSummary{{Name: "plan", Status: "complete"}},
+		Overview: "Make sprint delivery easier to understand.", Assessment: "pass", NextAction: "Continue to review.",
+		Stages:          []app.StageSummary{{Name: "plan", Status: "complete"}},
+		RunStages:       []app.StageSummary{{Name: "requirements", Status: "complete", Path: "projects/alpha/sprints/30-web/requirements.md"}, {Name: "plan", Status: "complete"}, {Name: "execute", Status: "complete"}, {Name: "review", Status: "running"}, {Name: "smoke", Status: "waiting"}},
+		CompletedStages: 3, TotalStages: 5, CurrentStage: "review",
 		Execute: app.ExecuteSummary{Available: true, Total: 1, Complete: 1},
 		Review: app.ReviewSummary{Available: true, Status: "running", Verdict: "", Completed: 1, Total: 3, Pending: 1, Running: 1, Reviewers: []app.ReviewItemSummary{
 			{ID: "contract-security", Name: "Security contract", Kind: "contract", Path: "contracts/security.md", Status: "completed", Summary: "Security requirements checked."},

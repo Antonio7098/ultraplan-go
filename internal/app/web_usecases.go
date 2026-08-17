@@ -78,18 +78,24 @@ type WebProjectResult struct {
 }
 
 type WebSprintResult struct {
-	Ref        string
-	Project    string
-	Slug       string
-	Status     string
-	Assessment string
-	NextAction string
-	Stages     []StageSummary
-	Execute    ExecuteSummary
-	Review     ReviewSummary
-	Smoke      SmokeSummary
-	Findings   []DisplayFinding
-	Artifacts  []WebArtifactLink
+	Ref               string
+	Project           string
+	Slug              string
+	Status            string
+	Assessment        string
+	NextAction        string
+	Stages            []StageSummary
+	Execute           ExecuteSummary
+	Review            ReviewSummary
+	Smoke             SmokeSummary
+	Findings          []DisplayFinding
+	Artifacts         []WebArtifactLink
+	Overview          string
+	RunStages         []StageSummary
+	CompletedStages   int
+	TotalStages       int
+	CurrentStage      string
+	AttentionFindings []DisplayFinding
 }
 
 type WebStudyResult struct {
@@ -303,10 +309,85 @@ func (u *webUseCases) Sprint(ctx context.Context, project, slug string) (WebSpri
 	}
 	for _, item := range items {
 		if item.Project == project && item.Slug == slug {
-			return u.webSprint(item), nil
+			result := u.webSprint(item)
+			result.AttentionFindings = append([]DisplayFinding(nil), result.Findings...)
+			if len(result.AttentionFindings) > 3 {
+				result.AttentionFindings = result.AttentionFindings[:3]
+			}
+			result.Overview = u.sprintOverview(project, slug)
+			result.RunStages = sprintRunStages(item)
+			result.TotalStages = len(result.RunStages)
+			for _, stage := range result.RunStages {
+				if stage.Status == "complete" || stage.Status == "completed" || stage.Status == "skipped" {
+					result.CompletedStages++
+					continue
+				}
+				if result.CurrentStage == "" {
+					result.CurrentStage = stage.Name
+				}
+			}
+			return result, nil
 		}
 	}
 	return WebSprintResult{}, ErrWebNotFound
+}
+
+func (u *webUseCases) sprintOverview(project, slug string) string {
+	path := filepath.Join(u.root, "projects", project, "sprints", slug, "requirements.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+	inGoal := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") {
+			if inGoal {
+				break
+			}
+			inGoal = strings.EqualFold(strings.TrimSpace(strings.TrimPrefix(trimmed, "## ")), "Sprint Goal")
+			continue
+		}
+		if inGoal && trimmed != "" {
+			return strings.Trim(strings.TrimSpace(trimmed), "`*")
+		}
+	}
+	return ""
+}
+
+func sprintRunStages(item SprintSummary) []StageSummary {
+	stages := append([]StageSummary(nil), item.Stages...)
+	executeStatus := "waiting"
+	if item.Execute.Available {
+		switch {
+		case item.Execute.Running > 0:
+			executeStatus = "running"
+		case item.Execute.Failed > 0:
+			executeStatus = "failed"
+		case item.Execute.Total > 0 && item.Execute.Complete+item.Execute.Deferred == item.Execute.Total:
+			executeStatus = "complete"
+		default:
+			executeStatus = "ready"
+		}
+	}
+	stages = append(stages, StageSummary{Name: "execute", Status: executeStatus})
+	reviewStatus := "waiting"
+	if item.Review.Available {
+		reviewStatus = item.Review.Status
+		if reviewStatus == "" {
+			reviewStatus = "ready"
+		}
+	}
+	stages = append(stages, StageSummary{Name: "review", Status: reviewStatus})
+	smokeStatus := "waiting"
+	if item.Smoke.Available {
+		smokeStatus = item.Smoke.Status
+		if smokeStatus == "" {
+			smokeStatus = "ready"
+		}
+	}
+	return append(stages, StageSummary{Name: "smoke", Status: smokeStatus})
 }
 
 func (u *webUseCases) Studies(ctx context.Context) (WebStudiesResult, error) {

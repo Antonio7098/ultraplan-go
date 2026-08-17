@@ -82,6 +82,37 @@ th, td { border: 1px solid var(--border); padding: .65rem; text-align: left; ver
 .stage-operation-form select { max-width: 24rem; }
 .action-kind { display: block; color: var(--muted); font-size: .78rem; }
 .operation-console { border-left: .3rem solid var(--accent); }
+.sprint-goal { max-width: 58rem; font-family: ui-sans-serif, system-ui, sans-serif; font-size: clamp(1.15rem, 2vw, 1.5rem); line-height: 1.45; }
+.sprint-status-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.sprint-status-summary > div { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.sprint-status-summary p { margin: 0; color: var(--muted); }
+.primary-action { border-left: .3rem solid var(--accent); }
+.flow-action { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; }
+.flow-action label { display: flex; flex-direction: column; gap: .3rem; color: var(--muted); }
+.artifact-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.artifact-groups section { min-width: 0; }
+.artifact-groups h2 { margin-top: 0; }
+.group-description { color: var(--muted); min-height: 3rem; }
+.artifact-card { display: flex; flex-direction: column; gap: .2rem; padding: .7rem 0; border-top: 1px solid var(--border); text-decoration: none; }
+.artifact-card span { color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
+.internal-state { grid-column: 1 / -1; border: 1px solid var(--border); border-radius: .35rem; background: var(--panel); padding: 1rem; }
+.internal-state summary { cursor: pointer; font-weight: 800; }
+.run-layout { display: grid; grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr); gap: 1rem; margin-top: 1rem; align-items: start; }
+.stage-timeline { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: .35rem; background: var(--panel); }
+.stage-timeline li { position: relative; }
+.stage-timeline li + li { border-top: 1px solid var(--border); }
+.stage-timeline a { display: grid; grid-template-columns: .8rem minmax(0, 1fr) auto; align-items: center; gap: .55rem; padding: .75rem; text-decoration: none; }
+.stage-marker { width: .7rem; height: .7rem; border: 2px solid var(--muted); border-radius: 50%; }
+.stage-complete .stage-marker, .stage-completed .stage-marker, .stage-skipped .stage-marker { border-color: #86efac; background: #86efac; }
+.stage-running .stage-marker { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 .2rem color-mix(in srgb, var(--accent) 25%, transparent); }
+.stage-failed .stage-marker, .stage-blocked .stage-marker { border-color: #fda4af; background: #fda4af; }
+.stage-details { display: flex; flex-direction: column; gap: .75rem; }
+.stage-detail { scroll-margin-top: 1rem; border: 1px solid var(--border); border-radius: .35rem; background: var(--panel); }
+.stage-detail:target { border-color: var(--accent); }
+.stage-detail summary { display: flex; justify-content: space-between; gap: 1rem; cursor: pointer; padding: 1rem; text-transform: capitalize; }
+.stage-detail-body { border-top: 1px solid var(--border); padding: 1rem; }
+.stage-detail-body p:first-child { margin-top: 0; }
+.stage-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
 .operation-guidance { color: var(--muted); }
 .operation-error { color: #fda4af; }
 .operation-failure { border-left: .3rem solid #fda4af; padding: .75rem 1rem; background: color-mix(in srgb, #fda4af 8%, transparent); }
@@ -99,6 +130,8 @@ footer { border-top: 1px solid var(--border); border-bottom: 0; color: var(--mut
   .detail-sidebar { position: static; }
   .detail-sidebar ul { display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
   .detail-sidebar li + li { border-top: 0; }
+  .artifact-groups, .run-layout { grid-template-columns: 1fr; }
+  .sprint-status-summary { flex-direction: column; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }

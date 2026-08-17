@@ -202,7 +202,7 @@ func validProjectPage(page string) bool {
 
 func validSprintPage(page string) bool {
 	switch page {
-	case "plan", "delivery", "operations", "validation", "artifacts":
+	case "run", "artifacts", "plan", "delivery", "operations", "validation":
 		return true
 	default:
 		return false
