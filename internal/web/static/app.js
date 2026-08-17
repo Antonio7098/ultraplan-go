@@ -8,6 +8,26 @@
     });
   }
 
+  for (const stack of document.querySelectorAll("[data-sidebar-stack]")) {
+    const showPanel = (id) => {
+      const target = stack.querySelector(`#${CSS.escape(id)}`);
+      if (!target) return false;
+      for (const panel of stack.querySelectorAll("[data-sidebar-panel]")) panel.hidden = panel !== target;
+      target.querySelector("a, button")?.focus();
+      return true;
+    };
+    stack.addEventListener("click", (event) => {
+      const back = event.target.closest?.("[data-sidebar-back]");
+      if (back) {
+        event.preventDefault();
+        showPanel(back.dataset.sidebarBack);
+        return;
+      }
+      const open = event.target.closest?.("[data-sidebar-open]");
+      if (open && showPanel(open.dataset.sidebarOpen)) event.preventDefault();
+    });
+  }
+
   const forms = [...document.querySelectorAll(".operation-form")];
   const statusRoot = document.querySelector("[data-operation-id]");
   const reviewStatus = document.querySelector("[data-review-status]");

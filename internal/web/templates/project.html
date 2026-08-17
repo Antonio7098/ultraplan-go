@@ -1,13 +1,15 @@
 {{define "project"}}{{template "top" .}}
 <nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / {{.Project.Name}}{{if ne .Page "overview"}} / {{if eq .Page "sprints"}}Sprints{{else}}Docs{{end}}{{end}}</nav>
 <div class="detail-layout project-detail-layout{{if eq .Page "documentation"}} project-docs-layout{{end}}">
+<div class="sidebar-stack" data-sidebar-stack>
 {{template "project-navigation" .}}
-{{if eq .Page "documentation"}}<aside class="detail-sidebar artifact-explorer-sidebar"><nav aria-label="Documentation navigation"><h2>Docs</h2><ul class="artifact-tree">
+{{if eq .Page "documentation"}}<aside id="docs-sidebar" class="detail-sidebar artifact-explorer-sidebar" data-sidebar-panel><nav aria-label="Documentation navigation"><button class="sidebar-back" type="button" data-sidebar-back="project-sidebar">← Project</button><h2>Docs</h2><ul class="artifact-tree">
 <li><a href="/projects/{{.Project.Name}}/documentation"{{if not .Artifact}} aria-current="page"{{end}}>Overview</a></li>
 <li><details open><summary>Project</summary><ul>{{range .Project.Artifacts}}{{if or (eq .Label "project-index") (eq .Label "roadmap")}}<li><a href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
 <li><details open><summary>Documentation</summary><ul>{{range .Project.Artifacts}}{{if eq .Label "doc"}}<li><a href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}" title="{{.DisplayPath}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.DisplayPath}}</a></li>{{end}}{{end}}</ul></details></li>
 <li><details open><summary>Reasoning</summary><ul>{{range .Project.Artifacts}}{{if eq .Label "area-reasoning"}}<li><a href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}" title="{{.DisplayPath}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.DisplayPath}}</a></li>{{end}}{{end}}</ul></details></li>
 </ul></nav></aside>{{end}}
+</div>
 <div class="detail-content">
 {{if eq .Page "overview"}}
 <section><p class="eyebrow">Project overview</p><h2>Overview</h2><p>Understand the project, read its documentation, and move delivery forward through its sprints.</p><dl class="metadata"><div><dt>Sprints</dt><dd>{{len .Project.Sprints}}</dd></div><div><dt>Documentation files</dt><dd>{{len .Project.Docs}}</dd></div><div><dt>Validation findings</dt><dd>{{len .Project.Findings}}</dd></div></dl></section>

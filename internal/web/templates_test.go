@@ -171,6 +171,31 @@ func TestProjectNavigationIsSharedWithSprintPages(t *testing.T) {
 	}
 }
 
+func TestNestedNavigationUsesOneDrillDownSidebar(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	tests := []struct {
+		path  string
+		wants []string
+	}{
+		{"/projects/alpha/documentation", []string{`data-sidebar-stack`, `id="project-sidebar"`, `id="docs-sidebar"`, `data-sidebar-back="project-sidebar"`}},
+		{"/projects/alpha/sprints/30-web/artifacts", []string{`id="project-sidebar"`, `id="sprint-sidebar"`, `id="artifact-sidebar"`, `data-sidebar-back="sprint-sidebar"`}},
+	}
+	for _, tt := range tests {
+		body := request(h, http.MethodGet, tt.path, nil).Body.String()
+		for _, want := range tt.wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s missing drill-down sidebar marker %q", tt.path, want)
+			}
+		}
+	}
+	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
+	for _, want := range []string{"data-sidebar-stack", "data-sidebar-back", "data-sidebar-open", "panel.hidden = panel !== target", "event.preventDefault()"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("sidebar behavior missing %q", want)
+		}
+	}
+}
+
 func TestDetailOverviewPagesStayFocused(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	for _, path := range []string{"/projects/alpha", "/studies/research"} {

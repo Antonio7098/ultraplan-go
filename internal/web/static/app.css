@@ -28,9 +28,11 @@ main { width: 100%; max-width: none; margin: 0; padding: 1.5rem 1rem 3rem; }
 h1 { margin-top: .15rem; }
 h2 { margin-top: 2rem; }
 .detail-layout { display: grid; grid-template-columns: minmax(11rem, 15rem) minmax(0, 1fr); gap: 1.25rem; align-items: start; margin-top: 1rem; }
-.sprint-detail-layout { grid-template-columns: minmax(10rem, 13rem) minmax(10rem, 13rem) minmax(0, 1fr); }
-.sprint-artifact-layout { grid-template-columns: minmax(9rem, 12rem) minmax(9rem, 12rem) minmax(12rem, 16rem) minmax(0, 1fr); }
-.project-docs-layout { grid-template-columns: minmax(10rem, 13rem) minmax(14rem, 20rem) minmax(0, 1fr); }
+.sprint-detail-layout, .sprint-artifact-layout, .project-docs-layout { grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr); }
+.sidebar-stack { min-width: 0; }
+.sidebar-stack .detail-sidebar { position: sticky; top: 1rem; }
+.sidebar-stack .detail-sidebar[hidden] { display: none; }
+.sidebar-back { width: 100%; margin-bottom: .8rem; border-color: var(--border); text-align: left; }
 .detail-sidebar { position: sticky; top: 1rem; border: 1px solid var(--border); border-radius: .35rem; background: var(--panel); padding: 1rem; }
 .detail-sidebar h2 { margin: 0 0 .65rem; font-size: 1rem; }
 .detail-sidebar ul { list-style: none; margin: 0; padding: 0; }
@@ -147,6 +149,7 @@ footer { border-top: 1px solid var(--border); border-bottom: 0; color: var(--mut
   section { padding: .75rem; }
   .detail-layout, .sprint-detail-layout, .sprint-artifact-layout, .project-docs-layout { grid-template-columns: 1fr; }
   .detail-sidebar { position: static; }
+  .sidebar-stack .detail-sidebar { position: static; }
   .detail-sidebar ul { display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
   .detail-sidebar li + li { border-top: 0; }
   .artifact-groups, .run-layout { grid-template-columns: 1fr; }
