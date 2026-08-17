@@ -250,6 +250,18 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			page = "run"
 		}
 		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: sprintPageTitle(page) + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Page: page})
+	case "sprint_artifact":
+		result, err := h.queries.Sprint(r.Context(), match.params[0], match.params[1])
+		if err != nil {
+			h.handleQueryError(w, r, false, err)
+			return
+		}
+		artifact, err := h.queries.Artifact(r.Context(), match.params[2])
+		if err != nil {
+			h.handleQueryError(w, r, false, err)
+			return
+		}
+		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: artifact.DisplayPath + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Artifact: &artifact, Page: "artifacts"})
 	case "studies":
 		result, err := h.queries.Studies(r.Context())
 		if err != nil {

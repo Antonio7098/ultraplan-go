@@ -90,6 +90,22 @@ func TestSprintRunExposesStageControls(t *testing.T) {
 	}
 }
 
+func TestSprintArtifactNavigatorKeepsExplorerContext(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	overview := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/artifacts", nil).Body.String()
+	for _, want := range []string{`aria-label="Artefact navigation"`, `>Overview</a>`, ">Definition</summary>", ">Delivery</summary>", "/projects/alpha/sprints/30-web/artifacts/artifact_ref"} {
+		if !strings.Contains(overview, want) {
+			t.Errorf("artefact overview missing %q", want)
+		}
+	}
+	preview := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/artifacts/artifact_ref", nil).Body.String()
+	for _, want := range []string{`class="detail-layout sprint-detail-layout sprint-artifact-layout"`, `aria-label="Project navigation"`, `aria-label="Sprint navigation"`, `aria-label="Artefact navigation"`, `aria-label="Escaped artifact source"`, "# Plan"} {
+		if !strings.Contains(preview, want) {
+			t.Errorf("nested artefact preview missing %q", want)
+		}
+	}
+}
+
 func TestSprintRunExposesDeliveryActions(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
 	for _, want := range []string{"Run execute", "Run review", "Check prerequisites", "Run smoke", "Check scope"} {

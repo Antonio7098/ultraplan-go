@@ -157,6 +157,8 @@ func matchRoute(path string) routeMatch {
 	}
 	parts := splitPath(path)
 	switch {
+	case len(parts) == 6 && parts[0] == "projects" && parts[2] == "sprints" && parts[4] == "artifacts":
+		return routeMatch{name: "sprint_artifact", params: []string{parts[1], parts[3], parts[5]}, known: true}
 	case len(parts) == 3 && parts[0] == "projects" && validProjectPage(parts[2]):
 		return routeMatch{name: "project_page", params: []string{parts[1], parts[2]}, known: true}
 	case len(parts) == 2 && parts[0] == "projects":

@@ -29,6 +29,7 @@ h1 { margin-top: .15rem; }
 h2 { margin-top: 2rem; }
 .detail-layout { display: grid; grid-template-columns: minmax(11rem, 15rem) minmax(0, 1fr); gap: 1.25rem; align-items: start; margin-top: 1rem; }
 .sprint-detail-layout { grid-template-columns: minmax(10rem, 13rem) minmax(10rem, 13rem) minmax(0, 1fr); }
+.sprint-artifact-layout { grid-template-columns: minmax(9rem, 12rem) minmax(9rem, 12rem) minmax(12rem, 16rem) minmax(0, 1fr); }
 .detail-sidebar { position: sticky; top: 1rem; border: 1px solid var(--border); border-radius: .35rem; background: var(--panel); padding: 1rem; }
 .detail-sidebar h2 { margin: 0 0 .65rem; font-size: 1rem; }
 .detail-sidebar ul { list-style: none; margin: 0; padding: 0; }
@@ -98,6 +99,13 @@ th, td { border: 1px solid var(--border); padding: .65rem; text-align: left; ver
 .artifact-card span { color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
 .internal-state { grid-column: 1 / -1; border: 1px solid var(--border); border-radius: .35rem; background: var(--panel); padding: 1rem; }
 .internal-state summary { cursor: pointer; font-weight: 800; }
+.artifact-tree details { padding: .35rem 0; }
+.artifact-tree summary { cursor: pointer; color: var(--muted); font-weight: 800; }
+.artifact-tree ul { margin: .25rem 0 0 .75rem; border-left: 1px solid var(--border); padding-left: .75rem; }
+.artifact-tree li + li { border-top: 0; }
+.artifact-tree details a { padding: .3rem 0; overflow-wrap: anywhere; }
+.artifact-explorer-preview { border: 1px solid var(--border); border-radius: .35rem; background: var(--panel); }
+.artifact-preview-heading h2 { overflow-wrap: anywhere; }
 .run-layout { display: grid; grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr); gap: 1rem; margin-top: 1rem; align-items: start; }
 .stage-timeline { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: .35rem; background: var(--panel); }
 .stage-timeline li { position: relative; }
@@ -127,7 +135,7 @@ footer { border-top: 1px solid var(--border); border-bottom: 0; color: var(--mut
   .site-header, .heading-row { align-items: flex-start; flex-direction: column; }
   main { padding-top: 1rem; }
   section { padding: .75rem; }
-  .detail-layout, .sprint-detail-layout { grid-template-columns: 1fr; }
+  .detail-layout, .sprint-detail-layout, .sprint-artifact-layout { grid-template-columns: 1fr; }
   .detail-sidebar { position: static; }
   .detail-sidebar ul { display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
   .detail-sidebar li + li { border-top: 0; }
