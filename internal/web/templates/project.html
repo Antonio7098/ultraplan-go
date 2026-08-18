@@ -1,8 +1,8 @@
-{{define "project"}}{{template "top" .}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / {{.Project.Name}}{{if ne .Page "overview"}} / {{if eq .Page "sprints"}}Sprints{{else}}Docs{{end}}{{end}}</nav>
+{{define "page/project"}}{{template "layout/top" .}}
 <div class="detail-layout project-detail-layout{{if eq .Page "documentation"}} project-docs-layout{{end}}">
 <div class="sidebar-stack" data-sidebar-stack>
-{{template "project-navigation" .}}
+{{template "component/sidebar-controls" .}}
+{{template "component/project-navigation" .}}
 {{if eq .Page "documentation"}}<aside id="docs-sidebar" class="detail-sidebar artifact-explorer-sidebar" data-sidebar-panel><nav aria-label="Documentation navigation"><button class="sidebar-back" type="button" data-sidebar-back="project-sidebar">← Project</button><h2>Docs</h2><ul class="artifact-tree">
 <li><a href="/projects/{{.Project.Name}}/documentation"{{if not .Artifact}} aria-current="page"{{end}}>Overview</a></li>
 <li><details open><summary>Project</summary><ul>{{range .Project.Artifacts}}{{if or (eq .Label "project-index") (eq .Label "roadmap")}}<li><a href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
@@ -15,9 +15,30 @@
 <section><p class="eyebrow">Project overview</p><h2>Overview</h2><p>Understand the project, read its documentation, and move delivery forward through its sprints.</p><dl class="metadata"><div><dt>Sprints</dt><dd>{{len .Project.Sprints}}</dd></div><div><dt>Documentation files</dt><dd>{{len .Project.Docs}}</dd></div><div><dt>Validation findings</dt><dd>{{len .Project.Findings}}</dd></div></dl></section>
 <nav class="destination-grid" aria-label="Project overview destinations"><a href="/projects/{{.Project.Name}}/documentation"><strong>Docs</strong><span>Read project definitions, documentation, and reasoning.</span></a><a href="/projects/{{.Project.Name}}/sprints"><strong>Sprints</strong><span>Open planned and active sprint work.</span></a></nav>
 {{else if eq .Page "sprints"}}
-<section><p class="eyebrow">Project delivery</p><h2>Sprints</h2><p>Select a sprint to open its overview, artefacts, and governed run flow.</p>{{if .Project.Sprints}}<ul class="summary-grid">{{range .Project.Sprints}}<li><a href="/projects/{{.Project}}/sprints/{{.Slug}}">{{.Slug}}</a><span>{{.Status}}{{if .Assessment}} · {{.Assessment}}{{end}}</span></li>{{end}}</ul>{{else}}<p class="empty">No sprints found.</p>{{end}}</section>
+{{if .Project.Sprints}}
+{{range $index, $sprint := .Project.Sprints}}{{if eq $index 0}}
+<section class="latest-sprint">
+  <div class="latest-sprint-heading"><div><p class="eyebrow">Latest sprint</p><h2><a href="/projects/{{$sprint.Project}}/sprints/{{$sprint.Slug}}">{{$sprint.Slug}}</a></h2></div><span class="status status-info">{{$sprint.Status}}</span></div>
+  {{if $sprint.Overview}}<p class="latest-sprint-goal">{{$sprint.Overview}}</p>{{end}}
+  <dl class="latest-sprint-metadata"><div><dt>Assessment</dt><dd>{{if $sprint.Assessment}}{{$sprint.Assessment}}{{else}}Not available{{end}}</dd></div><div><dt>Flow progress</dt><dd>{{$sprint.CompletedStages}} / {{$sprint.TotalStages}} stages</dd></div>{{if $sprint.CurrentStage}}<div><dt>Current stage</dt><dd>{{$sprint.CurrentStage}}</dd></div>{{end}}</dl>
+  <a class="latest-sprint-action" href="/projects/{{$sprint.Project}}/sprints/{{$sprint.Slug}}">Open latest sprint <span aria-hidden="true">→</span></a>
+</section>
+{{end}}{{end}}
+<section class="sprint-roadmap" aria-labelledby="sprint-roadmap-heading">
+  <div class="sprint-roadmap-heading"><div><p class="eyebrow">Project delivery</p><h2 id="sprint-roadmap-heading">Sprint journey</h2></div>{{range .Project.Artifacts}}{{if eq .Label "roadmap"}}<a class="roadmap-link" href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}">Open roadmap</a>{{end}}{{end}}</div>
+  <ol class="sprint-timeline">
+  {{range $index, $sprint := .Project.Sprints}}
+    <li class="sprint-milestone{{if or (eq $sprint.Assessment "pass") (eq $sprint.Assessment "pass_with_findings") (eq $sprint.Status "complete") (eq $sprint.Status "completed")}} milestone-complete{{else if eq $index 0}} milestone-current{{else}} milestone-planned{{end}}">
+      <a href="/projects/{{$sprint.Project}}/sprints/{{$sprint.Slug}}"><span class="milestone-node" aria-hidden="true"></span><span class="milestone-content"><span class="milestone-title">{{$sprint.Slug}}</span>{{if $sprint.Overview}}<span class="milestone-goal">{{$sprint.Overview}}</span>{{end}}<span class="milestone-meta">{{$sprint.Status}}{{if $sprint.Assessment}} · {{$sprint.Assessment}}{{end}}</span></span><span class="milestone-arrow" aria-hidden="true">→</span></a>
+    </li>
+  {{end}}
+  </ol>
+</section>
+{{else}}
+<section><p class="eyebrow">Project delivery</p><h2>Sprint journey</h2><p class="empty">No sprints found.</p></section>
+{{end}}
 {{else if eq .Page "operations"}}
-<section><h2>Project validation</h2><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="validation" data-project="{{.Project.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="validation"><input type="hidden" name="project" value="{{.Project.Name}}"><p>Validate the current project index and catalogue.</p><button type="submit">Prepare project validation</button></form></section>{{template "operation-console" .}}
+<section><h2>Project validation</h2><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="validation" data-project="{{.Project.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="validation"><input type="hidden" name="project" value="{{.Project.Name}}"><p>Validate the current project index and catalogue.</p><button type="submit">Prepare project validation</button></form></section>{{template "component/operation-console" .}}
 {{else}}
 {{if .Artifact}}
 <section class="artifact-preview-heading"><p class="eyebrow">Document</p><h2>{{.Artifact.DisplayPath}}</h2><dl class="metadata"><div><dt>Media type</dt><dd>{{.Artifact.MediaType}}</dd></div><div><dt>Returned bytes</dt><dd>{{.Artifact.ReturnedBytes}} of {{.Artifact.SizeBytes}}</dd></div></dl></section>
@@ -26,4 +47,4 @@
 <section><p class="eyebrow">Project knowledge</p><h2>Docs</h2><p>Use the explorer to read the definitions, documentation, and reasoning that govern this project.</p></section>
 <div class="artifact-groups"><section><h2>Project</h2><p class="group-description">The roadmap and authoritative project index.</p>{{range .Project.Artifacts}}{{if or (eq .Label "project-index") (eq .Label "roadmap")}}<a class="artifact-card" href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}"><strong>{{.Label}}</strong><span>{{.DisplayPath}}</span></a>{{end}}{{end}}</section><section><h2>Documentation</h2><p class="group-description">Product and technical documents used by sprint planning.</p>{{range .Project.Artifacts}}{{if eq .Label "doc"}}<a class="artifact-card" href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}"><strong>{{.DisplayPath}}</strong></a>{{end}}{{end}}</section><section><h2>Reasoning</h2><p class="group-description">Reusable area-specific reasoning and evidence.</p>{{range .Project.Artifacts}}{{if eq .Label "area-reasoning"}}<a class="artifact-card" href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}"><strong>{{.DisplayPath}}</strong></a>{{end}}{{end}}</section></div>
 {{end}}{{end}}
-</div></div>{{template "bottom" .}}{{end}}
+</div></div>{{template "layout/bottom" .}}{{end}}

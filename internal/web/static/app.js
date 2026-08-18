@@ -8,11 +8,122 @@
     });
   }
 
+  for (const flyout of document.querySelectorAll("[data-nav-flyout]")) {
+    const button = flyout.querySelector(":scope > .top-nav-disclosure > button");
+    const items = flyout.querySelector("[data-nav-items]");
+    let loaded = false;
+    let loading = false;
+
+    const loadItems = async () => {
+      if (loaded || loading || !items) return;
+      loading = true;
+      try {
+        const response = await fetch(flyout.dataset.endpoint, {headers: {Accept: "application/json"}});
+        if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+        const payload = await response.json();
+        const entries = Array.isArray(payload.data) ? payload.data : [];
+        items.replaceChildren();
+        if (!entries.length) {
+          const empty = document.createElement("li");
+          empty.className = "top-nav-loading";
+          empty.textContent = "Nothing here yet.";
+          items.append(empty);
+        }
+        for (const entry of entries) {
+          const item = document.createElement("li");
+          const link = document.createElement("a");
+          link.href = `${flyout.dataset.basePath}/${encodeURIComponent(entry.name)}`;
+          link.textContent = entry.name;
+          item.append(link);
+          items.append(item);
+        }
+        loaded = true;
+      } catch (_) {
+        items.firstElementChild.textContent = "Could not load navigation.";
+      } finally {
+        loading = false;
+      }
+    };
+
+    const setExpanded = (expanded) => button?.setAttribute("aria-expanded", String(expanded));
+    flyout.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "touch") return;
+      setExpanded(true);
+      loadItems();
+    });
+    flyout.addEventListener("pointerleave", (event) => {
+      if (event.pointerType !== "touch" && !flyout.contains(document.activeElement)) setExpanded(false);
+    });
+    flyout.addEventListener("focusin", () => {
+      setExpanded(true);
+      loadItems();
+    });
+    flyout.addEventListener("focusout", (event) => {
+      if (!flyout.contains(event.relatedTarget)) setExpanded(false);
+    });
+    button?.addEventListener("click", () => {
+      setExpanded(true);
+      loadItems();
+    });
+    flyout.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      setExpanded(false);
+      button?.focus();
+    });
+  }
+
   for (const stack of document.querySelectorAll("[data-sidebar-stack]")) {
+    const launcher = stack.querySelector("[data-sidebar-toggle]");
+    const pin = stack.querySelector("[data-sidebar-pin]");
+    const label = stack.querySelector("[data-sidebar-label]");
+    const pinLabel = stack.querySelector("[data-pin-label]");
+    const storageKey = "ultraplan.sidebar.pinned";
+    let pinned = false;
+    let hovered = false;
+    try { pinned = localStorage.getItem(storageKey) === "true"; } catch (_) {}
+    stack.classList.add("is-collapsible");
+    stack.classList.toggle("is-pinned", pinned);
+    stack.classList.toggle("is-expanded", pinned);
+    pin?.setAttribute("aria-pressed", String(pinned));
+    if (pinLabel) pinLabel.textContent = pinned ? "Unpin navigation" : "Pin navigation";
+    launcher?.setAttribute("aria-expanded", String(pinned));
+
+    const setExpanded = (expanded) => {
+      if (pinned && !expanded) return;
+      stack.classList.toggle("is-expanded", expanded);
+      launcher?.setAttribute("aria-expanded", String(expanded));
+    };
+    stack.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "touch") return;
+      hovered = true;
+      setExpanded(true);
+    });
+    stack.addEventListener("pointerleave", (event) => {
+      if (event.pointerType === "touch") return;
+      hovered = false;
+      setExpanded(false);
+    });
+    stack.addEventListener("focusin", () => setExpanded(true));
+    stack.addEventListener("focusout", (event) => {
+      if (!stack.contains(event.relatedTarget)) setExpanded(false);
+    });
+    launcher?.addEventListener("click", () => setExpanded(true));
+    pin?.addEventListener("click", () => {
+      pinned = !pinned;
+      stack.classList.toggle("is-pinned", pinned);
+      stack.classList.toggle("is-expanded", pinned || hovered || stack.matches(":focus-within"));
+      pin.setAttribute("aria-pressed", String(pinned));
+      launcher?.setAttribute("aria-expanded", String(stack.classList.contains("is-expanded")));
+      if (pinLabel) pinLabel.textContent = pinned ? "Unpin navigation" : "Pin navigation";
+      try { localStorage.setItem(storageKey, String(pinned)); } catch (_) {}
+    });
+
     const showPanel = (id) => {
       const target = stack.querySelector(`#${CSS.escape(id)}`);
       if (!target) return false;
       for (const panel of stack.querySelectorAll("[data-sidebar-panel]")) panel.hidden = panel !== target;
+      const heading = target.querySelector("h2")?.textContent?.trim();
+      if (label && heading) label.textContent = heading;
       target.querySelector("a, button")?.focus();
       return true;
     };
@@ -119,6 +230,7 @@
   }
 
   async function command(path, payload, method = "POST") {
+    if (window.UltraPlanOperations) return window.UltraPlanOperations.command(path, payload, method);
     const response = await fetch(path, {
       method,
       credentials: "same-origin",
@@ -242,8 +354,9 @@
     if (cancelButton) cancelButton.hidden = false;
     announce(`Operation ${operation.id} ${operation.state}.`);
     stream = new EventSource(`/api/v1/operations/${encodeURIComponent(operation.id)}/events`);
+    window.UltraPlanSSE?.closeOnAbort(stream);
     stream.onopen = () => announce(`Operation ${operation.id} connected; receiving live progress.`);
-    for (const name of ["snapshot", "progress", "warning", "finding", "artifact", "cancel_requested", "recovery_required", "terminal"]) {
+    for (const name of window.UltraPlanSSE?.stableEvents || ["snapshot", "progress", "warning", "finding", "artifact", "cancel_requested", "recovery_required", "terminal"]) {
       stream.addEventListener(name, (message) => {
         let event;
         try { event = JSON.parse(message.data); } catch { return; }

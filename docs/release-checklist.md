@@ -6,7 +6,8 @@ This checklist gates the local Phase 3 CLI and TUI release. It does not publish,
 
 - Study workflows and governed sprint delivery through `execute -> review -> smoke`.
 - CLI and TUI support integrated `verify`, resumable/focused review, review-gated smoke, status, validation, cancellation, and recovery.
-- No issue management, hosted SaaS, browser UI, multi-user collaboration, or automatic Git mutation.
+- Local numeric-loopback browser UI with guarded operations and bounded SSE.
+- No issue management, hosted SaaS, remote/multi-user collaboration, or automatic Git mutation.
 - Runtime integration remains through agentwrap/OpenCode.
 
 ## Offline Gates
@@ -24,6 +25,24 @@ git diff --check
 Failures block release unless separately triaged and recorded.
 
 Also require the fake-runtime review suite and fake smoke-harness suite to pass without network, OpenCode, ambient credentials, or the external harness. Required real-runtime prerequisites that are unavailable must be reported as `blocked`, never `pass`.
+
+Local-web gates additionally require:
+
+```bash
+go test ./internal/app -run 'TestWeb|TestOperation|TestCapability|TestRenderSafeMarkdown'
+go test ./internal/web -run 'TestAPICompatibility|TestSecurity|TestOperation|TestSSE|TestServer|TestTemplate|TestIntegration|TestPackagedBinary'
+go test -race ./internal/web ./internal/app
+go run ./cmd/ultraplan serve --help
+```
+
+Confirm the import boundary, exact-origin/CSRF/session policy, static revalidation,
+forbidden-value scans, duplicate-start deduplication, shutdown uncertainty,
+namespaced templates, all layered assets, and the outside-tree binary launch.
+
+Record manual keyboard-only navigation, visible focus, live announcement timing,
+non-color states, reduced motion, 200% zoom/text enlargement, and narrow reflow
+for dashboard, sprint run, confirmation, active/terminal operation, artifact,
+and error pages. Automation does not turn these manual checks into a pass.
 
 ## Packaging
 

@@ -1,8 +1,8 @@
-{{define "sprint"}}{{template "top" .}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects">Projects</a> / <a href="/projects/{{.Sprint.Project}}">{{.Sprint.Project}}</a> / {{.Sprint.Slug}}{{if ne .Page "overview"}} / {{if eq .Page "run"}}Run{{else}}Artefact Navigator{{end}}{{end}}</nav>
+{{define "page/sprint"}}{{template "layout/top" .}}
 <div class="detail-layout sprint-detail-layout{{if eq .Page "artifacts"}} sprint-artifact-layout{{end}}">
 <div class="sidebar-stack" data-sidebar-stack>
-{{template "project-navigation" .}}
+{{template "component/sidebar-controls" .}}
+{{template "component/project-navigation" .}}
 <aside id="sprint-sidebar" class="detail-sidebar" data-sidebar-panel{{if eq .Page "artifacts"}} hidden{{end}}>
 <nav aria-label="Sprint navigation"><button class="sidebar-back" type="button" data-sidebar-back="project-sidebar">← Project</button><h2>Sprint</h2><ul>
 <li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
@@ -38,8 +38,8 @@
 <label for="overview-flow-target">Run flow to</label><select id="overview-flow-target" name="stage"><option value="requirements">Requirements</option><option value="sprint-index">Sprint index</option><option value="technical-handbook">Technical handbook</option><option value="area-reasoning">Area reasoning</option><option value="reasoning">Final reasoning</option><option value="plan" selected>Plan</option><option value="execute">Execute</option><option value="review">Review</option><option value="smoke">Smoke</option></select>
 <button type="submit" name="kind" value="sprint-flow" data-operation-kind="sprint-flow">Run flow</button></form>
 </section>
-{{if .Sprint.Findings}}<section><h2>Attention needed</h2><p>{{len .Sprint.Findings}} current findings. Showing the most immediate items; open Run for stage-specific actions.</p>{{template "findings" .Sprint.AttentionFindings}}</section>{{end}}
-{{template "operation-console" .}}
+{{if .Sprint.Findings}}<section><h2>Attention needed</h2><p>{{len .Sprint.Findings}} current findings. Showing the most immediate items; open Run for stage-specific actions.</p>{{template "component/findings" .Sprint.AttentionFindings}}</section>{{end}}
+{{template "component/operation-console" .}}
 {{else if eq .Page "artifacts"}}
 {{if .Artifact}}
 <section class="artifact-preview-heading"><p class="eyebrow">Artefact preview</p><h2>{{.Artifact.DisplayPath}}</h2><dl class="metadata"><div><dt>Media type</dt><dd>{{.Artifact.MediaType}}</dd></div><div><dt>Returned bytes</dt><dd>{{.Artifact.ReturnedBytes}} of {{.Artifact.SizeBytes}}</dd></div><div><dt>Truncated</dt><dd>{{if .Artifact.Truncated}}yes{{else}}no{{end}}</dd></div></dl></section>
@@ -70,4 +70,4 @@
 <form class="operation-form stage-start" method="post" action="/operations/prepare" data-project="{{$.Sprint.Project}}" data-sprint="{{$.Sprint.Slug}}" data-stage="{{.Name}}"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><input type="hidden" name="project" value="{{$.Sprint.Project}}"><input type="hidden" name="sprint" value="{{$.Sprint.Slug}}"><input type="hidden" name="stage" value="{{.Name}}"><button type="submit" name="kind" value="sprint-flow" data-operation-kind="sprint-flow">Start run to {{.Name}}</button></form>
 {{end}}<div class="stage-confirmation" data-stage-confirmation hidden></div></section>{{end}}<noscript><p class="notice">Stage links and run forms work without JavaScript. Refresh the resulting operation page to see current server status.</p></noscript></div></div>
 {{end}}
-</div></div>{{template "bottom" .}}{{end}}
+</div></div>{{template "layout/bottom" .}}{{end}}

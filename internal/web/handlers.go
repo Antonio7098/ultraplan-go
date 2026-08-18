@@ -14,9 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/extension"
-
 	"github.com/Antonio7098/ultraplan-go/internal/app"
 )
 
@@ -238,6 +235,9 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		if page == "artifacts" || page == "validation" {
 			page = "documentation"
 		}
+		if page == "sprints" {
+			result.Sprints = newestSprintsFirst(result.Sprints)
+		}
 		h.render(w, r, http.StatusOK, "project", pageModel{Title: projectPageTitle(page) + " · " + result.Name, Heading: result.Name, Project: &result, Page: page})
 	case "project_artifact":
 		result, err := h.queries.Project(r.Context(), match.params[0])
@@ -429,12 +429,11 @@ func renderMarkdown(artifact app.WebArtifactPreview) template.HTML {
 	if artifact.MediaType != "text/markdown" {
 		return ""
 	}
-	var out bytes.Buffer
-	md := goldmark.New(goldmark.WithExtensions(extension.GFM))
-	if err := md.Convert([]byte(artifact.Content), &out); err != nil {
+	rendered, err := app.RenderSafeMarkdown(artifact.Content)
+	if err != nil {
 		return ""
 	}
-	return template.HTML(out.String()) // Goldmark omits raw HTML and filters unsafe link destinations by default.
+	return template.HTML(rendered) // RenderSafeMarkdown returns a reviewed safe projection.
 }
 
 func sprintPageTitle(page string) string {
@@ -557,7 +556,7 @@ func templateText(value string) string {
 func (h *handler) render(w http.ResponseWriter, r *http.Request, status int, name string, page pageModel) {
 	page.CSRF = csrfToken(r.Context())
 	var buf bytes.Buffer
-	if err := h.templates.ExecuteTemplate(&buf, name, page); err != nil {
+	if err := h.templates.ExecuteTemplate(&buf, "page/"+name, page); err != nil {
 		http.Error(w, "page rendering failed", http.StatusInternalServerError)
 		return
 	}
@@ -659,6 +658,14 @@ func nonNilSlice[T any](items []T) []T {
 		return []T{}
 	}
 	return items
+}
+
+func newestSprintsFirst(items []app.WebSprintResult) []app.WebSprintResult {
+	out := append([]app.WebSprintResult(nil), items...)
+	for left, right := 0, len(out)-1; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	return out
 }
 
 func intPtr(value int) *int    { return &value }

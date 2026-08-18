@@ -1,4 +1,4 @@
-{{define "dashboard"}}{{template "top" .}}
+{{define "page/dashboard"}}{{template "layout/top" .}}
 <p>Live, bounded inspection of projects, sprints, studies, validation findings, and governed artifacts.</p>
 <section aria-labelledby="projects-heading">
   <h2 id="projects-heading">Projects</h2>
@@ -12,4 +12,4 @@
   <h2 id="studies-heading">Studies</h2>
   {{if .Studies}}<ul class="summary-grid">{{range .Studies}}<li><a href="/studies/{{.Name}}">{{.Name}}</a><span>{{.Status}}</span></li>{{end}}</ul>{{else}}<p class="empty">No studies found.</p>{{end}}
 </section>
-{{template "bottom" .}}{{end}}
+{{template "layout/bottom" .}}{{end}}

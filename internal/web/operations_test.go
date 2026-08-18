@@ -343,8 +343,14 @@ func TestOperationHTTPPrepareStartSSEAndCancel(t *testing.T) {
 		t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
 	}
 	replay := operationMutationRequest(h, http.MethodPost, "/api/v1/operations", startBody, cookie, csrf)
-	if replay.Code != http.StatusConflict || !strings.Contains(replay.Body.String(), "confirmation_replayed") {
+	if replay.Code != http.StatusAccepted || replay.Header().Get("Location") != started.Header().Get("Location") {
 		t.Fatalf("replay status=%d body=%s", replay.Code, replay.Body.String())
+	}
+	var replayEnvelope struct {
+		Data operationDocument `json:"data"`
+	}
+	if err := json.Unmarshal(replay.Body.Bytes(), &replayEnvelope); err != nil || replayEnvelope.Data.ID != startedEnvelope.Data.ID {
+		t.Fatalf("replay operation=%+v err=%v", replayEnvelope.Data, err)
 	}
 }
 

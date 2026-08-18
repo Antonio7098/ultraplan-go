@@ -4,18 +4,27 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"fmt"
 	"html/template"
 	"io"
+	"io/fs"
 	"net/http"
 	"strconv"
 	"strings"
+	"text/template/parse"
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
 )
 
-//go:embed templates/*.html static/*
+//go:embed templates/*.html templates/*/*.html static/*
 var assets embed.FS
+
+var staticAssetNames = map[string]struct{}{
+	"app.css": {}, "app.js": {},
+	"css/tokens.css": {}, "css/base.css": {}, "css/primitives.css": {}, "css/components.css": {}, "css/layouts.css": {}, "css/utilities.css": {},
+	"js/app.js": {}, "js/operations.js": {}, "js/sse.js": {},
+}
 
 type HandlerOptions struct {
 	Queries     app.WebQueries
@@ -41,7 +50,7 @@ func NewHandler(opts HandlerOptions) (http.Handler, error) {
 	if opts.Queries == nil {
 		return nil, errors.New("web queries are required")
 	}
-	templates, err := template.ParseFS(assets, "templates/*.html")
+	templates, err := parseTemplateTree(assets)
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +67,144 @@ func NewHandler(opts HandlerOptions) (http.Handler, error) {
 	h := &handler{queries: opts.Queries, templates: templates, now: opts.Now, hub: hub, preparations: newPreparationStore(opts.Now, opts.RequestID), diagnostics: opts.Diagnostics}
 	security := newSecurityMiddleware(opts.Authority, opts.Diagnostics, opts.Now, opts.RequestID)
 	return security.wrap(h), nil
+}
+
+func parseTemplateTree(source fs.FS) (*template.Template, error) {
+	if err := rejectDuplicateTemplateDefinitions(source); err != nil {
+		return nil, err
+	}
+	templates, err := template.ParseFS(source, "templates/*.html", "templates/*/*.html")
+	if err != nil {
+		return nil, err
+	}
+	if err := validateTemplateHierarchy(templates); err != nil {
+		return nil, err
+	}
+	return templates, nil
+}
+
+func rejectDuplicateTemplateDefinitions(source fs.FS) error {
+	seen := make(map[string]string)
+	var paths []string
+	for _, pattern := range []string{"templates/*.html", "templates/*/*.html"} {
+		matches, err := fs.Glob(source, pattern)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, matches...)
+	}
+	for _, path := range paths {
+		data, err := fs.ReadFile(source, path)
+		if err != nil {
+			return err
+		}
+		parsed, err := template.New(path).Parse(string(data))
+		if err != nil {
+			return fmt.Errorf("parse template %s: %w", path, err)
+		}
+		for _, item := range parsed.Templates() {
+			name := item.Name()
+			if !strings.Contains(name, "/") {
+				continue
+			}
+			if previous := seen[name]; previous != "" {
+				return fmt.Errorf("template %q is defined in both %s and %s", name, previous, path)
+			}
+			seen[name] = path
+		}
+	}
+	return nil
+}
+
+func validateTemplateHierarchy(templates *template.Template) error {
+	layers := map[string]int{"primitive": 0, "component": 1, "layout": 2, "page": 3}
+	required := []string{
+		"primitive/empty", "component/artifacts", "component/findings", "component/operation-console",
+		"layout/top", "layout/bottom", "page/dashboard", "page/projects", "page/project", "page/sprint",
+		"page/studies", "page/study", "page/artifact", "page/operation-confirm", "page/operation", "page/error",
+	}
+	for _, name := range required {
+		if templates.Lookup(name) == nil {
+			return fmt.Errorf("required template %q is missing", name)
+		}
+	}
+	graph := make(map[string][]string)
+	for _, item := range templates.Templates() {
+		name := item.Name()
+		parts := strings.SplitN(name, "/", 2)
+		if len(parts) != 2 {
+			continue // ParseFS also exposes empty filename roots.
+		}
+		level, ok := layers[parts[0]]
+		if !ok {
+			return fmt.Errorf("template %q has an unsupported namespace", name)
+		}
+		dependencies := templateDependencies(item.Tree.Root)
+		for _, dependency := range dependencies {
+			dependencyParts := strings.SplitN(dependency, "/", 2)
+			dependencyLevel, ok := layers[dependencyParts[0]]
+			if len(dependencyParts) != 2 || !ok {
+				return fmt.Errorf("template %q depends on unnamespaced template %q", name, dependency)
+			}
+			if dependencyLevel >= level {
+				return fmt.Errorf("template %q has upward or same-layer dependency %q", name, dependency)
+			}
+		}
+		graph[name] = dependencies
+	}
+	visiting, visited := make(map[string]bool), make(map[string]bool)
+	var visit func(string) error
+	visit = func(name string) error {
+		if visiting[name] {
+			return fmt.Errorf("template dependency cycle includes %q", name)
+		}
+		if visited[name] {
+			return nil
+		}
+		visiting[name] = true
+		for _, dependency := range graph[name] {
+			if err := visit(dependency); err != nil {
+				return err
+			}
+		}
+		delete(visiting, name)
+		visited[name] = true
+		return nil
+	}
+	for name := range graph {
+		if err := visit(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func templateDependencies(node parse.Node) []string {
+	var dependencies []string
+	var walk func(parse.Node)
+	walk = func(current parse.Node) {
+		switch value := current.(type) {
+		case *parse.ListNode:
+			if value != nil {
+				for _, child := range value.Nodes {
+					walk(child)
+				}
+			}
+		case *parse.TemplateNode:
+			dependencies = append(dependencies, value.Name)
+		case *parse.IfNode:
+			walk(value.List)
+			walk(value.ElseList)
+		case *parse.RangeNode:
+			walk(value.List)
+			walk(value.ElseList)
+		case *parse.WithNode:
+			walk(value.List)
+			walk(value.ElseList)
+		}
+	}
+	walk(node)
+	return dependencies
 }
 
 type routeMatch struct {
@@ -191,8 +338,11 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "api_operation", params: parts[3:], known: true, api: true}
 	case len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "operations" && parts[4] == "events":
 		return routeMatch{name: "api_operation_events", params: []string{parts[3]}, known: true, api: true}
-	case len(parts) == 2 && parts[0] == "static" && (parts[1] == "app.css" || parts[1] == "app.js"):
-		return routeMatch{name: "static", params: parts[1:], known: true, static: true}
+	case strings.HasPrefix(path, "/static/"):
+		name := strings.TrimPrefix(path, "/static/")
+		if _, ok := staticAssetNames[name]; ok {
+			return routeMatch{name: "static", params: []string{name}, known: true, static: true}
+		}
 	}
 	return routeMatch{api: strings.HasPrefix(path, "/api/")}
 }
@@ -246,6 +396,7 @@ func (h *handler) serveStatic(w http.ResponseWriter, _ *http.Request, name strin
 	} else {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	}
+	w.Header().Set("Cache-Control", "public, max-age=0, must-revalidate")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)

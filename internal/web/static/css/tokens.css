@@ -1,0 +1,8 @@
+:root {
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --target-min: 2.25rem;
+  --content-wide: 96rem;
+}

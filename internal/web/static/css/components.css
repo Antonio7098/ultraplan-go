@@ -1,0 +1,3 @@
+.status::after { content: attr(data-state); }
+.operation-error, [role="alert"] { border-inline-start-color: var(--danger); }
+.notice, [role="status"] { overflow-wrap: anywhere; }

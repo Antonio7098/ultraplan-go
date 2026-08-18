@@ -96,11 +96,11 @@ func TestBrowserLifecycleDocumentContract(t *testing.T) {
 
 func TestBrowserSSEEventNameAndFrameContract(t *testing.T) {
 	want := []string{"artifact", "cancel_requested", "finding", "progress", "recovery_required", "snapshot", "terminal", "warning"}
-	js, err := os.ReadFile("static/app.js")
+	js, err := os.ReadFile("static/js/sse.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	matches := regexp.MustCompile(`for \(const name of \[([^]]+)\]\)`).FindSubmatch(js)
+	matches := regexp.MustCompile(`stableEvents = Object\.freeze\(\[([^]]+)\]\)`).FindSubmatch(js)
 	if len(matches) != 2 {
 		t.Fatal("embedded client event subscription list is missing")
 	}

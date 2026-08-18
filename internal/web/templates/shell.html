@@ -1,4 +1,4 @@
-{{define "top"}}<!doctype html>
+{{define "layout/top"}}<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -6,6 +6,9 @@
   <title>{{.Title}} · UltraPlan</title>
   <meta name="ultraplan-csrf" content="{{.CSRF}}">
   <link rel="stylesheet" href="/static/app.css">
+  <script defer src="/static/js/app.js"></script>
+  <script defer src="/static/js/operations.js"></script>
+  <script defer src="/static/js/sse.js"></script>
   <script defer src="/static/app.js"></script>
 </head>
 <body>
@@ -13,9 +16,26 @@
   <header class="site-header">
     <a class="brand" href="/">UltraPlan <span class="visually-hidden">home</span></a>
     <nav aria-label="Primary">
-      <a href="/">Dashboard</a>
-      <a href="/projects">Projects</a>
-      <a href="/studies">Studies</a>
+      <div class="top-nav-item" data-nav-flyout data-endpoint="/api/v1/projects" data-base-path="/projects">
+        <a href="/projects">Projects</a>
+        <div class="top-nav-disclosure">
+          <button type="button" aria-label="Show projects" aria-expanded="false" aria-controls="projects-flyout"><span aria-hidden="true">›</span></button>
+          <div class="top-nav-flyout" id="projects-flyout">
+            <div class="top-nav-flyout-heading"><strong>Projects</strong><a href="/projects">View all</a></div>
+            <ul data-nav-items><li class="top-nav-loading">Loading projects…</li></ul>
+          </div>
+        </div>
+      </div>
+      <div class="top-nav-item" data-nav-flyout data-endpoint="/api/v1/studies" data-base-path="/studies">
+        <a href="/studies">Studies</a>
+        <div class="top-nav-disclosure">
+          <button type="button" aria-label="Show studies" aria-expanded="false" aria-controls="studies-flyout"><span aria-hidden="true">›</span></button>
+          <div class="top-nav-flyout" id="studies-flyout">
+            <div class="top-nav-flyout-heading"><strong>Studies</strong><a href="/studies">View all</a></div>
+            <ul data-nav-items><li class="top-nav-loading">Loading studies…</li></ul>
+          </div>
+        </div>
+      </div>
     </nav>
   </header>
   <main id="main" tabindex="-1">
@@ -29,7 +49,7 @@
     <p id="refresh-status" class="visually-hidden" aria-live="polite"></p>
 {{end}}
 
-{{define "bottom"}}
+{{define "layout/bottom"}}
   </main>
   <footer>
     <span class="status status-ok">Server ready</span>
@@ -38,7 +58,7 @@
 </body>
 </html>{{end}}
 
-{{define "artifacts"}}
+{{define "component/artifacts"}}
 {{if .}}
 <ul class="artifact-list">
   {{range .}}
@@ -48,7 +68,7 @@
 {{else}}<p class="empty">No previewable artifacts.</p>{{end}}
 {{end}}
 
-{{define "project-navigation"}}
+{{define "component/project-navigation"}}
 {{$name := ""}}{{if .Project}}{{$name = .Project.Name}}{{else if .Sprint}}{{$name = .Sprint.Project}}{{end}}
 <aside id="project-sidebar" class="detail-sidebar" data-sidebar-panel{{if or .Sprint (and .Project (eq .Page "documentation"))}} hidden{{end}}><nav aria-label="Project navigation"><h2>Project</h2><ul>
   <li><a href="/projects/{{$name}}"{{if and .Project (eq .Page "overview")}} aria-current="page"{{end}}>Overview</a></li>
@@ -57,7 +77,14 @@
 </ul></nav></aside>
 {{end}}
 
-{{define "operation-console"}}
+{{define "component/sidebar-controls"}}
+<div class="sidebar-controls">
+  <button class="sidebar-launcher" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Toggle contextual navigation"><span class="sidebar-launcher-icon" aria-hidden="true"></span><span data-sidebar-label>{{if and .Sprint (eq .Page "artifacts")}}Artefacts{{else if .Sprint}}Sprint{{else if and .Project (eq .Page "documentation")}}Docs{{else}}Project{{end}}</span></button>
+  <button class="sidebar-pin" type="button" data-sidebar-pin aria-pressed="false" aria-label="Pin contextual navigation"><span aria-hidden="true">⌖</span><span class="visually-hidden" data-pin-label>Pin navigation</span></button>
+</div>
+{{end}}
+
+{{define "component/operation-console"}}
 <section class="operation-console" aria-labelledby="operation-console-heading">
   <h2 id="operation-console-heading">Operation status</h2>
   <p class="operation-guidance">Preparation is side-effect-free. Review the normalized scope before confirming. Closing this page does not cancel accepted work.</p>
@@ -69,7 +96,7 @@
 </section>
 {{end}}
 
-{{define "findings"}}
+{{define "component/findings"}}
 {{if .}}
 <ul class="findings">
   {{range .}}

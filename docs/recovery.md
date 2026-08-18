@@ -92,6 +92,26 @@ The governed sprint chain continues through execute, review, and smoke using the
 3. Confirm runtime/provider state outside UltraPlan if a task is still active.
 4. Resume with `study <study> run-loop` only after deciding the previous process is gone or safe to abandon. Continuing shared study progress is the default. Use `--reset` only when you intentionally want to archive and rebuild progress.
 
+## Browser Operation Recovery
+
+The browser's operation handle, event replay, confirmation, and subscriber are
+bounded, ephemeral views. Product-owned workspace/run state is authoritative.
+
+- Refresh, navigation, tab close, SSE loss, and a slow subscriber cancel only
+  observation. They do not prove completion and do not cancel product work.
+- On `recovery_required`, reconnect exhaustion, operation expiry, or a missing
+  terminal event, follow the durable refresh link or run the equivalent CLI
+  status/validation command before retrying.
+- Explicit cancellation is idempotent. A late cancel cannot replace an already
+  authoritative completion/failure result.
+- During shutdown, new mutations receive `server_draining`; wait for the server
+  to stop, inspect durable status, then restart and retry preparation.
+- A `.cleanup-uncertain.json` marker means bounded shutdown could not prove
+  cleanup. Restart reconciliation runs through the owning sprint/study module;
+  process absence and artifact presence are evidence only, not success.
+- A stale product mutation lock must be assessed through normal CLI status and
+  lock guidance. Never delete it merely because the browser operation expired.
+
 ## Locks And `--force-unlock`
 
 `run-loop` uses a per-study lock to refuse concurrent runs. Use:

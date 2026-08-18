@@ -57,6 +57,15 @@ func TestRouteInventoryHTMLAndAPI(t *testing.T) {
 		{"/api/v1/health", "application/json"},
 		{"/static/app.css", "text/css"},
 		{"/static/app.js", "text/javascript"},
+		{"/static/css/tokens.css", "text/css"},
+		{"/static/css/base.css", "text/css"},
+		{"/static/css/primitives.css", "text/css"},
+		{"/static/css/components.css", "text/css"},
+		{"/static/css/layouts.css", "text/css"},
+		{"/static/css/utilities.css", "text/css"},
+		{"/static/js/app.js", "text/javascript"},
+		{"/static/js/operations.js", "text/javascript"},
+		{"/static/js/sse.js", "text/javascript"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.path, func(t *testing.T) {
@@ -117,6 +126,22 @@ func TestMethodHeadAndUnknownAPIRouting(t *testing.T) {
 	html := request(h, http.MethodGet, "/unknown", nil)
 	if html.Code != http.StatusNotFound || !strings.Contains(html.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("html status=%d type=%q", html.Code, html.Header().Get("Content-Type"))
+	}
+}
+
+func TestCachePolicySeparatesStateFromRevalidatedAssets(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	for _, path := range []string{"/", "/api/v1/projects", "/api/v1/health"} {
+		res := request(h, http.MethodGet, path, nil)
+		if got := res.Header().Get("Cache-Control"); got != "no-store" {
+			t.Errorf("%s Cache-Control=%q, want no-store", path, got)
+		}
+	}
+	for _, path := range []string{"/static/app.css", "/static/app.js"} {
+		res := request(h, http.MethodGet, path, nil)
+		if got := res.Header().Get("Cache-Control"); got != "public, max-age=0, must-revalidate" {
+			t.Errorf("%s Cache-Control=%q", path, got)
+		}
 	}
 }
 

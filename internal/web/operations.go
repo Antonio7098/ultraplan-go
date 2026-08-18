@@ -88,6 +88,7 @@ type operationRecord struct {
 	eventBytes  int
 	subscribers map[uint64]*operationSubscriber
 	nextSubID   uint64
+	dedupKey    string
 }
 
 type operationHub struct {
@@ -98,6 +99,7 @@ type operationHub struct {
 
 	mu       sync.Mutex
 	records  map[string]*operationRecord
+	dedup    map[string]string
 	active   int
 	streams  int
 	draining bool
@@ -127,17 +129,23 @@ func newOperationHub(rootCtx context.Context, ops app.WebOperations, now func() 
 	if id == nil {
 		id = randomRequestID
 	}
-	return &operationHub{rootCtx: rootCtx, ops: ops, now: now, id: id, records: make(map[string]*operationRecord)}
+	return &operationHub{rootCtx: rootCtx, ops: ops, now: now, id: id, records: make(map[string]*operationRecord), dedup: make(map[string]string)}
 }
 
 func (h *operationHub) start(session string, prepared app.Confirmation) (operationDocument, error) {
-	return h.startConfirmed(session, func() (app.Confirmation, error) { return prepared, nil })
+	return h.startConfirmed(session, "", func() (app.Confirmation, error) { return prepared, nil })
 }
 
-func (h *operationHub) startConfirmed(session string, confirm func() (app.Confirmation, error)) (operationDocument, error) {
+func (h *operationHub) startConfirmed(session, dedupKey string, confirm func() (app.Confirmation, error)) (operationDocument, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.reapLocked()
+	if id := h.dedup[dedupKey]; dedupKey != "" && id != "" {
+		if record := h.records[id]; record != nil && record.session == session {
+			return cloneOperationDocument(record.doc), nil
+		}
+		delete(h.dedup, dedupKey)
+	}
 	if h.draining {
 		h.counters.capacityRejections.Add(1)
 		return operationDocument{}, errServerDraining
@@ -165,9 +173,12 @@ func (h *operationHub) startConfirmed(session string, confirm func() (app.Confir
 			DurableStatus: durableStatusDTO{Available: prepared.DurableRefreshPath != "", RefreshPath: prepared.DurableRefreshPath},
 		},
 		session: session, request: prepared.Request, cancel: cancel, done: make(chan struct{}),
-		subscribers: make(map[uint64]*operationSubscriber),
+		subscribers: make(map[uint64]*operationSubscriber), dedupKey: dedupKey,
 	}
 	h.records[id] = record
+	if dedupKey != "" {
+		h.dedup[dedupKey] = id
+	}
 	h.active++
 	h.counters.starts.Add(1)
 	h.counters.active.Add(1)
@@ -476,6 +487,9 @@ func (h *operationHub) reapLocked() {
 	for id, record := range h.records {
 		if record.doc.FinishedAt != nil && now.Sub(*record.doc.FinishedAt) >= TerminalRetention {
 			delete(h.records, id)
+			if record.dedupKey != "" {
+				delete(h.dedup, record.dedupKey)
+			}
 		}
 	}
 }

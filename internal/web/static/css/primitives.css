@@ -1,0 +1,3 @@
+button, select, summary, a { touch-action: manipulation; }
+button, select { min-block-size: var(--target-min); }
+:focus-visible { scroll-margin: var(--space-4); }

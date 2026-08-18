@@ -49,8 +49,10 @@ flow, execute, review, smoke, verify, study run-loop, status, and explicit
 cancellation. The browser cannot submit arbitrary commands, paths, prompts, or
 executables.
 
-Each request reads current app-owned workspace state. Responses use
-`Cache-Control: no-store`; there is no server snapshot, browser database,
+Each request reads current app-owned workspace state. State-bearing HTML, JSON,
+errors, operation projections, and SSE use `Cache-Control: no-store`. Embedded
+static assets use `public, max-age=0, must-revalidate` because their stable URLs
+are not content-addressed. There is no server snapshot, browser database,
 watcher, hidden preload, automatic polling, or browser-owned product state.
 Use the visible Refresh link or an ordinary page reload after CLI/TUI changes.
 A response is a bounded point-in-time projection, not a cross-request
@@ -72,9 +74,11 @@ classes, and non-regular files, then reads at most 256 KiB plus one byte for
 truncation detection. Invalid, stale, unsupported, and escaping references all
 produce the same safe not-found result.
 
-Markdown and JSON are displayed as escaped source inside labelled code blocks.
-Workspace HTML, scripts, Markdown links, and JSON strings are never installed as
-trusted HTML or executed. JSON responses report total bytes, returned bytes,
+Markdown is converted by the app boundary through Goldmark's safe GFM renderer;
+raw HTML and unsafe link destinations are disabled before the web adapter marks
+the reviewed projection as template content. JSON and fallback sources remain
+escaped inside labelled code blocks. Workspace HTML, scripts, and JSON strings
+are never executed. JSON responses report total bytes, returned bytes,
 truncation, and bounded JSON validity.
 
 ## Local Security And Trust Boundary
@@ -128,7 +132,8 @@ The command lifecycle is:
 2. The user reviews the returned scope and short-lived confirmation.
 3. `POST /api/v1/operations` repeats the specification, re-normalizes it, and
    starts server-owned work only if the confirmation remains current. Success
-   is `202` with a `Location` header.
+   is `202` with a `Location` header. Retrying the same accepted session/token
+   returns the original operation and Location without starting duplicate work.
 4. `GET /api/v1/operations/{id}` returns retained status and terminal result.
 5. `GET /api/v1/operations/{id}/events` observes progress through SSE.
 6. `DELETE /api/v1/operations/{id}` requests canonical cancellation and is
@@ -213,12 +218,13 @@ Common failures:
 - artifact not found after a refresh: the opaque reference is stale or the
   governed artifact changed; reload its project/sprint/study detail page.
 
-There is no Node.js, Vite, frontend build, separate asset server, database, or
-web-owned durable job store. Runtime/provider and smoke-harness prerequisites
-apply only when their existing operations are selected.
-
-Sprint 32 retains browser compatibility hardening, release accessibility audit,
-packaging, and gated real-runtime/browser evidence.
+Templates use validated `primitive/*`, `component/*`, `layout/*`, and `page/*`
+definitions. CSS is layered as tokens, base, primitives, components, layouts,
+and utilities. Dependency-free JavaScript separates baseline lifecycle,
+operation commands, and SSE ownership. There is no Node.js, Vite, frontend
+build, separate asset server, database, or web-owned durable job store.
+Runtime/provider and smoke-harness prerequisites apply only when their existing
+operations are selected.
 
 Snapshot-based invalidation of completed reviews, completed smoke evidence, and
 smoke-author changes to the product target or governed project inputs is

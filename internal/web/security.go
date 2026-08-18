@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -142,6 +141,8 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 		switch {
 		case len(r.RequestURI) > MaxRequestTarget:
 			m.reject(tracked, r, http.StatusBadRequest, "invalid_request", "The request target is too long.")
+		case ambiguousRequestFraming(r):
+			m.reject(tracked, r, http.StatusBadRequest, "invalid_request", "The request framing is ambiguous.")
 		case r.Host != m.authority:
 			m.reject(tracked, r, http.StatusForbidden, "host_rejected", hostRejectionMessage(m.authority, r.Host))
 		case operationMutation && !validSession:
@@ -173,6 +174,11 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 			"event=http_request request_id=%s route=%s method=%s status=%d duration_ms=%d response_bytes=%d\n",
 			id, normalizedRoute(r.URL.Path), r.Method, tracked.status, m.now().Sub(started).Milliseconds(), tracked.bytes)
 	})
+}
+
+func ambiguousRequestFraming(r *http.Request) bool {
+	contentLengths := r.Header.Values("Content-Length")
+	return len(contentLengths) > 1 || (len(contentLengths) > 0 && len(r.TransferEncoding) > 0)
 }
 
 func (m *securityMiddleware) reject(w http.ResponseWriter, r *http.Request, status int, code, message string) {
@@ -263,28 +269,11 @@ func validOrigin(origin, expected string) bool {
 // rewrite only the port while preserving the exact numeric loopback address.
 // Mutating requests still require the signed session and CSRF proof.
 func validCommandOrigin(origin, expected string) bool {
-	if origin == expected {
-		return true
-	}
-	actualURL, actualIP, actualOK := numericLoopbackOrigin(origin)
-	expectedURL, expectedIP, expectedOK := numericLoopbackOrigin(expected)
-	return actualOK && expectedOK && actualURL.Scheme == expectedURL.Scheme && actualIP.Equal(expectedIP)
+	return origin == expected
 }
 
 func validOperationReadOrigin(origin, expected string) bool {
 	return origin == "" || validCommandOrigin(origin, expected)
-}
-
-func numericLoopbackOrigin(value string) (*url.URL, net.IP, bool) {
-	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return nil, nil, false
-	}
-	ip := net.ParseIP(parsed.Hostname())
-	if ip == nil || !ip.IsLoopback() {
-		return nil, nil, false
-	}
-	return parsed, ip, true
 }
 
 func requestID(ctx context.Context) string {
@@ -417,6 +406,11 @@ func (s *preparationStore) reapLocked() {
 			delete(s.records, token)
 		}
 	}
+}
+
+func confirmationDedupKey(session, token string) string {
+	digest := sha256.Sum256([]byte(session + "\x00" + token))
+	return hex.EncodeToString(digest[:])
 }
 
 var (

@@ -1,4 +1,4 @@
-{{define "study"}}{{template "top" .}}
+{{define "page/study"}}{{template "layout/top" .}}
 <nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/studies">Studies</a> / {{.Study.Name}}{{if ne .Page "overview"}} / {{if eq .Page "inputs"}}Inputs{{else if eq .Page "progress"}}Progress{{else if eq .Page "operations"}}Operations{{else if eq .Page "validation"}}Validation{{else}}Artifacts{{end}}{{end}}</nav>
 <div class="detail-layout">
 <aside class="detail-sidebar">
@@ -22,12 +22,12 @@
 <section><h2>Progress</h2><dl class="metadata"><div><dt>Status</dt><dd>{{.Study.Status}}</dd></div><div><dt>Completed</dt><dd>{{.Study.Completed}}</dd></div><div><dt>Pending</dt><dd>{{.Study.Pending}}</dd></div><div><dt>Active tasks</dt><dd>{{.Study.ActiveTasks}}</dd></div><div><dt>Failed</dt><dd>{{.Study.Failed}}</dd></div><div><dt>Cancelled</dt><dd>{{.Study.Cancelled}}</dd></div>{{if .Study.RunID}}<div><dt>Run ID</dt><dd>{{.Study.RunID}}</dd></div>{{end}}</dl></section>
 {{else if eq .Page "operations"}}
 <section><h2>Study operations</h2><div class="operation-actions"><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="validation" data-study="{{.Study.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="validation"><input type="hidden" name="study" value="{{.Study.Name}}"><button type="submit">Prepare study validation</button></form><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="study_run_loop" data-study="{{.Study.Name}}" data-parallelism="1"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="study_run_loop"><input type="hidden" name="study" value="{{.Study.Name}}"><input type="hidden" name="parallelism" value="1"><button type="submit">Prepare study run loop</button></form></div></section>
-{{template "operation-console" .}}
+{{template "component/operation-console" .}}
 {{else if eq .Page "validation"}}
-<section><h2>Validation findings</h2>{{template "findings" .Study.Findings}}</section>
+<section><h2>Validation findings</h2>{{template "component/findings" .Study.Findings}}</section>
 {{else}}
-<section><h2>Artifacts</h2>{{template "artifacts" .Study.Artifacts}}</section>
+<section><h2>Artifacts</h2>{{template "component/artifacts" .Study.Artifacts}}</section>
 {{end}}
 </div>
 </div>
-{{template "bottom" .}}{{end}}
+{{template "layout/bottom" .}}{{end}}

@@ -42,6 +42,9 @@ func Run(ctx context.Context, opts Options) error {
 	if err := app.ValidateLoopbackListen(opts.Listen); err != nil {
 		return fmt.Errorf("validate listen address: %w", err)
 	}
+	if err := ValidateServerPolicy(DefaultServerPolicy()); err != nil {
+		return fmt.Errorf("validate local-web policy: %w", err)
+	}
 	if opts.Queries == nil {
 		return errors.New("web queries are required")
 	}

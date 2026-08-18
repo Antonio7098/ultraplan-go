@@ -1,4 +1,4 @@
-{{define "operation-confirm"}}{{template "top" .}}
+{{define "page/operation-confirm"}}{{template "layout/top" .}}
 <nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Confirm operation</nav>
 {{with .Preparation}}
 <section aria-labelledby="confirmation-heading">
@@ -23,4 +23,4 @@
   </form>
 </section>
 {{end}}
-{{template "bottom" .}}{{end}}
+{{template "layout/bottom" .}}{{end}}

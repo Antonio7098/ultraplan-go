@@ -82,11 +82,19 @@ capability.
 
 ## Single-Binary Frontend
 
-Go embeds templates, one stylesheet, and one dependency-free progressive script
-under `internal/web`. Templates parse once when serving starts and pages render
-to a buffer before response headers. Contextual `html/template` escaping,
-escaped Markdown/JSON source blocks, CSP, and `nosniff` keep hostile workspace
-content inert.
+Go embeds the namespaced template hierarchy and all layered CSS/JavaScript under
+`internal/web`. Templates parse once when serving starts; validation rejects
+missing definitions, duplicates, cycles, unnamespaced references, and upward or
+same-layer dependencies before a request can be accepted. Pages render to a
+buffer before response headers. Contextual `html/template` escaping, app-owned
+safe Markdown rendering, escaped JSON/fallback source, CSP, and `nosniff` keep
+hostile workspace content inert.
+
+Definitions compose downward through `page/* -> layout/* -> component/* ->
+primitive/*`. CSS exposes tokens, base, primitives, components, layouts, and
+utilities layers. Dependency-free JavaScript separates baseline page lifetime,
+HTTP operation commands, and SSE ownership while preserving the compatibility
+bundle used by the Sprint 31 browser.
 
 Initial HTML is complete without JavaScript and uses semantic headings,
 navigation, breadcrumbs, landmarks, tables/definition lists, status text,

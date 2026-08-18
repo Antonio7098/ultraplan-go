@@ -141,7 +141,7 @@ func (h *handler) handleOperationStart(w http.ResponseWriter, r *http.Request) {
 		h.writeOperationError(w, r, err)
 		return
 	}
-	doc, err := h.hub.startConfirmed(sessionID(r.Context()), func() (app.Confirmation, error) {
+	doc, err := h.hub.startConfirmed(sessionID(r.Context()), confirmationDedupKey(sessionID(r.Context()), payload.ConfirmationToken), func() (app.Confirmation, error) {
 		return h.preparations.consume(payload.ConfirmationToken, sessionID(r.Context()), current.CanonicalRequest, current.InputFingerprint)
 	})
 	if err != nil {
@@ -286,8 +286,9 @@ func (h *handler) handleHTMLOperationStart(w http.ResponseWriter, r *http.Reques
 		h.renderError(w, r, http.StatusUnprocessableEntity, "Preparation stale", htmlOperationFailure("The operation can no longer be prepared. Return to the owning page and prepare again.", err))
 		return
 	}
-	doc, err := h.hub.startConfirmed(sessionID(r.Context()), func() (app.Confirmation, error) {
-		return h.preparations.consume(r.FormValue("confirmation_token"), sessionID(r.Context()), current.CanonicalRequest, current.InputFingerprint)
+	token := r.FormValue("confirmation_token")
+	doc, err := h.hub.startConfirmed(sessionID(r.Context()), confirmationDedupKey(sessionID(r.Context()), token), func() (app.Confirmation, error) {
+		return h.preparations.consume(token, sessionID(r.Context()), current.CanonicalRequest, current.InputFingerprint)
 	})
 	if err != nil {
 		h.renderError(w, r, http.StatusConflict, "Confirmation rejected", "The confirmation expired, changed, or was already used. Prepare the operation again.")

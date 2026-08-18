@@ -17,7 +17,7 @@ func TestSecurityHostOriginNoCORSAndHeaders(t *testing.T) {
 		{"absent origin", testAuthority, "", http.StatusOK},
 		{"exact origin", testAuthority, "http://" + testAuthority, http.StatusOK},
 		{"wrong host", "localhost:8080", "", http.StatusForbidden},
-		{"same loopback rewritten port", testAuthority, "http://127.0.0.1:9999", http.StatusOK},
+		{"same loopback rewritten port", testAuthority, "http://127.0.0.1:9999", http.StatusForbidden},
 		{"different loopback address", testAuthority, "http://127.0.0.2:8080", http.StatusForbidden},
 		{"null origin", testAuthority, "null", http.StatusForbidden},
 		{"malformed origin", testAuthority, "://bad", http.StatusForbidden},
@@ -115,23 +115,23 @@ func TestSecurityOriginAndHostFailuresExplainExactMismatch(t *testing.T) {
 	}
 }
 
-func TestSecurityAllowsCommandOriginWhenOnlyLoopbackPortDiffers(t *testing.T) {
+func TestSecurityRequiresExactCommandOrigin(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	cookie, csrf := establishOperationSession(t, h)
 	body := bytes.NewReader([]byte(`{"operation":{"kind":"validation","scope":{"project":"alpha"}}}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/operations/prepare", body)
 	req.Host = testAuthority
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", "http://127.0.0.1")
+	req.Header.Set("Origin", "http://"+testAuthority)
 	req.Header.Set("X-CSRF-Token", csrf)
 	req.AddCookie(cookie)
 	res := httptest.NewRecorder()
 	h.ServeHTTP(res, req)
 	if res.Code == http.StatusForbidden || strings.Contains(res.Body.String(), "origin_rejected") {
-		t.Fatalf("same-loopback command origin was rejected: status=%d body=%s", res.Code, res.Body.String())
+		t.Fatalf("exact command origin was rejected: status=%d body=%s", res.Code, res.Body.String())
 	}
 
-	for _, origin := range []string{"http://127.0.0.2", "http://localhost", "https://127.0.0.1", "null"} {
+	for _, origin := range []string{"http://127.0.0.1", "http://127.0.0.2:8080", "http://localhost:8080", "https://127.0.0.1:8080", "null"} {
 		body = bytes.NewReader([]byte(`{"operation":{"kind":"validation","scope":{"project":"alpha"}}}`))
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/operations/prepare", body)
 		req.Host = testAuthority
@@ -147,27 +147,27 @@ func TestSecurityAllowsCommandOriginWhenOnlyLoopbackPortDiffers(t *testing.T) {
 	}
 }
 
-func TestSecurityAllowsOperationStreamOriginWhenOnlyLoopbackPortDiffers(t *testing.T) {
+func TestSecurityRequiresExactOperationStreamOrigin(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	cookie, _ := establishOperationSession(t, h)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/operations/op_example/events", nil)
 	req.Host = testAuthority
-	req.Header.Set("Origin", "http://127.0.0.1")
+	req.Header.Set("Origin", "http://"+testAuthority)
 	req.AddCookie(cookie)
 	res := httptest.NewRecorder()
 	h.ServeHTTP(res, req)
 	if res.Code == http.StatusForbidden || strings.Contains(res.Body.String(), "origin_rejected") {
-		t.Fatalf("same-loopback operation stream was rejected: status=%d body=%s", res.Code, res.Body.String())
+		t.Fatalf("exact operation stream origin was rejected: status=%d body=%s", res.Code, res.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/operations/op_example/events", nil)
 	req.Host = testAuthority
-	req.Header.Set("Origin", "http://127.0.0.2")
+	req.Header.Set("Origin", "http://127.0.0.1")
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	h.ServeHTTP(res, req)
 	if res.Code != http.StatusForbidden || !strings.Contains(res.Body.String(), "origin_rejected") {
-		t.Fatalf("different-loopback operation stream was accepted: status=%d body=%s", res.Code, res.Body.String())
+		t.Fatalf("different-port operation stream was accepted: status=%d body=%s", res.Code, res.Body.String())
 	}
 }
 
@@ -198,6 +198,26 @@ func TestSecurityBodyTargetAndRequestIDLimits(t *testing.T) {
 	h.ServeHTTP(res, req)
 	if res.Header().Get("X-Request-ID") != "request-id" || strings.Contains(res.Body.String(), "caller-secret-id") {
 		t.Fatalf("request id header=%q body=%s", res.Header().Get("X-Request-ID"), res.Body.String())
+	}
+}
+
+func TestSecurityRejectsAmbiguousRequestFraming(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	for _, configure := range []func(*http.Request){
+		func(req *http.Request) { req.Header["Content-Length"] = []string{"1", "2"} },
+		func(req *http.Request) {
+			req.Header["Content-Length"] = []string{"1"}
+			req.TransferEncoding = []string{"chunked"}
+		},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+		req.Host = testAuthority
+		configure(req)
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "invalid_request") {
+			t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+		}
 	}
 }
 

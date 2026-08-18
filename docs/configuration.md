@@ -150,6 +150,27 @@ Implemented config-related command flags include:
 - `--workspace <path>` for workspace selection.
 - `--json` on JSON-capable commands, which affects output format but does not change workspace config fields.
 - `--parallel <n>` on `study run-all` and `study run-loop`, which overrides configured default parallelism for that command.
+- `--listen <numeric-loopback:port>` and `--open-browser` on `serve`.
+
+## Local Web Policy
+
+`serve` resolves the normal workspace and effective runtime/smoke configuration
+before listening. Its browser security and resource caps are immutable built-in
+policy in this compatibility version; no workspace YAML or `ULTRAPLAN_`
+environment field can weaken them. The policy is validated as a coherent set
+before the listener opens.
+
+The fixed defaults are: 5s header, 15s read, 30s write, 60s idle, and 10s
+shutdown timeouts; 32 in-flight requests; 8 KiB request targets; 64 KiB command
+bodies; 128-byte identifiers; 8 active operations; 128 preparations retained
+for two minutes; 256 events and 256 KiB of events per operation; 16 KiB encoded
+events; 256 KiB terminal results; 8 subscribers per operation and 32 concurrent
+streams; 32 queued events per subscriber; 10-minute terminal retention;
+15-second heartbeat; and 30-minute stream lifetime.
+
+Adding configurable overrides is a compatibility change: it requires named
+fields and environment variables, documented valid ranges, precedence/source
+reporting, and fail-closed tests. See `web-compatibility-baseline.md`.
 
 ## Validation
 

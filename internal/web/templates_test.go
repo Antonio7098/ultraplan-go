@@ -4,9 +4,75 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
 )
+
+func TestTemplateHierarchyIsNamespacedAndDownwardOnly(t *testing.T) {
+	templates, err := parseTemplateTree(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"primitive/empty", "component/artifacts", "layout/top", "page/dashboard", "page/operation"} {
+		if templates.Lookup(name) == nil {
+			t.Errorf("missing %q", name)
+		}
+	}
+	for _, item := range templates.Templates() {
+		if strings.Contains(item.Name(), "/") && !strings.HasPrefix(item.Name(), "primitive/") && !strings.HasPrefix(item.Name(), "component/") && !strings.HasPrefix(item.Name(), "layout/") && !strings.HasPrefix(item.Name(), "page/") {
+			t.Errorf("unexpected template namespace %q", item.Name())
+		}
+	}
+}
+
+func TestTemplateHierarchyFailsClosed(t *testing.T) {
+	root := &fstest.MapFile{Data: []byte("{{/* root */}}")}
+	missing := fstest.MapFS{
+		"templates/root.html":        root,
+		"templates/pages/pages.html": {Data: []byte(`{{define "page/dashboard"}}ok{{end}}`)},
+	}
+	if _, err := parseTemplateTree(missing); err == nil || !strings.Contains(err.Error(), "required template") {
+		t.Fatalf("missing definitions error=%v", err)
+	}
+
+	upward := fstest.MapFS{
+		"templates/root.html":        root,
+		"templates/pages/pages.html": {Data: []byte(templateHierarchyFixture(`{{template "page/projects" .}}`))},
+	}
+	if _, err := parseTemplateTree(upward); err == nil || !strings.Contains(err.Error(), "upward or same-layer") {
+		t.Fatalf("upward dependency error=%v", err)
+	}
+
+	duplicate := fstest.MapFS{
+		"templates/root.html":                  root,
+		"templates/pages/pages.html":           {Data: []byte(templateHierarchyFixture("ok"))},
+		"templates/components/components.html": {Data: []byte(`{{define "component/findings"}}duplicate{{end}}`)},
+	}
+	if _, err := parseTemplateTree(duplicate); err == nil {
+		t.Fatal("duplicate template definition was accepted")
+	}
+}
+
+func templateHierarchyFixture(dashboardBody string) string {
+	return `
+{{define "primitive/empty"}}{{end}}
+{{define "component/artifacts"}}{{end}}
+{{define "component/findings"}}{{end}}
+{{define "component/operation-console"}}{{end}}
+{{define "layout/top"}}{{end}}
+{{define "layout/bottom"}}{{end}}
+{{define "page/dashboard"}}` + dashboardBody + `{{end}}
+{{define "page/projects"}}{{end}}
+{{define "page/project"}}{{end}}
+{{define "page/sprint"}}{{end}}
+{{define "page/studies"}}{{end}}
+{{define "page/study"}}{{end}}
+{{define "page/artifact"}}{{end}}
+{{define "page/operation-confirm"}}{{end}}
+{{define "page/operation"}}{{end}}
+{{define "page/error"}}{{end}}`
+}
 
 func TestTemplateAccessibilityStaticAndHostileNames(t *testing.T) {
 	queries := sampleQueries()
@@ -79,6 +145,27 @@ func TestShellDoesNotContainReviewerResultDialog(t *testing.T) {
 	}
 	if strings.Contains(string(body), "reviewer-result") {
 		t.Error("shell still contains the reviewer result dialog")
+	}
+}
+
+func TestPrimaryNavigationUsesTopBarDestinations(t *testing.T) {
+	body, err := assets.ReadFile("templates/shell.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shell := string(body)
+	for _, want := range []string{`class="brand" href="/"`, `<a href="/projects">Projects</a>`, `<a href="/studies">Studies</a>`} {
+		if !strings.Contains(shell, want) {
+			t.Errorf("primary navigation missing %q", want)
+		}
+	}
+	if strings.Contains(shell, `<a href="/">Dashboard</a>`) {
+		t.Error("primary navigation still contains a dashboard item")
+	}
+	for _, want := range []string{`data-nav-flyout`, `aria-label="Show projects"`, `aria-label="Show studies"`, `data-endpoint="/api/v1/projects"`, `data-endpoint="/api/v1/studies"`} {
+		if !strings.Contains(shell, want) {
+			t.Errorf("primary navigation flyout missing %q", want)
+		}
 	}
 }
 
@@ -213,6 +300,28 @@ func TestDetailOverviewPagesStayFocused(t *testing.T) {
 		if !strings.Contains(sprintBody, want) {
 			t.Errorf("sprint overview missing %q", want)
 		}
+	}
+}
+
+func TestProjectSprintsRenderAsNewestFirstRoadmap(t *testing.T) {
+	queries := sampleQueries()
+	older := queries.project.Sprints[0]
+	older.Slug = "29-older"
+	older.Assessment = "pass"
+	latest := queries.project.Sprints[0]
+	latest.Slug = "30-latest"
+	latest.Assessment = "incomplete"
+	queries.project.Sprints = []app.WebSprintResult{older, latest}
+	queries.project.Artifacts = append(queries.project.Artifacts, app.WebArtifactLink{Ref: "roadmap_ref", Label: "roadmap", DisplayPath: "projects/alpha/roadmap.md", MediaType: "text/markdown"})
+
+	body := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints", nil).Body.String()
+	for _, want := range []string{`class="latest-sprint"`, `class="sprint-timeline"`, `milestone-current`, `milestone-complete`, `>Open roadmap</a>`, `30-latest`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("sprint roadmap missing %q in %s", want, body)
+		}
+	}
+	if strings.Index(body, "30-latest") > strings.Index(body, "29-older") {
+		t.Errorf("latest sprint does not appear before older sprint: %s", body)
 	}
 }
 

@@ -1,0 +1,5 @@
+.site-header, main > *, footer > * { max-inline-size: var(--content-wide); }
+.table-wrap, .code-wrap, .operation-timeline { overscroll-behavior-inline: contain; }
+@media (max-width: 48rem) {
+  .site-header { max-inline-size: calc(100% - 1rem); }
+}
