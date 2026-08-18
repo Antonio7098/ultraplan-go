@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestWebOperationPreparationNormalizesFingerprintsAndHasNoSideEffects(t *testing.T) {
@@ -81,6 +82,30 @@ func TestWebOperationExecutionRejectsStalePreparationBeforeRunner(t *testing.T) 
 	}
 	if called {
 		t.Fatal("runner called for stale preparation")
+	}
+}
+
+func TestWebCleanupUncertaintyDelegatesToStudyOwner(t *testing.T) {
+	root := t.TempDir()
+	studyRoot := filepath.Join(root, "studies", "demo")
+	if err := os.MkdirAll(studyRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	useCases := NewWebUseCases(root, WebUseCaseOptions{})
+	recorder, ok := useCases.(OperationCleanupRecorder)
+	if !ok {
+		t.Fatal("web use cases do not expose cleanup recording")
+	}
+	if err := recorder.RecordOperationCleanupUncertain(context.Background(), OperationCleanupUncertain{
+		OperationID: "op-study",
+		Request:     OperationRequest{Kind: OperationStudyStart, Study: "demo"},
+		Reason:      "server_shutdown",
+		RecordedAt:  time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(studyRoot, ".ultraplan", "cleanup-uncertain.json")); err != nil {
+		t.Fatalf("study-owned cleanup marker missing: %v", err)
 	}
 }
 

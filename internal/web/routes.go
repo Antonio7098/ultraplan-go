@@ -98,7 +98,7 @@ func allowedMethods(match routeMatch) []string {
 	switch match.name {
 	case "api_operation_prepare", "api_operations":
 		return []string{http.MethodPost}
-	case "operation_prepare", "operation_start":
+	case "operation_prepare", "operation_start", "operation_cancel":
 		return []string{http.MethodPost}
 	case "api_operation":
 		return []string{http.MethodGet, http.MethodDelete}
@@ -177,6 +177,8 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "artifact", params: parts[1:], known: true}
 	case len(parts) == 2 && parts[0] == "operations":
 		return routeMatch{name: "operation", params: parts[1:], known: true}
+	case len(parts) == 3 && parts[0] == "operations" && parts[2] == "cancel":
+		return routeMatch{name: "operation_cancel", params: []string{parts[1]}, known: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects":
 		return routeMatch{name: "api_project", params: parts[3:], known: true, api: true}
 	case len(parts) == 6 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints":

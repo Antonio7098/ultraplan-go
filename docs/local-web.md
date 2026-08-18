@@ -91,7 +91,7 @@ reduces local exposure through:
 - rejection of undocumented request bodies and query parameters, with JSON
   command bodies limited to 64 KiB
 - 32 in-flight request bound and fixed HTTP timeouts
-- restrictive CSP, frame denial, `nosniff`, no-referrer, and no-store headers
+- restrictive CSP, frame denial, `nosniff`, same-origin referrers, and no-store headers
 - server-generated request IDs, safe error projection, and redacted diagnostics
 
 An absent Origin is allowed for top-level navigation and local `GET`/`HEAD`

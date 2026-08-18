@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/Antonio7098/ultraplan-go/internal/sprint"
+	"github.com/Antonio7098/ultraplan-go/internal/study"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
@@ -207,15 +208,23 @@ func (u *webUseCases) RecordOperationCleanupUncertain(ctx context.Context, recor
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if record.Request.Project == "" || record.Request.Sprint == "" {
-		return fmt.Errorf("durable cleanup uncertainty is unavailable for operation %q", record.Request.Kind)
+	if record.Request.Project != "" && record.Request.Sprint != "" {
+		return sprint.NewService(u.root).RecordCleanupUncertain(ctx, record.Request.Project, record.Request.Sprint, sprint.CleanupUncertainRecord{
+			OperationID: record.OperationID,
+			Kind:        string(record.Request.Kind),
+			Reason:      record.Reason,
+			RecordedAt:  record.RecordedAt,
+		})
 	}
-	return sprint.NewService(u.root).RecordCleanupUncertain(ctx, record.Request.Project, record.Request.Sprint, sprint.CleanupUncertainRecord{
-		OperationID: record.OperationID,
-		Kind:        string(record.Request.Kind),
-		Reason:      record.Reason,
-		RecordedAt:  record.RecordedAt,
-	})
+	if record.Request.Study != "" {
+		return study.NewService(u.root).RecordCleanupUncertain(ctx, record.Request.Study, study.CleanupUncertainRecord{
+			OperationID: record.OperationID,
+			Kind:        string(record.Request.Kind),
+			Reason:      record.Reason,
+			RecordedAt:  record.RecordedAt,
+		})
+	}
+	return fmt.Errorf("durable cleanup uncertainty is unavailable for operation %q", record.Request.Kind)
 }
 
 func (u *webUseCases) ReconcileOperations(ctx context.Context) error {
@@ -229,6 +238,19 @@ func (u *webUseCases) ReconcileOperations(ctx context.Context) error {
 			return err
 		}
 		if _, err := service.ReconcileInterruptedMutation(ctx, summary.Project, summary.Slug); err != nil {
+			return err
+		}
+	}
+	studies, err := study.NewService(u.root).ListStudies()
+	if err != nil {
+		return err
+	}
+	studyService := study.NewService(u.root)
+	for _, item := range studies {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := studyService.ReconcileInterruptedRun(ctx, item.Name); err != nil {
 			return err
 		}
 	}

@@ -84,10 +84,13 @@ func TestShellDoesNotContainReviewerResultDialog(t *testing.T) {
 
 func TestSprintRunExposesStageControls(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `data-stage-select="stage-requirements"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`} {
+	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `href="#stage-requirements" data-stage-select="stage-requirements"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("stage controls missing %q in %s", want, body)
 		}
+	}
+	if strings.Contains(body, `data-stage-panel hidden`) || strings.Contains(body, "JavaScript is required") {
+		t.Fatalf("server-rendered run controls are hidden without JavaScript: %s", body)
 	}
 }
 

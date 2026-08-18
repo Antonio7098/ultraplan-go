@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,6 +26,58 @@ type fakeWebOperations struct {
 	once    sync.Once
 	runs    int
 	cleanup []app.OperationCleanupUncertain
+}
+
+type capacityWebOperations struct {
+	*fakeWebOperations
+	startedMany chan struct{}
+	releaseMany chan struct{}
+	finished    chan struct{}
+}
+
+type deadlineWebOperations struct {
+	*fakeWebOperations
+	startedDeadline chan struct{}
+	releaseDeadline chan struct{}
+	finished        chan struct{}
+}
+
+func newDeadlineWebOperations() *deadlineWebOperations {
+	return &deadlineWebOperations{
+		fakeWebOperations: newFakeWebOperations(),
+		startedDeadline:   make(chan struct{}),
+		releaseDeadline:   make(chan struct{}),
+		finished:          make(chan struct{}),
+	}
+}
+
+func (f *deadlineWebOperations) RunOperation(_ context.Context, _ app.OperationRequest, emit func(app.OperationEvent)) (app.OperationResult, error) {
+	emit(app.OperationEvent{State: app.OperationRunning, Stage: "plan", Message: "working"})
+	close(f.startedDeadline)
+	<-f.releaseDeadline
+	close(f.finished)
+	return app.OperationResult{State: app.OperationComplete, Message: "complete"}, nil
+}
+
+func newCapacityWebOperations() *capacityWebOperations {
+	return &capacityWebOperations{
+		fakeWebOperations: newFakeWebOperations(),
+		startedMany:       make(chan struct{}, MaxActiveOperations),
+		releaseMany:       make(chan struct{}),
+		finished:          make(chan struct{}, MaxActiveOperations),
+	}
+}
+
+func (f *capacityWebOperations) RunOperation(ctx context.Context, _ app.OperationRequest, emit func(app.OperationEvent)) (app.OperationResult, error) {
+	emit(app.OperationEvent{State: app.OperationRunning, Stage: "plan", Message: "working"})
+	f.startedMany <- struct{}{}
+	defer func() { f.finished <- struct{}{} }()
+	select {
+	case <-f.releaseMany:
+		return app.OperationResult{State: app.OperationComplete, Message: "complete"}, nil
+	case <-ctx.Done():
+		return app.OperationResult{State: app.OperationCancelled, Message: "cancelled"}, ctx.Err()
+	}
 }
 
 func (f *fakeWebOperations) RecordOperationCleanupUncertain(_ context.Context, record app.OperationCleanupUncertain) error {
@@ -116,14 +169,14 @@ func TestOperationHubDrainCancelsOwnedWorkAndRejectsNewStarts(t *testing.T) {
 }
 
 func TestOperationHubDeadlinePersistsCleanupUncertaintyBeforeTerminalProjection(t *testing.T) {
-	ops := newFakeWebOperations()
+	ops := newDeadlineWebOperations()
 	hub := newOperationHub(context.Background(), ops, time.Now, func() string { return "deadline" })
 	prepared, _ := ops.PrepareOperation(context.Background(), app.OperationRequest{Kind: app.OperationFlow, Project: "alpha", Sprint: "31-web", Stage: "plan"})
 	doc, err := hub.start("session", prepared)
 	if err != nil {
 		t.Fatal(err)
 	}
-	<-ops.started
+	<-ops.startedDeadline
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := hub.drainAndWait(ctx); !errors.Is(err, context.Canceled) {
@@ -138,6 +191,33 @@ func TestOperationHubDeadlinePersistsCleanupUncertaintyBeforeTerminalProjection(
 	terminal, err := hub.status("session", doc.ID)
 	if err != nil || terminal.State != "cleanup_uncertain" {
 		t.Fatalf("terminal=%+v err=%v", terminal, err)
+	}
+	close(ops.releaseDeadline)
+	<-ops.finished
+}
+
+func TestOperationHubRejectsNinthActiveOperation(t *testing.T) {
+	ops := newCapacityWebOperations()
+	sequence := 0
+	hub := newOperationHub(context.Background(), ops, time.Now, func() string {
+		sequence++
+		return fmt.Sprintf("capacity-%d", sequence)
+	})
+	prepared, _ := ops.PrepareOperation(context.Background(), app.OperationRequest{Kind: app.OperationFlow, Project: "alpha", Sprint: "31-web", Stage: "plan"})
+	for i := 0; i < MaxActiveOperations; i++ {
+		if _, err := hub.start("session", prepared); err != nil {
+			t.Fatalf("start %d: %v", i+1, err)
+		}
+	}
+	for i := 0; i < MaxActiveOperations; i++ {
+		<-ops.startedMany
+	}
+	if _, err := hub.start("session", prepared); !errors.Is(err, errOperationCapacity) {
+		t.Fatalf("ninth start error=%v, want %v", err, errOperationCapacity)
+	}
+	close(ops.releaseMany)
+	for i := 0; i < MaxActiveOperations; i++ {
+		<-ops.finished
 	}
 }
 
@@ -349,10 +429,13 @@ func TestServerRenderedOperationFlowWorksWithoutJavaScript(t *testing.T) {
 	}
 	<-ops.started
 	status := operationSessionRequest(h, http.MethodGet, started.Header().Get("Location"), cookie)
-	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "Run status") || !strings.Contains(status.Body.String(), "Run progress") || !strings.Contains(status.Body.String(), `data-operation-id="`) {
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "Run status") || !strings.Contains(status.Body.String(), "Run progress") || !strings.Contains(status.Body.String(), `data-operation-id="`) || !strings.Contains(status.Body.String(), "Refresh run status") || !strings.Contains(status.Body.String(), `method="post" action="`+started.Header().Get("Location")+`/cancel"`) {
 		t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
 	}
-	close(ops.release)
+	cancelled := operationFormRequest(h, started.Header().Get("Location")+"/cancel", url.Values{"_csrf": {csrf}}, cookie)
+	if cancelled.Code != http.StatusSeeOther || cancelled.Header().Get("Location") != started.Header().Get("Location") {
+		t.Fatalf("cancel status=%d headers=%v body=%s", cancelled.Code, cancelled.Header(), cancelled.Body.String())
+	}
 	<-ops.done
 }
 

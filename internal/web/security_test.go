@@ -42,6 +42,9 @@ func TestSecurityHostOriginNoCORSAndHeaders(t *testing.T) {
 			if res.Header().Get("Access-Control-Allow-Origin") != "" {
 				t.Errorf("unexpected CORS header")
 			}
+			if got := res.Header().Get("Referrer-Policy"); got != "same-origin" {
+				t.Errorf("Referrer-Policy=%q, want same-origin for native form compatibility", got)
+			}
 		})
 	}
 }

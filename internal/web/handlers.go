@@ -407,6 +407,8 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		h.handleHTMLOperationPrepare(w, r)
 	case "operation_start":
 		h.handleHTMLOperationStart(w, r)
+	case "operation_cancel":
+		h.handleHTMLOperationCancel(w, r, match.params[0])
 	case "operation":
 		h.handleHTMLOperationStatus(w, r, match.params[0])
 	default:

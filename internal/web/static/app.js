@@ -47,27 +47,30 @@
   }
 
   for (const workspace of document.querySelectorAll("[data-stage-workspace]")) {
-    const buttons = [...workspace.querySelectorAll("[data-stage-select]")];
+    const controls = [...workspace.querySelectorAll("[data-stage-select]")];
     const panels = [...workspace.querySelectorAll("[data-stage-panel]")];
     const selectStage = (id, moveFocus = false) => {
       const panel = panels.find((item) => item.id === id);
       if (!panel) return;
       for (const item of panels) item.hidden = item !== panel;
-      for (const button of buttons) {
-        const selected = button.dataset.stageSelect === id;
-        button.setAttribute("aria-selected", String(selected));
-        button.tabIndex = selected ? 0 : -1;
+      for (const control of controls) {
+        const selected = control.dataset.stageSelect === id;
+        control.setAttribute("aria-selected", String(selected));
+        control.tabIndex = selected ? 0 : -1;
       }
       if (moveFocus) panel.focus();
       history.replaceState(null, "", `#${id}`);
     };
-    for (const button of buttons) button.addEventListener("click", () => selectStage(button.dataset.stageSelect, true));
+    for (const control of controls) control.addEventListener("click", (event) => {
+      event.preventDefault();
+      selectStage(control.dataset.stageSelect, true);
+    });
     const requested = location.hash.slice(1);
     const initial = panels.some((item) => item.id === requested)
       ? requested
-      : buttons.find((button) => button.closest(".stage-running"))?.dataset.stageSelect
-        || buttons.find((button) => !button.closest(".stage-complete, .stage-completed, .stage-skipped"))?.dataset.stageSelect
-        || buttons[buttons.length - 1]?.dataset.stageSelect;
+      : controls.find((control) => control.closest(".stage-running"))?.dataset.stageSelect
+        || controls.find((control) => !control.closest(".stage-complete, .stage-completed, .stage-skipped"))?.dataset.stageSelect
+        || controls[controls.length - 1]?.dataset.stageSelect;
     if (initial) selectStage(initial);
   }
 

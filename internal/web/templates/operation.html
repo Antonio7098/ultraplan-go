@@ -8,17 +8,19 @@
 </section>
 {{end}}{{end}}
 
-{{define "operation"}}{{template "top" .}}
+{{define "operation"}}{{template "top" .}}{{$csrf := .CSRF}}
 <nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Operation</nav>
 {{with .Operation}}
 {{$active := or (eq .State "accepted") (eq .State "running") (eq .State "cancelling")}}
 <div class="operation-status-page"{{if $active}} data-operation-id="{{.ID}}" data-operation-state="{{.State}}"{{end}}>
   <section class="operation-run-panel" aria-labelledby="run-progress-heading"><header><h2 id="run-progress-heading">Run status</h2><span class="status status-{{if $active}}info{{else if eq .State "succeeded"}}ok{{else}}error{{end}}">{{.State}}</span></header>
   {{if $active}}
-  <div id="operation-live" role="status" aria-live="polite">Connecting to the run…</div><ol id="operation-timeline" class="operation-timeline" aria-label="Run progress"></ol><button id="operation-cancel" type="button">Cancel run</button><noscript><p>Refresh this page to see the latest status. The run continues on the server.</p></noscript>
+  <div id="operation-live" role="status" aria-live="polite">Connecting to the run…</div><ol id="operation-timeline" class="operation-timeline" aria-label="Run progress"></ol><button id="operation-cancel" type="button">Cancel run</button>
+  <noscript><p>The run continues on the server when this page is closed. Refresh this page for current status, or use the form below to request cancellation.</p><form method="post" action="/operations/{{.ID}}/cancel"><input type="hidden" name="_csrf" value="{{$csrf}}"><button type="submit">Cancel run</button></form></noscript>
   {{else}}
   {{template "operation-result" .}}
   {{end}}
+  <p><a class="refresh-link" href="/operations/{{.ID}}">Refresh run status</a>{{if .DurableStatus.Available}} · <a class="refresh-link" href="{{.DurableStatus.RefreshPath}}">Refresh durable status</a>{{end}}</p>
   </section>
 </div>
 {{end}}

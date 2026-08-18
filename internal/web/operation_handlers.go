@@ -306,6 +306,26 @@ func (h *handler) handleHTMLOperationStatus(w http.ResponseWriter, r *http.Reque
 	h.render(w, r, http.StatusOK, "operation", pageModel{Title: "Operation " + doc.ID, Heading: "Operation status", Operation: &doc})
 }
 
+func (h *handler) handleHTMLOperationCancel(w http.ResponseWriter, r *http.Request, id string) {
+	if err := r.ParseForm(); err != nil || r.FormValue("_csrf") != csrfToken(r.Context()) {
+		h.renderError(w, r, http.StatusForbidden, "Request rejected", "The browser session or CSRF proof is invalid. Refresh the operation page and try again.")
+		return
+	}
+	if h.hub == nil {
+		h.renderError(w, r, http.StatusServiceUnavailable, "Unavailable", "The operation capability is unavailable.")
+		return
+	}
+	doc, requested, err := h.hub.cancelOperation(sessionID(r.Context()), id, "user_request")
+	if err != nil {
+		h.renderError(w, r, http.StatusNotFound, "Operation not retained", "Refresh the owning project, sprint, or study page for durable status.")
+		return
+	}
+	if requested {
+		h.logOperation(r, "operation_cancel_requested", doc.ID, string(doc.Kind), doc.State, doc.Reason)
+	}
+	http.Redirect(w, r, "/operations/"+doc.ID, http.StatusSeeOther)
+}
+
 func operationSpecFromForm(r *http.Request) operationSpecRequest {
 	parallelism, _ := strconv.Atoi(r.FormValue("parallelism"))
 	return operationSpecRequest{

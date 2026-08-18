@@ -138,7 +138,7 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 		operationRead := (r.Method == http.MethodGet || r.Method == http.MethodHead) && (matchedRoute.name == "api_operation" || matchedRoute.name == "api_operation_events")
 		staticAsset := (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.HasPrefix(r.URL.Path, "/static/")
 		hasBody := r.ContentLength > 0 || len(r.TransferEncoding) > 0
-		operationBody := r.Method == http.MethodPost && (r.URL.Path == "/api/v1/operations/prepare" || r.URL.Path == "/api/v1/operations" || r.URL.Path == "/operations/prepare" || r.URL.Path == "/operations/start")
+		operationBody := r.Method == http.MethodPost && (matchedRoute.name == "api_operation_prepare" || matchedRoute.name == "api_operations" || matchedRoute.name == "operation_prepare" || matchedRoute.name == "operation_start" || matchedRoute.name == "operation_cancel")
 		switch {
 		case len(r.RequestURI) > MaxRequestTarget:
 			m.reject(tracked, r, http.StatusBadRequest, "invalid_request", "The request target is too long.")
@@ -246,7 +246,7 @@ func (m *securityMiddleware) csrfFor(session string) string {
 func applySecurityHeaders(header http.Header) {
 	header.Set("Cache-Control", "no-store")
 	header.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
-	header.Set("Referrer-Policy", "no-referrer")
+	header.Set("Referrer-Policy", "same-origin")
 	header.Set("X-Content-Type-Options", "nosniff")
 	header.Set("X-Frame-Options", "DENY")
 	header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
