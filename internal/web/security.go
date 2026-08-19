@@ -153,7 +153,7 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 			m.reject(tracked, r, http.StatusForbidden, "csrf_failed", "The CSRF proof did not match this browser session. Refresh the UltraPlan page and prepare the operation again.")
 		case operationRead && !validSession:
 			m.reject(tracked, r, http.StatusForbidden, "session_required", "The operation stream belongs to a browser session that is no longer available. Refresh the owning UltraPlan page.")
-		case operationRead && !validOperationReadOrigin(r.Header.Get("Origin"), m.origin):
+		case operationRead && !validOperationReadRequestOrigin(r, m.origin):
 			m.reject(tracked, r, http.StatusForbidden, "origin_rejected", originRejectionMessage(m.origin, r.Header.Get("Origin")))
 		case !operationMutation && !operationRead && !staticAsset && !validOrigin(r.Header.Get("Origin"), m.origin):
 			m.reject(tracked, r, http.StatusForbidden, "origin_rejected", originRejectionMessage(m.origin, r.Header.Get("Origin")))
@@ -298,6 +298,10 @@ func validCommandRequestOrigin(r *http.Request, expected string) bool {
 
 func validOperationReadOrigin(origin, expected string) bool {
 	return origin == "" || validCommandOrigin(origin, expected)
+}
+
+func validOperationReadRequestOrigin(r *http.Request, expected string) bool {
+	return r.Header.Get("Origin") == "" || validCommandRequestOrigin(r, expected)
 }
 
 func requestID(ctx context.Context) string {

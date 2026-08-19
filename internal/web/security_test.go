@@ -218,6 +218,38 @@ func TestSecurityRequiresExactOperationStreamOrigin(t *testing.T) {
 	}
 }
 
+func TestSecurityAllowsPortStrippedOperationStreamOriginWithExactSameOriginProofs(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	cookie, _ := establishOperationSession(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/operations/op-safe/events", nil)
+	req.Host = testAuthority
+	req.Header.Set("Origin", "http://127.0.0.1")
+	req.Header.Set("Referer", "http://"+testAuthority+"/operations/op-safe")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code == http.StatusForbidden || strings.Contains(res.Body.String(), "origin_rejected") {
+		t.Fatalf("port-stripped same-origin operation stream was rejected: status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestSecurityRejectsPortStrippedOperationStreamWithoutExactSameOriginProofs(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	cookie, _ := establishOperationSession(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/operations/op-safe/events", nil)
+	req.Host = testAuthority
+	req.Header.Set("Origin", "http://127.0.0.1")
+	req.Header.Set("Referer", "http://127.0.0.1:9090/operations/op-safe")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusForbidden || !strings.Contains(res.Body.String(), "origin_rejected") {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
 func TestSecurityBodyTargetAndRequestIDLimits(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	large := bytes.NewReader(make([]byte, MaxBodyBytes+1))
