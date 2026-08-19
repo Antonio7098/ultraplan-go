@@ -215,11 +215,17 @@ The writable-path list above is exhaustive, not illustrative:
 
 - Use the existing-coverage fast path before doing broad analysis or making any
   edit: run only the harness discovery command and inspect the requested
-  sprint's existing suite, test identities, coverage IDs, and mapping. If that
-  mapping is already non-empty, marked complete, internally consistent, and
-  aligned with the current governed sprint inputs, make no changes and return
-  success promptly. Do not add opportunistic tests or rebuild the acceptance
-  matrix merely because authoring was invoked again.
+  sprint's existing suite, test identities, coverage IDs, and mapping. Also
+  inspect the run adapter statically: every failed or errored result must be
+  associated with an open issue returned in the protocol response, including
+  ID, status, path, test ID, severity, title, observed summary, falsifiable
+  theory, supporting evidence, and next action. An issue file written to disk
+  is not sufficient if the response omits it; a constant empty issues array is
+  invalid. Only when discovery and this failure-to-issue wiring are complete,
+  internally consistent, and aligned with the current governed sprint inputs
+  may you make no changes and return success promptly.
+  Do not add opportunistic tests or rebuild the acceptance matrix merely
+  because authoring was invoked again.
 - If existing work is incomplete, resume it narrowly. Repair only concrete
   discovery, mapping, compilation, or governed-coverage gaps needed to make the
   existing sprint suite coherent. Prefer finishing the current suite over
