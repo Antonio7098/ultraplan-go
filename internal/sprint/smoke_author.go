@@ -215,12 +215,18 @@ The writable-path list above is exhaustive, not illustrative:
 
 - Before authoring new coverage, inspect the existing harness tests, suites,
   sprint mappings, and related files for work left by an earlier unfinished
-  smoke-authoring run for this sprint. If an existing test is relevant,
-  technically sound, and compatible with the current governed inputs and
-  harness conventions, adopt it: complete or repair it as needed and include
-  it in the appropriate suite and sprint mapping. Do not duplicate equivalent coverage.
+  smoke-authoring run for this sprint. Only an existing file already inside a
+  writable path may be adopted directly. If its test is relevant, technically
+  sound, and compatible with the current governed inputs and harness
+  conventions, complete or repair it as needed and include it in the
+  appropriate suite and sprint mapping. Do not duplicate equivalent coverage.
   Treat existing files as candidates, not as authoritative: ignore or replace
   stale, unrelated, invalid, or unsafe work. Do not weaken assertions merely to make it pass.
+- Every pre-existing path outside the writable-path list is strictly read-only,
+  even when it contains useful unfinished test code. Never edit, rename,
+  delete, touch, or change permissions on such a path. If its ideas are useful,
+  reimplement only the relevant logic in a file inside a writable directory;
+  do not adopt or import the out-of-scope file itself.
 - A listed directory authorizes files below that directory only. It does not
   authorize a similarly named sibling or the directory's parent.
 - A listed file authorizes that exact file only.
@@ -231,8 +237,10 @@ The writable-path list above is exhaustive, not illustrative:
 - Before every write, resolve the destination and confirm it is either an exact
   listed file or a descendant of a listed directory.
 - Before finishing, inspect every path changed during this authoring session.
-  Remove or relocate any out-of-scope file into an allowed path and update
-  imports before returning success.
+  If this session created an out-of-scope path that did not exist beforehand,
+  remove it and relocate the intended content into an allowed path. Never try
+  to clean up, remove, or relocate a pre-existing out-of-scope path: leave it
+  byte-for-byte and metadata-for-metadata unchanged.
 
 For example, when "src/tests" is listed, "src/tests/probe.ts" is allowed but
 "src/test-probe.ts" is forbidden. UltraPlan snapshots the entire harness and
