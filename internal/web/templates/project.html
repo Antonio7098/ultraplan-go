@@ -3,7 +3,7 @@
 <div class="sidebar-stack" data-sidebar-stack>
 {{template "component/sidebar-controls" .}}
 {{template "component/project-navigation" .}}
-{{if eq .Page "documentation"}}<aside id="docs-sidebar" class="detail-sidebar artifact-explorer-sidebar" data-sidebar-panel><nav aria-label="Documentation navigation"><button class="sidebar-back" type="button" data-sidebar-back="project-sidebar">← Project</button><h2>Docs</h2><ul class="artifact-tree">
+{{if eq .Page "documentation"}}<aside id="docs-sidebar" class="detail-sidebar artifact-explorer-sidebar" data-sidebar-panel><nav aria-label="Documentation navigation"><button class="sidebar-back" type="button" data-sidebar-back="project-sidebar">← Docs</button><h2>Docs</h2><ul class="artifact-tree">
 <li><a href="/projects/{{.Project.Name}}/documentation"{{if not .Artifact}} aria-current="page"{{end}}>Overview</a></li>
 <li><details open><summary>Project</summary><ul>{{range .Project.Artifacts}}{{if or (eq .Label "project-index") (eq .Label "roadmap")}}<li><a href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
 <li><details open><summary>Documentation</summary><ul>{{range .Project.Artifacts}}{{if eq .Label "doc"}}<li><a href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}" title="{{.DisplayPath}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.DisplayPath}}</a></li>{{end}}{{end}}</ul></details></li>

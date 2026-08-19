@@ -225,19 +225,20 @@ type VerificationStatus struct {
 }
 
 type StatusSummary struct {
-	Project       string             `json:"project"`
-	Sprint        string             `json:"sprint"`
-	SprintRoot    string             `json:"sprint_root"`
-	FlowStatePath string             `json:"flow_state_path"`
-	Stages        []StageState       `json:"stages"`
-	ExecuteState  *ExecuteRunState   `json:"execute_state,omitempty"`
-	ExecutePath   string             `json:"execute_path"`
-	RunStatePath  string             `json:"run_state_path"`
-	Review        *ReviewStageState  `json:"review,omitempty"`
-	ReviewPath    string             `json:"review_path"`
-	Smoke         *SmokeStageState   `json:"smoke,omitempty"`
-	SmokePath     string             `json:"smoke_path"`
-	Verification  VerificationStatus `json:"verification"`
+	Project                   string             `json:"project"`
+	Sprint                    string             `json:"sprint"`
+	SprintRoot                string             `json:"sprint_root"`
+	FlowStatePath             string             `json:"flow_state_path"`
+	Stages                    []StageState       `json:"stages"`
+	ExecuteState              *ExecuteRunState   `json:"execute_state,omitempty"`
+	HistoricalExecutionStatus string             `json:"historical_execution_status,omitempty"`
+	ExecutePath               string             `json:"execute_path"`
+	RunStatePath              string             `json:"run_state_path"`
+	Review                    *ReviewStageState  `json:"review,omitempty"`
+	ReviewPath                string             `json:"review_path"`
+	Smoke                     *SmokeStageState   `json:"smoke,omitempty"`
+	SmokePath                 string             `json:"smoke_path"`
+	Verification              VerificationStatus `json:"verification"`
 }
 
 type ValidationFinding struct {

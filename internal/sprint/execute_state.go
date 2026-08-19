@@ -59,26 +59,34 @@ func LoadExecuteRunState(root string, s Sprint) (ExecuteRunState, error) {
 // ownership, so startup recovery must leave them untouched instead of making
 // the web server unavailable.
 func legacyTerminalExecuteRunState(root string, s Sprint) bool {
+	_, ok := LegacyTerminalExecuteStatus(root, s)
+	return ok
+}
+
+// LegacyTerminalExecuteStatus reads the terminal result recorded before
+// task-addressable execute state existed. It is historical evidence only and
+// is never treated as resumable task ownership.
+func LegacyTerminalExecuteStatus(root string, s Sprint) (string, bool) {
 	path, err := ExecuteRunStatePath(root, s)
 	if err != nil {
-		return false
+		return "", false
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return "", false
 	}
 	var header struct {
 		SchemaVersion int    `json:"schemaVersion"`
 		Status        string `json:"status"`
 	}
 	if err := json.Unmarshal(content, &header); err != nil || header.SchemaVersion != 0 {
-		return false
+		return "", false
 	}
 	switch header.Status {
 	case "complete", "failed", "cancelled":
-		return true
+		return header.Status, true
 	default:
-		return false
+		return "", false
 	}
 }
 

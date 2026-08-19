@@ -4,14 +4,14 @@
 {{template "component/sidebar-controls" .}}
 {{template "component/project-navigation" .}}
 <aside id="sprint-sidebar" class="detail-sidebar" data-sidebar-panel{{if eq .Page "artifacts"}} hidden{{end}}>
-<nav aria-label="Sprint navigation"><button class="sidebar-back" type="button" data-sidebar-back="project-sidebar">← Project</button><h2>Sprint</h2><ul>
+<nav aria-label="Sprint navigation"><button class="sidebar-back" type="button" data-sidebar-back="project-sidebar">← Sprint</button><h2>Sprint</h2><ul>
 <li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
 <li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts"{{if eq .Page "artifacts"}} aria-current="page"{{end}}{{if eq .Page "artifacts"}} data-sidebar-open="artifact-sidebar"{{end}}>Artefact Navigator</a></li>
 <li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/run"{{if eq .Page "run"}} aria-current="page"{{end}}>Run</a></li>
 </ul></nav>
 </aside>
 {{if eq .Page "artifacts"}}<aside id="artifact-sidebar" class="detail-sidebar artifact-explorer-sidebar" data-sidebar-panel>
-<nav aria-label="Artefact navigation"><button class="sidebar-back" type="button" data-sidebar-back="sprint-sidebar">← Sprint</button><h2>Artefacts</h2><ul class="artifact-tree">
+<nav aria-label="Artefact navigation"><button class="sidebar-back" type="button" data-sidebar-back="sprint-sidebar">← Artefacts</button><h2>Artefacts</h2><ul class="artifact-tree">
 <li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts"{{if not .Artifact}} aria-current="page"{{end}}>Overview</a></li>
 <li><details open><summary>Definition</summary><ul>{{range .Sprint.Artifacts}}{{if or (eq .Label "requirements") (eq .Label "sprint-index")}}<li><a href="/projects/{{$.Sprint.Project}}/sprints/{{$.Sprint.Slug}}/artifacts/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
 <li><details open><summary>Design</summary><ul>{{range .Sprint.Artifacts}}{{if or (eq .Label "technical-handbook") (eq .Label "reasoning")}}<li><a href="/projects/{{$.Sprint.Project}}/sprints/{{$.Sprint.Slug}}/artifacts/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>

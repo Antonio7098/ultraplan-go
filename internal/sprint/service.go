@@ -187,9 +187,14 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 		return StatusSummary{}, err
 	}
 	var executeState *ExecuteRunState
+	var historicalExecutionStatus string
 	loadedExecute, executeErr := LoadExecuteRunState(s.root, sp)
 	if executeErr != nil && !errors.Is(executeErr, ErrExecuteRunStateMissing) {
-		return StatusSummary{}, executeErr
+		if legacyStatus, ok := LegacyTerminalExecuteStatus(s.root, sp); ok {
+			historicalExecutionStatus = legacyStatus
+		} else {
+			return StatusSummary{}, executeErr
+		}
 	}
 	if executeErr == nil {
 		executeState = &loadedExecute
@@ -198,24 +203,32 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 	if err != nil {
 		return StatusSummary{}, err
 	}
-	verification, verificationErr := s.VerificationStatus(projectRef, sprintRef)
-	if verificationErr != nil && !errors.Is(verificationErr, ErrFlowStateMissing) {
-		return StatusSummary{}, verificationErr
+	verification := VerificationStatus{Project: sp.Project, Sprint: sp.Slug}
+	if historicalExecutionStatus == "" {
+		var verificationErr error
+		verification, verificationErr = s.VerificationStatus(projectRef, sprintRef)
+		if verificationErr != nil && !errors.Is(verificationErr, ErrFlowStateMissing) {
+			return StatusSummary{}, verificationErr
+		}
+	} else {
+		verification.Assessment = AssessmentNotApplicable
+		verification.NextAction = "Historical terminal execution evidence is preserved; modern review and smoke evidence is not available."
 	}
 	return StatusSummary{
-		Project:       sp.Project,
-		Sprint:        sp.Slug,
-		SprintRoot:    workspace.Rel(s.root, sp.Path),
-		FlowStatePath: workspace.Rel(s.root, flowPath),
-		Stages:        stages,
-		ExecuteState:  executeState,
-		ExecutePath:   ArtifactRelPath(sp, StageExecute),
-		RunStatePath:  workspace.Rel(s.root, runStatePath),
-		Review:        refreshed.Review,
-		ReviewPath:    ArtifactRelPath(sp, StageReview),
-		Smoke:         refreshed.Smoke,
-		SmokePath:     ArtifactRelPath(sp, StageSmoke),
-		Verification:  verification,
+		Project:                   sp.Project,
+		Sprint:                    sp.Slug,
+		SprintRoot:                workspace.Rel(s.root, sp.Path),
+		FlowStatePath:             workspace.Rel(s.root, flowPath),
+		Stages:                    stages,
+		ExecuteState:              executeState,
+		HistoricalExecutionStatus: historicalExecutionStatus,
+		ExecutePath:               ArtifactRelPath(sp, StageExecute),
+		RunStatePath:              workspace.Rel(s.root, runStatePath),
+		Review:                    refreshed.Review,
+		ReviewPath:                ArtifactRelPath(sp, StageReview),
+		Smoke:                     refreshed.Smoke,
+		SmokePath:                 ArtifactRelPath(sp, StageSmoke),
+		Verification:              verification,
 	}, nil
 }
 

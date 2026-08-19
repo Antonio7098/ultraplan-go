@@ -140,6 +140,19 @@ func TestExecuteRunStateLoadMissingAndMalformed(t *testing.T) {
 	}
 }
 
+func TestLegacyTerminalExecuteStatusPreservesHistoricalCompletion(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-alpha")
+	writeFileContent(t, sp.Path, `{"status":"complete","completedAt":"2026-05-30T10:07:22Z","files":[],"testsRun":[],"blockers":[]}`, ".run-state.json")
+	status, ok := LegacyTerminalExecuteStatus(root, sp)
+	if !ok || status != "complete" {
+		t.Fatalf("legacy status = %q, %t", status, ok)
+	}
+	if _, err := LoadExecuteRunState(root, sp); !errors.Is(err, ErrExecuteRunStateMalformed) {
+		t.Fatalf("legacy state unexpectedly became resumable: %v", err)
+	}
+}
+
 func TestDeferredExecuteTaskRequiresRationaleAndIsResolved(t *testing.T) {
 	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 	sp := Sprint{Project: "proj", Slug: "01-alpha", Path: "/workspace/projects/proj/sprints/01-alpha"}

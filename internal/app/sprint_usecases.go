@@ -151,6 +151,10 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				Assessment:        string(status.Verification.Assessment),
 				NextAction:        status.Verification.NextAction,
 			}
+			if status.HistoricalExecutionStatus != "" {
+				summary.Status = status.HistoricalExecutionStatus
+				summary.Execute = summarizeHistoricalExecute(status.HistoricalExecutionStatus)
+			}
 			summary.Review.Artifact, summary.Review.Digest, summary.Review.FreshnessReasons = status.Verification.Review.Artifact, status.Verification.Review.ArtifactDigest, append([]string(nil), status.Verification.Review.FreshnessReasons...)
 			summary.Review.Stale = !status.Verification.Review.Fresh
 			summary.Smoke.Artifact, summary.Smoke.Digest, summary.Smoke.NextAction = status.Verification.Smoke.Artifact, status.Verification.Smoke.ArtifactDigest, status.Verification.Smoke.NextAction
@@ -286,6 +290,19 @@ func summarizeExecute(state *sprint.ExecuteRunState) ExecuteSummary {
 		case sprint.ExecuteTaskCancelled:
 			summary.Cancelled++
 		}
+	}
+	return summary
+}
+
+func summarizeHistoricalExecute(status string) ExecuteSummary {
+	summary := ExecuteSummary{Available: true, Total: 1, Message: "historical terminal execution evidence"}
+	switch status {
+	case "complete":
+		summary.Complete = 1
+	case "failed":
+		summary.Failed = 1
+	case "cancelled":
+		summary.Cancelled = 1
 	}
 	return summary
 }
