@@ -221,7 +221,13 @@ The writable-path list above is exhaustive, not illustrative:
   ID, status, path, test ID, severity, title, observed summary, falsifiable
   theory, supporting evidence, and next action. An issue file written to disk
   is not sufficient if the response omits it; a constant empty issues array is
-  invalid. Only when discovery and this failure-to-issue wiring are complete,
+  invalid. Each returned issue must use this exact JSON shape and value types:
+  {"id":"...","status":"open","path":"issues/<id>.md","test_id":"<failed-test-id>","severity":"...","title":"...","summary":"...","theory":"...","evidence":"...","action":"..."}.
+  Use the exact snake_case keys shown. Do not substitute camelCase aliases such
+  as testId, observedSummary, falsifiableTheory, supportingEvidence, or
+  nextAction. Every displayed value must be a non-empty string; in particular,
+  evidence is one string, not an array. Only when discovery and this
+  failure-to-issue wiring are complete,
   internally consistent, and aligned with the current governed sprint inputs
   may you make no changes and return success promptly.
   Do not add opportunistic tests or rebuild the acceptance matrix merely
