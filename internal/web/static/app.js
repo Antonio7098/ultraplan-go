@@ -72,6 +72,84 @@
     });
   }
 
+  const processes = document.querySelector("[data-running-processes]");
+  if (processes) {
+    const button = processes.querySelector(":scope > button");
+    const count = processes.querySelector("[data-running-count]");
+    const status = processes.querySelector("[data-running-status]");
+    const items = processes.querySelector("[data-running-items]");
+    let loading = false;
+
+    const processLabel = (operation) => {
+      const names = {
+        "sprint-flow": "Sprint flow", "study-start": "Study loop", "study-resume": "Study loop",
+        "sprint-stage": "Sprint stage", "execute-start": "Execution", "execute-resume": "Execution",
+        "review-start": "Review", "smoke-start": "Smoke test", "verify-start": "Verification"
+      };
+      return names[operation.kind] || operation.kind.split("-").map((word) => word[0]?.toUpperCase() + word.slice(1)).join(" ");
+    };
+    const processScope = (operation) => {
+      if (operation.study) return operation.study;
+      if (operation.project && operation.sprint) return `${operation.project} / ${operation.sprint}`;
+      return operation.project || operation.sprint || "Workspace";
+    };
+    const render = (operations) => {
+      count.textContent = String(operations.length);
+      button.setAttribute("aria-label", `Running processes: ${operations.length}`);
+      processes.classList.toggle("has-running-processes", operations.length > 0);
+      status.textContent = operations.length ? `${operations.length} active` : "None active";
+      items.replaceChildren();
+      if (!operations.length) {
+        const empty = document.createElement("li");
+        empty.className = "top-nav-loading";
+        empty.textContent = "No processes are running.";
+        items.append(empty);
+        return;
+      }
+      for (const operation of operations) {
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        const title = document.createElement("strong");
+        const detail = document.createElement("span");
+        link.href = `/operations/${encodeURIComponent(operation.id)}`;
+        title.textContent = processLabel(operation);
+        detail.textContent = `${processScope(operation)} · ${operation.state}`;
+        link.append(title, detail);
+        item.append(link);
+        items.append(item);
+      }
+    };
+    const load = async () => {
+      if (loading || document.hidden) return;
+      loading = true;
+      try {
+        const response = await fetch("/api/v1/operations", {headers: {Accept: "application/json"}});
+        if (!response.ok) throw new Error();
+        const payload = await response.json();
+        render(Array.isArray(payload.data) ? payload.data : []);
+      } catch (_) {
+        status.textContent = "Unavailable";
+      } finally {
+        loading = false;
+      }
+    };
+    const setExpanded = (expanded) => button.setAttribute("aria-expanded", String(expanded));
+    button.addEventListener("click", () => {
+      const expanded = button.getAttribute("aria-expanded") !== "true";
+      setExpanded(expanded);
+      if (expanded) load();
+    });
+    processes.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { setExpanded(false); button.focus(); }
+    });
+    document.addEventListener("click", (event) => {
+      if (!processes.contains(event.target)) setExpanded(false);
+    });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+    load();
+    window.setInterval(load, 3000);
+  }
+
   for (const stack of document.querySelectorAll("[data-sidebar-stack]")) {
     const launcher = stack.querySelector("[data-sidebar-toggle]");
     const pin = stack.querySelector("[data-sidebar-pin]");

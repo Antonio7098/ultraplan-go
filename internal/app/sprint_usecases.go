@@ -154,6 +154,8 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 			if status.HistoricalExecutionStatus != "" {
 				summary.Status = status.HistoricalExecutionStatus
 				summary.Execute = summarizeHistoricalExecute(status.HistoricalExecutionStatus)
+			} else if executeTerminalComplete(summary.Execute) {
+				summary.Status = "complete"
 			}
 			summary.Review.Artifact, summary.Review.Digest, summary.Review.FreshnessReasons = status.Verification.Review.Artifact, status.Verification.Review.ArtifactDigest, append([]string(nil), status.Verification.Review.FreshnessReasons...)
 			summary.Review.Stale = !status.Verification.Review.Fresh
@@ -305,4 +307,11 @@ func summarizeHistoricalExecute(status string) ExecuteSummary {
 		summary.Cancelled = 1
 	}
 	return summary
+}
+
+// executeTerminalComplete keeps the delivery status independent from the
+// downstream review/smoke assessment. Migrated task-addressable run state is
+// complete when every planned task reached an accepted terminal outcome.
+func executeTerminalComplete(summary ExecuteSummary) bool {
+	return summary.Available && summary.Total > 0 && summary.Complete+summary.Deferred == summary.Total
 }

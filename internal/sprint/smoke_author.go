@@ -210,7 +210,28 @@ func (s Service) renderSmokeAuthorPrompt(prepared smokePrepared) string {
 	for _, rel := range prepared.Manifest.Authoring.Paths {
 		fmt.Fprintf(&b, "- `%s`\n", filepath.Join(prepared.HarnessRoot, filepath.FromSlash(rel)))
 	}
-	fmt.Fprintln(&b, "\nUltraPlan will reject the run if the product target, governed project inputs, or any harness path outside this list changes. After authoring, UltraPlan independently validates discovery coverage and runs the selected suite.")
+	fmt.Fprintln(&b, `
+The writable-path list above is exhaustive, not illustrative:
+
+- A listed directory authorizes files below that directory only. It does not
+  authorize a similarly named sibling or the directory's parent.
+- A listed file authorizes that exact file only.
+- Do not create scratch, debug, probe, backup, generated, or temporary files
+  anywhere else in the harness. Put durable test code below an allowed test or
+  scenario directory, and use process-managed temporary storage for ephemeral
+  experiments.
+- Before every write, resolve the destination and confirm it is either an exact
+  listed file or a descendant of a listed directory.
+- Before finishing, inspect every path changed during this authoring session.
+  Remove or relocate any out-of-scope file into an allowed path and update
+  imports before returning success.
+
+For example, when "src/tests" is listed, "src/tests/probe.ts" is allowed but
+"src/test-probe.ts" is forbidden. UltraPlan snapshots the entire harness and
+will reject the whole authoring run if even one path outside the list changes;
+successful tests do not override that rejection. The product target and
+governed project inputs are also read-only. After authoring, UltraPlan
+independently validates discovery coverage and runs the selected suite.`)
 	return b.String()
 }
 

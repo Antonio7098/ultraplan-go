@@ -243,8 +243,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func allowedMethods(match routeMatch) []string {
 	switch match.name {
-	case "api_operation_prepare", "api_operations":
+	case "api_operation_prepare":
 		return []string{http.MethodPost}
+	case "api_operations":
+		return []string{http.MethodGet, http.MethodHead, http.MethodPost}
 	case "operation_prepare", "operation_start", "operation_cancel":
 		return []string{http.MethodPost}
 	case "api_operation":

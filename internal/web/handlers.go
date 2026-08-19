@@ -394,7 +394,11 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 	case "api_operation_prepare":
 		h.handleOperationPrepare(w, r)
 	case "api_operations":
-		h.handleOperationStart(w, r)
+		if r.Method == http.MethodPost {
+			h.handleOperationStart(w, r)
+		} else {
+			h.handleActiveOperations(w, r)
+		}
 	case "api_operation":
 		if r.Method == http.MethodDelete {
 			h.handleOperationCancel(w, r, match.params[0])

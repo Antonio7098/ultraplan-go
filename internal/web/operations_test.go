@@ -131,6 +131,13 @@ func TestOperationHubLifecycleCancellationAndSessionOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-ops.started
+	active := hub.activeOperations("session-a")
+	if len(active) != 1 || active[0].ID != doc.ID || active[0].Kind != app.OperationFlow || active[0].Project != "alpha" || active[0].Sprint != "31-web" {
+		t.Fatalf("active operations=%+v", active)
+	}
+	if other := hub.activeOperations("session-b"); len(other) != 0 {
+		t.Fatalf("cross-session active operations=%+v", other)
+	}
 	if _, err := hub.status("session-b", doc.ID); !errors.Is(err, errOperationNotFound) {
 		t.Fatalf("cross-session status error=%v", err)
 	}
@@ -142,6 +149,9 @@ func TestOperationHubLifecycleCancellationAndSessionOwnership(t *testing.T) {
 	terminal, err := hub.status("session-a", doc.ID)
 	if err != nil || terminal.State != "cancelled" || terminal.Result == nil {
 		t.Fatalf("terminal=%+v err=%v", terminal, err)
+	}
+	if active := hub.activeOperations("session-a"); len(active) != 0 {
+		t.Fatalf("terminal operation remained active: %+v", active)
 	}
 	_, requested, err = hub.cancelOperation("session-a", doc.ID, "user_request")
 	if err != nil || requested {
@@ -319,6 +329,21 @@ func TestOperationHTTPPrepareStartSSEAndCancel(t *testing.T) {
 	if err := json.Unmarshal(started.Body.Bytes(), &startedEnvelope); err != nil {
 		t.Fatal(err)
 	}
+	active := operationSessionRequest(h, http.MethodGet, "/api/v1/operations", cookie)
+	if active.Code != http.StatusOK || !strings.Contains(active.Body.String(), `"id":"`+startedEnvelope.Data.ID+`"`) ||
+		!strings.Contains(active.Body.String(), `"returned_count":1`) {
+		t.Fatalf("active status=%d body=%s", active.Code, active.Body.String())
+	}
+	head := operationSessionRequest(h, http.MethodHead, "/api/v1/operations", cookie)
+	if head.Code != http.StatusOK || head.Body.Len() != 0 {
+		t.Fatalf("active HEAD status=%d body=%q", head.Code, head.Body.String())
+	}
+	otherCookie, _ := establishOperationSession(t, h)
+	other := operationSessionRequest(h, http.MethodGet, "/api/v1/operations", otherCookie)
+	if other.Code != http.StatusOK || strings.Contains(other.Body.String(), startedEnvelope.Data.ID) ||
+		!strings.Contains(other.Body.String(), `"returned_count":0`) {
+		t.Fatalf("cross-session active status=%d body=%s", other.Code, other.Body.String())
+	}
 
 	sseDone := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
@@ -341,6 +366,11 @@ func TestOperationHTTPPrepareStartSSEAndCancel(t *testing.T) {
 	status := operationSessionRequest(h, http.MethodGet, "/api/v1/operations/"+startedEnvelope.Data.ID, cookie)
 	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"state":"cancelled"`) {
 		t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
+	}
+	active = operationSessionRequest(h, http.MethodGet, "/api/v1/operations", cookie)
+	if active.Code != http.StatusOK || strings.Contains(active.Body.String(), startedEnvelope.Data.ID) ||
+		!strings.Contains(active.Body.String(), `"returned_count":0`) {
+		t.Fatalf("terminal active status=%d body=%s", active.Code, active.Body.String())
 	}
 	replay := operationMutationRequest(h, http.MethodPost, "/api/v1/operations", startBody, cookie, csrf)
 	if replay.Code != http.StatusAccepted || replay.Header().Get("Location") != started.Header().Get("Location") {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,6 +49,16 @@ type operationDocument struct {
 	LastEventID   string              `json:"last_event_id"`
 	DurableStatus durableStatusDTO    `json:"durable_status"`
 	Result        *operationResultDTO `json:"result,omitempty"`
+}
+
+type activeOperationDTO struct {
+	ID        string            `json:"id"`
+	Kind      app.OperationKind `json:"kind"`
+	State     string            `json:"state"`
+	Project   string            `json:"project,omitempty"`
+	Sprint    string            `json:"sprint,omitempty"`
+	Study     string            `json:"study,omitempty"`
+	StartedAt *time.Time        `json:"started_at,omitempty"`
 }
 
 type durableStatusDTO struct {
@@ -262,6 +273,31 @@ func (h *operationHub) status(session, id string) (operationDocument, error) {
 		return operationDocument{}, errOperationNotFound
 	}
 	return cloneOperationDocument(record.doc), nil
+}
+
+func (h *operationHub) activeOperations(session string) []activeOperationDTO {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.reapLocked()
+	result := make([]activeOperationDTO, 0, h.active)
+	for _, record := range h.records {
+		if record.session != session || terminalOperationState(record.doc.State) {
+			continue
+		}
+		result = append(result, activeOperationDTO{
+			ID: record.doc.ID, Kind: record.doc.Kind, State: record.doc.State,
+			Project: record.request.Project, Sprint: record.request.Sprint, Study: record.request.Study,
+			StartedAt: record.doc.StartedAt,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		left, right := result[i].StartedAt, result[j].StartedAt
+		if left == nil || right == nil {
+			return left != nil
+		}
+		return left.After(*right)
+	})
+	return result
 }
 
 func (h *operationHub) cancelOperation(session, id, reason string) (operationDocument, bool, error) {

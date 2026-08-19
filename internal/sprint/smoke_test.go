@@ -327,6 +327,19 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	if len(author.requests) != 1 || author.requests[0].WorkDir != harness || author.requests[0].Model != "author" || !strings.Contains(author.requests[0].Prompt, "required deep-smoke coverage ID") {
 		t.Fatalf("smoke author request was not sprint-specific and model-routed: %+v", author.requests)
 	}
+	for _, required := range []string{
+		"writable-path list above is exhaustive, not illustrative",
+		"Do not create scratch, debug, probe, backup, generated, or temporary files",
+		"Before every write, resolve the destination",
+		"inspect every path changed during this authoring session",
+		`"src/tests/probe.ts" is allowed`,
+		`"src/test-probe.ts" is forbidden`,
+		"will reject the whole authoring run if even one path outside the list changes",
+	} {
+		if !strings.Contains(author.requests[0].Prompt, required) {
+			t.Fatalf("smoke author prompt omitted path-boundary instruction %q", required)
+		}
+	}
 	artifact := filepath.Join(sp.Path, "smoke.md")
 	prior, err := os.ReadFile(artifact)
 	if err != nil || len(ValidateSmokeContent(string(prior))) != 0 {

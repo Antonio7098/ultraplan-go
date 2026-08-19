@@ -26,7 +26,7 @@ func TestAPICompatibilityRouteMethodMatrix(t *testing.T) {
 		{"api_artifact", "/api/v1/artifacts/opaque_ref", []string{"GET", "HEAD"}},
 		{"api_health", "/api/v1/health", []string{"GET", "HEAD"}},
 		{"api_operation_prepare", "/api/v1/operations/prepare", []string{"POST"}},
-		{"api_operations", "/api/v1/operations", []string{"POST"}},
+		{"api_operations", "/api/v1/operations", []string{"GET", "HEAD", "POST"}},
 		{"api_operation", "/api/v1/operations/op_example", []string{"GET", "DELETE"}},
 		{"api_operation_events", "/api/v1/operations/op_example/events", []string{"GET"}},
 	}
@@ -57,6 +57,7 @@ func TestAPICompatibilityTransportSchemas(t *testing.T) {
 		"reviewer":           {reviewerDTO{}, "id:string:id|name:string:name,omitempty|kind:string:kind,omitempty|path:string:path,omitempty|status:string:status|summary:string:summary,omitempty"},
 		"smoke":              {smokeDTO{}, "available:bool:available|status:string:status,omitempty|verdict:string:verdict,omitempty|stale:bool:stale,omitempty|run_id:string:run_id,omitempty"},
 		"operation_document": {operationDocument{}, "id:string:id|kind:app.OperationKind:kind|state:string:state|reason:string:reason,omitempty|created_at:time.Time:created_at|started_at:*time.Time:started_at,omitempty|finished_at:*time.Time:finished_at,omitempty|last_event_id:string:last_event_id|durable_status:web.durableStatusDTO:durable_status|result:*web.operationResultDTO:result,omitempty"},
+		"active_operation":   {activeOperationDTO{}, "id:string:id|kind:app.OperationKind:kind|state:string:state|project:string:project,omitempty|sprint:string:sprint,omitempty|study:string:study,omitempty|started_at:*time.Time:started_at,omitempty"},
 		"operation_result":   {operationResultDTO{}, "state:string:state|subject:string:subject,omitempty|message:string:message,omitempty|content:string:content,omitempty|truncated:bool:truncated,omitempty|findings:[]web.findingDTO:findings,omitempty|error:*web.errorBody:error,omitempty"},
 		"operation_scope":    {operationScopeRequest{}, "project:string:project,omitempty|sprint:string:sprint,omitempty|study:string:study,omitempty"},
 		"operation_spec":     {operationSpecRequest{}, "kind:string:kind|scope:web.operationScopeRequest:scope|options:web.operationOptionsRequest:options,omitempty"},

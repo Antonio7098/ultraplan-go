@@ -162,6 +162,12 @@ func (h *handler) handleOperationStatus(w http.ResponseWriter, r *http.Request, 
 	h.writeSuccess(w, r, http.StatusOK, doc, nil)
 }
 
+func (h *handler) handleActiveOperations(w http.ResponseWriter, r *http.Request) {
+	operations := h.hub.activeOperations(sessionID(r.Context()))
+	count := len(operations)
+	h.writeSuccess(w, r, http.StatusOK, operations, &app.CollectionInfo{ReturnedCount: count, TotalCount: count})
+}
+
 func (h *handler) handleOperationCancel(w http.ResponseWriter, r *http.Request, id string) {
 	doc, requested, err := h.hub.cancelOperation(sessionID(r.Context()), id, "user_request")
 	if err != nil {

@@ -134,9 +134,13 @@ The command lifecycle is:
    starts server-owned work only if the confirmation remains current. Success
    is `202` with a `Location` header. Retrying the same accepted session/token
    returns the original operation and Location without starting duplicate work.
-4. `GET /api/v1/operations/{id}` returns retained status and terminal result.
-5. `GET /api/v1/operations/{id}/events` observes progress through SSE.
-6. `DELETE /api/v1/operations/{id}` requests canonical cancellation and is
+4. `GET /api/v1/operations` returns the current browser session's active
+   operations. The navigation uses this bounded, ephemeral collection to
+   recover links to work after a page change or refresh; it never exposes
+   another session's operations or treats the collection as durable state.
+5. `GET /api/v1/operations/{id}` returns retained status and terminal result.
+6. `GET /api/v1/operations/{id}/events` observes progress through SSE.
+7. `DELETE /api/v1/operations/{id}` requests canonical cancellation and is
    idempotent.
 
 Stable states are `accepted`, `running`, `cancelling`, `succeeded`, `failed`,
@@ -145,6 +149,17 @@ Stable states are `accepted`, `running`, `cancelling`, `succeeded`, `failed`,
 `recovery_required`, and `terminal`. Event IDs are decimal and monotonic within
 one operation. SSE is progress-only: disconnecting closes only that
 subscription, while cancellation requires `DELETE`.
+
+Runtime-backed progress uses an explicit safe allowlist. When supplied by the
+underlying operation it may include provider and model identifiers, attempt and
+runtime-attempt counts, turns, input/output/total/reasoning/cache token counts,
+duration, estimated cost, and the count of retained runtime events. Preparation
+shows the configured runtime/model source and duration/cost class before
+confirmation. Prompt bodies, provider payloads, stderr, executable arguments,
+credentials, cookies, session/CSRF values, and unsafe paths are never projected.
+Prompt-version, tool-count, and fallback-selection fields are not currently
+available from every shared operation and are therefore not fabricated as web
+metadata; adding them requires an app-level typed field and compatibility test.
 
 Accepted product failures remain terminal operation results returned from the
 status resource with HTTP `200`. Pre-acceptance and transport errors use stable
@@ -179,6 +194,25 @@ live cross-process mutation leases untouched.
 
 Slow subscriber queues are disconnected without blocking product work. New
 work is never queued: capacity returns `429`, and draining returns `503`.
+
+### Performance expectations
+
+This is a single-user loopback interface, intentionally optimized for bounded
+and predictable behavior rather than throughput. At the documented collection
+and payload bounds on a supported developer machine, the release targets are:
+
+| Path | Expected local behavior |
+| --- | --- |
+| Listener startup after validated configuration | ready within 2 seconds, excluding browser launch |
+| Ordinary HTML and `/api/v1` reads | response begins within 500 ms |
+| Operation preparation without external runtime work | response within 1 second |
+| Initial SSE snapshot after connection | delivered within 1 second |
+| Concurrent work | at most 8 active operations and 32 streams; excess work is rejected, not queued |
+
+These are release expectations rather than hard request deadlines. CI uses
+deterministic behavior, bounds, and race tests; wall-clock regressions are
+confirmed on representative release hardware before publication so a loaded
+shared runner does not create a misleading failure.
 
 `GET /api/v1/health` reports only server readiness and lightweight availability
 of the configured workspace query. `200`/`ok` means the server can answer that

@@ -36,6 +36,16 @@
           </div>
         </div>
       </div>
+      <div class="running-processes" data-running-processes>
+        <button type="button" aria-label="Running processes: 0" aria-expanded="false" aria-controls="running-processes-flyout">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/></svg>
+          <span data-running-count>0</span>
+        </button>
+        <div class="running-processes-flyout" id="running-processes-flyout">
+          <div class="top-nav-flyout-heading"><strong>Running processes</strong><span data-running-status>Checking…</span></div>
+          <ul data-running-items><li class="top-nav-loading">Checking for active work…</li></ul>
+        </div>
+      </div>
     </nav>
   </header>
   <main id="main" tabindex="-1">
