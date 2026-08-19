@@ -56,6 +56,14 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 		}
 		stages = []PlanningStage{req.To}
 	} else {
+		// A non-dry flow is the materialization entrypoint for a roadmap sprint.
+		// Create its safe skeleton before acquiring the sprint-scoped mutation
+		// lease; lease resolution deliberately accepts existing sprints only.
+		sp, _, _, resolveErr := s.resolveSprintForRequirements(projectRef, sprintRef, true)
+		if resolveErr != nil {
+			return FlowResult{}, resolveErr
+		}
+		sprintRef = sp.Slug
 		var release func()
 		ctx, release, err = s.acquireMutationContext(ctx, projectRef, sprintRef)
 		if err != nil {
@@ -103,6 +111,11 @@ func (s Service) FlowStage(ctx context.Context, projectRef, sprintRef string, re
 		return FlowResult{}, err
 	}
 	if !req.DryRun {
+		sp, _, _, resolveErr := s.resolveSprintForRequirements(projectRef, sprintRef, true)
+		if resolveErr != nil {
+			return FlowResult{}, resolveErr
+		}
+		sprintRef = sp.Slug
 		var release func()
 		var err error
 		ctx, release, err = s.acquireMutationContext(ctx, projectRef, sprintRef)

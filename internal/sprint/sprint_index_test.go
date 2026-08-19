@@ -152,6 +152,20 @@ func TestFlowRequirementsGeneratesMissingSprintRequirements(t *testing.T) {
 	}
 }
 
+func TestCumulativeFlowMaterializesMissingSprintBeforeMutationLock(t *testing.T) {
+	root := workspaceFixture(t)
+	writeFixtureProjectIndex(t, root, "proj")
+	service := NewService(root)
+	_, err := service.Flow(context.Background(), "proj", "33-code-context-stage", FlowRequest{To: StagePlan})
+	if err == nil || !strings.Contains(err.Error(), "runtime is required") {
+		t.Fatalf("flow error=%v, want requirements runtime failure after materialization", err)
+	}
+	path := filepath.Join(root, "projects", "proj", "sprints", "33-code-context-stage")
+	if info, statErr := os.Stat(path); statErr != nil || !info.IsDir() {
+		t.Fatalf("missing sprint skeleton %s: info=%v err=%v", path, info, statErr)
+	}
+}
+
 type fakeRuntime struct{}
 
 func (fakeRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {
