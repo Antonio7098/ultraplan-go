@@ -329,6 +329,15 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	}
 	for _, required := range []string{
 		"writable-path list above is exhaustive, not illustrative",
+		"Use the existing-coverage fast path",
+		"run only the harness discovery command",
+		"make no changes and return",
+		"Do not add opportunistic tests",
+		"resume it narrowly",
+		"Repair only concrete",
+		"Prefer finishing the current suite over",
+		"Do not execute the harness run command, browsers, product builds",
+		"independent discovery validation and execution after authoring returns",
 		"inspect the existing harness tests, suites",
 		"work left by an earlier unfinished",
 		"Only an existing file already inside a",

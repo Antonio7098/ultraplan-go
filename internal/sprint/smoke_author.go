@@ -213,6 +213,20 @@ func (s Service) renderSmokeAuthorPrompt(prepared smokePrepared) string {
 	fmt.Fprintln(&b, `
 The writable-path list above is exhaustive, not illustrative:
 
+- Use the existing-coverage fast path before doing broad analysis or making any
+  edit: run only the harness discovery command and inspect the requested
+  sprint's existing suite, test identities, coverage IDs, and mapping. If that
+  mapping is already non-empty, marked complete, internally consistent, and
+  aligned with the current governed sprint inputs, make no changes and return
+  success promptly. Do not add opportunistic tests or rebuild the acceptance
+  matrix merely because authoring was invoked again.
+- If existing work is incomplete, resume it narrowly. Repair only concrete
+  discovery, mapping, compilation, or governed-coverage gaps needed to make the
+  existing sprint suite coherent. Prefer finishing the current suite over
+  expanding it. During authoring, use only bounded discovery and static or type
+  checks. Do not execute the harness run command, browsers, product builds,
+  product test suites, or the authoritative smoke lane; UltraPlan performs
+  independent discovery validation and execution after authoring returns.
 - Before authoring new coverage, inspect the existing harness tests, suites,
   sprint mappings, and related files for work left by an earlier unfinished
   smoke-authoring run for this sprint. Only an existing file already inside a
