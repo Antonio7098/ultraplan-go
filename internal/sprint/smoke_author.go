@@ -213,6 +213,14 @@ func (s Service) renderSmokeAuthorPrompt(prepared smokePrepared) string {
 	fmt.Fprintln(&b, `
 The writable-path list above is exhaustive, not illustrative:
 
+- Before authoring new coverage, inspect the existing harness tests, suites,
+  sprint mappings, and related files for work left by an earlier unfinished
+  smoke-authoring run for this sprint. If an existing test is relevant,
+  technically sound, and compatible with the current governed inputs and
+  harness conventions, adopt it: complete or repair it as needed and include
+  it in the appropriate suite and sprint mapping. Do not duplicate equivalent coverage.
+  Treat existing files as candidates, not as authoritative: ignore or replace
+  stale, unrelated, invalid, or unsafe work. Do not weaken assertions merely to make it pass.
 - A listed directory authorizes files below that directory only. It does not
   authorize a similarly named sibling or the directory's parent.
 - A listed file authorizes that exact file only.

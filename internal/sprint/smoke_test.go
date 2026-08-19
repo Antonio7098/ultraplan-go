@@ -329,6 +329,12 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	}
 	for _, required := range []string{
 		"writable-path list above is exhaustive, not illustrative",
+		"inspect the existing harness tests, suites",
+		"work left by an earlier unfinished",
+		"adopt it: complete or repair it as needed",
+		"Do not duplicate equivalent coverage",
+		"Treat existing files as candidates, not as authoritative",
+		"Do not weaken assertions merely to make it pass",
 		"Do not create scratch, debug, probe, backup, generated, or temporary files",
 		"Before every write, resolve the destination",
 		"inspect every path changed during this authoring session",
