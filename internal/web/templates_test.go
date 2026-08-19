@@ -115,9 +115,15 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 		}
 	}
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select", `querySelectorAll(".detail-sidebar details")`, `addEventListener("pointerenter"`, `addEventListener("pointerleave"`, "pinnedOpen", "sidebar-hover-preview"} {
+	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select", "data-stage-operation-status", `querySelectorAll(".detail-sidebar details")`, `addEventListener("pointerenter"`, `addEventListener("pointerleave"`, "pinnedOpen", "sidebar-hover-preview"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("JavaScript missing %q", want)
+		}
+	}
+	operationsJS := request(h, http.MethodGet, "/static/js/operations.js", nil).Body.String()
+	for _, want := range []string{"body.error?.details?.reason", "body.error?.details?.guidance"} {
+		if !strings.Contains(operationsJS, want) {
+			t.Fatalf("operation JavaScript missing safe error detail %q", want)
 		}
 	}
 }
@@ -171,7 +177,7 @@ func TestPrimaryNavigationUsesTopBarDestinations(t *testing.T) {
 
 func TestSprintRunExposesStageControls(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `href="#stage-requirements" data-stage-select="stage-requirements"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript"} {
+	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `href="#stage-requirements" data-stage-select="stage-requirements"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, `data-stage-operation-status role="status" aria-live="polite"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("stage controls missing %q in %s", want, body)
 		}

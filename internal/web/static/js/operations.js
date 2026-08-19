@@ -13,7 +13,10 @@
         signal: runtime.signal
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error?.message || `Request failed (${response.status})`);
+      if (!response.ok) {
+        const parts = [body.error?.message, body.error?.details?.reason, body.error?.details?.guidance].filter(Boolean);
+        throw new Error(parts.join(" ") || `Request failed (${response.status})`);
+      }
       return body.data;
     }
   });

@@ -68,6 +68,6 @@
 {{else}}
 {{if .Error}}<p class="operation-error">{{.Error}}</p>{{end}}<p>Start the governed flow and stop when this stage is complete.</p>
 <form class="operation-form stage-start" method="post" action="/operations/prepare" data-project="{{$.Sprint.Project}}" data-sprint="{{$.Sprint.Slug}}" data-stage="{{.Name}}"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><input type="hidden" name="project" value="{{$.Sprint.Project}}"><input type="hidden" name="sprint" value="{{$.Sprint.Slug}}"><input type="hidden" name="stage" value="{{.Name}}"><button type="submit" name="kind" value="sprint-flow" data-operation-kind="sprint-flow">Start run to {{.Name}}</button></form>
-{{end}}<div class="stage-confirmation" data-stage-confirmation hidden></div></section>{{end}}<noscript><p class="notice">Stage links and run forms work without JavaScript. Refresh the resulting operation page to see current server status.</p></noscript></div></div>
+{{end}}<div class="stage-operation-status" data-stage-operation-status role="status" aria-live="polite" tabindex="-1"></div><div class="stage-confirmation" data-stage-confirmation hidden></div></section>{{end}}<noscript><p class="notice">Stage links and run forms work without JavaScript. Refresh the resulting operation page to see current server status.</p></noscript></div></div>
 {{end}}
 </div></div>{{template "layout/bottom" .}}{{end}}

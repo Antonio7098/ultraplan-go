@@ -392,7 +392,10 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
-        const confirmation = form.closest("[data-stage-panel]")?.querySelector("[data-stage-confirmation]")
+        const stagePanel = form.closest("[data-stage-panel]");
+        const stageStatus = stagePanel?.querySelector("[data-stage-operation-status]");
+        if (stageStatus) live = stageStatus;
+        const confirmation = stagePanel?.querySelector("[data-stage-confirmation]")
           || document.getElementById("operation-confirmation");
         const operation = specification(form, event.submitter);
         announce("Preparing normalized operation scope.");
@@ -419,7 +422,6 @@
           confirmButton.disabled = true;
           try {
             const started = await command("/api/v1/operations", {operation, confirmation_token: prepared.confirmation_token});
-            const stagePanel = form.closest("[data-stage-panel]");
             if (!stagePanel) {
               window.location.assign(`/operations/${encodeURIComponent(started.id)}`);
               return;
