@@ -147,7 +147,7 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 			m.reject(tracked, r, http.StatusForbidden, "host_rejected", hostRejectionMessage(m.authority, r.Host))
 		case operationMutation && !validSession:
 			m.reject(tracked, r, http.StatusForbidden, "session_required", "Establish a browser session before submitting commands.")
-		case operationMutation && !validCommandOrigin(r.Header.Get("Origin"), m.origin):
+		case operationMutation && !validCommandRequestOrigin(r, m.origin):
 			m.reject(tracked, r, http.StatusForbidden, "origin_rejected", originRejectionMessage(m.origin, r.Header.Get("Origin")))
 		case apiOperationMutation && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(csrf)) != 1:
 			m.reject(tracked, r, http.StatusForbidden, "csrf_failed", "The CSRF proof did not match this browser session. Refresh the UltraPlan page and prepare the operation again.")
@@ -270,6 +270,30 @@ func validOrigin(origin, expected string) bool {
 // Mutating requests still require the signed session and CSRF proof.
 func validCommandOrigin(origin, expected string) bool {
 	return origin == expected
+}
+
+// validCommandRequestOrigin accepts the exact configured origin. It also
+// tolerates browsers that remove a non-default port from Origin when their
+// unforgeable fetch metadata and exact Referer still prove a same-origin
+// request. Session and CSRF validation remain separate mandatory checks.
+func validCommandRequestOrigin(r *http.Request, expected string) bool {
+	if validCommandOrigin(r.Header.Get("Origin"), expected) {
+		return true
+	}
+	if r.Header.Get("Sec-Fetch-Site") != "same-origin" {
+		return false
+	}
+	receivedURL, receivedErr := url.Parse(r.Header.Get("Origin"))
+	expectedURL, expectedErr := url.Parse(expected)
+	refererURL, refererErr := url.Parse(r.Header.Get("Referer"))
+	if receivedErr != nil || expectedErr != nil || refererErr != nil ||
+		receivedURL.User != nil || expectedURL.User != nil || refererURL.User != nil {
+		return false
+	}
+	return receivedURL.Scheme == expectedURL.Scheme &&
+		receivedURL.Hostname() == expectedURL.Hostname() &&
+		receivedURL.Port() == "" && expectedURL.Port() != "" &&
+		refererURL.Scheme+"://"+refererURL.Host == expected
 }
 
 func validOperationReadOrigin(origin, expected string) bool {

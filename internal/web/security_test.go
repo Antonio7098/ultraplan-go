@@ -147,6 +147,53 @@ func TestSecurityRequiresExactCommandOrigin(t *testing.T) {
 	}
 }
 
+func TestSecurityAllowsPortStrippedBrowserOriginWithExactSameOriginProofs(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	cookie, csrf := establishOperationSession(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operations/prepare", strings.NewReader(`{"operation":{"kind":"validation","scope":{"project":"alpha"}}}`))
+	req.Host = testAuthority
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://127.0.0.1")
+	req.Header.Set("Referer", "http://"+testAuthority+"/projects/alpha")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("X-CSRF-Token", csrf)
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code == http.StatusForbidden || strings.Contains(res.Body.String(), "origin_rejected") {
+		t.Fatalf("port-stripped same-origin browser request was rejected: status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestSecurityRejectsPortStrippedOriginWithoutExactSameOriginProofs(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	cookie, csrf := establishOperationSession(t, h)
+	for _, tc := range []struct {
+		name, referer, fetchSite string
+	}{
+		{"missing fetch metadata", "http://" + testAuthority + "/projects/alpha", ""},
+		{"cross-site fetch metadata", "http://" + testAuthority + "/projects/alpha", "same-site"},
+		{"wrong referer port", "http://127.0.0.1:9090/projects/alpha", "same-origin"},
+		{"missing referer", "", "same-origin"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/operations/prepare", strings.NewReader(`{"operation":{"kind":"validation","scope":{"project":"alpha"}}}`))
+			req.Host = testAuthority
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", "http://127.0.0.1")
+			req.Header.Set("Referer", tc.referer)
+			req.Header.Set("Sec-Fetch-Site", tc.fetchSite)
+			req.Header.Set("X-CSRF-Token", csrf)
+			req.AddCookie(cookie)
+			res := httptest.NewRecorder()
+			h.ServeHTTP(res, req)
+			if res.Code != http.StatusForbidden || !strings.Contains(res.Body.String(), "origin_rejected") {
+				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+			}
+		})
+	}
+}
+
 func TestSecurityRequiresExactOperationStreamOrigin(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	cookie, _ := establishOperationSession(t, h)
