@@ -111,7 +111,10 @@ requires those artifacts; `review.md` remains owned by the governed review CLI.
   reconciled by `sprint status`.
 - Execute is performed directly by the invoking agent, which maintains the plan,
   run state, execution summary, and verification evidence required by the
-  effective execution prompt. It must not delegate the work to `sprint execute`.
+  effective execution prompt. The CLI is limited to checking project/sprint
+  state and materialising the effective execution prompt; the agent must not use
+  CLI dry-run, validation, execute, verify, smoke, or flow commands for this
+  stage.
 - Review must use the governed review orchestrator.
 - Smoke is performed directly by the invoking agent within the review gate and
   declared harness/mutation boundaries. CLI dry runs and validation may inform

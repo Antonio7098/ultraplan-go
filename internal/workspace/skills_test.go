@@ -165,7 +165,9 @@ func TestReconciliationSkillCoversFindingTriageAndSmokeHarnessReadiness(t *testi
 func TestOnlyReviewDelegatesStageExecutionToCLI(t *testing.T) {
 	for _, skill := range StageSkills() {
 		body := renderStageSkill(skill)
-		if !strings.Contains(body, "The invoking agent owns the actual stage work") {
+		ownsStageWork := strings.Contains(body, "The invoking agent owns the actual stage work") ||
+			(skill.Stage == "execute" && strings.Contains(body, "Act as the execution agent and perform the entire stage manually"))
+		if !ownsStageWork {
 			t.Fatalf("%s skill is missing the agent-owned execution contract", skill.Name)
 		}
 		if skill.Stage == "review" {
@@ -182,6 +184,35 @@ func TestOnlyReviewDelegatesStageExecutionToCLI(t *testing.T) {
 			if strings.Contains(body, forbidden) {
 				t.Fatalf("%s delegates stage execution through forbidden CLI instruction %q", skill.Name, forbidden)
 			}
+		}
+	}
+}
+
+func TestExecuteSkillUsesCLIOnlyForStateAndPrompt(t *testing.T) {
+	skills, err := ResolveStageSkills("execute")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := renderStageSkill(skills[0])
+	for _, want := range []string{
+		"Act as the execution agent",
+		"perform the entire stage manually",
+		"Use the UltraPlan CLI only for",
+		"sprint <project> <sprint> prompt execute",
+		"run the plan's required checks directly",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("execute skill missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"dry-run previews, status inspection, validation",
+		"sprint <project> <sprint> validate execute",
+		"sprint <project> <sprint> execute --dry-run",
+		"sprint <project> <sprint> execute --resume",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("execute skill permits forbidden CLI operation %q", forbidden)
 		}
 	}
 }

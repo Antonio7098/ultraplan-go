@@ -21,6 +21,7 @@ type StageSkill struct {
 	StageWorkflow     string
 	SkipValidation    bool
 	ManualStateRepair bool
+	StatusPromptOnly  bool
 }
 
 type SkillsOptions struct {
@@ -153,9 +154,12 @@ Carry decisions forward rather than reopening them. Make tasks ordered, bounded,
 			Prerequisites:    []string{"validated plan and all planning artifacts", "resolvable target implementation directory"},
 			Prompt:           defaultExecuteSprintPrompt,
 			PromptAvailable:  true,
+			StatusPromptOnly: true,
 			StageWorkflow: `Use the resolved execution prompt and approved plan to perform the implementation yourself in the target implementation directory.
 
-Work through incomplete plan tasks in order. Inspect the code, edit the implementation, run the required checks, and maintain plan checkboxes, execution evidence, and the execution artifacts required by the prompt. Continue until the plan is complete or a genuine blocker requires the user. The UltraPlan CLI may be used to inspect status, resolve the effective prompt, preview scope, and validate the result, but do not call ` + "`sprint execute`" + ` or ` + "`flow --to execute`" + ` to have another agent/runtime perform this stage.`,
+Act as the execution agent: work through incomplete plan tasks in order, inspect the code, edit the implementation, run the required checks directly, and maintain plan checkboxes, execution evidence, and the execution artifacts required by the prompt. Continue until the plan is complete or a genuine blocker requires the user.
+
+For this stage, use the UltraPlan CLI only to check project or sprint state and to materialise the effective execution prompt. Do not use CLI dry runs, validation, execute, verify, smoke, or flow commands to perform, preview, validate, or complete the sprint. Inspect and verify the implementation and governed artifacts yourself, then use sprint status only to reconcile and report the resulting state.`,
 		},
 		{
 			Stage:            "review",
@@ -337,6 +341,13 @@ func renderStageSkill(skill StageSkill) string {
 	if skill.SkipValidation {
 		validationStep = "Run the validation commands supported for the affected artifact, then use review/smoke dry runs and sprint status as the cross-stage reconciliation checks."
 	}
+	ownerRule := "The invoking agent owns the actual stage work. Except for the review stage, do not call an UltraPlan stage, flow, execute, verify, or smoke command to have the CLI or another runtime execute or complete the stage. CLI commands remain appropriate for discovery, effective-prompt resolution, dry-run previews, status inspection, validation, and post-write reconciliation. Review is the deliberate exception: invoke its governed CLI command because UltraPlan owns reviewer subagent fan-out, aggregation, and review state."
+	prerequisiteRule := "Validate every prerequisite that has a sprint validation command. If anything is missing, invalid, stale, or internally inconsistent, show the exact gaps and ask whether to fill them. Do not fill prerequisite gaps until the user agrees. If they agree, run the corresponding earlier UltraPlan skills in canonical order, then return to this stage."
+	if skill.StatusPromptOnly {
+		ownerRule = "Act as the execution agent and perform the entire stage manually with your own file-editing and command tools. Use the UltraPlan CLI only for `project <project> status`, `sprint <project> <sprint> status --json`, and `sprint <project> <sprint> prompt execute`. Do not use any other UltraPlan CLI command during execution, including dry-run, validate, execute, verify, smoke, or flow commands."
+		prerequisiteRule = "Inspect every prerequisite artifact directly and use fresh sprint state to check completeness and consistency. Do not run CLI validation. If anything is missing, invalid, stale, or internally inconsistent, show the exact gaps and ask whether to fill them. Do not fill prerequisite gaps until the user agrees."
+		validationStep = "Inspect the completed implementation and governed execution artifacts yourself and run the plan's required checks directly. Do not use an UltraPlan CLI validation command; use sprint status only to reconcile the state after the manual work is recorded."
+	}
 	stateRule := "Treat files, the project index, and fresh CLI status as authoritative; never hand-edit flow-state JSON."
 	if skill.ManualStateRepair {
 		stateRule = "Treat files, the project index, and fresh CLI status as authoritative. Do not hand-edit flow-state JSON except in the explicitly authorized manual-review reconciliation branch below, where every fingerprint, digest, verdict, timestamp, and completion identity must be updated coherently and immediately verified through sprint status."
@@ -359,10 +370,10 @@ Run this stage interactively while preserving UltraPlan's governed artifact chai
 
 %s
 
-5. Validate every prerequisite that has a sprint validation command. If anything is missing, invalid, stale, or internally inconsistent, show the exact gaps and ask whether to fill them. Do not fill prerequisite gaps until the user agrees. If they agree, run the corresponding earlier UltraPlan skills in canonical order, then return to this stage.
+5. %s
 6. If the target is already complete and valid, summarize that state and ask before regenerating or materially changing it.
 7. If the user explicitly asks for a proposal, analysis, or discussion only, inspect all relevant evidence and return that without writing artifacts or advancing state. Otherwise, do the stage now; do not stop at a proposal.
-8. The invoking agent owns the actual stage work. Except for the review stage, do not call an UltraPlan stage, flow, execute, verify, or smoke command to have the CLI or another runtime execute or complete the stage. CLI commands remain appropriate for discovery, effective-prompt resolution, dry-run previews, status inspection, validation, and post-write reconciliation. Review is the deliberate exception: invoke its governed CLI command because UltraPlan owns reviewer subagent fan-out, aggregation, and review state.
+8. %s
 9. %s
 10. Complete the stage-specific workflow, preserve unrelated user edits, and do not cross declared mutation boundaries.
 11. %s
@@ -379,7 +390,7 @@ Run this stage interactively while preserving UltraPlan's governed artifact chai
 The current resolved CLI prompt wins over this embedded baseline.
 
 %s
-`, skill.Name, skill.Stage, skill.Name, skill.DisplayName, stateRule, strings.Join(prerequisites, "\n"), promptStep, validationStep, skill.StageWorkflow, strings.TrimSpace(skill.Prompt))
+`, skill.Name, skill.Stage, skill.Name, skill.DisplayName, stateRule, strings.Join(prerequisites, "\n"), prerequisiteRule, ownerRule, promptStep, validationStep, skill.StageWorkflow, strings.TrimSpace(skill.Prompt))
 }
 
 func renderStageSkillMetadata(skill StageSkill) string {
