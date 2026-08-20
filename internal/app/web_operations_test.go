@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 )
 
 func TestWebOperationPreparationNormalizesFingerprintsAndHasNoSideEffects(t *testing.T) {
@@ -82,6 +84,40 @@ func TestWebOperationExecutionRejectsStalePreparationBeforeRunner(t *testing.T) 
 	}
 	if called {
 		t.Fatal("runner called for stale preparation")
+	}
+}
+
+func TestWebOperationCodeContextUsesGenericStageAndGovernedFingerprint(t *testing.T) {
+	root := t.TempDir()
+	sprintRoot := filepath.Join(root, "projects", "alpha", "sprints", "33-context")
+	if err := os.MkdirAll(sprintRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	requirements := filepath.Join(sprintRoot, "requirements.md")
+	contextPath := filepath.Join(sprintRoot, "code-context.md")
+	if err := os.WriteFile(requirements, []byte("# Requirements\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(contextPath, []byte("# Context\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u := dashboardUseCases{root: root, stageRuntime: map[sprint.PlanningStage]sprint.StageRuntime{sprint.StageCodeContext: {Model: "vendor/context", Variant: "high"}}}
+	prepared, err := u.PrepareOperation(context.Background(), OperationRequest{Kind: OperationStage, Project: "alpha", Sprint: "33-context", Stage: "code-context"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Request.Kind != OperationStage || prepared.Request.Stage != "code-context" || prepared.ModelSource != "vendor/context variant=high" || prepared.MutationClass != "sprint_mutation" {
+		t.Fatalf("code-context preparation did not reuse generic stage operation: %+v", prepared)
+	}
+	if err := os.WriteFile(contextPath, []byte("# Changed context\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := u.PrepareOperation(context.Background(), prepared.Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.InputFingerprint == prepared.InputFingerprint {
+		t.Fatal("code-context governed artifact mutation did not invalidate confirmation")
 	}
 }
 

@@ -155,7 +155,7 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 			m.reject(tracked, r, http.StatusForbidden, "session_required", "The operation stream belongs to a browser session that is no longer available. Refresh the owning UltraPlan page.")
 		case operationRead && !validOperationReadRequestOrigin(r, m.origin):
 			m.reject(tracked, r, http.StatusForbidden, "origin_rejected", originRejectionMessage(m.origin, r.Header.Get("Origin")))
-		case !operationMutation && !operationRead && !staticAsset && !validOrigin(r.Header.Get("Origin"), m.origin):
+		case !operationMutation && !operationRead && !staticAsset && !validReadRequestOrigin(r, m.origin):
 			m.reject(tracked, r, http.StatusForbidden, "origin_rejected", originRejectionMessage(m.origin, r.Header.Get("Origin")))
 		case r.ContentLength > MaxBodyBytes:
 			m.reject(tracked, r, http.StatusRequestEntityTooLarge, "request_too_large", "The request is too large.")
@@ -301,6 +301,14 @@ func validOperationReadOrigin(origin, expected string) bool {
 }
 
 func validOperationReadRequestOrigin(r *http.Request, expected string) bool {
+	return r.Header.Get("Origin") == "" || validCommandRequestOrigin(r, expected)
+}
+
+// validReadRequestOrigin applies the browser's same-origin proofs to ordinary
+// read-only pages and APIs too. Some browser shells normalize a loopback
+// Origin by dropping its non-default port, even though Host and Referer retain
+// the exact authority. Mutations continue through the stricter command path.
+func validReadRequestOrigin(r *http.Request, expected string) bool {
 	return r.Header.Get("Origin") == "" || validCommandRequestOrigin(r, expected)
 }
 

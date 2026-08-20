@@ -408,7 +408,7 @@ func sprintRunStages(item SprintSummary) []StageSummary {
 			executeStatus = "ready"
 		}
 	}
-	stages = append(stages, StageSummary{Name: "execute", Status: executeStatus})
+	stages = append(stages, StageSummary{Name: "execute", Status: executeStatus, Error: item.Execute.Message})
 	reviewStatus := "waiting"
 	if item.Review.Available {
 		reviewStatus = item.Review.Status
@@ -416,7 +416,7 @@ func sprintRunStages(item SprintSummary) []StageSummary {
 			reviewStatus = "ready"
 		}
 	}
-	stages = append(stages, StageSummary{Name: "review", Status: reviewStatus})
+	stages = append(stages, StageSummary{Name: "review", Status: reviewStatus, Error: item.Review.Error})
 	smokeStatus := "waiting"
 	if item.Smoke.Available {
 		smokeStatus = item.Smoke.Status
@@ -424,7 +424,7 @@ func sprintRunStages(item SprintSummary) []StageSummary {
 			smokeStatus = "ready"
 		}
 	}
-	return append(stages, StageSummary{Name: "smoke", Status: smokeStatus})
+	return append(stages, StageSummary{Name: "smoke", Status: smokeStatus, Error: item.Smoke.Error})
 }
 
 func (u *webUseCases) Studies(ctx context.Context) (WebStudiesResult, error) {

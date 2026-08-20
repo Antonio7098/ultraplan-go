@@ -22,12 +22,15 @@ type fakeQueries struct {
 
 func sampleQueries() *fakeQueries {
 	artifact := app.WebArtifactLink{Ref: "artifact_ref", Label: "plan", DisplayPath: "projects/alpha/sprints/30-web/plan.md", MediaType: "text/markdown"}
+	requirementsArtifact := app.WebArtifactLink{Ref: "requirements_ref", Label: "requirements", DisplayPath: "projects/alpha/sprints/30-web/requirements.md", MediaType: "text/markdown"}
+	contextArtifact := app.WebArtifactLink{Ref: "context_ref", Label: "code-context", DisplayPath: "projects/alpha/sprints/30-web/code-context.md", MediaType: "text/markdown"}
+	indexArtifact := app.WebArtifactLink{Ref: "index_ref", Label: "sprint-index", DisplayPath: "projects/alpha/sprints/30-web/sprint-index.md", MediaType: "text/markdown"}
 	finding := app.DisplayFinding{Severity: "warn", Section: "plan", Problem: "Review this item", Suggestion: "Inspect the plan."}
 	sprint := app.WebSprintResult{
 		Ref: "sprint_ref", Project: "alpha", Slug: "30-web", Status: "available",
 		Overview: "Make sprint delivery easier to understand.", Assessment: "pass", NextAction: "Continue to review.",
 		Stages:          []app.StageSummary{{Name: "plan", Status: "complete"}},
-		RunStages:       []app.StageSummary{{Name: "requirements", Status: "complete", Path: "projects/alpha/sprints/30-web/requirements.md"}, {Name: "plan", Status: "complete"}, {Name: "execute", Status: "complete"}, {Name: "review", Status: "running"}, {Name: "smoke", Status: "waiting"}},
+		RunStages:       []app.StageSummary{{Name: "requirements", Status: "complete", Path: "projects/alpha/sprints/30-web/requirements.md"}, {Name: "code-context", Status: "failed", Error: "provider failed", Path: "projects/alpha/sprints/30-web/code-context.md", ArtifactAvailable: true, ArtifactValid: true, LatestOutcome: "failed", NextAction: "A prior valid artifact is preserved; inspect the failure and explicitly rerun code-context."}, {Name: "sprint-index", Status: "waiting"}, {Name: "plan", Status: "complete"}, {Name: "execute", Status: "complete"}, {Name: "review", Status: "running"}, {Name: "smoke", Status: "waiting"}},
 		CompletedStages: 3, TotalStages: 5, CurrentStage: "review",
 		Execute: app.ExecuteSummary{Available: true, Total: 1, Complete: 1},
 		Review: app.ReviewSummary{Available: true, Status: "running", Verdict: "", Completed: 1, Total: 3, Pending: 1, Running: 1, Reviewers: []app.ReviewItemSummary{
@@ -36,7 +39,7 @@ func sampleQueries() *fakeQueries {
 			{ID: "handbook", Name: "Technical handbook", Kind: "handbook", Path: "technical-handbook.md", Status: "pending"},
 		}},
 		Smoke:    app.SmokeSummary{Available: true, Status: "complete", Verdict: "pass"},
-		Findings: []app.DisplayFinding{finding}, Artifacts: []app.WebArtifactLink{artifact},
+		Findings: []app.DisplayFinding{finding}, Artifacts: []app.WebArtifactLink{requirementsArtifact, contextArtifact, indexArtifact, artifact},
 	}
 	project := app.WebProjectResult{
 		Ref: "project_ref", Name: "alpha", Docs: []string{"docs/PRD.md"},

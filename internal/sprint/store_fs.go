@@ -22,6 +22,7 @@ type ArtifactSnapshot struct {
 
 type PlanningInputs struct {
 	Requirements string
+	CodeContext  string
 	SprintIndex  string
 	ProjectIndex string
 	Docs         []string
@@ -33,7 +34,7 @@ func NewFSStore(root string) FSStore {
 
 func (s FSStore) ReadArtifacts(sp Sprint) (ArtifactSnapshot, error) {
 	snap := ArtifactSnapshot{Files: map[PlanningStage]bool{}}
-	for _, stage := range []PlanningStage{StageRequirements, StageSprintIndex, StageTechnicalHandbook, StageReasoning, StagePlan} {
+	for _, stage := range []PlanningStage{StageRequirements, StageCodeContext, StageSprintIndex, StageTechnicalHandbook, StageReasoning, StagePlan} {
 		path, err := ArtifactPath(s.Root, sp, stage)
 		if err != nil {
 			return ArtifactSnapshot{}, err
@@ -41,6 +42,20 @@ func (s FSStore) ReadArtifacts(sp Sprint) (ArtifactSnapshot, error) {
 		ok, err := nonEmptyFile(path)
 		if err != nil {
 			return ArtifactSnapshot{}, err
+		}
+		if ok && stage == StageRequirements {
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return ArtifactSnapshot{}, readErr
+			}
+			ok = len(ValidateRequirementsContent(string(data))) == 0
+		}
+		if ok && stage == StageCodeContext {
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return ArtifactSnapshot{}, readErr
+			}
+			ok = len(ValidateCodeContextContent(string(data))) == 0
 		}
 		snap.Files[stage] = ok
 	}
@@ -87,6 +102,15 @@ func (s FSStore) ReadPlanningInputs(sp Sprint) (PlanningInputs, error) {
 		inputs.Requirements = string(data)
 	} else {
 		return PlanningInputs{}, err
+	}
+	contextPath, err := ArtifactPath(s.Root, sp, StageCodeContext)
+	if err != nil {
+		return PlanningInputs{}, err
+	}
+	if data, readErr := os.ReadFile(contextPath); readErr == nil {
+		inputs.CodeContext = string(data)
+	} else if !os.IsNotExist(readErr) {
+		return PlanningInputs{}, readErr
 	}
 	idx, err := ArtifactPath(s.Root, sp, StageSprintIndex)
 	if err != nil {

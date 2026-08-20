@@ -39,6 +39,25 @@ func RenderRequirementsPrompt(root string, sp Sprint, catalog project.ProjectInd
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
+func RenderCodeContextPrompt(root string, sp Sprint, requirements string, target ExecuteTargetRef) PromptPreview {
+	var b strings.Builder
+	fmt.Fprintln(&b, "Inputs:")
+	fmt.Fprintf(&b, "- Validated requirements: %s\n", ArtifactRelPath(sp, StageRequirements))
+	fmt.Fprintf(&b, "- Read-only implementation repository: %s\n", target.Path)
+	fmt.Fprintf(&b, "- Authoritative output: %s\n", ArtifactRelPath(sp, StageCodeContext))
+	fmt.Fprintln(&b, "\nValidated sprint requirements:")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, strings.TrimRight(requirements, "\n"))
+	appendInjectedWorkspaceFile(root, &b, "Code Context Template", "templates/code-context.md")
+	fmt.Fprintln(&b, "\nHard constraints:")
+	fmt.Fprintln(&b, "- Inspect the implementation repository thoroughly, but treat it and its Git metadata as read-only.")
+	fmt.Fprintln(&b, "- Return only the complete code-context.md Markdown content; UltraPlan owns candidate promotion.")
+	fmt.Fprintln(&b, "- Include exact language-tagged source excerpts with repository-relative paths and concrete rationales.")
+	fmt.Fprintln(&b, "- Do not produce a design, implementation plan, index, manifest, cache, or additional artifact.")
+	prompt := renderPromptFromDefault(root, "prompts/create-code-context.md", sp.Project, sp.Slug, b.String())
+	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
+}
+
 func RenderSprintIndexPrompt(root string, sp Sprint, catalog project.ProjectIndex, docs []string) PromptPreview {
 	sort.Strings(docs)
 	var b strings.Builder

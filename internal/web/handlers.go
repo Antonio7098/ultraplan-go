@@ -62,8 +62,13 @@ type findingDTO struct {
 }
 
 type stageDTO struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
+	Name              string `json:"name"`
+	Status            string `json:"status"`
+	Error             string `json:"error,omitempty"`
+	ArtifactAvailable bool   `json:"artifact_available,omitempty"`
+	ArtifactValid     bool   `json:"artifact_valid,omitempty"`
+	LatestOutcome     string `json:"latest_outcome,omitempty"`
+	NextAction        string `json:"next_action,omitempty"`
 }
 
 type projectDTO struct {
@@ -117,6 +122,7 @@ type reviewDTO struct {
 	Running   int           `json:"running,omitempty"`
 	Failed    int           `json:"failed,omitempty"`
 	Reviewers []reviewerDTO `json:"reviewers"`
+	StartedAt *time.Time    `json:"started_at,omitempty"`
 }
 
 type reviewerDTO struct {
@@ -597,7 +603,7 @@ func mapProjects(items []app.WebProjectResult, includeSprints bool) []projectDTO
 func mapSprint(item app.WebSprintResult) sprintDTO {
 	stages := make([]stageDTO, 0, len(item.Stages))
 	for _, stage := range item.Stages {
-		stages = append(stages, stageDTO{Name: stage.Name, Status: stage.Status})
+		stages = append(stages, stageDTO{Name: stage.Name, Status: stage.Status, Error: stage.Error, ArtifactAvailable: stage.ArtifactAvailable, ArtifactValid: stage.ArtifactValid, LatestOutcome: stage.LatestOutcome, NextAction: stage.NextAction})
 	}
 	reviewers := make([]reviewerDTO, 0, len(item.Review.Reviewers))
 	for _, reviewer := range item.Review.Reviewers {
@@ -607,7 +613,7 @@ func mapSprint(item app.WebSprintResult) sprintDTO {
 		Ref: item.Ref, Project: item.Project, Slug: item.Slug, Status: item.Status,
 		Assessment: item.Assessment, NextAction: item.NextAction, Stages: stages,
 		Execute:  executeDTO{Available: item.Execute.Available, Total: item.Execute.Total, Pending: item.Execute.Pending, Running: item.Execute.Running, Complete: item.Execute.Complete, Failed: item.Execute.Failed, Cancelled: item.Execute.Cancelled},
-		Review:   reviewDTO{Available: item.Review.Available, Status: item.Review.Status, Verdict: item.Review.Verdict, Stale: item.Review.Stale, Completed: item.Review.Completed, Total: item.Review.Total, Pending: item.Review.Pending, Running: item.Review.Running, Failed: item.Review.Failed, Reviewers: reviewers},
+		Review:   reviewDTO{Available: item.Review.Available, Status: item.Review.Status, Verdict: item.Review.Verdict, Stale: item.Review.Stale, Completed: item.Review.Completed, Total: item.Review.Total, Pending: item.Review.Pending, Running: item.Review.Running, Failed: item.Review.Failed, Reviewers: reviewers, StartedAt: item.Review.StartedAt},
 		Smoke:    smokeDTO{Available: item.Smoke.Available, Status: item.Smoke.Status, Verdict: item.Smoke.Verdict, Stale: item.Smoke.Stale, RunID: item.Smoke.RunID},
 		Findings: mapFindings(item.Findings), Artifacts: mapArtifacts(item.Artifacts),
 	}

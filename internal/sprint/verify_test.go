@@ -92,6 +92,34 @@ func TestFlowStateMigratesExactlyOnePredecessor(t *testing.T) {
 	}
 }
 
+func TestPreCodeContextFlowStateCompatibilityPreservesKnownOutcomes(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-alpha")
+	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	legacy := []StageState{
+		{Stage: StageRequirements, Status: StatusComplete, Path: ArtifactRelPath(sp, StageRequirements), LastRunAt: &now},
+		{Stage: StageSprintIndex, Status: StatusComplete, Path: ArtifactRelPath(sp, StageSprintIndex), LastRunAt: &now},
+		{Stage: StageTechnicalHandbook, Status: StatusFailed, Path: ArtifactRelPath(sp, StageTechnicalHandbook), LastRunAt: &now, Error: "provider failed"},
+		{Stage: StageAreaReasoning, Status: StatusMissing, Path: ArtifactRelPath(sp, StageAreaReasoning)},
+		{Stage: StageReasoning, Status: StatusMissing, Path: ArtifactRelPath(sp, StageReasoning)},
+		{Stage: StagePlan, Status: StatusMissing, Path: ArtifactRelPath(sp, StagePlan)},
+	}
+	path, _ := FlowStatePath(root, sp)
+	writeJSON(t, path, FlowState{SchemaVersion: FlowStateSchemaVersion, Project: sp.Project, Sprint: sp.Slug, UpdatedAt: now, Stages: legacy})
+	before, _ := os.ReadFile(path)
+	loaded, err := LoadFlowState(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Stages) != len(PlanningStages()) || loaded.Stages[1].Stage != StageCodeContext || loaded.Stages[1].Status != StatusSkipped || loaded.Stages[2].Status != StatusComplete || loaded.Stages[3].Status != StatusFailed || loaded.Stages[3].Error != "provider failed" {
+		t.Fatalf("compatibility projection lost outcomes: %+v", loaded.Stages)
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(before) {
+		t.Fatal("compatibility load mutated persisted state")
+	}
+}
+
 func TestVerificationStatusDerivesExpiredReviewAttemptWithoutWriting(t *testing.T) {
 	root, sp := reviewFixture(t)
 	now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)

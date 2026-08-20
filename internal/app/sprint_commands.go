@@ -110,13 +110,15 @@ func runSprint(deps dependencies, args []string) error {
 		return nil
 	case "validate":
 		if len(args) != 4 {
-			return classified(ExitUsage, "sprint.validate: expected 'validate <requirements|sprint-index|technical-handbook|area-reasoning|reasoning|plan>'")
+			return classified(ExitUsage, "sprint.validate: expected 'validate <requirements|code-context|sprint-index|technical-handbook|area-reasoning|reasoning|plan>'")
 		}
 		var result sprint.ValidationResult
 		var err error
 		switch sprint.PlanningStage(args[3]) {
 		case sprint.StageRequirements:
 			result, err = service.ValidateRequirements(args[0], args[1])
+		case sprint.StageCodeContext:
+			result, err = service.ValidateCodeContext(args[0], args[1])
 		case sprint.StageSprintIndex:
 			result, err = service.ValidateSprintIndex(args[0], args[1])
 		case sprint.StageTechnicalHandbook:
@@ -146,13 +148,15 @@ func runSprint(deps dependencies, args []string) error {
 		return nil
 	case "prompt":
 		if len(args) != 4 {
-			return classified(ExitUsage, "sprint.prompt: expected 'prompt <requirements|sprint-index|technical-handbook|area-reasoning|reasoning|plan>'")
+			return classified(ExitUsage, "sprint.prompt: expected 'prompt <requirements|code-context|sprint-index|technical-handbook|area-reasoning|reasoning|plan>'")
 		}
 		var preview sprint.PromptPreview
 		var err error
 		switch sprint.PlanningStage(args[3]) {
 		case sprint.StageRequirements:
 			preview, err = service.PromptRequirements(args[0], args[1])
+		case sprint.StageCodeContext:
+			preview, err = service.PromptCodeContext(args[0], args[1])
 		case sprint.StageSprintIndex:
 			preview, err = service.PromptSprintIndex(args[0], args[1])
 		case sprint.StageTechnicalHandbook:
@@ -525,10 +529,25 @@ func mapSmokeError(err error) error {
 }
 
 func planningStageRuntime(c config.Config) map[sprint.PlanningStage]sprint.StageRuntime {
+	codeContextModel := c.Planning.CodeContextModel
+	if strings.TrimSpace(codeContextModel) == "" {
+		codeContextModel = c.Models.Primary
+		if strings.TrimSpace(codeContextModel) == "" {
+			codeContextModel = c.Models.Default
+		}
+	}
+	codeContextVariant := c.Planning.CodeContextVariant
+	if strings.TrimSpace(codeContextVariant) == "" {
+		codeContextVariant = c.Execution.DefaultVariant
+	}
 	return map[sprint.PlanningStage]sprint.StageRuntime{
 		sprint.StageRequirements: {
 			Model:   c.Planning.RequirementsModel,
 			Variant: c.Planning.RequirementsVariant,
+		},
+		sprint.StageCodeContext: {
+			Model:   codeContextModel,
+			Variant: codeContextVariant,
 		},
 		sprint.StageSprintIndex: {
 			Model:   c.Planning.SprintIndexModel,
@@ -594,6 +613,18 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 			i++
 		case "--dry-run":
 			req.DryRun = true
+		case "--model":
+			if i+1 >= len(args) {
+				return req, fmt.Errorf("--model requires a provider/model value")
+			}
+			i++
+			req.ModelOverride = args[i]
+		case "--variant":
+			if i+1 >= len(args) {
+				return req, fmt.Errorf("--variant requires a value")
+			}
+			i++
+			req.VariantOverride = args[i]
 		case "--restart-review":
 			req.Review.Restart = true
 		case "--yes", "--non-interactive":
@@ -611,9 +642,9 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 		}
 	}
 	if req.To == "" {
-		return req, fmt.Errorf("--to requirements, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, --to plan, --to execute, --to review, or --to smoke is required")
+		return req, fmt.Errorf("--to requirements, --to code-context, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, --to plan, --to execute, --to review, or --to smoke is required")
 	}
-	if req.To != sprint.StageRequirements && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan && req.To != sprint.StageExecute && req.To != sprint.StageReview && req.To != sprint.StageSmoke {
+	if req.To != sprint.StageRequirements && req.To != sprint.StageCodeContext && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan && req.To != sprint.StageExecute && req.To != sprint.StageReview && req.To != sprint.StageSmoke {
 		return req, fmt.Errorf("unsupported flow target %q", req.To)
 	}
 	if req.Smoke.ForceReview && strings.TrimSpace(req.Smoke.OverrideRationale) == "" {
@@ -789,6 +820,9 @@ func renderSprintStatus(deps dependencies, status sprint.StatusSummary) {
 	fmt.Fprintln(deps.stdout, "Stages:")
 	for _, stage := range status.Stages {
 		fmt.Fprintf(deps.stdout, "  %s: %s (%s)", stage.Stage, stage.Status, stage.Path)
+		if stage.LatestOutcome != "" {
+			fmt.Fprintf(deps.stdout, " latest=%s", stage.LatestOutcome)
+		}
 		if stage.Error != "" {
 			fmt.Fprintf(deps.stdout, " error=%q", stage.Error)
 		}
@@ -1021,6 +1055,7 @@ func sprintHelp() string {
 Usage:
   ultraplan sprint <project> <sprint> status
   ultraplan sprint <project> <sprint> validate requirements
+  ultraplan sprint <project> <sprint> validate code-context
   ultraplan sprint <project> <sprint> validate sprint-index
   ultraplan sprint <project> <sprint> validate technical-handbook
   ultraplan sprint <project> <sprint> validate area-reasoning
@@ -1030,6 +1065,7 @@ Usage:
   ultraplan sprint <project> <sprint> validate review
   ultraplan sprint <project> <sprint> validate smoke
   ultraplan sprint <project> <sprint> prompt requirements
+  ultraplan sprint <project> <sprint> prompt code-context
   ultraplan sprint <project> <sprint> prompt sprint-index
   ultraplan sprint <project> <sprint> prompt technical-handbook
   ultraplan sprint <project> <sprint> prompt area-reasoning
@@ -1038,6 +1074,7 @@ Usage:
   ultraplan sprint <project> <sprint> prompt execute
   ultraplan sprint <project> <sprint> prompt review
   ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to code-context [--dry-run] [--model <provider/model>] [--variant <name>]
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
   ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
   ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
@@ -1074,7 +1111,7 @@ func sprintStatusHelp() string {
 Usage:
   ultraplan sprint <project> <sprint> status
 
-Shows deterministic planning-stage status for requirements.md, sprint-index.md, technical-handbook.md, reasoning/*.md, reasoning.md, plan.md, and execute run state when present. Missing or valid flow state is refreshed; invalid state fails without repair.
+Shows deterministic planning-stage status for requirements.md, code-context.md, sprint-index.md, technical-handbook.md, reasoning/*.md, reasoning.md, plan.md, and execute run state when present. Missing or valid flow state is refreshed; invalid state fails without repair.
 `
 }
 
@@ -1104,6 +1141,7 @@ func sprintValidateHelp() string {
 
 Usage:
   ultraplan sprint <project> <sprint> validate requirements
+  ultraplan sprint <project> <sprint> validate code-context
   ultraplan sprint <project> <sprint> validate sprint-index
   ultraplan sprint <project> <sprint> validate technical-handbook
   ultraplan sprint <project> <sprint> validate area-reasoning
@@ -1113,7 +1151,7 @@ Usage:
   ultraplan sprint <project> <sprint> validate review
   ultraplan sprint <project> <sprint> validate smoke
 
-Validates requirements.md, sprint-index.md selected context, technical-handbook.md selected evidence distillation, area reasoning, final reasoning.md, plan.md, or execute readiness. Validation failures exit with code 5.
+Validates requirements.md, code-context.md structural evidence, sprint-index.md selected context, technical-handbook.md selected evidence distillation, area reasoning, final reasoning.md, plan.md, or execute readiness. Validation failures exit with code 5.
 `
 }
 
@@ -1153,6 +1191,7 @@ func sprintPromptHelp() string {
 
 Usage:
   ultraplan sprint <project> <sprint> prompt requirements
+  ultraplan sprint <project> <sprint> prompt code-context
   ultraplan sprint <project> <sprint> prompt sprint-index
   ultraplan sprint <project> <sprint> prompt technical-handbook
   ultraplan sprint <project> <sprint> prompt area-reasoning
@@ -1170,6 +1209,7 @@ func sprintFlowHelp() string {
 
 Usage:
   ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to code-context [--dry-run] [--model <provider/model>] [--variant <name>]
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
   ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
   ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]

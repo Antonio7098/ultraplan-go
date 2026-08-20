@@ -14,7 +14,7 @@ import (
 
 func TestDomainStagesStatusesAndArtifactPaths(t *testing.T) {
 	stages := PlanningStages()
-	wantStages := []PlanningStage{StageRequirements, StageSprintIndex, StageTechnicalHandbook, StageAreaReasoning, StageReasoning, StagePlan}
+	wantStages := []PlanningStage{StageRequirements, StageCodeContext, StageSprintIndex, StageTechnicalHandbook, StageAreaReasoning, StageReasoning, StagePlan}
 	if strings.Join(stageStrings(stages), ",") != strings.Join(stageStrings(wantStages), ",") {
 		t.Fatalf("stages = %v", stages)
 	}
@@ -67,24 +67,24 @@ func TestDiscoveryResolutionAndDerivation(t *testing.T) {
 	sp := Sprint{Project: "proj", Slug: "01-alpha", Path: filepath.Join(p.Path, "sprints", "01-alpha")}
 	snap := ArtifactSnapshot{Files: map[PlanningStage]bool{StageRequirements: true, StageSprintIndex: true}}
 	derived := DeriveStages(sp, snap, nil)
-	if derived[0].Status != StatusComplete || derived[1].Status != StatusComplete || derived[2].Status != StatusReady || derived[3].Status != StatusMissing {
+	if derived[0].Status != StatusComplete || derived[1].Status != StatusReady || derived[2].Status != StatusComplete || derived[3].Status != StatusMissing {
 		t.Fatalf("partial statuses = %+v", derived)
 	}
 	snap.NoReasoningSelected = true
 	snap.Files[StageTechnicalHandbook] = true
 	derived = DeriveStages(sp, snap, nil)
-	if derived[3].Status != StatusSkipped || derived[4].Status != StatusReady {
+	if derived[4].Status != StatusSkipped || derived[5].Status != StatusMissing {
 		t.Fatalf("skip statuses = %+v", derived)
 	}
 	prior := []StageState{{Stage: StageReasoning, Status: StatusFailed, Path: ArtifactRelPath(sp, StageReasoning), Error: "runtime failed"}}
 	derived = DeriveStages(sp, snap, prior)
-	if derived[4].Status != StatusFailed || derived[4].Error != "runtime failed" {
-		t.Fatalf("failed state not preserved: %+v", derived[4])
+	if derived[5].Status != StatusFailed || derived[5].Error != "runtime failed" {
+		t.Fatalf("failed state not preserved: %+v", derived[5])
 	}
 	snap.Files[StageReasoning] = true
 	derived = DeriveStages(sp, snap, prior)
-	if derived[4].Status != StatusComplete || derived[4].Error != "" {
-		t.Fatalf("stale failed state not cleared: %+v", derived[4])
+	if derived[5].Status != StatusComplete || derived[5].Error != "" {
+		t.Fatalf("stale failed state not cleared: %+v", derived[5])
 	}
 }
 
@@ -143,14 +143,14 @@ func TestFlowStateStrictLoadingAndAtomicWritePreservesPrior(t *testing.T) {
 func TestServiceStatusRefreshesMissingStateAndRejectsInvalidState(t *testing.T) {
 	root := workspaceFixture(t)
 	sp := sprintFixture(t, root, "proj", "01-alpha")
-	writeFileContent(t, sp.Path, "# Requirements\n", "requirements.md")
+	writeFileContent(t, sp.Path, validRequirements("proj", "01-alpha"), "requirements.md")
 	writeFileContent(t, sp.Path, "# Sprint Index\n\nNo reasoning templates selected.\n", "sprint-index.md")
 
 	status, err := NewService(root).Status("proj", "01")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Project != "proj" || status.Sprint != "01-alpha" || status.Stages[0].Status != StatusComplete || status.Stages[1].Status != StatusComplete || status.Stages[2].Status != StatusReady {
+	if status.Project != "proj" || status.Sprint != "01-alpha" || status.Stages[0].Status != StatusComplete || status.Stages[1].Status != StatusReady || status.Stages[2].Status != StatusComplete {
 		t.Fatalf("status = %+v", status)
 	}
 	if _, err := os.Stat(filepath.Join(sp.Path, "flow-state.json")); err != nil {
@@ -161,15 +161,15 @@ func TestServiceStatusRefreshesMissingStateAndRejectsInvalidState(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Stages[2].Status != StatusComplete {
-		t.Fatalf("refreshed status did not observe manual artifact: %+v", status.Stages[2])
+	if status.Stages[3].Status != StatusComplete {
+		t.Fatalf("refreshed status did not observe manual artifact: %+v", status.Stages[3])
 	}
 	persisted, err := LoadFlowState(root, sp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Stages[2].Status != StatusComplete {
-		t.Fatalf("flow state was not synchronized after status: %+v", persisted.Stages[2])
+	if persisted.Stages[3].Status != StatusComplete {
+		t.Fatalf("flow state was not synchronized after status: %+v", persisted.Stages[3])
 	}
 	writeFileContent(t, sp.Path, "{not json", "flow-state.json")
 	if _, err := NewService(root).Status("proj", "01-alpha"); !errors.Is(err, ErrFlowStateMalformed) {

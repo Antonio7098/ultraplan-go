@@ -31,6 +31,7 @@ type Service struct {
 	smokeSettings     SmokeSettings
 	mutations         *sync.Map
 	statusWrites      bool
+	codeContextTarget func(string) (ExecuteTargetRef, []ValidationFinding)
 }
 
 func (s Service) WithReviewConcurrency(n int) Service { s.reviewConcurrency = n; return s }
@@ -137,6 +138,7 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 	if !inside(p.Path, sp.Path) {
 		return StatusSummary{}, fmt.Errorf("sprint path mismatch for %q", sp.Slug)
 	}
+	legacyCodeContextState := preCodeContextFlowState(s.root, sp)
 	state, err := LoadFlowState(s.root, sp)
 	stateLoaded := err == nil
 	if err != nil && !errors.Is(err, ErrFlowStateMissing) {
@@ -177,7 +179,7 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 			refreshed.Smoke.Reconciliation = fingerprintMismatch || (readErr == nil && refreshed.Smoke.SmokeFingerprint == "")
 		}
 	}
-	if s.statusWrites {
+	if s.statusWrites && !legacyCodeContextState {
 		if err := SaveFlowState(s.root, sp, refreshed); err != nil {
 			return StatusSummary{}, err
 		}
@@ -528,6 +530,13 @@ func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef stri
 		return FlowResult{}, err
 	}
 	now := s.now().UTC()
+	if findings, prerequisiteErr := s.codeContextPrerequisite(sp); prerequisiteErr != nil {
+		stages := s.flowFailedStages(sp, req.To, prerequisiteErr, now)
+		if !req.DryRun {
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		}
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages, Findings: findings}, prerequisiteErr
+	}
 	if stringsTrim(inputs.Requirements) == "" || containsPlaceholder(inputs.Requirements) {
 		err := fmt.Errorf("requirements.md is empty or contains placeholder content")
 		stages := flowFailedStages(sp, req.To, err, now)
@@ -1016,7 +1025,7 @@ func (s Service) flowFailedStages(sp Sprint, target PlanningStage, err error, no
 		if stages[i].Stage == target {
 			stages[i].Status = StatusFailed
 			stages[i].LastRunAt = &now
-			stages[i].Error = err.Error()
+			stages[i].Error = safeError(err)
 			break
 		}
 	}
@@ -1238,6 +1247,20 @@ func DeriveStages(sp Sprint, snap ArtifactSnapshot, prior []StageState) []StageS
 	for _, stage := range PlanningStages() {
 		status := StatusMissing
 		switch stage {
+		case StageRequirements:
+			if snap.Files[stage] {
+				if priorState, ok := previous[stage]; !ok || priorState.Status != StatusFailed {
+					status = StatusComplete
+				}
+			}
+		case StageCodeContext:
+			if snap.Files[stage] {
+				if priorState, ok := previous[stage]; ok && priorState.Status == StatusComplete {
+					status = StatusComplete
+				}
+			} else if priorState, ok := previous[stage]; ok && priorState.Status == StatusSkipped {
+				status = StatusSkipped
+			}
 		case StageAreaReasoning:
 			if len(snap.AreaReasoningFiles) > 0 {
 				status = StatusComplete

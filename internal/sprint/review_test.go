@@ -570,19 +570,19 @@ func TestReviewFanOutUsesConfiguredBound(t *testing.T) {
 	}
 }
 
-func TestReviewDetectsInputDriftBeforePersistence(t *testing.T) {
+func TestReviewReportsInputDriftWithoutBlockingPersistence(t *testing.T) {
 	root, sp := reviewFixture(t)
 	rt := &mutateReviewRuntime{path: filepath.Join(sp.Path, "requirements.md")}
 	service := NewService(root).WithRuntime(rt).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
 	result, err := service.Review(context.Background(), "proj", "01", ReviewRequest{Concurrency: 2})
-	if err == nil || result.Status != ReviewFailed {
+	if err != nil || result.Status != ReviewCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if result.Verdict != ReviewVerdictBlocked || result.ProvisionalVerdict != ReviewPass || !reviewDiagnosticsContain(result.Diagnostics, "requirements.md") {
-		t.Fatalf("drift outcome did not separate authoritative/provisional verdict or identify input: %+v", result)
+	if result.Verdict != ReviewPass || result.ProvisionalVerdict != "" || !reviewDiagnosticsContain(result.Diagnostics, "requirements.md") {
+		t.Fatalf("drift outcome changed verdict or did not identify input: %+v", result)
 	}
-	if _, err := os.Stat(filepath.Join(sp.Path, "review.md")); !os.IsNotExist(err) {
-		t.Fatalf("stale review wrote artifact: %v", err)
+	if _, err := os.Stat(filepath.Join(sp.Path, "review.md")); err != nil {
+		t.Fatalf("review artifact was not persisted: %v", err)
 	}
 }
 

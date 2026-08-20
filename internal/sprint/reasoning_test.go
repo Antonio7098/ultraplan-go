@@ -166,7 +166,7 @@ func TestFlowReasoningDryRunSuccessAndFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Stages[4].Status != StatusComplete || result.Stages[5].Status == StatusComplete {
+	if result.Stages[5].Status != StatusComplete || result.Stages[6].Status == StatusComplete {
 		t.Fatalf("stages = %+v", result.Stages)
 	}
 }
@@ -188,7 +188,7 @@ func TestFlowReasoningRepairsInvalidGeneratedArtifactInSameSession(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Stages[4].Status != StatusComplete {
+	if result.Stages[5].Status != StatusComplete {
 		t.Fatalf("stages = %+v", result.Stages)
 	}
 	if len(rt.requests) != 2 {

@@ -48,6 +48,8 @@ func redactModels(m Models) Models {
 
 func redactPlanning(p Planning) Planning {
 	p.RequirementsModel = RedactValue("planning.requirements_model", p.RequirementsModel)
+	p.CodeContextModel = RedactValue("planning.code_context_model", p.CodeContextModel)
+	p.CodeContextVariant = RedactValue("planning.code_context_variant", p.CodeContextVariant)
 	p.SprintIndexModel = RedactValue("planning.sprint_index_model", p.SprintIndexModel)
 	p.TechnicalHandbookModel = RedactValue("planning.technical_handbook_model", p.TechnicalHandbookModel)
 	p.AreaReasoningModel = RedactValue("planning.area_reasoning_model", p.AreaReasoningModel)

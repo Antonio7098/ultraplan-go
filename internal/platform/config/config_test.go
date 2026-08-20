@@ -30,6 +30,8 @@ agentwrap:
 planning:
   requirements_model: openai/gpt-5.5
   requirements_variant: high
+  code_context_model: workspace/context
+  code_context_variant: high
   sprint_index_model: openai/gpt-5.5
   sprint_index_variant: high
 `), 0o644); err != nil {
@@ -41,6 +43,9 @@ planning:
 		Env: func(key string) string {
 			if key == "ULTRAPLAN_MODEL_PRIMARY" {
 				return "env/primary"
+			}
+			if key == "ULTRAPLAN_CODE_CONTEXT_MODEL" {
+				return "env/context"
 			}
 			return ""
 		},
@@ -64,18 +69,25 @@ planning:
 	if effective.Config.Planning.SprintIndexModel != "openai/gpt-5.5" || effective.Config.Planning.SprintIndexVariant != "high" {
 		t.Fatalf("planning config not loaded: %+v", effective.Config.Planning)
 	}
+	if effective.Config.Planning.CodeContextModel != "env/context" || effective.Config.Planning.CodeContextVariant != "high" || effective.Sources["planning.code_context_model"] != "env" || effective.Sources["planning.code_context_variant"] != "workspace" {
+		t.Fatalf("code-context planning config/source not resolved: config=%+v sources=%+v", effective.Config.Planning, effective.Sources)
+	}
 }
 
 func TestRedactSensitiveValues(t *testing.T) {
 	e := Effective{Config: Defaults()}
 	e.Config.Models.Default = "secret/model-token"
 	e.Config.Agentwrap.Env = []string{"OPENAI_API_KEY=secret"}
+	e.Config.Planning.CodeContextModel = "secret/context-token"
 	redacted := Redact(e)
 	if redacted.Models.Default != "[REDACTED]" {
 		t.Fatalf("secret was not redacted: %q", redacted.Models.Default)
 	}
 	if redacted.Agentwrap.Env[0] != "[REDACTED]" {
 		t.Fatalf("env secret was not redacted: %q", redacted.Agentwrap.Env[0])
+	}
+	if redacted.Planning.CodeContextModel != "[REDACTED]" {
+		t.Fatalf("code-context model was not redacted: %q", redacted.Planning.CodeContextModel)
 	}
 	if got := RedactValue("lock.command", "ultraplan study demo run-loop --api-key=secret-value"); got != "[REDACTED]" {
 		t.Fatalf("dash-form api key was not redacted: %q", got)

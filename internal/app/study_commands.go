@@ -419,6 +419,54 @@ func runtimeProgressSummary(event runtimepkg.Event) string {
 	return strings.Join(parts, " ")
 }
 
+func runtimeEventValue(event runtimepkg.Event, keys ...string) string {
+	for _, key := range keys {
+		text := strings.TrimSpace(fmt.Sprint(event.Payload[key]))
+		if text != "" && text != "<nil>" {
+			return config.RedactValue("runtime."+key, text)
+		}
+	}
+	return ""
+}
+
+func runtimeProgressUserSummary(event runtimepkg.Event) string {
+	name := runtimeEventValue(event, "tool", "name")
+	action := runtimeEventValue(event, "action", "state", "phase", "status")
+	detail := runtimeEventValue(event, "detail", "reason", "error")
+	switch event.Kind {
+	case "tool":
+		if name != "" && detail != "" {
+			return "Used " + name + ": " + detail
+		}
+		if name != "" {
+			return "Used " + name
+		}
+		return "Used a tool"
+	case "lifecycle":
+		if action != "" {
+			return "Agent is " + strings.ReplaceAll(action, "_", " ")
+		}
+		return "Agent status changed"
+	case "artifact":
+		return "Produced an artifact"
+	case "usage":
+		return "Updated usage totals"
+	case "permission":
+		return "Checked tool permissions"
+	case "retry":
+		return "Retrying the agent run"
+	case "warning":
+		return operationFirstNonEmpty(detail, "Agent reported a warning")
+	case "fatal_error":
+		return operationFirstNonEmpty(detail, "Agent run failed")
+	case "progress":
+		if action != "" {
+			return strings.ToUpper(action[:1]) + strings.ReplaceAll(action[1:], "_", " ")
+		}
+	}
+	return runtimeProgressSummary(event)
+}
+
 func runtimeEventIsProgress(event runtimepkg.Event) bool {
 	switch event.Kind {
 	case "message", "session", "native_extension":

@@ -60,6 +60,25 @@ func TestBrowserOperationKindContract(t *testing.T) {
 	}
 }
 
+func TestCodeContextUsesGenericBrowserStageContract(t *testing.T) {
+	req, err := mapOperationRequest(operationSpecRequest{
+		Kind:    "sprint-stage",
+		Scope:   operationScopeRequest{Project: "alpha", Sprint: "33-context"},
+		Options: operationOptionsRequest{Stage: "code-context"},
+	})
+	if err != nil || req.Kind != app.OperationStage || req.Stage != "code-context" {
+		t.Fatalf("generic code-context stage mapping=%+v err=%v", req, err)
+	}
+	dry, err := mapOperationRequest(operationSpecRequest{
+		Kind:    "sprint-stage",
+		Scope:   operationScopeRequest{Project: "alpha", Sprint: "33-context"},
+		Options: operationOptionsRequest{Stage: "code-context", DryRun: true},
+	})
+	if err != nil || dry.Kind != app.OperationStageDryRun || dry.Stage != "code-context" {
+		t.Fatalf("generic code-context dry-run mapping=%+v err=%v", dry, err)
+	}
+}
+
 func TestBrowserLifecycleDocumentContract(t *testing.T) {
 	states := []string{"accepted", "running", "cancelling", "succeeded", "failed", "cancelled", "interrupted", "cleanup_uncertain"}
 	for _, state := range states {

@@ -223,6 +223,10 @@ func (h *operationHub) publishAppEvent(record *operationRecord, event app.Operat
 	payload := map[string]any{
 		"state": string(event.State), "stage": safeWebText(event.Stage), "task": safeWebText(event.Task),
 		"message": safeWebText(event.Message), "completed": event.Completed, "total": event.Total, "attempt": event.Attempt,
+		"event_kind": safeWebText(event.EventKind), "event_type": safeWebText(event.EventType), "tool": safeWebText(event.Tool), "action": safeWebText(event.Action),
+		"runtime_attempts": event.RuntimeAttempts, "turns": event.Turns, "turns_known": event.TurnsKnown,
+		"tokens": event.Tokens, "tokens_known": event.TokensKnown, "duration": safeWebText(event.Duration),
+		"provider": safeWebText(event.Provider), "model": safeWebText(event.Model), "cost": safeWebText(event.Cost), "runtime_events": event.RuntimeEvents,
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()

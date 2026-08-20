@@ -13,6 +13,8 @@ func ArtifactRelPath(s Sprint, stage PlanningStage) string {
 	switch stage {
 	case StageRequirements:
 		return base + "/requirements.md"
+	case StageCodeContext:
+		return base + "/code-context.md"
 	case StageSprintIndex:
 		return base + "/sprint-index.md"
 	case StageTechnicalHandbook:

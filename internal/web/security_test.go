@@ -165,6 +165,36 @@ func TestSecurityAllowsPortStrippedBrowserOriginWithExactSameOriginProofs(t *tes
 	}
 }
 
+func TestSecurityAllowsPortStrippedReadOnlyNavigationWithExactSameOriginProofs(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	for _, path := range []string{"/api/v1/projects", "/api/v1/studies", "/api/v1/health"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = testAuthority
+		req.Header.Set("Origin", "http://127.0.0.1")
+		req.Header.Set("Referer", "http://"+testAuthority+"/projects/alpha")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		if res.Code != http.StatusOK {
+			t.Errorf("%s status=%d body=%s", path, res.Code, res.Body.String())
+		}
+	}
+}
+
+func TestSecurityRejectsPortStrippedReadOnlyNavigationWithoutSameOriginProofs(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
+	req.Host = testAuthority
+	req.Header.Set("Origin", "http://127.0.0.1")
+	req.Header.Set("Referer", "http://127.0.0.1:9090/projects/alpha")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusForbidden || !strings.Contains(res.Body.String(), "origin_rejected") {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
 func TestSecurityRejectsPortStrippedOriginWithoutExactSameOriginProofs(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	cookie, csrf := establishOperationSession(t, h)

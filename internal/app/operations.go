@@ -121,7 +121,7 @@ type Confirmation struct {
 }
 type OperationEvent struct {
 	State                                                                         OperationState
-	Stage, Task, Message                                                          string
+	Stage, Task, Message, EventKind, EventType, Tool, Action                      string
 	Completed, Total, Attempt                                                     int
 	RuntimeAttempts                                                               int
 	Turns                                                                         int64
@@ -492,6 +492,7 @@ func governedOperationInputs(req OperationRequest) []string {
 			filepath.ToSlash(filepath.Join(base, "roadmap.md")),
 			filepath.ToSlash(filepath.Join(base, "docs")),
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "requirements.md")),
+			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "code-context.md")),
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "sprint-index.md")),
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "technical-handbook.md")),
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "reasoning.md")),
@@ -641,6 +642,8 @@ func promptSprintStage(s sprint.Service, p, sp string, stage sprint.PlanningStag
 	switch stage {
 	case sprint.StageRequirements:
 		return s.PromptRequirements(p, sp)
+	case sprint.StageCodeContext:
+		return s.PromptCodeContext(p, sp)
 	case sprint.StageSprintIndex:
 		return s.PromptSprintIndex(p, sp)
 	case sprint.StageTechnicalHandbook:

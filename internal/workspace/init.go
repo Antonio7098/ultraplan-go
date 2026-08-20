@@ -30,6 +30,9 @@ var defaultCreateAreaReasoningPrompt string
 //go:embed scaffold/prompts/create-requirements.md
 var defaultCreateRequirementsPrompt string
 
+//go:embed scaffold/prompts/create-code-context.md
+var defaultCreateCodeContextPrompt string
+
 //go:embed scaffold/prompts/create-sprint-index.md
 var defaultCreateSprintIndexPrompt string
 
@@ -75,6 +78,9 @@ var defaultReportTemplate string
 //go:embed scaffold/templates/requirements.md
 var defaultRequirementsTemplate string
 
+//go:embed scaffold/templates/code-context.md
+var defaultCodeContextTemplate string
+
 //go:embed scaffold/templates/review.md
 var defaultReviewTemplate string
 
@@ -102,6 +108,7 @@ var defaultOverrideFiles = map[string]string{
 	"prompts/base.md":                      defaultBasePrompt,
 	"prompts/create-area-reasoning.md":     defaultCreateAreaReasoningPrompt,
 	"prompts/create-requirements.md":       defaultCreateRequirementsPrompt,
+	"prompts/create-code-context.md":       defaultCreateCodeContextPrompt,
 	"prompts/create-sprint-index.md":       defaultCreateSprintIndexPrompt,
 	"prompts/create-sprint-reasoning.md":   defaultCreateSprintReasoningPrompt,
 	"prompts/create-technical-handbook.md": defaultCreateTechnicalHandbookPrompt,
@@ -118,6 +125,7 @@ var defaultOverrideFiles = map[string]string{
 	"templates/repo-analysis.md":           defaultRepoAnalysisTemplate,
 	"templates/report.md":                  defaultReportTemplate,
 	"templates/requirements.md":            defaultRequirementsTemplate,
+	"templates/code-context.md":            defaultCodeContextTemplate,
 	"templates/review.md":                  defaultReviewTemplate,
 	"templates/smoke.md":                   defaultSmokeTemplate,
 	"templates/sprint-index.md":            defaultSprintIndexTemplate,
@@ -139,6 +147,8 @@ execution:
   default_timeout: 30m
   default_retries: 3
 planning:
+  code_context_model: provider/model
+  code_context_variant: high
   smoke_model: provider/model
   smoke_variant: high
 smoke:

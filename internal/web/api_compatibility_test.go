@@ -52,7 +52,7 @@ func TestAPICompatibilityTransportSchemas(t *testing.T) {
 		"error":              {errorBody{}, "code:string:code|message:string:message|retryable:bool:retryable,omitempty|details:map[string]interface {}:details,omitempty"},
 		"artifact":           {artifactDTO{}, "ref:string:ref|label:string:label,omitempty|display_path:string:display_path|media_type:string:media_type"},
 		"finding":            {findingDTO{}, "severity:string:severity|section:string:section,omitempty|problem:string:problem|cause:string:cause,omitempty|suggestion:string:suggestion,omitempty"},
-		"stage":              {stageDTO{}, "name:string:name|status:string:status"},
+		"stage":              {stageDTO{}, "name:string:name|status:string:status|error:string:error,omitempty|artifact_available:bool:artifact_available,omitempty|artifact_valid:bool:artifact_valid,omitempty|latest_outcome:string:latest_outcome,omitempty|next_action:string:next_action,omitempty"},
 		"execute":            {executeDTO{}, "available:bool:available|total:int:total,omitempty|pending:int:pending,omitempty|running:int:running,omitempty|complete:int:complete,omitempty|failed:int:failed,omitempty|cancelled:int:cancelled,omitempty"},
 		"reviewer":           {reviewerDTO{}, "id:string:id|name:string:name,omitempty|kind:string:kind,omitempty|path:string:path,omitempty|status:string:status|summary:string:summary,omitempty"},
 		"smoke":              {smokeDTO{}, "available:bool:available|status:string:status,omitempty|verdict:string:verdict,omitempty|stale:bool:stale,omitempty|run_id:string:run_id,omitempty"},

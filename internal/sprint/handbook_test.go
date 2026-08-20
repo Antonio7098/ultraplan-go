@@ -77,7 +77,7 @@ func TestTechnicalHandbookPromptDryRunAndFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Stages[2].Status != StatusComplete || result.Stages[3].Status != StatusReady {
+	if result.Stages[3].Status != StatusComplete || result.Stages[4].Status != StatusReady {
 		t.Fatalf("stages = %+v", result.Stages)
 	}
 }

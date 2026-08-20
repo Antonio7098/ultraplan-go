@@ -553,13 +553,9 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 	}
 	current, currentFindings, currentErr := s.PrepareReview(projectRef, sprintRef, req)
 	if currentErr != nil || len(currentFindings) > 0 || current.Fingerprint != m.Fingerprint {
-		result.Status = ReviewFailed
-		result.ProvisionalVerdict = result.Verdict
-		result.Verdict = ReviewVerdictBlocked
 		for _, message := range reviewManifestChanges(m, current, currentFindings, currentErr) {
 			result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "inputs-changed", Message: safeReviewText(s.root, message)})
 		}
-		return s.persistReviewFailure(projectRef, sprintRef, result, completed, len(coverage), fmt.Errorf("review inputs changed during execution"))
 	}
 	result.Status = ReviewCompleted
 	content := RenderReviewMarkdown(m, result)

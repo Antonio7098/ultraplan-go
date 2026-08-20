@@ -3,6 +3,11 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/project"
 	"github.com/Antonio7098/ultraplan-go/internal/sprint"
@@ -32,12 +37,14 @@ type SprintSummary struct {
 type ReviewSummary struct {
 	Available                bool
 	Status, Verdict          string
+	Error                    string
 	Stale                    bool
 	Completed, Total         int
 	Pending, Running, Failed int
 	Artifact, Digest         string
 	FreshnessReasons         []string
 	Reviewers                []ReviewItemSummary
+	StartedAt                *time.Time
 }
 
 type ReviewItemSummary struct {
@@ -47,6 +54,7 @@ type ReviewItemSummary struct {
 type SmokeSummary struct {
 	Available                    bool
 	Status, Verdict, RunID       string
+	Error                        string
 	Stale, Reconciliation        bool
 	Artifact, Digest, NextAction string
 	FreshnessReasons             []string
@@ -55,10 +63,14 @@ type SmokeSummary struct {
 }
 
 type StageSummary struct {
-	Name   string
-	Status string
-	Path   string
-	Error  string
+	Name              string
+	Status            string
+	Path              string
+	Error             string
+	ArtifactAvailable bool
+	ArtifactValid     bool
+	LatestOutcome     string
+	NextAction        string
 }
 
 type ExecuteSummary struct {
@@ -103,6 +115,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 					Findings:          []DisplayFinding{{Severity: "error", Section: "sprint.status", Problem: displaySafe(err.Error()), Suggestion: "Inspect or regenerate sprint flow-state.json outside the read-only TUI."}},
 					Artifacts: []DisplayArtifact{
 						{Label: "requirements", Path: sprint.ArtifactRelPath(sp, sprint.StageRequirements), Kind: "markdown"},
+						{Label: "code-context", Path: sprint.ArtifactRelPath(sp, sprint.StageCodeContext), Kind: "markdown"},
 						{Label: "sprint-index", Path: sprint.ArtifactRelPath(sp, sprint.StageSprintIndex), Kind: "markdown"},
 						{Label: "technical-handbook", Path: sprint.ArtifactRelPath(sp, sprint.StageTechnicalHandbook), Kind: "markdown"},
 						{Label: "reasoning", Path: sprint.ArtifactRelPath(sp, sprint.StageReasoning), Kind: "markdown"},
@@ -163,10 +176,21 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 			summary.Smoke.FreshnessReasons, summary.Smoke.Issues, summary.Smoke.Override = append([]string(nil), status.Verification.Smoke.FreshnessReasons...), append([]sprint.SmokeIssue(nil), status.Verification.Smoke.Issues...), status.Verification.Smoke.Override
 			summary.Smoke.Stale = !status.Verification.Smoke.Fresh
 			for _, stage := range status.Stages {
-				summary.Stages = append(summary.Stages, StageSummary{Name: string(stage.Stage), Status: string(stage.Status), Path: stage.Path, Error: displaySafe(stage.Error)})
+				latestOutcome := stage.LatestOutcome
+				if latestOutcome == "" {
+					latestOutcome = string(stage.Status)
+				}
+				stageSummary := StageSummary{Name: string(stage.Stage), Status: string(stage.Status), Path: stage.Path, Error: displaySafe(stage.Error), LatestOutcome: latestOutcome}
+				if stage.Stage == sprint.StageCodeContext {
+					if info, statErr := os.Lstat(filepath.Join(u.root, filepath.FromSlash(stage.Path))); statErr == nil && info.Mode().IsRegular() {
+						stageSummary.ArtifactAvailable = true
+					}
+				}
+				summary.Stages = append(summary.Stages, stageSummary)
 			}
 			summary.Artifacts = append(summary.Artifacts,
 				DisplayArtifact{Label: "requirements", Path: sprint.ArtifactRelPath(sp, sprint.StageRequirements), Kind: "markdown"},
+				DisplayArtifact{Label: "code-context", Path: sprint.ArtifactRelPath(sp, sprint.StageCodeContext), Kind: "markdown"},
 				DisplayArtifact{Label: "sprint-index", Path: sprint.ArtifactRelPath(sp, sprint.StageSprintIndex), Kind: "markdown"},
 				DisplayArtifact{Label: "technical-handbook", Path: sprint.ArtifactRelPath(sp, sprint.StageTechnicalHandbook), Kind: "markdown"},
 				DisplayArtifact{Label: "reasoning", Path: sprint.ArtifactRelPath(sp, sprint.StageReasoning), Kind: "markdown"},
@@ -177,7 +201,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				DisplayArtifact{Label: "flow-state", Path: sprint.FlowStateRelPath(sp), Kind: "json"},
 				DisplayArtifact{Label: "run-state", Path: sprint.ExecuteRunStateRelPath(sp), Kind: "json"},
 			)
-			for _, stage := range []sprint.PlanningStage{sprint.StageRequirements, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview, sprint.StageSmoke} {
+			for _, stage := range []sprint.PlanningStage{sprint.StageRequirements, sprint.StageCodeContext, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview, sprint.StageSmoke} {
 				result, err := validateSprintStage(service, p.Name, sp.Slug, stage)
 				if err != nil {
 					continue
@@ -185,18 +209,52 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				for _, finding := range result.Findings {
 					summary.Findings = append(summary.Findings, sprintFinding(finding))
 				}
+				if stage == sprint.StageCodeContext {
+					for i := range summary.Stages {
+						if summary.Stages[i].Name == string(stage) {
+							summary.Stages[i].ArtifactValid = result.Valid()
+							switch {
+							case summary.Stages[i].Status == string(sprint.StatusFailed) && summary.Stages[i].ArtifactAvailable && summary.Stages[i].ArtifactValid:
+								summary.Stages[i].NextAction = "A prior valid artifact is preserved; inspect the failure and explicitly rerun code-context."
+							case summary.Stages[i].Status == string(sprint.StatusFailed):
+								summary.Stages[i].NextAction = "Inspect the failure and explicitly rerun code-context."
+							case summary.Stages[i].Status == string(sprint.StatusComplete):
+								summary.Stages[i].NextAction = "Continue to sprint-index."
+							default:
+								summary.Stages[i].NextAction = "Run code-context after requirements validate."
+							}
+						}
+					}
+				}
 			}
-			sortArtifacts(summary.Artifacts)
+			sortSprintArtifacts(summary.Artifacts)
 			out = append(out, summary)
 		}
 	}
 	return out, nil
 }
 
+func sortSprintArtifacts(items []DisplayArtifact) {
+	order := map[string]int{"requirements": 0, "code-context": 1, "sprint-index": 2, "technical-handbook": 3, "reasoning": 4, "plan": 5, "execute": 6, "review": 7, "smoke": 8, "flow-state": 9, "run-state": 10}
+	sort.SliceStable(items, func(i, j int) bool {
+		left, leftOK := order[items[i].Label]
+		right, rightOK := order[items[j].Label]
+		if leftOK && rightOK {
+			return left < right
+		}
+		if leftOK != rightOK {
+			return leftOK
+		}
+		return items[i].Path < items[j].Path
+	})
+}
+
 func validateSprintStage(service sprint.Service, projectRef, sprintRef string, stage sprint.PlanningStage) (sprint.ValidationResult, error) {
 	switch stage {
 	case sprint.StageRequirements:
 		return service.ValidateRequirements(projectRef, sprintRef)
+	case sprint.StageCodeContext:
+		return service.ValidateCodeContext(projectRef, sprintRef)
 	case sprint.StageSprintIndex:
 		return service.ValidateSprintIndex(projectRef, sprintRef)
 	case sprint.StageTechnicalHandbook:
@@ -222,14 +280,27 @@ func summarizeSmoke(state *sprint.SmokeStageState) SmokeSummary {
 	if state == nil {
 		return SmokeSummary{}
 	}
-	return SmokeSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), RunID: state.RunID, Stale: state.Stale, Reconciliation: state.Reconciliation}
+	return SmokeSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), RunID: state.RunID, Error: displayReasons(state.Diagnostics), Stale: state.Stale, Reconciliation: state.Reconciliation}
 }
 
 func summarizeReview(state *sprint.ReviewStageState) ReviewSummary {
 	if state == nil {
 		return ReviewSummary{}
 	}
-	return ReviewSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), Stale: state.Stale, Completed: state.Completed, Total: state.Total}
+	reasons := make([]string, 0, len(state.Diagnostics))
+	for _, diagnostic := range state.Diagnostics {
+		reason := diagnostic.Message
+		if diagnostic.Code != "" {
+			reason = diagnostic.Code + ": " + reason
+		}
+		reasons = append(reasons, reason)
+	}
+	summary := ReviewSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), Error: displayReasons(reasons), Stale: state.Stale, Completed: state.Completed, Total: state.Total}
+	if state.ActiveAttempt != nil {
+		started := state.ActiveAttempt.StartedAt
+		summary.StartedAt = &started
+	}
+	return summary
 }
 
 func summarizeReviewers(state *sprint.ReviewStageState, coverage []sprint.ReviewInput) []ReviewItemSummary {
@@ -289,11 +360,25 @@ func summarizeExecute(state *sprint.ExecuteRunState) ExecuteSummary {
 			summary.Deferred++
 		case sprint.ExecuteTaskFailed:
 			summary.Failed++
+			if len(task.Diagnostics) > 0 {
+				diagnostic := task.Diagnostics[len(task.Diagnostics)-1]
+				summary.Message = displaySafe(task.ID + ": " + diagnostic.Message)
+			}
 		case sprint.ExecuteTaskCancelled:
 			summary.Cancelled++
 		}
 	}
 	return summary
+}
+
+func displayReasons(values []string) string {
+	reasons := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(displaySafe(value)); value != "" {
+			reasons = append(reasons, value)
+		}
+	}
+	return strings.Join(reasons, "; ")
 }
 
 func summarizeHistoricalExecute(status string) ExecuteSummary {

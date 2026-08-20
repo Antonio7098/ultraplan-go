@@ -220,10 +220,15 @@ func TestConfigShowJSONRedactsAndUsesWorkspace(t *testing.T) {
 		Command string `json:"command"`
 		Status  string `json:"status"`
 		Result  struct {
-			Version int `json:"version"`
+			Version  int `json:"version"`
+			Planning struct {
+				CodeContextModel   string `json:"code_context_model"`
+				CodeContextVariant string `json:"code_context_variant"`
+			} `json:"planning"`
 			Logging struct {
 				Format string `json:"format"`
 			} `json:"logging"`
+			Sources map[string]string `json:"sources"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
@@ -231,6 +236,9 @@ func TestConfigShowJSONRedactsAndUsesWorkspace(t *testing.T) {
 	}
 	if payload.Command != "config show" || payload.Status != "ok" || payload.Result.Version != 1 || payload.Result.Logging.Format != "text" {
 		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if payload.Result.Planning.CodeContextModel != "provider/model" || payload.Result.Planning.CodeContextVariant != "high" || payload.Result.Sources["planning.code_context_model"] != "workspace" {
+		t.Fatalf("code-context config projection = %+v sources=%+v", payload.Result.Planning, payload.Result.Sources)
 	}
 }
 
@@ -242,6 +250,8 @@ func TestConfigShowTextIncludesRequiredHealth(t *testing.T) {
 	}
 	assertContains(t, stdout, "agentwrap.executable: opencode")
 	assertContains(t, stdout, "agentwrap.required_health: runtime_available, structured_output, workdir")
+	assertContains(t, stdout, "planning.code_context_model: provider/model (source: workspace)")
+	assertContains(t, stdout, "planning.code_context_variant: high (source: workspace)")
 }
 
 func initializedWorkspace(t *testing.T) string {

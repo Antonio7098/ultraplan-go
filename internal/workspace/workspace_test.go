@@ -115,6 +115,14 @@ func TestInitAndValidate(t *testing.T) {
 	if !strings.Contains(string(synthesizePrompt), "# Synthesis Dimension") || !strings.Contains(string(synthesizePrompt), "Required Rating Summary") {
 		t.Fatalf("synthesize prompt was not scaffolded from full prototype:\n%s", synthesizePrompt)
 	}
+	codeContextPrompt, err := os.ReadFile(filepath.Join(root, "prompts", "create-code-context.md"))
+	if err != nil || !strings.Contains(string(codeContextPrompt), "# Create Sprint Code Context") {
+		t.Fatalf("code-context prompt was not materialized from the embedded default: %v", err)
+	}
+	codeContextTemplate, err := os.ReadFile(filepath.Join(root, "templates", "code-context.md"))
+	if err != nil || !strings.Contains(string(codeContextTemplate), "## Selected Source Excerpts") {
+		t.Fatalf("code-context template was not materialized from the embedded default: %v", err)
+	}
 	plan, err = Init(root)
 	if err != nil {
 		t.Fatal(err)
@@ -139,6 +147,26 @@ func TestEmbeddedPromptsDoNotRequireManualPromptOrTemplateReads(t *testing.T) {
 			if strings.Contains(content, forbidden) {
 				t.Fatalf("%s contains manual prompt/template read instruction %q", rel, forbidden)
 			}
+		}
+	}
+}
+
+func TestCodeContextDefaultsEmbeddedAndMaterialized(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InstallDefaults(root, DefaultsOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"prompts/create-code-context.md", "templates/code-context.md"} {
+		embedded, ok := DefaultOverrideFile(rel)
+		if !ok || strings.TrimSpace(embedded) == "" {
+			t.Fatalf("embedded default missing: %s", rel)
+		}
+		materialized, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil || string(materialized) != embedded {
+			t.Fatalf("materialized default differs for %s: %v", rel, err)
 		}
 	}
 }

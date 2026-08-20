@@ -115,7 +115,7 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 		}
 	}
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select", "data-stage-operation-status", `querySelectorAll(".detail-sidebar details")`, `addEventListener("pointerenter"`, `addEventListener("pointerleave"`, "pinnedOpen", "sidebar-hover-preview"} {
+	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select", "data-stage-operation-status", "setInterval(refreshReviewers, 2000)", "durableStatusPath", "durableProcesses", "operation.href", `processes.addEventListener("pointerenter"`, `querySelectorAll(".detail-sidebar details")`, `addEventListener("pointerenter"`, `addEventListener("pointerleave"`, "pinnedOpen", "sidebar-hover-preview"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("JavaScript missing %q", want)
 		}
@@ -187,6 +187,21 @@ func TestSprintRunExposesStageControls(t *testing.T) {
 	}
 }
 
+func TestSprintCodeContextOrderAndPreservedArtifactOutcome(t *testing.T) {
+	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
+	requirements := strings.Index(body, `href="#stage-requirements"`)
+	codeContext := strings.Index(body, `href="#stage-code-context"`)
+	sprintIndex := strings.Index(body, `href="#stage-sprint-index"`)
+	if requirements < 0 || codeContext <= requirements || sprintIndex <= codeContext {
+		t.Fatalf("stage order is not requirements, code-context, sprint-index: %d %d %d", requirements, codeContext, sprintIndex)
+	}
+	for _, want := range []string{"Latest attempt:</strong> failed", "Why it failed", "provider failed", "Authoritative artifact:</strong> available and structurally valid", "A prior valid artifact is preserved", "Start run to code-context"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("code-context presentation missing %q", want)
+		}
+	}
+}
+
 func TestSprintArtifactNavigatorKeepsExplorerContext(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	overview := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/artifacts", nil).Body.String()
@@ -212,11 +227,11 @@ func TestSprintRunOnlyExposesFlowToStageAction(t *testing.T) {
 	}
 }
 
-func TestSprintRunDoesNotShowReviewerStatusGrid(t *testing.T) {
+func TestSprintRunShowsReviewerStatusGridInRunningReviewStage(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, unwanted := range []string{`class="reviewer-grid"`, "Security contract", "API contract", "Technical handbook"} {
-		if strings.Contains(body, unwanted) {
-			t.Errorf("reviewer UI remains in run panel: %q", unwanted)
+	for _, want := range []string{`data-review-status`, `data-activity-panel`, `class="activity-summary"`, `id="activity-time"`, `id="activity-agents"`, `id="activity-actions"`, `id="activity-tools"`, `id="latest-event"`, `class="event-log"`, `id="event-log-count"`, `class="reviewer-grid"`, `id="review-count-complete"`, `id="review-count-running"`, `id="review-count-pending"`, `id="review-count-failed"`, `id="reviewer-result-dialog"`, "Durable progress and reviewer transitions appear below", "Security contract", "API contract", "Technical handbook"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("running review stage is missing reviewer UI %q", want)
 		}
 	}
 }

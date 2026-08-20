@@ -31,6 +31,7 @@ type PlanningStage string
 
 const (
 	StageRequirements      PlanningStage = "requirements"
+	StageCodeContext       PlanningStage = "code-context"
 	StageSprintIndex       PlanningStage = "sprint-index"
 	StageTechnicalHandbook PlanningStage = "technical-handbook"
 	StageAreaReasoning     PlanningStage = "area-reasoning"
@@ -49,11 +50,12 @@ const (
 )
 
 type StageState struct {
-	Stage     PlanningStage `json:"stage"`
-	Status    StageStatus   `json:"status"`
-	Path      string        `json:"path"`
-	LastRunAt *time.Time    `json:"lastRunAt,omitempty"`
-	Error     string        `json:"error,omitempty"`
+	Stage         PlanningStage `json:"stage"`
+	Status        StageStatus   `json:"status"`
+	Path          string        `json:"path"`
+	LastRunAt     *time.Time    `json:"lastRunAt,omitempty"`
+	Error         string        `json:"error,omitempty"`
+	LatestOutcome string        `json:"latestOutcome,omitempty"`
 }
 
 type ExecuteTaskStatus string
@@ -262,6 +264,7 @@ func (r ValidationResult) Valid() bool { return len(r.Findings) == 0 }
 func PlanningStages() []PlanningStage {
 	return []PlanningStage{
 		StageRequirements,
+		StageCodeContext,
 		StageSprintIndex,
 		StageTechnicalHandbook,
 		StageAreaReasoning,

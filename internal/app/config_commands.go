@@ -54,6 +54,8 @@ func runConfig(deps dependencies, args []string) error {
 	fmt.Fprintf(deps.stdout, "execution.default_retries: %d\n", redacted.Execution.DefaultRetries)
 	fmt.Fprintf(deps.stdout, "planning.requirements_model: %s\n", redacted.Planning.RequirementsModel)
 	fmt.Fprintf(deps.stdout, "planning.requirements_variant: %s\n", redacted.Planning.RequirementsVariant)
+	fmt.Fprintf(deps.stdout, "planning.code_context_model: %s (source: %s)\n", redacted.Planning.CodeContextModel, redacted.Sources["planning.code_context_model"])
+	fmt.Fprintf(deps.stdout, "planning.code_context_variant: %s (source: %s)\n", redacted.Planning.CodeContextVariant, redacted.Sources["planning.code_context_variant"])
 	fmt.Fprintf(deps.stdout, "planning.sprint_index_model: %s\n", redacted.Planning.SprintIndexModel)
 	fmt.Fprintf(deps.stdout, "planning.sprint_index_variant: %s\n", redacted.Planning.SprintIndexVariant)
 	fmt.Fprintf(deps.stdout, "planning.technical_handbook_model: %s\n", redacted.Planning.TechnicalHandbookModel)

@@ -143,7 +143,7 @@ func supportedPreviewPath(rel string) bool {
 		return false
 	}
 	base := filepath.Base(rel)
-	if base == "project-index.md" || base == "roadmap.md" || base == "requirements.md" || base == "sprint-index.md" ||
+	if base == "project-index.md" || base == "roadmap.md" || base == "requirements.md" || base == "code-context.md" || base == "sprint-index.md" ||
 		base == "technical-handbook.md" || base == "reasoning.md" || base == "plan.md" || base == "execute.md" || base == "review.md" || base == "smoke.md" ||
 		base == "flow-state.json" || base == ".run-state.json" {
 		return true

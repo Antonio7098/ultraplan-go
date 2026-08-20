@@ -38,9 +38,12 @@ func TestPromptPreviewAndFlowDryRunAreRuntimeFree(t *testing.T) {
 	sp := sprintFixture(t, root, "proj", "01-alpha")
 	writeFixtureProjectIndex(t, root, "proj")
 	writeFileContent(t, sp.Path, "# Requirements\n\nDo select stage.\n", "requirements.md")
+	writeCompletedCodeContext(t, root, sp)
 	writeFileContent(t, sp.Path, validSprintIndex(), "sprint-index.md")
 
 	service := NewService(root).WithRuntime(panicRuntime{})
+	statePath := filepath.Join(sp.Path, "flow-state.json")
+	stateBefore, _ := os.ReadFile(statePath)
 	preview, err := service.PromptSprintIndex("proj", "01")
 	if err != nil {
 		t.Fatal(err)
@@ -61,8 +64,9 @@ func TestPromptPreviewAndFlowDryRunAreRuntimeFree(t *testing.T) {
 	if !result.DryRun || result.Message == "" {
 		t.Fatalf("dry run result = %+v", result)
 	}
-	if _, err := os.Stat(filepath.Join(sp.Path, "flow-state.json")); !os.IsNotExist(err) {
-		t.Fatalf("dry-run wrote flow state: %v", err)
+	stateAfter, stateErr := os.ReadFile(statePath)
+	if stateErr != nil || string(stateAfter) != string(stateBefore) {
+		t.Fatalf("dry-run changed flow state: %v", stateErr)
 	}
 }
 
@@ -71,6 +75,7 @@ func TestFlowSuccessAndValidationFailureUpdateState(t *testing.T) {
 	sp := sprintFixture(t, root, "proj", "01-alpha")
 	writeFixtureProjectIndex(t, root, "proj")
 	writeFileContent(t, sp.Path, "# Requirements\n\nDo select stage.\n", "requirements.md")
+	writeCompletedCodeContext(t, root, sp)
 	writeFileContent(t, sp.Path, validSprintIndex(), "sprint-index.md")
 
 	service := NewService(root).WithRuntime(fakeRuntime{})
@@ -78,13 +83,13 @@ func TestFlowSuccessAndValidationFailureUpdateState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Stages[1].Status != StatusComplete || result.Stages[2].Status != StatusReady {
+	if result.Stages[2].Status != StatusComplete || result.Stages[3].Status != StatusReady {
 		t.Fatalf("stages = %+v", result.Stages)
 	}
 
 	writeFileContent(t, sp.Path, "# Sprint Index\n\nTODO\n", "sprint-index.md")
 	result, err = service.FlowSprintIndex(context.Background(), "proj", "01", FlowRequest{To: StageSprintIndex})
-	if err == nil || len(result.Findings) == 0 || result.Stages[1].Status != StatusFailed {
+	if err == nil || len(result.Findings) == 0 || result.Stages[2].Status != StatusFailed {
 		t.Fatalf("expected validation failure, result=%+v err=%v", result, err)
 	}
 }
@@ -94,6 +99,7 @@ func TestFlowConfiguresRuntimeValidationAndKeepsProductValidation(t *testing.T) 
 	sp := sprintFixture(t, root, "proj", "01-alpha")
 	writeFixtureProjectIndex(t, root, "proj")
 	writeFileContent(t, sp.Path, "# Requirements\n\nDo select stage.\n", "requirements.md")
+	writeCompletedCodeContext(t, root, sp)
 	writeFileContent(t, sp.Path, "# Sprint Index\n\nTODO\n", "sprint-index.md")
 
 	rt := &validationInspectRuntime{}

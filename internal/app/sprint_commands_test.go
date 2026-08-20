@@ -62,7 +62,8 @@ func TestSprintStatusRefreshesStateAndRendersDeterministically(t *testing.T) {
 	dir := initializedWorkspace(t)
 	writeCommandSprintProject(t, dir, "proj", "01-alpha")
 	base := filepath.Join(dir, "projects", "proj", "sprints", "01-alpha")
-	writeFixtureFileContent(t, base, "# Requirements\n", "requirements.md")
+	writeFixtureFileContent(t, base, commandValidRequirements(), "requirements.md")
+	writeCommandCompletedCodeContext(t, dir, "proj", "01-alpha")
 	writeFixtureFileContent(t, base, "# Sprint Index\n\nNo reasoning templates selected.\n", "sprint-index.md")
 	writeFixtureFileContent(t, base, "# Handbook\n", "technical-handbook.md")
 
@@ -73,7 +74,8 @@ func TestSprintStatusRefreshesStateAndRendersDeterministically(t *testing.T) {
 	assertContains(t, stdout, "Project: proj\n")
 	assertContains(t, stdout, "Sprint: 01-alpha\n")
 	assertContains(t, stdout, "Flow state: projects/proj/sprints/01-alpha/flow-state.json\n")
-	assertInOrder(t, stdout, "  requirements: complete", "  sprint-index: complete")
+	assertInOrder(t, stdout, "  requirements: complete", "  code-context: complete")
+	assertInOrder(t, stdout, "  code-context: complete", "  sprint-index: complete")
 	assertInOrder(t, stdout, "  sprint-index: complete", "  technical-handbook: complete")
 	assertInOrder(t, stdout, "  technical-handbook: complete", "  area-reasoning: skipped")
 	assertInOrder(t, stdout, "  area-reasoning: skipped", "  reasoning: ready")
@@ -83,6 +85,21 @@ func TestSprintStatusRefreshesStateAndRendersDeterministically(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(base, "flow-state.json")); err != nil {
 		t.Fatalf("flow state not written: %v", err)
+	}
+	jsonOutput, jsonStderr, jsonStatus := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "status", "--json"})
+	if jsonStatus != ExitOK || jsonStderr != "" {
+		t.Fatalf("json status=%d stdout=%q stderr=%q", jsonStatus, jsonOutput, jsonStderr)
+	}
+	var envelope struct {
+		SchemaVersion int `json:"schema_version"`
+		Result        struct {
+			Stages []struct {
+				Stage string `json:"stage"`
+			} `json:"stages"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(jsonOutput), &envelope); err != nil || envelope.SchemaVersion != 1 || len(envelope.Result.Stages) < 3 || envelope.Result.Stages[1].Stage != "code-context" {
+		t.Fatalf("stable status projection=%+v err=%v body=%s", envelope, err, jsonOutput)
 	}
 }
 
@@ -160,14 +177,30 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	dir := initializedWorkspace(t)
 	writeCommandSprintProject(t, dir, "proj", "01-alpha")
 	base := filepath.Join(dir, "projects", "proj", "sprints", "01-alpha")
-	writeFixtureFileContent(t, base, "# Requirements\n\nSelect stage.\n", "requirements.md")
+	writeFixtureFileContent(t, base, commandValidRequirements(), "requirements.md")
+	writeCommandCompletedCodeContext(t, dir, "proj", "01-alpha")
 	writeFixtureFileContent(t, base, commandValidSprintIndex(), "sprint-index.md")
 	writeFixtureFileContent(t, base, commandValidTechnicalHandbook(), "technical-handbook.md")
 	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(), "project-index.md")
 	writeFixtureFileContent(t, dir, "# Evidence\n", "studies", "go-cli-study", "reports", "final", "01-project-structure.md")
 	writeFixtureFileContent(t, dir, "# Architecture Template\n", "system", "reasoning", "architecture_reasoning_template.md")
 
-	stdout, stderr, status := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "sprint-index"})
+	stdout, stderr, status := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "code-context"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("code-context validate status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "code-context.md")
+	assertContains(t, stdout, "Validation: ok")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "code-context"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("code-context prompt status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	assertContains(t, stdout, "# Create Sprint Code Context")
+	assertContains(t, stdout, "Prompt source: `builtin:prompts/create-code-context.md`")
+	assertContains(t, stdout, "Source: builtin:templates/code-context.md")
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "sprint-index"})
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("validate status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
@@ -204,13 +237,26 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 		t.Fatalf("unsafe handbook prompt output stdout=%q stderr=%q", stdout, stderr)
 	}
 
+	stateBefore, stateBeforeErr := os.ReadFile(filepath.Join(base, "flow-state.json"))
+	if stateBeforeErr != nil {
+		t.Fatal(stateBeforeErr)
+	}
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "sprint-index", "--dry-run"})
 	if status != ExitOK || stderr != "" {
 		t.Fatalf("flow dry-run status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
 	assertContains(t, stdout, "Dry run: true")
-	if _, err := os.Stat(filepath.Join(base, "flow-state.json")); !os.IsNotExist(err) {
-		t.Fatalf("dry run wrote state: %v", err)
+	stateAfter, stateErr := os.ReadFile(filepath.Join(base, "flow-state.json"))
+	if stateErr != nil || string(stateAfter) != string(stateBefore) {
+		t.Fatalf("dry run changed state: %v", stateErr)
+	}
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "code-context", "--dry-run"})
+	if status != ExitOK || stderr != "" || !strings.Contains(stdout, "Dry run: true") {
+		t.Fatalf("code-context dry-run status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	stateAfter, stateErr = os.ReadFile(filepath.Join(base, "flow-state.json"))
+	if stateErr != nil || string(stateAfter) != string(stateBefore) {
+		t.Fatalf("code-context dry-run changed state: %v", stateErr)
 	}
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "technical-handbook", "--dry-run"})
@@ -320,6 +366,8 @@ execution:
 planning:
   requirements_model: openai/gpt-5.5
   requirements_variant: high
+  code_context_model: openai/gpt-5.5
+  code_context_variant: high
   sprint_index_model: openai/gpt-5.5
   sprint_index_variant: high
   reasoning_model: openai/gpt-5.5
@@ -355,7 +403,7 @@ agentwrap:
 	assertContains(t, stderr, "[runtime] requirements")
 	assertContains(t, stderr, "lifecycle.transition state=running")
 	assertContains(t, stdout, "Result: sprint-index already complete")
-	if fake.calls != 1 {
+	if fake.calls != 2 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Provider == "" || fake.request.Model == "" {
@@ -367,11 +415,11 @@ agentwrap:
 	if fake.request.Metadata["reasoning_effort"] != "high" {
 		t.Fatalf("planning variant metadata was not used: %+v", fake.request.Metadata)
 	}
-	if fake.request.Metadata["stage"] != "requirements" {
+	if fake.request.Metadata["stage"] != "code-context" {
 		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
 	}
-	assertContains(t, fake.request.Prompt, "# Create Sprint Requirements")
-	assertContains(t, fake.request.Prompt, "Prompt source: `builtin:prompts/create-requirements.md`")
+	assertContains(t, fake.request.Prompt, "# Create Sprint Code Context")
+	assertContains(t, fake.request.Prompt, "Prompt source: `builtin:prompts/create-code-context.md`")
 
 	writeFixtureFileContent(t, base, commandValidTechnicalHandbook(), "technical-handbook.md")
 	writeFixtureFileContent(t, base, commandValidAreaReasoning(), "reasoning", "architecture.md")
@@ -381,7 +429,7 @@ agentwrap:
 	}
 	assertContains(t, stderr, "[runtime] reasoning")
 	assertContains(t, stdout, "Result: reasoning complete")
-	if fake.calls != 2 {
+	if fake.calls != 3 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "reasoning" {
@@ -394,7 +442,7 @@ agentwrap:
 	}
 	assertContains(t, stderr, "[runtime] plan")
 	assertContains(t, stdout, "Result: plan complete")
-	if fake.calls != 3 {
+	if fake.calls != 4 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "plan" {
@@ -407,7 +455,7 @@ agentwrap:
 	}
 	assertContains(t, stderr, "[runtime] execute")
 	assertContains(t, stdout, "Result: execute complete")
-	if fake.calls != 4 {
+	if fake.calls != 5 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
 	if fake.request.Metadata["stage"] != "execute" {
@@ -452,6 +500,32 @@ func TestParseSprintReviewArgs(t *testing.T) {
 		if !strings.Contains(sprintHelp(), want) {
 			t.Fatalf("help missing %q", want)
 		}
+	}
+}
+
+func TestParseSprintFlowCodeContextOverrides(t *testing.T) {
+	req, err := parseSprintFlowArgs([]string{"--to", "code-context", "--dry-run", "--model", "vendor/context", "--variant", "max"})
+	if err != nil || req.To != sprint.StageCodeContext || !req.DryRun || req.ModelOverride != "vendor/context" || req.VariantOverride != "max" {
+		t.Fatalf("req=%+v err=%v", req, err)
+	}
+	if _, err := parseSprintFlowArgs([]string{"--to", "code-context", "--model"}); err == nil {
+		t.Fatal("expected missing model value error")
+	}
+}
+
+func TestPlanningStageRuntimeCodeContextFallback(t *testing.T) {
+	c := config.Defaults()
+	c.Models.Primary = "primary/context"
+	c.Execution.DefaultVariant = "high"
+	runtime := planningStageRuntime(c)[sprint.StageCodeContext]
+	if runtime.Model != "primary/context" || runtime.Variant != "high" {
+		t.Fatalf("fallback runtime = %+v", runtime)
+	}
+	c.Planning.CodeContextModel = "stage/context"
+	c.Planning.CodeContextVariant = "max"
+	runtime = planningStageRuntime(c)[sprint.StageCodeContext]
+	if runtime.Model != "stage/context" || runtime.Variant != "max" {
+		t.Fatalf("stage runtime = %+v", runtime)
 	}
 }
 
@@ -616,6 +690,9 @@ func (f *sprintCommandRuntime) StartRun(_ context.Context, req runtimepkg.Reques
 			return runtimepkg.Result{}, err
 		}
 	}
+	if req.Metadata["stage"] == string(sprint.StageCodeContext) {
+		return runtimepkg.Result{RunID: "context-run", Status: "completed", TerminalOutput: commandValidCodeContext()}, nil
+	}
 	if req.Metadata["stage"] == string(sprint.StageReasoning) {
 		path := filepath.Join(req.WorkDir, "projects", req.Metadata["project"], "sprints", req.Metadata["sprint"], "reasoning.md")
 		if err := os.WriteFile(path, []byte(commandValidReasoning()), 0o644); err != nil {
@@ -673,6 +750,65 @@ func commandValidTechnicalHandbook() string {
 
 - .ultra/studies/go-cli-study/reports/final/01-project-structure.md
 `
+}
+
+func commandValidCodeContext() string {
+	return `# Sprint Code Context
+
+## Sprint Scope
+
+Implement the selected sprint.
+
+## Inspected Repository Areas
+
+- internal/sprint
+
+## Selected Source Excerpts
+
+### Service
+
+- **Path:** ` + "`internal/sprint/service.go`" + `
+- **Lines:** ` + "`1-20`" + `
+- **Rationale:** The service owns sprint behavior.
+
+` + "```go" + `
+package sprint
+` + "```" + `
+
+## Relationships
+
+App calls sprint services.
+
+## Constraints
+
+Source remains read-only.
+
+## Open Questions
+
+None.
+`
+}
+
+func writeCommandCompletedCodeContext(t *testing.T, root, projectName, sprintSlug string) {
+	t.Helper()
+	base := filepath.Join(root, "projects", projectName, "sprints", sprintSlug)
+	writeFixtureFileContent(t, base, commandValidCodeContext(), "code-context.md")
+	sp := sprint.Sprint{Project: projectName, Slug: sprintSlug, Path: base}
+	now := time.Now().UTC()
+	states := make([]sprint.StageState, 0, len(sprint.PlanningStages()))
+	for _, stage := range sprint.PlanningStages() {
+		status := sprint.StatusMissing
+		if stage == sprint.StageRequirements || stage == sprint.StageCodeContext {
+			status = sprint.StatusComplete
+		}
+		if stage == sprint.StageSprintIndex {
+			status = sprint.StatusReady
+		}
+		states = append(states, sprint.StageState{Stage: stage, Status: status, Path: sprint.ArtifactRelPath(sp, stage)})
+	}
+	if err := sprint.SaveFlowState(root, sp, sprint.NewFlowState(sp, states, now)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func commandValidAreaReasoning() string {

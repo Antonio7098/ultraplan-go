@@ -59,10 +59,58 @@ func LoadFlowState(root string, s Sprint) (FlowState, error) {
 			return FlowState{}, err
 		}
 	}
+	if header.SchemaVersion == FlowStateSchemaVersion && isPreCodeContextStages(state.Stages) {
+		state.Stages = interpretPreCodeContextStages(s, state.Stages)
+	}
 	if err := ValidateFlowState(root, s, state, path); err != nil {
 		return FlowState{}, err
 	}
 	return state, nil
+}
+
+func isPreCodeContextStages(stages []StageState) bool {
+	if len(stages) != len(PlanningStages())-1 {
+		return false
+	}
+	legacy := []PlanningStage{StageRequirements, StageSprintIndex, StageTechnicalHandbook, StageAreaReasoning, StageReasoning, StagePlan}
+	for i := range legacy {
+		if stages[i].Stage != legacy[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func interpretPreCodeContextStages(sp Sprint, stages []StageState) []StageState {
+	out := make([]StageState, 0, len(stages)+1)
+	out = append(out, stages[0])
+	inserted := StageState{Stage: StageCodeContext, Status: StatusMissing, Path: ArtifactRelPath(sp, StageCodeContext)}
+	if stages[0].Status == StatusComplete {
+		inserted.Status = StatusReady
+		for _, later := range stages[1:] {
+			if later.Status != StatusMissing {
+				inserted.Status = StatusSkipped
+				inserted.LastRunAt = stages[0].LastRunAt
+				break
+			}
+		}
+	}
+	out = append(out, inserted)
+	out = append(out, stages[1:]...)
+	return out
+}
+
+func preCodeContextFlowState(root string, sp Sprint) bool {
+	path, err := FlowStatePath(root, sp)
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var state FlowState
+	return json.Unmarshal(data, &state) == nil && state.SchemaVersion == FlowStateSchemaVersion && isPreCodeContextStages(state.Stages)
 }
 
 // legacyFlowState reports the original versioned map-based planning state.
@@ -89,6 +137,9 @@ func legacyFlowState(root string, s Sprint) bool {
 
 func migrateFlowStateV1(root string, sp Sprint, state FlowState) FlowState {
 	state.SchemaVersion = FlowStateSchemaVersion
+	if isPreCodeContextStages(state.Stages) {
+		state.Stages = interpretPreCodeContextStages(sp, state.Stages)
+	}
 	if state.Review != nil {
 		r := state.Review
 		r.Stale = true
@@ -226,6 +277,9 @@ func ValidateFlowState(root string, s Sprint, state FlowState, path string) erro
 	}
 	seen := map[PlanningStage]bool{}
 	for i, stage := range state.Stages {
+		if stage.Stage != PlanningStages()[i] {
+			return fmt.Errorf("%w: %s: stage %d is %q; expected %q", ErrFlowStateMalformed, path, i, stage.Stage, PlanningStages()[i])
+		}
 		if !ValidStage(stage.Stage) {
 			return fmt.Errorf("%w: %s: unsupported stage %q", ErrFlowStateMalformed, path, stage.Stage)
 		}
@@ -247,6 +301,11 @@ func ValidateFlowState(root string, s Sprint, state FlowState, path string) erro
 		}
 		if strings.ContainsAny(stage.Error, "\x00\r\n") {
 			return fmt.Errorf("%w: %s: stage %q has unsafe error detail", ErrFlowStateMalformed, path, stage.Stage)
+		}
+		switch stage.LatestOutcome {
+		case "", "failed", "cancelled", "interrupted", "cleanup_uncertain":
+		default:
+			return fmt.Errorf("%w: %s: stage %q has unsupported latest outcome %q", ErrFlowStateMalformed, path, stage.Stage, stage.LatestOutcome)
 		}
 	}
 	for _, expected := range PlanningStages() {

@@ -93,6 +93,39 @@
       if (operation.project && operation.sprint) return `${operation.project} / ${operation.sprint}`;
       return operation.project || operation.sprint || "Workspace";
     };
+    const durableProcesses = (dashboard) => {
+      const active = [];
+      const sprints = Array.isArray(dashboard?.sprints) ? dashboard.sprints : dashboard?.slug ? [dashboard] : [];
+      const studies = Array.isArray(dashboard?.studies) ? dashboard.studies : dashboard?.name && "run_active" in dashboard ? [dashboard] : [];
+      for (const sprint of sprints) {
+        const base = `/projects/${encodeURIComponent(sprint.project)}/sprints/${encodeURIComponent(sprint.slug)}/run`;
+        if (Number(sprint.execute?.running) > 0) active.push({kind: "execute-start", state: "running", project: sprint.project, sprint: sprint.slug, href: `${base}#stage-execute`});
+        if (sprint.review?.status === "running") active.push({kind: "review-start", state: "running", project: sprint.project, sprint: sprint.slug, href: `${base}#stage-review`});
+        if (sprint.smoke?.status === "running") active.push({kind: "smoke-start", state: "running", project: sprint.project, sprint: sprint.slug, href: `${base}#stage-smoke`});
+        for (const stage of Array.isArray(sprint.stages) ? sprint.stages : []) {
+          if (stage.status === "running" && !["execute", "review", "smoke"].includes(stage.name)) active.push({kind: "sprint-stage", state: "running", project: sprint.project, sprint: sprint.slug, href: `${base}#stage-${encodeURIComponent(stage.name)}`});
+        }
+      }
+      for (const study of studies) {
+        if (study.run_active) active.push({kind: "study-start", state: "running", study: study.name, href: `/studies/${encodeURIComponent(study.name)}/progress`});
+      }
+      return active;
+    };
+    const mergeProcesses = (transient, durable) => {
+      const result = [...transient];
+      const keys = new Set(transient.map((item) => `${item.kind}:${item.project || ""}:${item.sprint || ""}:${item.study || ""}`));
+      for (const item of durable) {
+        const key = `${item.kind}:${item.project || ""}:${item.sprint || ""}:${item.study || ""}`;
+        if (!keys.has(key)) result.push(item);
+      }
+      return result;
+    };
+    const durableStatusPath = () => {
+      const sprint = location.pathname.match(/^\/projects\/([^/]+)\/sprints\/([^/]+)/);
+      if (sprint) return `/api/v1/projects/${sprint[1]}/sprints/${sprint[2]}`;
+      const study = location.pathname.match(/^\/studies\/([^/]+)/);
+      return study ? `/api/v1/studies/${study[1]}` : "";
+    };
     const render = (operations) => {
       count.textContent = String(operations.length);
       button.setAttribute("aria-label", `Running processes: ${operations.length}`);
@@ -111,7 +144,7 @@
         const link = document.createElement("a");
         const title = document.createElement("strong");
         const detail = document.createElement("span");
-        link.href = `/operations/${encodeURIComponent(operation.id)}`;
+        link.href = operation.href || `/operations/${encodeURIComponent(operation.id)}`;
         title.textContent = processLabel(operation);
         detail.textContent = `${processScope(operation)} · ${operation.state}`;
         link.append(title, detail);
@@ -123,10 +156,16 @@
       if (loading || document.hidden) return;
       loading = true;
       try {
-        const response = await fetch("/api/v1/operations", {headers: {Accept: "application/json"}});
-        if (!response.ok) throw new Error();
-        const payload = await response.json();
-        render(Array.isArray(payload.data) ? payload.data : []);
+        const statusPath = durableStatusPath();
+        const responses = await Promise.all([
+          fetch("/api/v1/operations", {headers: {Accept: "application/json"}}),
+          statusPath ? fetch(statusPath, {headers: {Accept: "application/json"}}) : Promise.resolve(null)
+        ]);
+        const [operationsResponse, durableResponse] = responses;
+        if (!operationsResponse.ok || (durableResponse && !durableResponse.ok)) throw new Error();
+        const [operationsPayload, durablePayload] = await Promise.all([operationsResponse.json(), durableResponse ? durableResponse.json() : Promise.resolve({data: {}})]);
+        const transient = Array.isArray(operationsPayload.data) ? operationsPayload.data : [];
+        render(mergeProcesses(transient, durableProcesses(durablePayload.data)));
       } catch (_) {
         status.textContent = "Unavailable";
       } finally {
@@ -134,6 +173,21 @@
       }
     };
     const setExpanded = (expanded) => button.setAttribute("aria-expanded", String(expanded));
+    processes.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "touch") return;
+      setExpanded(true);
+      load();
+    });
+    processes.addEventListener("pointerleave", (event) => {
+      if (event.pointerType !== "touch" && !processes.contains(document.activeElement)) setExpanded(false);
+    });
+    processes.addEventListener("focusin", () => {
+      setExpanded(true);
+      load();
+    });
+    processes.addEventListener("focusout", (event) => {
+      if (!processes.contains(event.relatedTarget)) setExpanded(false);
+    });
     button.addEventListener("click", () => {
       const expanded = button.getAttribute("aria-expanded") !== "true";
       setExpanded(expanded);
@@ -147,7 +201,7 @@
     });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
     load();
-    window.setInterval(load, 3000);
+    window.setInterval(load, 10000);
   }
 
   for (const stack of document.querySelectorAll("[data-sidebar-stack]")) {
@@ -277,9 +331,21 @@
   let cancelButton = document.getElementById("operation-cancel");
   const reviewerGrid = document.getElementById("live-reviewer-grid");
   const reviewerEmpty = document.getElementById("reviewer-grid-empty");
+  const activityTime = document.getElementById("activity-time");
+  const activityAgents = document.getElementById("activity-agents");
+  const activityActions = document.getElementById("activity-actions");
+  const activityTools = document.getElementById("activity-tools");
+  const latestEvent = document.getElementById("latest-event");
+  const eventLogCount = document.getElementById("event-log-count");
   let stream = null;
   let reviewTimer = null;
   let reviewRefreshActive = false;
+  const reviewerStates = new Map();
+  let reviewCounts = "";
+  let activityStartedAt = null;
+  let actionCount = Number(activityActions?.textContent || 0);
+  let toolCount = 0;
+  const activeAgents = new Set();
   let currentOperationID = "";
   let lastSequence = 0;
 
@@ -339,12 +405,47 @@
     const payload = event.payload || {};
     const context = [payload.stage, payload.task].filter(Boolean).join(" · ");
     const progress = payload.total > 0 ? ` (${payload.completed || 0}/${payload.total})` : "";
-    item.textContent = `${context ? `[${context}] ` : ""}${payload.message || payload.state || payload.reason || name}${progress}`;
+    const message = friendlyEvent(payload, name);
+    item.textContent = `${context ? `[${context}] ` : ""}${message}${progress}`;
     item.dataset.event = name;
     timeline.append(item);
     while (timeline.children.length > 100) timeline.firstElementChild.remove();
     timeline.scrollTop = timeline.scrollHeight;
+    recordActivity(message, payload, event.time);
   }
+
+  function friendlyEvent(payload, fallback) {
+    if (payload.event_kind === "tool") return `Used ${payload.tool || "a tool"}${payload.action ? ` · ${payload.action}` : ""}`;
+    if (payload.event_kind === "artifact") return "Produced an artifact";
+    if (payload.event_kind === "usage") return "Updated usage totals";
+    if (payload.event_kind === "permission") return "Checked tool permissions";
+    if (payload.event_kind === "retry") return "Retrying the agent run";
+    if (payload.event_kind === "lifecycle") return payload.action ? `Agent is ${String(payload.action).replaceAll("_", " ")}` : "Agent status changed";
+    return payload.message || payload.state || payload.reason || fallback;
+  }
+
+  function recordActivity(message, payload = {}, time = "") {
+    if (latestEvent) latestEvent.textContent = message;
+    if (payload.task) activeAgents.add(payload.task);
+    if (activeAgents.size && activityAgents) activityAgents.textContent = String(activeAgents.size);
+    actionCount++;
+    if (activityActions) activityActions.textContent = String(actionCount);
+    if (payload.event_kind === "tool") {
+      toolCount++;
+      if (activityTools) activityTools.textContent = String(toolCount);
+    }
+    if (!activityStartedAt && time) activityStartedAt = new Date(time);
+    if (eventLogCount && timeline) eventLogCount.textContent = String(timeline.children.length);
+  }
+
+  function updateActivityTime() {
+    if (!activityTime || !activityStartedAt || Number.isNaN(activityStartedAt.getTime())) return;
+    const seconds = Math.max(0, Math.floor((Date.now() - activityStartedAt.getTime()) / 1000));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    activityTime.textContent = hours ? `${hours}h ${minutes}m` : minutes ? `${minutes}m` : `${seconds}s`;
+  }
+  window.setInterval(updateActivityTime, 1000);
 
   function reviewerStatusClass(status) {
     if (status === "completed") return "ok";
@@ -358,6 +459,18 @@
     if (node) node.textContent = String(value || 0);
   }
 
+  function appendReviewProgress(message) {
+    if (!timeline) return;
+    const item = document.createElement("li");
+    item.textContent = `[review] ${message}`;
+    item.dataset.event = "durable-review";
+    timeline.append(item);
+    while (timeline.children.length > 100) timeline.firstElementChild.remove();
+    timeline.scrollTop = timeline.scrollHeight;
+    if (latestEvent) latestEvent.textContent = message;
+    if (eventLogCount) eventLogCount.textContent = String(timeline.children.length);
+  }
+
   async function refreshReviewers() {
     if (!reviewStatus || !reviewerGrid || reviewRefreshActive) return;
     const path = reviewStatus.dataset.reviewStatusPath;
@@ -369,14 +482,30 @@
       if (!response.ok) throw new Error(body.error?.message || `Reviewer status failed (${response.status})`);
       const review = body.data?.review || {};
       const reviewers = Array.isArray(review.reviewers) ? review.reviewers : [];
+      if (review.started_at) {
+        activityStartedAt = new Date(review.started_at);
+        updateActivityTime();
+      }
+      if (activityAgents) activityAgents.textContent = String(review.total || reviewers.length || 0);
+      if (activityActions) activityActions.textContent = String(review.completed || 0);
       setReviewCount("review-count-complete", review.completed);
       setReviewCount("review-count-running", review.running);
       setReviewCount("review-count-pending", review.pending);
       setReviewCount("review-count-failed", review.failed);
+      const counts = `${review.completed || 0}/${review.total || reviewers.length} complete · ${review.running || 0} running · ${review.pending || 0} pending · ${review.failed || 0} failed`;
+      if (counts !== reviewCounts) {
+        reviewCounts = counts;
+        appendReviewProgress(counts);
+      }
       const fragment = document.createDocumentFragment();
       for (const reviewer of reviewers) {
         const card = document.createElement("li");
         const status = reviewer.status || "pending";
+        const previousStatus = reviewerStates.get(reviewer.id);
+        if ((previousStatus && previousStatus !== status) || (!previousStatus && status === "running")) {
+          appendReviewProgress(`${reviewer.name || reviewer.id || "Reviewer"} ${status}`);
+        }
+        reviewerStates.set(reviewer.id, status);
         card.className = `reviewer-card reviewer-${status.replace(/[^a-z_]/g, "")}`;
         const heading = document.createElement("div");
         heading.className = "reviewer-heading";
@@ -554,6 +683,7 @@
     follow({id: statusRoot.dataset.operationId, state: statusRoot.dataset.operationState});
   } else if (reviewStatus) {
     refreshReviewers();
+    reviewTimer = setInterval(refreshReviewers, 2000);
   }
 
   window.addEventListener("pagehide", () => {

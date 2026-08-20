@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 )
 
 func TestWebUseCasesFreshReadBoundsAndOpaqueArtifact(t *testing.T) {
@@ -55,6 +58,60 @@ func TestWebUseCasesFreshReadBoundsAndOpaqueArtifact(t *testing.T) {
 	if _, err := queries.Dashboard(cancelled); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled dashboard err=%v", err)
 	}
+}
+
+func TestWebUseCasesCodeContextPreservesArtifactAndLatestOutcome(t *testing.T) {
+	root := initializedWorkspace(t)
+	writeCommandSprintProject(t, root, "proj", "01-alpha")
+	base := filepath.Join(root, "projects", "proj", "sprints", "01-alpha")
+	writeFixtureFileContent(t, base, "# Requirements\n\nImplement context.\n", "requirements.md")
+	writeCommandCompletedCodeContext(t, root, "proj", "01-alpha")
+	sp := sprint.Sprint{Project: "proj", Slug: "01-alpha", Path: base}
+	state, err := sprint.LoadFlowState(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for i := range state.Stages {
+		if state.Stages[i].Stage == sprint.StageCodeContext {
+			state.Stages[i].Status = sprint.StatusFailed
+			state.Stages[i].LastRunAt = &now
+			state.Stages[i].Error = "provider failed"
+		}
+	}
+	if err := sprint.SaveFlowState(root, sp, state); err != nil {
+		t.Fatal(err)
+	}
+	queries := NewWebUseCases(root, WebUseCaseOptions{})
+	result, err := queries.Sprint(context.Background(), "proj", "01-alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundStage := false
+	for _, stage := range result.RunStages {
+		if stage.Name != "code-context" {
+			continue
+		}
+		if stage.Status != "failed" || stage.LatestOutcome != "failed" || !stage.ArtifactAvailable || !stage.ArtifactValid || !strings.Contains(stage.NextAction, "prior valid artifact") {
+			t.Fatalf("code-context projection = %+v", stage)
+		}
+		foundStage = true
+		break
+	}
+	if !foundStage {
+		t.Fatal("code-context stage missing from web projection")
+	}
+	for _, artifact := range result.Artifacts {
+		if artifact.Label != "code-context" {
+			continue
+		}
+		preview, err := queries.Artifact(context.Background(), artifact.Ref)
+		if err != nil || !strings.Contains(preview.Content, "# Sprint Code Context") || preview.Truncated {
+			t.Fatalf("code-context preview=%+v err=%v", preview, err)
+		}
+		return
+	}
+	t.Fatal("code-context artifact missing from web projection")
 }
 
 func TestWebArtifactTruncationJSONAndSymlinkEscape(t *testing.T) {
