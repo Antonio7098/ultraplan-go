@@ -24,8 +24,8 @@ func TestMaterialiseAllStageSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	skills := StageSkills()
-	if len(skills) != 10 {
-		t.Fatalf("stage skill count = %d, want 10", len(skills))
+	if len(skills) != 11 {
+		t.Fatalf("stage skill count = %d, want 11", len(skills))
 	}
 	for _, skill := range skills {
 		base := filepath.Join(root, ".agents", "skills", skill.Name)
@@ -162,17 +162,29 @@ func TestReconciliationSkillCoversFindingTriageAndSmokeHarnessReadiness(t *testi
 	}
 }
 
-func TestOnlyReviewDelegatesStageExecutionToCLI(t *testing.T) {
+func TestOnlyReviewAndCodeContextDelegateStageExecutionToCLI(t *testing.T) {
 	for _, skill := range StageSkills() {
 		body := renderStageSkill(skill)
 		ownsStageWork := strings.Contains(body, "The invoking agent owns the actual stage work") ||
-			(skill.Stage == "execute" && strings.Contains(body, "Act as the execution agent and perform the entire stage manually"))
+			(skill.Stage == "execute" && strings.Contains(body, "Act as the execution agent and perform the entire stage manually")) ||
+			(skill.Stage == "code-context" && strings.Contains(body, "manual-only skill deliberately delegates"))
 		if !ownsStageWork {
 			t.Fatalf("%s skill is missing the agent-owned execution contract", skill.Name)
 		}
 		if skill.Stage == "review" {
 			if !strings.Contains(body, "ultraplan sprint <project> <sprint> review") {
 				t.Fatal("review skill does not invoke the governed CLI review")
+			}
+			continue
+		}
+		if skill.Stage == "code-context" {
+			for _, want := range []string{`PROJECT="<project>"`, `SPRINT="<sprint>"`, `ultraplan sprint "$PROJECT" "$SPRINT" flow --to code-context`, "allow_implicit_invocation: false"} {
+				if want == "allow_implicit_invocation: false" {
+					continue
+				}
+				if !strings.Contains(body, want) {
+					t.Fatalf("code-context skill missing canonical delegation %q", want)
+				}
 			}
 			continue
 		}
@@ -200,6 +212,10 @@ func TestExecuteSkillUsesCLIOnlyForStateAndPrompt(t *testing.T) {
 		"Use the UltraPlan CLI only for",
 		"sprint <project> <sprint> prompt execute",
 		"run the plan's required checks directly",
+		"review --dry-run --json",
+		"`result.execution_status` to be `ready`",
+		"repeat the review dry-run until it is ready",
+		"Do not launch the actual review from this skill",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("execute skill missing %q", want)

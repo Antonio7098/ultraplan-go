@@ -5,6 +5,7 @@ UltraPlan embeds one project skill for each governed sprint stage:
 | Stage | Skill |
 |---|---|
 | requirements | `$ultraplan-requirements` |
+| code-context | `$ultraplan-code-context` |
 | sprint-index | `$ultraplan-sprint-index` |
 | technical-handbook | `$ultraplan-technical-handbook` |
 | area-reasoning | `$ultraplan-area-reasoning` |
@@ -87,8 +88,12 @@ Every stage skill:
 8. Performs the actual stage work itself rather than asking an UltraPlan CLI
    stage or flow command to run another agent/runtime. The CLI remains available
    for discovery, prompt resolution, dry-run previews, status, validation, and
-   reconciliation. Review is the sole exception because its governed CLI owns
-   reviewer subagent fan-out and aggregation.
+   reconciliation. Review delegates because its governed CLI owns reviewer
+   subagent fan-out and aggregation. Code-context is the other narrow exception:
+   its manual-only skill invokes `ultraplan sprint "$PROJECT" "$SPRINT" flow
+   --to code-context` so target resolution, restricted repository inspection,
+   validation, atomic promotion, cancellation, and durable state retain one
+   product-owned implementation.
 9. Validates the result and reconciles flow state with `sprint status --json`.
 10. Checks whether downstream references were made stale and reports any stage
    that must be revisited.
@@ -112,9 +117,11 @@ requires those artifacts; `review.md` remains owned by the governed review CLI.
 - Execute is performed directly by the invoking agent, which maintains the plan,
   run state, execution summary, and verification evidence required by the
   effective execution prompt. The CLI is limited to checking project/sprint
-  state and materialising the effective execution prompt; the agent must not use
-  CLI dry-run, validation, execute, verify, smoke, or flow commands for this
-  stage.
+  state, materialising the effective execution prompt, and running
+  `review --dry-run --json` as the final review-readiness gate. The agent fixes
+  in-scope readiness diagnostics and repeats that check until it reports ready
+  or a genuine blocker remains. It must not use CLI execution dry-run,
+  validation, execute, verify, smoke, or flow commands for this stage.
 - Review must use the governed review orchestrator.
 - Smoke is performed directly by the invoking agent within the review gate and
   declared harness/mutation boundaries. CLI dry runs and validation may inform

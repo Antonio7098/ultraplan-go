@@ -22,6 +22,7 @@ type StageSkill struct {
 	SkipValidation    bool
 	ManualStateRepair bool
 	StatusPromptOnly  bool
+	CanonicalFlow     bool
 }
 
 type SkillsOptions struct {
@@ -92,6 +93,24 @@ Assess a generated UltraPlan review or smoke result against its governed sprint 
 If prior sprint reviews exist, carry forward only still-applicable decisions. Do not silently broaden the roadmap scope.`,
 		},
 		{
+			Stage:            "code-context",
+			Name:             "ultraplan-code-context",
+			DisplayName:      "UltraPlan Code Context",
+			ShortDescription: "Generate grounded implementation context",
+			Prerequisites:    []string{"validated requirements", "resolvable target implementation directory"},
+			Prompt: `# Sprint Code Context
+
+Run the canonical code-context flow so UltraPlan resolves the approved implementation repository, applies the read-only runtime policy, validates the reference-only artifact, and promotes it atomically.`,
+			CanonicalFlow: true,
+			StageWorkflow: `This manual-only skill is the narrow canonical-delegation exception. Resolve the selected project and sprint from the governed input, assign them without adding shell metacharacters, and invoke exactly:
+
+    PROJECT="<project>"
+    SPRINT="<sprint>"
+    ultraplan sprint "$PROJECT" "$SPRINT" flow --to code-context
+
+Do not inspect the implementation repository, select sources, compose the stage prompt, validate candidate output, promote the artifact, or reproduce state transitions in this skill. The canonical flow owns those mechanics. Dry-run materialisation of this skill remains non-mutating; normal materialisation preserves custom files and --force restores this built-in definition.`,
+		},
+		{
 			Stage:            "sprint-index",
 			Name:             "ultraplan-sprint-index",
 			DisplayName:      "UltraPlan Sprint Index",
@@ -159,7 +178,9 @@ Carry decisions forward rather than reopening them. Make tasks ordered, bounded,
 
 Act as the execution agent: work through incomplete plan tasks in order, inspect the code, edit the implementation, run the required checks directly, and maintain plan checkboxes, execution evidence, and the execution artifacts required by the prompt. Continue until the plan is complete or a genuine blocker requires the user.
 
-For this stage, use the UltraPlan CLI only to check project or sprint state and to materialise the effective execution prompt. Do not use CLI dry runs, validation, execute, verify, smoke, or flow commands to perform, preview, validate, or complete the sprint. Inspect and verify the implementation and governed artifacts yourself, then use sprint status only to reconcile and report the resulting state.`,
+For this stage, use the UltraPlan CLI only to check project or sprint state, materialise the effective execution prompt, and run the review readiness check described below. Do not use CLI execution dry runs, validation, execute, verify, smoke, or flow commands to perform, preview, validate, or complete the sprint. Inspect and verify the implementation and governed artifacts yourself, then use sprint status to reconcile the resulting state.
+
+After the implementation and execution evidence are complete, run ` + "`ultraplan sprint <project> <sprint> review --dry-run --json`" + `. Require the top-level status and ` + "`result.execution_status`" + ` to be ` + "`ready`" + ` with no blocking diagnostics. If review is not ready, inspect its diagnostics, fix every in-scope execution artifact or evidence problem directly, reconcile with sprint status, and repeat the review dry-run until it is ready or a genuine blocker must be reported. Do not launch the actual review from this skill.`,
 		},
 		{
 			Stage:            "review",
@@ -344,9 +365,13 @@ func renderStageSkill(skill StageSkill) string {
 	ownerRule := "The invoking agent owns the actual stage work. Except for the review stage, do not call an UltraPlan stage, flow, execute, verify, or smoke command to have the CLI or another runtime execute or complete the stage. CLI commands remain appropriate for discovery, effective-prompt resolution, dry-run previews, status inspection, validation, and post-write reconciliation. Review is the deliberate exception: invoke its governed CLI command because UltraPlan owns reviewer subagent fan-out, aggregation, and review state."
 	prerequisiteRule := "Validate every prerequisite that has a sprint validation command. If anything is missing, invalid, stale, or internally inconsistent, show the exact gaps and ask whether to fill them. Do not fill prerequisite gaps until the user agrees. If they agree, run the corresponding earlier UltraPlan skills in canonical order, then return to this stage."
 	if skill.StatusPromptOnly {
-		ownerRule = "Act as the execution agent and perform the entire stage manually with your own file-editing and command tools. Use the UltraPlan CLI only for `project <project> status`, `sprint <project> <sprint> status --json`, and `sprint <project> <sprint> prompt execute`. Do not use any other UltraPlan CLI command during execution, including dry-run, validate, execute, verify, smoke, or flow commands."
+		ownerRule = "Act as the execution agent and perform the entire stage manually with your own file-editing and command tools. Use the UltraPlan CLI only for `project <project> status`, `sprint <project> <sprint> status --json`, `sprint <project> <sprint> prompt execute`, and the final `sprint <project> <sprint> review --dry-run --json` readiness check. Do not use any other UltraPlan CLI command during execution, including execution dry-run, validate, execute, verify, smoke, or flow commands."
 		prerequisiteRule = "Inspect every prerequisite artifact directly and use fresh sprint state to check completeness and consistency. Do not run CLI validation. If anything is missing, invalid, stale, or internally inconsistent, show the exact gaps and ask whether to fill them. Do not fill prerequisite gaps until the user agrees."
 		validationStep = "Inspect the completed implementation and governed execution artifacts yourself and run the plan's required checks directly. Do not use an UltraPlan CLI validation command; use sprint status only to reconcile the state after the manual work is recorded."
+	}
+	if skill.CanonicalFlow {
+		ownerRule = "This manual-only skill deliberately delegates stage execution to the canonical UltraPlan flow command named in the stage workflow. Do not reimplement target resolution, repository inspection, prompt composition, validation, artifact promotion, or state transitions in the invoking agent."
+		promptStep = "Use the canonical flow command in the stage workflow. The command resolves and applies the current effective stage prompt; do not reconstruct it in this skill."
 	}
 	stateRule := "Treat files, the project index, and fresh CLI status as authoritative; never hand-edit flow-state JSON."
 	if skill.ManualStateRepair {
