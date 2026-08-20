@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"context"
+	"strings"
 	"time"
 
 	"github.com/Antonio7098/agentwrap"
@@ -10,13 +12,23 @@ import (
 )
 
 func NewOpenCode(c config.Config) (Adapter, error) {
-	opts := []opencode.Option{
-		opencode.WithExecutable(c.Agentwrap.Executable),
-		opencode.WithExtraArgs(c.Agentwrap.ExtraArgs...),
-		opencode.WithEnv(c.Agentwrap.Env...),
-		opencode.WithStderrLimit(c.Agentwrap.StderrLimit),
+	newRuntime := func(extraArgs ...string) *opencode.Runtime {
+		args := append([]string(nil), c.Agentwrap.ExtraArgs...)
+		args = append(args, extraArgs...)
+		return opencode.NewRuntime(
+			opencode.WithExecutable(c.Agentwrap.Executable),
+			opencode.WithExtraArgs(args...),
+			opencode.WithEnv(c.Agentwrap.Env...),
+			opencode.WithStderrLimit(c.Agentwrap.StderrLimit),
+		)
 	}
-	primary := opencode.NewRuntime(opts...)
+	primary := newRuntime()
+	stageRuntime := requestVariantRuntime{
+		base: primary,
+		withVariant: func(variant string) agentwrap.Runtime {
+			return newRuntime("--variant", variant)
+		},
+	}
 	policy := agentwrap.BasicPolicy{
 		MaxAttemptsPerTarget: c.Execution.DefaultRetries + 1,
 		Backoff:              agentwrap.ExponentialBackoff{Initial: time.Second, Factor: 2, Max: 30 * time.Second},
@@ -41,11 +53,31 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 	stack := agentwrap.ObservingRuntime{
 		Runtime: agentwrap.ValidatingRuntime{
 			Runtime: agentwrap.PolicyRunner{
-				Runtime: primary,
+				Runtime: stageRuntime,
 				Policy:  policy,
 			},
 		},
 		Policy: agentwrap.PersistencePolicy{PersistUnsafeRawPayloads: false},
 	}
 	return Adapter{runtime: stack, health: primary}, nil
+}
+
+// requestVariantRuntime translates UltraPlan's stage-specific variant metadata
+// into an adapter invocation. agentwrap deliberately keeps request metadata
+// runtime-neutral, while OpenCode exposes reasoning effort as --variant.
+type requestVariantRuntime struct {
+	base        agentwrap.Runtime
+	withVariant func(string) agentwrap.Runtime
+}
+
+func (r requestVariantRuntime) StartRun(ctx context.Context, req agentwrap.RunRequest) (agentwrap.Run, error) {
+	variant := strings.TrimSpace(req.Metadata["variant"])
+	if variant == "" || r.withVariant == nil {
+		return r.base.StartRun(ctx, req)
+	}
+	return r.withVariant(variant).StartRun(ctx, req)
+}
+
+func (r requestVariantRuntime) Capabilities(ctx context.Context) (agentwrap.Capabilities, error) {
+	return r.base.Capabilities(ctx)
 }
