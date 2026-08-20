@@ -423,14 +423,14 @@ projects/<project>/sprints/<sprint>/code-context.md
 The stage should:
 
 - inspect the implementation repository broadly;
-- select exact source excerpts relevant to the sprint;
+- select exact source references relevant to the sprint without copying source into the artifact;
 - record repository-relative paths, ranges, symbols, and rationale;
 - describe important relationships and open questions;
 - write only the sprint artifact;
 - avoid making final design or planning decisions;
 - permit downstream agents to inspect more source whenever useful.
 
-The exact requirements and code-context content should form a stable shared prompt prefix for downstream agents, improving consistency and allowing provider prompt-prefix caching where available.
+The exact requirements and reference-only code-context content, followed by source text resolved transiently from those references, should form a stable shared prompt prefix for downstream agents, improving consistency and allowing provider prompt-prefix caching where available.
 
 The browser should expose:
 
@@ -445,7 +445,7 @@ The browser should expose:
 
 - `code-context` is a first-class stage after requirements.
 - It runs once in cumulative planning.
-- Downstream prompts receive the exact stored pack.
+- Downstream prompts receive the exact stored reference pack plus transient source resolved from it.
 - The browser observes and controls the stage through existing application and event surfaces.
 - No repository index, RAG system, cache subsystem, or JSON context manifest is added.
 

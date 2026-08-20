@@ -66,7 +66,7 @@ The authoritative output is one Markdown file:
 projects/<project>/sprints/<sprint>/code-context.md
 ```
 
-Do not add a parallel JSON manifest. The Markdown file should contain both the selection rationale and the actual source excerpts needed by downstream agents.
+Do not add a parallel JSON manifest. The Markdown file contains selection rationale and precise repository-relative source references, not copied source. Downstream prompt composition resolves those references and injects current source text transiently.
 
 The file should be treated like the other sprint planning artifacts:
 
@@ -94,7 +94,7 @@ The stage may read the source repository but must only write `code-context.md` i
 
 ## Context-agent responsibilities
 
-The agent should inspect the repository broadly enough to understand the sprint, then select the smallest useful set of source excerpts that establishes a strong foundation for downstream work.
+The agent should inspect the repository broadly enough to understand the sprint, then select the smallest useful set of source references that establishes a strong foundation for downstream work.
 
 For each material part of the sprint scope, it should look for the relevant:
 
@@ -132,35 +132,31 @@ A concise description of the source-level questions derived from the sprint requ
 
 A concise list of the packages, directories, tests, configuration, and entry points inspected while preparing the pack. This records exploration without copying everything inspected.
 
-## Selected Code
+## Selected Source References
 
 ### <stable descriptive heading>
 
 **Path:** `path/to/file.go`
 **Lines:** `120-186`
 **Symbol:** `OptionalSymbolName`
-**Why this matters:** Explanation tied to the sprint scope.
-
-```go
-<exact source excerpt>
-```
+**Why this matters:** Explanation tied to the sprint scope and downstream use.
 
 ## Important Relationships
 
-A concise explanation of the important call paths, data flow, ownership boundaries, and test relationships visible across the selected excerpts.
+A concise explanation of the important call paths, data flow, ownership boundaries, and test relationships established by the selected references.
 
 ## Existing Constraints And Open Questions
 
 Known constraints, incomplete behaviour, ambiguities, or areas that downstream agents may need to investigate further.
 ```
 
-The selected-code section may contain as many entries as needed. Do not impose an arbitrary fixed count.
+The selected-reference section may contain as many entries as needed. Do not impose an arbitrary fixed count.
 
 The prompt should prefer complete logical units over tiny disconnected fragments. Large files should be reduced to relevant symbols or contiguous ranges rather than copied wholesale.
 
 ## Source references
 
-Each selected excerpt should include:
+Each selected reference should include:
 
 - repository-relative path;
 - line range at the time the pack was generated;
@@ -252,10 +248,10 @@ The context prompt should emphasise:
 
 - requirements-driven repository exploration;
 - thorough inspection before selection;
-- exact source excerpts;
-- useful surrounding context;
+- exact repository-relative paths and line ranges;
+- enough rationale to explain the desired surrounding context;
 - implementation, boundary, error, configuration, and test coverage where relevant;
-- concise rationale for each selected excerpt;
+- concise rationale for each selected reference;
 - no source-repository mutation;
 - only `code-context.md` may be written;
 - no final design or implementation plan.
@@ -326,7 +322,7 @@ Keep validation structural and useful rather than attempting to prove that the a
 - missing or empty artifact;
 - placeholder content;
 - missing required sections;
-- no selected code excerpts;
+- no selected source references;
 - selected entries without a repository-relative path;
 - selected entries without a reason;
 - selected entries without a fenced source block;
@@ -428,7 +424,7 @@ Add focused tests for:
 ### Validation
 
 - valid packs pass.
-- placeholders, missing sections, missing excerpts, missing paths, missing reasons, and malformed ranges produce actionable findings.
+- placeholders, missing sections, missing references, missing paths, missing reasons, malformed ranges, and embedded fenced content produce actionable findings.
 
 ### Defaults and skills
 
@@ -452,9 +448,9 @@ Add focused tests for:
 
 - [ ] UltraPlan exposes `code-context` as a first-class planning stage after `requirements`.
 - [ ] The context agent receives the validated sprint requirements and relevant scope, can inspect the project repository, and writes `code-context.md`.
-- [ ] `code-context.md` contains selected source excerpts with paths, ranges where useful, and relevance explanations.
+- [ ] `code-context.md` contains source references with paths, required line ranges, and relevance explanations, and rejects copied fenced source.
 - [ ] The context stage runs once during a cumulative flow and the stored artifact is reused by later stages.
-- [ ] Sprint-index, technical-handbook, area-reasoning, reasoning, plan, execute, review, and smoke prompts receive the exact stored pack.
+- [ ] Sprint-index, technical-handbook, area-reasoning, reasoning, plan, execute, review, and smoke prompts receive the exact stored reference pack followed by transient source text resolved from its references.
 - [ ] Requirements and code-context appear in a stable common prompt prefix before stage-specific instructions.
 - [ ] No UltraPlan cache subsystem, cache key, repository index, JSON context manifest, or amendment-request workflow is introduced.
 - [ ] Downstream agents are explicitly allowed to inspect additional repository code whenever useful.

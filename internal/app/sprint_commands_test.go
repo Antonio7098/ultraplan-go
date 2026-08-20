@@ -763,17 +763,13 @@ Implement the selected sprint.
 
 - internal/sprint
 
-## Selected Source Excerpts
+## Selected Source References
 
 ### Service
 
 - **Path:** ` + "`internal/sprint/service.go`" + `
 - **Lines:** ` + "`1-20`" + `
 - **Rationale:** The service owns sprint behavior.
-
-` + "```go" + `
-package sprint
-` + "```" + `
 
 ## Relationships
 

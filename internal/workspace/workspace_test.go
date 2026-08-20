@@ -120,7 +120,7 @@ func TestInitAndValidate(t *testing.T) {
 		t.Fatalf("code-context prompt was not materialized from the embedded default: %v", err)
 	}
 	codeContextTemplate, err := os.ReadFile(filepath.Join(root, "templates", "code-context.md"))
-	if err != nil || !strings.Contains(string(codeContextTemplate), "## Selected Source Excerpts") {
+	if err != nil || !strings.Contains(string(codeContextTemplate), "## Selected Source References") {
 		t.Fatalf("code-context template was not materialized from the embedded default: %v", err)
 	}
 	plan, err = Init(root)

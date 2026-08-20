@@ -25,7 +25,7 @@ Add the selected stage.
 
 - internal/sprint and tests
 
-## Selected Source Excerpts
+## Selected Source References
 
 ### Canonical stages
 
@@ -33,10 +33,6 @@ Add the selected stage.
 - **Lines:** ` + "`30-45`" + `
 - **Symbol:** ` + "`PlanningStages`" + `
 - **Rationale:** This defines the workflow order.
-
-` + "```go" + `
-func PlanningStages() []PlanningStage { return nil }
-` + "```" + `
 
 ## Relationships
 
@@ -58,6 +54,7 @@ func TestValidateCodeContextContent(t *testing.T) {
 	}
 	for name, mutate := range map[string]func(string) string{
 		"empty":       func(string) string { return "  " },
+		"preamble":    func(s string) string { return "Here is the requested document:\n\n" + s },
 		"placeholder": func(s string) string { return strings.Replace(s, "None.", "TODO", 1) },
 		"section":     func(s string) string { return strings.Replace(s, "## Relationships", "## Other", 1) },
 		"section body": func(s string) string {
@@ -74,7 +71,12 @@ func TestValidateCodeContextContent(t *testing.T) {
 		"rationale": func(s string) string {
 			return strings.Replace(s, "- **Rationale:** This defines the workflow order.\n", "", 1)
 		},
-		"language": func(s string) string { return strings.Replace(s, "```go", "```", 1) },
+		"missing lines": func(s string) string {
+			return strings.Replace(s, "- **Lines:** `30-45`\n", "", 1)
+		},
+		"embedded source": func(s string) string {
+			return strings.Replace(s, "## Relationships", "```go\npackage sprint\n```\n\n## Relationships", 1)
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if findings := ValidateCodeContextContent(mutate(validCodeContext())); len(findings) == 0 {
@@ -82,9 +84,13 @@ func TestValidateCodeContextContent(t *testing.T) {
 			}
 		})
 	}
-	optionalFields := strings.Replace(validCodeContext(), "- **Lines:** `30-45`\n- **Symbol:** `PlanningStages`\n", "", 1)
+	optionalFields := strings.Replace(validCodeContext(), "- **Symbol:** `PlanningStages`\n", "", 1)
 	if findings := ValidateCodeContextContent(optionalFields); len(findings) != 0 {
 		t.Fatalf("optional fields findings = %+v", findings)
+	}
+	multipleRanges := strings.Replace(validCodeContext(), "30-45", "30-45, 50, 61-72", 1)
+	if findings := ValidateCodeContextContent(multipleRanges); len(findings) != 0 {
+		t.Fatalf("multiple line ranges findings = %+v", findings)
 	}
 	whitespace := strings.Replace(validCodeContext(), "## Sprint Scope", "  ## Sprint Scope  ", 1)
 	if findings := ValidateCodeContextContent(whitespace); len(findings) != 0 {
@@ -94,19 +100,22 @@ func TestValidateCodeContextContent(t *testing.T) {
 	if !ok || len(ValidateCodeContextContent(template)) == 0 {
 		t.Fatal("unmodified embedded template must be rejected as placeholder content")
 	}
-	extra := strings.Repeat("\n### Extra\n\n- **Path:** `internal/x.go`\n- **Rationale:** More exact context.\n\n```go\npackage x\n```\n", 80)
+	extra := strings.Repeat("\n### Extra\n\n- **Path:** `internal/x.go`\n- **Lines:** `1-2`\n- **Rationale:** More exact context.\n", 700)
 	many := strings.Replace(validCodeContext(), "\n## Relationships", extra+"\n## Relationships", 1)
-	if findings := ValidateCodeContextContent(many); len(findings) != 0 {
-		t.Fatalf("unbounded excerpts findings = %+v", findings)
+	findings := ValidateCodeContextContent(many)
+	if len(findings) == 0 || findings[0].Problem != "code context exceeds the output budget" {
+		t.Fatalf("oversized excerpts findings = %+v", findings)
 	}
 }
 
 type codeContextRuntime struct {
-	request pruntime.Request
-	output  string
-	err     error
-	result  pruntime.Result
-	calls   int
+	request  pruntime.Request
+	requests []pruntime.Request
+	output   string
+	err      error
+	result   pruntime.Result
+	results  []pruntime.Result
+	calls    int
 }
 
 type gatedCodeContextRuntime struct {
@@ -130,6 +139,10 @@ func (r *gatedCodeContextRuntime) StartRun(ctx context.Context, _ pruntime.Reque
 func (r *codeContextRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
 	r.calls++
 	r.request = req
+	r.requests = append(r.requests, req)
+	if len(r.results) >= r.calls {
+		return r.results[r.calls-1], nil
+	}
 	result := r.result
 	if result.Status == "" {
 		result.Status = "success"
@@ -186,7 +199,7 @@ func TestCodeContextPromptDryRunExecutionAndRerunPreservation(t *testing.T) {
 	rt := &codeContextRuntime{output: validCodeContext()}
 	service := NewService(root).WithRuntime(rt)
 	preview, err := service.PromptCodeContext("proj", "01")
-	if err != nil || !strings.Contains(preview.Prompt, "Return only the complete `code-context.md`") {
+	if err != nil || !strings.Contains(preview.Prompt, "Return only the complete `code-context.md`") || !strings.Contains(preview.Prompt, "at or below 65536 bytes") || !strings.Contains(preview.Prompt, "Store references only") || !strings.Contains(preview.Prompt, "Do not copy source text") {
 		t.Fatalf("preview err=%v prompt=%s", err, preview.Prompt)
 	}
 	dry, err := service.FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext, DryRun: true})
@@ -204,7 +217,7 @@ func TestCodeContextPromptDryRunExecutionAndRerunPreservation(t *testing.T) {
 	if err != nil || result.Stages[1].Status != StatusComplete || result.Stages[2].Status != StatusReady {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if rt.request.WorkDir != ApprovedExecuteTargetPath || rt.request.Sandbox != "read_only" || rt.request.Policy.Default != "deny" || rt.request.Policy.Tools["read"] != "allow" || !containsString(rt.request.RequireCaps, "permissions") || rt.request.Provider != "vendor" || rt.request.Model != "context" || rt.request.Metadata["variant"] != "max" {
+	if rt.request.WorkDir != ApprovedExecuteTargetPath || rt.request.Sandbox != "read_only" || rt.request.Policy.Default != "deny" || rt.request.Policy.Tools["read"] != "allow" || !containsString(rt.request.RequireCaps, "permissions") || rt.request.Provider != "vendor" || rt.request.Model != "context" || rt.request.Metadata["variant"] != "max" || rt.request.Validation != nil {
 		t.Fatalf("unsafe or incorrect request: %+v", rt.request)
 	}
 	if rt.request.PromptRef.ID != "sprint.code-context" || rt.request.PromptRef.Version != "1" || rt.request.PromptRef.OwnerID != "proj/01-alpha" || rt.request.PromptRef.Checksum == "" || rt.request.Metadata["prompt_checksum"] != rt.request.PromptRef.Checksum {
@@ -219,6 +232,37 @@ func TestCodeContextPromptDryRunExecutionAndRerunPreservation(t *testing.T) {
 	after, _ := os.ReadFile(filepath.Join(sp.Path, "code-context.md"))
 	if string(after) != string(before) {
 		t.Fatal("failed rerun replaced the last valid artifact")
+	}
+}
+
+func TestCodeContextRepairsInvalidTerminalOutputWithinRuntimeBoundary(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-alpha")
+	writeFixtureProjectIndex(t, root, "proj")
+	writeFileContent(t, sp.Path, validRequirements("proj", "01-alpha"), "requirements.md")
+
+	runtime := &codeContextRuntime{results: []pruntime.Result{
+		{RunID: "initial", SessionID: "session-1", Status: "completed", TerminalOutput: "I will provide the document next."},
+		{RunID: "repair", SessionID: "session-1", Status: "completed", TerminalOutput: validCodeContext()},
+	}}
+	result, err := NewService(root).WithRuntime(runtime).FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext})
+	if err != nil || result.Message != "code-context complete" || len(runtime.requests) != 2 {
+		t.Fatalf("result=%+v requests=%d err=%v", result, len(runtime.requests), err)
+	}
+	if runtime.requests[1].SessionID != "session-1" || runtime.requests[1].SessionAction != "continue" {
+		t.Fatalf("repair did not continue the original session: %+v", runtime.requests[1])
+	}
+	for _, want := range []string{"Return only one complete Markdown document", "Do not include a preamble", "Original stage request and context", "missing required section"} {
+		if !strings.Contains(runtime.requests[1].Prompt, want) {
+			t.Fatalf("repair prompt missing %q: %s", want, runtime.requests[1].Prompt)
+		}
+	}
+	if !result.Runtime.Validation.Configured || !result.Runtime.Validation.Passed || result.Runtime.Repair.AttemptCount != 1 {
+		t.Fatalf("runtime validation/repair summary = %+v %+v", result.Runtime.Validation, result.Runtime.Repair)
+	}
+	data, readErr := os.ReadFile(filepath.Join(sp.Path, "code-context.md"))
+	if readErr != nil || string(data) != validCodeContext() {
+		t.Fatalf("promoted repaired artifact err=%v content=%q", readErr, string(data))
 	}
 }
 

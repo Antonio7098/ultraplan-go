@@ -8,18 +8,14 @@ Describe the requirements-driven implementation scope.
 
 - Describe the packages, commands, boundaries, configuration, and tests inspected.
 
-## Selected Source Excerpts
+## Selected Source References
 
 ### Selected Entry
 
 - **Path:** `path/to/file.go`
 - **Lines:** `1-20`
 - **Symbol:** `SymbolName`
-- **Rationale:** Explain why this exact source is relevant.
-
-```go
-// exact source excerpt
-```
+- **Rationale:** Explain why this source reference is relevant and what downstream agents should learn from it.
 
 ## Relationships
 

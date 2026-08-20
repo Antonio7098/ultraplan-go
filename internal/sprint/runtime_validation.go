@@ -12,6 +12,25 @@ import (
 
 const generatedArtifactRepairAttempts = 1
 
+func buildCodeContextRepairPrompt(path, originalPrompt string, findings []ValidationFinding) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Correct the previous response for UltraPlan artifact `%s`.\n", path)
+	fmt.Fprintln(&b, "Return only one complete Markdown document beginning with `# Sprint Code Context`. Do not include a preamble or closing commentary, perform more tool calls, search for the workspace output path, or write any file. UltraPlan owns candidate persistence and promotion.")
+	fmt.Fprintf(&b, "Keep the complete response at or below %d bytes. Store source references only; every selected entry needs Path, Lines, and Rationale, with no copied source or fenced code blocks.\n", maxCodeContextBytes)
+	fmt.Fprintln(&b, "\nValidation findings:")
+	if len(findings) == 0 {
+		fmt.Fprintln(&b, "- The response did not satisfy the code-context contract; re-read the required template and return the complete corrected document.")
+	} else {
+		for _, finding := range findings {
+			fmt.Fprintf(&b, "- %s\n", formatValidationFindings([]ValidationFinding{finding}))
+		}
+	}
+	fmt.Fprintln(&b, "\nOriginal stage request and context:")
+	fmt.Fprintln(&b)
+	b.WriteString(originalPrompt)
+	return b.String()
+}
+
 func (s Service) requirementsValidationSpec(sp Sprint) *agentwrap.ValidationSpec {
 	return generatedArtifactValidationSpec("requirements", ArtifactRelPath(sp, StageRequirements), func() []ValidationFinding {
 		data, err := s.store.ReadArtifact(sp, StageRequirements)

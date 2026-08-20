@@ -52,7 +52,9 @@ func RenderCodeContextPrompt(root string, sp Sprint, requirements string, target
 	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Inspect the implementation repository thoroughly, but treat it and its Git metadata as read-only.")
 	fmt.Fprintln(&b, "- Return only the complete code-context.md Markdown content; UltraPlan owns candidate promotion.")
-	fmt.Fprintln(&b, "- Include exact language-tagged source excerpts with repository-relative paths and concrete rationales.")
+	fmt.Fprintf(&b, "- Keep the complete document at or below %d bytes; select only decision-relevant source references.\n", maxCodeContextBytes)
+	fmt.Fprintln(&b, "- Store references only: each selected entry must include a repository-relative path, an exact line range, and a concrete rationale.")
+	fmt.Fprintln(&b, "- Do not copy source text or include fenced code blocks. Downstream prompt composition resolves the references and injects source transiently.")
 	fmt.Fprintln(&b, "- Do not produce a design, implementation plan, index, manifest, cache, or additional artifact.")
 	prompt := renderPromptFromDefault(root, "prompts/create-code-context.md", sp.Project, sp.Slug, b.String())
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}

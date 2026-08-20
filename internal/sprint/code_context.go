@@ -21,24 +21,59 @@ var (
 	codeContextPathRE    = regexp.MustCompile(`(?im)^\s*-?\s*\*\*Path:\*\*\s*` + "`?" + `([^` + "`" + `\r\n]+)` + "`?" + `\s*$`)
 	codeContextReasonRE  = regexp.MustCompile(`(?im)^\s*-?\s*\*\*Rationale:\*\*\s*(.+?)\s*$`)
 	codeContextLinesRE   = regexp.MustCompile(`(?im)^\s*-?\s*\*\*Lines?:\*\*\s*` + "`?" + `([^` + "`" + `\r\n]+)` + "`?" + `\s*$`)
-	codeContextFenceRE   = regexp.MustCompile("(?ms)```([A-Za-z0-9_+.-]+)\\s*\\n(.+?)\\n```")
+	codeContextFenceRE   = regexp.MustCompile("(?m)^\\s*```")
 	codeContextDriveRE   = regexp.MustCompile(`^[A-Za-z]:`)
 )
+
+// Keep the durable context pack below the runtime transport's 96 KiB bounded
+// terminal-output limit. This leaves room for provider framing and repair
+// diagnostics while allowing a substantial reference catalog without copying
+// source into the durable artifact.
+const maxCodeContextBytes = 64 << 10
 
 func ValidateCodeContextContent(content string) []ValidationFinding {
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
 		return []ValidationFinding{finding("code-context.md", "", "", "empty code context", "the artifact has no content", "Generate the code-context artifact from validated requirements.")}
 	}
-	if containsPlaceholder(trimmed) || containsCodeContextPlaceholder(trimmed) {
-		return []ValidationFinding{finding("code-context.md", "", "", "placeholder content", "the artifact still contains template placeholders", "Replace every placeholder with inspected repository evidence.")}
+	var findings []ValidationFinding
+	if len(content) > maxCodeContextBytes {
+		findings = append(findings, finding(
+			"code-context.md",
+			"",
+			"",
+			"code context exceeds the output budget",
+			fmt.Sprintf("the artifact is %d bytes; the maximum is %d bytes", len(content), maxCodeContextBytes),
+			"Select fewer source references while retaining the required sections.",
+		))
 	}
-	required := []string{"Sprint Scope", "Inspected Repository Areas", "Selected Source Excerpts", "Relationships", "Constraints", "Open Questions"}
+	firstLine := trimmed
+	if newline := strings.IndexByte(firstLine, '\n'); newline >= 0 {
+		firstLine = firstLine[:newline]
+	}
+	if strings.TrimSpace(firstLine) != "# Sprint Code Context" {
+		findings = append(findings, finding(
+			"code-context.md",
+			"",
+			"",
+			"invalid document start",
+			"the first non-whitespace line is not the canonical level-one title",
+			"Return only the Markdown document beginning with # Sprint Code Context; remove preambles and outer fences.",
+		))
+	}
+	if containsPlaceholder(trimmed) || containsCodeContextPlaceholder(trimmed) {
+		findings = append(findings, finding("code-context.md", "", "", "placeholder content", "the artifact still contains template placeholders", "Replace every placeholder with inspected repository evidence."))
+		sortSprintFindings(findings)
+		return findings
+	}
+	if codeContextFenceRE.MatchString(trimmed) {
+		findings = append(findings, finding("code-context.md", "", "", "embedded source content", "the durable context artifact must contain references rather than copied fenced content", "Remove fenced content and keep source locations as Path, Lines, optional Symbol, and Rationale fields."))
+	}
+	required := []string{"Sprint Scope", "Inspected Repository Areas", "Selected Source References", "Relationships", "Constraints", "Open Questions"}
 	headings := map[string]bool{}
 	for _, match := range codeContextHeadingRE.FindAllStringSubmatch(trimmed, -1) {
 		headings[strings.ToLower(strings.TrimSpace(match[1]))] = true
 	}
-	var findings []ValidationFinding
 	for _, heading := range required {
 		if !headings[strings.ToLower(heading)] {
 			findings = append(findings, finding(heading, "", "", "missing required section", "the required level-two heading is absent", "Add a ## "+heading+" section with concrete content."))
@@ -48,30 +83,28 @@ func ValidateCodeContextContent(content string) []ValidationFinding {
 			findings = append(findings, finding(heading, "", "", "empty required section", "the required section has no content", "Add concrete inspected repository evidence to the section."))
 		}
 	}
-	selected := sectionBody(trimmed, "Selected Source Excerpts")
+	selected := sectionBody(trimmed, "Selected Source References")
 	entries := codeContextEntries(selected)
 	if len(entries) == 0 {
-		findings = append(findings, finding("Selected Source Excerpts", "", "", "no selected source excerpts", "at least one level-three selected entry is required", "Add at least one selected entry with path, rationale, and exact source fence."))
+		findings = append(findings, finding("Selected Source References", "", "", "no selected source references", "at least one level-three selected entry is required", "Add at least one selected entry with repository-relative path, line range, and rationale."))
 	}
 	for _, entry := range entries {
 		pathMatch := codeContextPathRE.FindStringSubmatch(entry.body)
 		if len(pathMatch) != 2 || strings.TrimSpace(pathMatch[1]) == "" {
-			findings = append(findings, finding("Selected Source Excerpts", entry.name, "", "missing repository-relative path", "the entry has no Path field", "Add **Path:** with a repository-relative source path."))
+			findings = append(findings, finding("Selected Source References", entry.name, "", "missing repository-relative path", "the entry has no Path field", "Add **Path:** with a repository-relative source path."))
 		} else if err := validateRepositoryRelativePath(strings.TrimSpace(pathMatch[1])); err != nil {
-			findings = append(findings, finding("Selected Source Excerpts", entry.name, strings.TrimSpace(pathMatch[1]), "unsafe source path", err.Error(), "Use a clean repository-relative path that does not escape the target."))
+			findings = append(findings, finding("Selected Source References", entry.name, strings.TrimSpace(pathMatch[1]), "unsafe source path", err.Error(), "Use a clean repository-relative path that does not escape the target."))
 		}
 		reason := codeContextReasonRE.FindStringSubmatch(entry.body)
 		if len(reason) != 2 || strings.TrimSpace(reason[1]) == "" {
-			findings = append(findings, finding("Selected Source Excerpts", entry.name, "", "missing rationale", "the entry does not explain why the excerpt matters", "Add a concrete **Rationale:** value."))
+			findings = append(findings, finding("Selected Source References", entry.name, "", "missing rationale", "the entry does not explain why the reference matters", "Add a concrete **Rationale:** value."))
 		}
-		if lines := codeContextLinesRE.FindStringSubmatch(entry.body); len(lines) == 2 {
+		if lines := codeContextLinesRE.FindStringSubmatch(entry.body); len(lines) != 2 || strings.TrimSpace(lines[1]) == "" {
+			findings = append(findings, finding("Selected Source References", entry.name, "", "missing line range", "the entry has no Lines field", "Add **Lines:** with a positive line number or inclusive range so source can be injected later."))
+		} else {
 			if err := validateLineRange(strings.TrimSpace(lines[1])); err != nil {
-				findings = append(findings, finding("Selected Source Excerpts", entry.name, "", "malformed line range", err.Error(), "Use a positive line number or inclusive start-end range."))
+				findings = append(findings, finding("Selected Source References", entry.name, "", "malformed line range", err.Error(), "Use a positive line number or inclusive start-end range."))
 			}
-		}
-		fence := codeContextFenceRE.FindStringSubmatch(entry.body)
-		if len(fence) != 3 || strings.TrimSpace(fence[1]) == "" || strings.TrimSpace(fence[2]) == "" {
-			findings = append(findings, finding("Selected Source Excerpts", entry.name, "", "missing language-tagged source fence", "the entry needs a non-empty fenced exact source block with a language tag", "Add a language-tagged fenced source excerpt."))
 		}
 	}
 	sortSprintFindings(findings)
@@ -85,8 +118,7 @@ func containsCodeContextPlaceholder(content string) bool {
 		"symbolname",
 		"describe the requirements-driven implementation scope",
 		"describe the packages, commands, boundaries, configuration, and tests inspected",
-		"explain why this exact source is relevant",
-		"// exact source excerpt",
+		"explain why this source reference is relevant",
 		"describe how the selected code collaborates",
 		"record implementation constraints and invariants",
 		"record remaining source-level questions",
@@ -141,7 +173,20 @@ func validateRepositoryRelativePath(value string) error {
 }
 
 func validateLineRange(value string) error {
-	parts := strings.Split(strings.Trim(strings.TrimSpace(value), "`"), "-")
+	value = strings.Trim(strings.TrimSpace(value), "`")
+	if value == "" {
+		return fmt.Errorf("range must contain at least one positive line number")
+	}
+	for _, segment := range strings.Split(value, ",") {
+		if err := validateSingleLineRange(strings.TrimSpace(segment)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSingleLineRange(value string) error {
+	parts := strings.Split(value, "-")
 	if len(parts) < 1 || len(parts) > 2 {
 		return fmt.Errorf("range %q must be N or N-M", value)
 	}
@@ -263,9 +308,9 @@ func (s Service) FlowCodeContext(ctx context.Context, projectRef, sprintRef stri
 	runtimeReq.Permissions = "restricted"
 	runtimeReq.Policy = pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": "allow", "glob": "allow", "search": "allow", "list": "allow"}}
 	runtimeReq.RequireCaps = appendUniqueString(runtimeReq.RequireCaps, "permissions")
-	result, runErr := s.runtime.StartRun(ctx, runtimeReq)
+	result, runErr := s.startPlanningStageRun(ctx, sp, StageCodeContext, runtimeReq)
 	if runErr != nil {
-		return s.failCodeContext(sp, req, now, result, nil, runErr)
+		return s.failCodeContext(sp, req, now, result, validateCodeContextResult(result), runErr)
 	}
 	if err := ctx.Err(); err != nil {
 		return s.failCodeContext(sp, req, now, result, nil, err)
@@ -276,9 +321,32 @@ func (s Service) FlowCodeContext(ctx context.Context, projectRef, sprintRef stri
 	if status := strings.ToLower(strings.TrimSpace(result.Status)); status != "" && status != "success" && status != "complete" && status != "completed" {
 		return s.failCodeContext(sp, req, now, result, nil, fmt.Errorf("code-context runtime ended with status %q", result.Status))
 	}
-	content := strings.TrimSpace(result.TerminalOutput)
-	if content == "" {
-		content = strings.TrimSpace(runtimeEventContent(result.Events))
+	content := codeContextResultContent(result)
+	findings = ValidateCodeContextContent(content)
+	result.Validation = pruntime.ValidationSummary{Configured: true, Passed: len(findings) == 0, Failures: len(findings)}
+	result.Repair = pruntime.RepairSummary{Configured: true, MaxAttempts: generatedArtifactRepairAttempts}
+	if len(findings) > 0 && result.SessionID != "" {
+		repairReq := runtimeReq
+		repairReq.Prompt = buildCodeContextRepairPrompt(ArtifactRelPath(sp, StageCodeContext), prompt.Prompt, findings)
+		repairReq.SessionID = result.SessionID
+		repairReq.SessionAction = "continue"
+		repairReq.Metadata = cloneMetadata(repairReq.Metadata, map[string]string{"repair": "validation", "repair_artifact": ArtifactRelPath(sp, StageCodeContext)})
+		repaired, repairErr := s.runtime.StartRun(ctx, repairReq)
+		repaired.Repair = pruntime.RepairSummary{Configured: true, Attempted: true, MaxAttempts: generatedArtifactRepairAttempts, AttemptCount: 1}
+		if repairErr != nil {
+			return s.failCodeContext(sp, req, now, repaired, findings, repairErr)
+		}
+		if err := codeContextRuntimeResultError(repaired); err != nil {
+			return s.failCodeContext(sp, req, now, repaired, nil, err)
+		}
+		result = repaired
+		content = codeContextResultContent(result)
+		findings = ValidateCodeContextContent(content)
+		result.Validation = pruntime.ValidationSummary{Configured: true, Passed: len(findings) == 0, Failures: len(findings)}
+		if len(findings) > 0 {
+			result.Repair.Exhausted = true
+			result.Repair.ExhaustedReason = "validation findings remain after the bounded repair attempt"
+		}
 	}
 	if content != "" {
 		if err := os.WriteFile(candidatePath, []byte(content+"\n"), 0o644); err != nil {
@@ -303,7 +371,34 @@ func (s Service) FlowCodeContext(ctx context.Context, projectRef, sprintRef stri
 	if err := s.promoteCodeContext(ctx, sp, candidatePath, NewFlowState(sp, stages, now)); err != nil {
 		return s.failCodeContext(sp, req, now, result, nil, err)
 	}
+	_ = clearPlanningStageSession(sp, StageCodeContext)
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: result, Stages: stages, Message: "code-context complete"}, nil
+}
+
+func codeContextResultContent(result pruntime.Result) string {
+	content := strings.TrimSpace(result.TerminalOutput)
+	if content == "" {
+		content = strings.TrimSpace(runtimeEventContent(result.Events))
+	}
+	return content
+}
+
+func validateCodeContextResult(result pruntime.Result) []ValidationFinding {
+	content := codeContextResultContent(result)
+	if content == "" {
+		return nil
+	}
+	return ValidateCodeContextContent(content)
+}
+
+func codeContextRuntimeResultError(result pruntime.Result) error {
+	if result.Permissions.UnsupportedCount > 0 {
+		return fmt.Errorf("runtime cannot enforce required code-context read-only permission policy")
+	}
+	if status := strings.ToLower(strings.TrimSpace(result.Status)); status != "" && status != "success" && status != "complete" && status != "completed" {
+		return fmt.Errorf("code-context runtime ended with status %q", result.Status)
+	}
+	return nil
 }
 
 func (s Service) resolveCodeContextTarget(projectIndex string) (ExecuteTargetRef, []ValidationFinding) {
