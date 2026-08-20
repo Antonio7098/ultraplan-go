@@ -60,7 +60,7 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 			}
 		}
 	}
-	run, runErr := s.runtime.StartRun(ctx, req)
+	run, runErr := s.startPlanningStageRun(ctx, prepared.Sprint, StageSmoke, req)
 	result.AuthorRunID = run.RunID
 	result.AuthorModel = smokeAuthorModel(req)
 
@@ -102,6 +102,7 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 	if ctx.Err() != nil {
 		return smokeError("smoke_author_cancelled", "cancellation", "smoke authoring was cancelled", "Rerun smoke when authoring can complete.", ctx.Err())
 	}
+	_ = clearPlanningStageSession(prepared.Sprint, StageSmoke)
 	return nil
 }
 

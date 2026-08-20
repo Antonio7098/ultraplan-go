@@ -475,6 +475,25 @@ func TestServerRenderedOperationFlowWorksWithoutJavaScript(t *testing.T) {
 	<-ops.done
 }
 
+func TestAddSprintFormBuildsSafeSprintReference(t *testing.T) {
+	form := url.Values{
+		"kind": {"sprint-flow"}, "project": {"alpha"}, "sprint_number": {"31"},
+		"sprint_name": {"Navigation History"}, "stage": {"plan"},
+	}
+	r := httptest.NewRequest(http.MethodPost, "/operations/prepare", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if err := r.ParseForm(); err != nil {
+		t.Fatal(err)
+	}
+	spec := operationSpecFromForm(r)
+	if spec.Scope.Sprint != "31-navigation-history" || spec.Options.ToStage != "plan" {
+		t.Fatalf("add sprint spec = %+v", spec)
+	}
+	if req, err := mapOperationRequest(spec); err != nil || req.Kind != app.OperationFlow {
+		t.Fatalf("add sprint request = %+v, err = %v", req, err)
+	}
+}
+
 func TestSingleStageOperationMapping(t *testing.T) {
 	for _, tc := range []struct {
 		kind string

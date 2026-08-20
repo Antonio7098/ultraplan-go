@@ -335,11 +335,48 @@ func (h *handler) handleHTMLOperationCancel(w http.ResponseWriter, r *http.Reque
 
 func operationSpecFromForm(r *http.Request) operationSpecRequest {
 	parallelism, _ := strconv.Atoi(r.FormValue("parallelism"))
+	sprintRef := r.FormValue("sprint")
+	if sprintRef == "" {
+		sprintRef = newSprintRef(r.FormValue("sprint_number"), r.FormValue("sprint_name"))
+	}
 	return operationSpecRequest{
 		Kind:    r.FormValue("kind"),
-		Scope:   operationScopeRequest{Project: r.FormValue("project"), Sprint: r.FormValue("sprint"), Study: r.FormValue("study")},
+		Scope:   operationScopeRequest{Project: r.FormValue("project"), Sprint: sprintRef, Study: r.FormValue("study")},
 		Options: operationOptionsRequest{ToStage: r.FormValue("stage"), Parallelism: parallelism},
 	}
+}
+
+func newSprintRef(number, name string) string {
+	number = strings.TrimSpace(number)
+	name = strings.TrimSpace(name)
+	if number == "" || name == "" {
+		return ""
+	}
+	for _, r := range number {
+		if r < '0' || r > '9' {
+			return number + "-" + name
+		}
+	}
+	var slug strings.Builder
+	separator := false
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			if separator && slug.Len() > 0 {
+				slug.WriteByte('-')
+			}
+			slug.WriteRune(r)
+			separator = false
+		case r == ' ' || r == '-' || r == '_':
+			separator = true
+		default:
+			return number + "-" + name
+		}
+	}
+	if slug.Len() == 0 {
+		return ""
+	}
+	return number + "-" + slug.String()
 }
 
 func writeSSEEvent(w io.Writer, event operationEvent) error {

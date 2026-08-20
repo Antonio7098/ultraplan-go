@@ -592,8 +592,6 @@ func mapSprintError(prefix string, err error) error {
 		return classified(ExitValidation, "%s: %w", prefix, err)
 	case errors.Is(err, sprint.ErrExecuteRunStateMissing), errors.Is(err, sprint.ErrExecuteRunStateMalformed), errors.Is(err, sprint.ErrExecuteRunStateUnsupported):
 		return classified(ExitValidation, "%s: %w", prefix, err)
-	case strings.Contains(err.Error(), "validation failed"):
-		return classified(ExitValidation, "%s: %w", prefix, err)
 	case errors.As(err, &projectRef), errors.As(err, &sprintRef):
 		return classified(ExitValidation, "%s: %w", prefix, err)
 	default:

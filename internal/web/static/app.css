@@ -226,6 +226,16 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .sprint-roadmap { padding: clamp(1.2rem, 3vw, 1.8rem); }
 .sprint-roadmap-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; margin-bottom: 1.25rem; }
 .sprint-roadmap-heading p:not(.eyebrow) { margin: .35rem 0 0; }
+.add-sprint-control { display: flex; justify-content: flex-end; margin-bottom: 1rem; }
+.add-sprint-dialog { width: min(28rem, calc(100% - 2rem)); padding: .9rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--panel-raised); color: var(--text); box-shadow: 0 18px 55px rgb(0 0 0 / 48%), 0 0 0 1px rgb(255 255 255 / 3%); }
+.add-sprint-dialog::backdrop { background: rgb(0 0 0 / 68%); backdrop-filter: blur(3px); }
+.add-sprint-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding-bottom: .7rem; border-bottom: 1px solid var(--border-soft); }
+.add-sprint-heading h2 { margin: 0; font-size: 1.05rem; }
+.add-sprint-heading [data-add-sprint-close] { min-width: 2rem; min-height: 2rem; padding: 0; border: 0; background: transparent; box-shadow: none; color: var(--muted); font-size: 1.35rem; }
+.add-sprint-dialog .operation-form { display: grid; gap: .75rem; margin-top: 1rem; }
+.add-sprint-dialog .operation-form label { display: flex; flex-direction: column; gap: .3rem; color: var(--muted); font-size: .78rem; }
+.add-sprint-dialog .operation-form input { min-height: 2.25rem; box-sizing: border-box; padding: .45rem .7rem; border: 1px solid var(--input); border-radius: .5rem; background: var(--control); color: var(--text); font: inherit; }
+.add-sprint-dialog .operation-form input:hover, .add-sprint-dialog .operation-form input:focus { border-color: var(--accent); }
 .roadmap-link { flex: 0 0 auto; border: 1px solid var(--border); background: transparent; color: var(--muted); }
 .sprint-timeline { list-style: none; margin: 0; padding: 0; }
 .sprint-milestone { position: relative; min-height: 5.2rem; padding-left: 2.4rem; }

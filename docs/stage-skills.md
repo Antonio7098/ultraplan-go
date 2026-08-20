@@ -13,11 +13,18 @@ UltraPlan embeds one project skill for each governed sprint stage:
 | execute | `$ultraplan-execute` |
 | review | `$ultraplan-review` |
 | smoke | `$ultraplan-smoke` |
+| cross-stage review/smoke reconciliation | `$ultraplan-reconcile-review-smoke` |
 
 The skills are interactive forms of the built-in stage prompts. They preserve
 the prompt's inputs, outputs, rules, skip criteria, and quality bar, then add
 state inspection, prerequisite handling, proposal-only mode, validation, and
 state reconciliation.
+
+The reconciliation skill is deliberately cross-stage. Use it after a generated
+review or smoke result needs evidence-backed human triage, implementation fixes,
+durable-state reconciliation, and proof that the next gate is ready. It also
+documents smoke-harness discovery, complete coverage mappings, and truthful
+`notApplicable` mappings for explicitly deferred external verification.
 
 ## Materialise Skills
 

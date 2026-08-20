@@ -113,6 +113,9 @@ func (u dashboardUseCases) PreviewArtifact(ctx context.Context, rel string) (Art
 	if err != nil {
 		return ArtifactPreviewResult{Path: rel, Error: err.Error()}, nil
 	}
+	if err := rejectPreviewSymlink(u.root, rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return ArtifactPreviewResult{Path: rel, Kind: previewKind(rel), Error: "artifact path contains a symbolic link"}, nil
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -136,6 +139,21 @@ func (u dashboardUseCases) PreviewArtifact(ctx context.Context, rel string) (Art
 		result.Error = "invalid JSON preview"
 	}
 	return result, nil
+}
+
+func rejectPreviewSymlink(root, rel string) error {
+	path := root
+	for _, part := range strings.Split(filepath.Clean(filepath.FromSlash(rel)), string(filepath.Separator)) {
+		path = filepath.Join(path, part)
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symbolic link component: %s", part)
+		}
+	}
+	return nil
 }
 
 func supportedPreviewPath(rel string) bool {

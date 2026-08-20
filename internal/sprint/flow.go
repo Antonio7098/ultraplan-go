@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
 	"github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
@@ -83,6 +84,11 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 				return FlowResult{}, validateErr
 			}
 			if valid {
+				if stage != StageExecute {
+					if sp, _, _, resolveErr := s.resolveSprintInputs(projectRef, sprintRef); resolveErr == nil {
+						_ = clearPlanningStageSession(sp, stage)
+					}
+				}
 				result = FlowResult{Project: projectRef, Sprint: sprintRef, To: stage, Message: string(stage) + " already complete"}
 				emitFlow(req.Progress, FlowProgress{Stage: stage, State: "skipped", Message: "already complete"})
 				continue
@@ -92,7 +98,7 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 		var stageErr error
 		result, stageErr = s.runFlowStage(ctx, projectRef, sprintRef, stageReq)
 		if stageErr != nil {
-			emitFlow(req.Progress, FlowProgress{Stage: stage, State: "failed", Message: stageErr.Error()})
+			emitFlow(req.Progress, FlowProgress{Stage: stage, State: "failed", Message: "stage failed; inspect validation findings and durable state"})
 			return result, stageErr
 		}
 		emitFlow(req.Progress, FlowProgress{Stage: stage, State: "complete", Message: firstNonEmptyString(result.Message, "stage complete")})
@@ -129,7 +135,7 @@ func (s Service) FlowStage(ctx context.Context, projectRef, sprintRef string, re
 	emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "running", Message: "running selected stage only"})
 	result, err := s.runFlowStage(ctx, projectRef, sprintRef, req)
 	if err != nil {
-		emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "failed", Message: err.Error()})
+		emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "failed", Message: "stage failed; inspect validation findings and durable state"})
 		return result, err
 	}
 	emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "complete", Message: firstNonEmptyString(result.Message, "stage complete")})
@@ -329,7 +335,7 @@ func safeError(err error) string {
 	if err == nil {
 		return ""
 	}
-	msg := err.Error()
+	msg := config.RedactValue("sprint.stage_error", err.Error())
 	msg = strings.ReplaceAll(msg, "\n", " ")
 	msg = strings.ReplaceAll(msg, "\r", " ")
 	msg = strings.ReplaceAll(msg, "\x00", "")

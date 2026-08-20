@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
@@ -177,10 +178,31 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 		planTask := taskByID(tasks, task.ID)
 		runtimeReq := s.runtimeRequest(RenderExecutePrompt(sp, planTask, target, selection), map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageExecute), "task": task.ID, "model_source": selection.Source})
 		runtimeReq.WorkDir = target.Path
+		if req.Resume && task.Runtime != nil && task.Runtime.SessionID != "" && task.Runtime.Model == selection.Model {
+			runtimeReq.SessionID = task.Runtime.SessionID
+			runtimeReq.SessionAction = "continue"
+			runtimeReq.Prompt = "Continue the interrupted UltraPlan execute task from this existing session. Re-read the current task prompt and repository state, then finish only this task.\n\n" + runtimeReq.Prompt
+		}
+		previousOnEvent := runtimeReq.OnEvent
+		var sessionMu sync.Mutex
+		runtimeReq.OnEvent = func(event pruntime.Event) {
+			if previousOnEvent != nil {
+				previousOnEvent(event)
+			}
+			sessionMu.Lock()
+			defer sessionMu.Unlock()
+			if event.SessionID == "" || (task.Runtime != nil && task.Runtime.SessionID == event.SessionID) {
+				return
+			}
+			task.Runtime = &ExecuteRuntimeSummary{SessionID: event.SessionID, Model: selection.Model, ModelSource: selection.Source, OmissionReason: "raw runtime payloads omitted"}
+			task.UpdatedAt = s.now().UTC()
+			state.UpdatedAt = task.UpdatedAt
+			_ = SaveExecuteRunState(s.root, sp, state)
+		}
 		run, runErr := s.runtime.StartRun(ctx, runtimeReq)
 		result.Runtime = append(result.Runtime, run)
 		finish := s.now().UTC()
-		task.Runtime = runtimeSummary(run, selection)
+		task.Runtime = mergeRuntimeSummary(task.Runtime, runtimeSummary(run, selection))
 		task.UpdatedAt = finish
 		task.CompletedAt = &finish
 		deferReason, deferErr := s.agentDeferredTaskReason(sp, task.ID)
@@ -425,6 +447,16 @@ func reconcileExecuteState(existing ExecuteRunState, planned []ExecuteTaskRecord
 
 func runtimeSummary(run pruntime.Result, selection ExecuteModelSelection) *ExecuteRuntimeSummary {
 	return &ExecuteRuntimeSummary{RunID: run.RunID, SessionID: run.SessionID, Model: selection.Model, ModelSource: selection.Source, PermissionSummary: run.Permissions.Mode, ValidationSummary: fmt.Sprintf("configured=%t passed=%t failures=%d", run.Validation.Configured, run.Validation.Passed, run.Validation.Failures), OmissionReason: "raw runtime payloads omitted"}
+}
+
+func mergeRuntimeSummary(previous, current *ExecuteRuntimeSummary) *ExecuteRuntimeSummary {
+	if current == nil {
+		return previous
+	}
+	if current.SessionID == "" && previous != nil {
+		current.SessionID = previous.SessionID
+	}
+	return current
 }
 
 func hasDiagnosticOnlyCompletion(run pruntime.Result) bool {

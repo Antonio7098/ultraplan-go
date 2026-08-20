@@ -301,10 +301,13 @@ func TestNestedNavigationUsesOneDrillDownSidebar(t *testing.T) {
 		}
 	}
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"data-sidebar-stack", "data-sidebar-back", "data-sidebar-open", "panel.hidden = panel !== target", "event.preventDefault()"} {
+	for _, want := range []string{"data-sidebar-stack", "data-sidebar-back", "panel.hidden = panel !== target", "Only the back", "event.preventDefault()"} {
 		if !strings.Contains(js, want) {
 			t.Errorf("sidebar behavior missing %q", want)
 		}
+	}
+	if strings.Contains(js, `open && showPanel(open.dataset.sidebarOpen)`) {
+		t.Error("sidebar drill-down links still suppress main-content navigation")
 	}
 }
 
@@ -336,9 +339,15 @@ func TestProjectSprintsRenderAsNewestFirstRoadmap(t *testing.T) {
 	queries.project.Artifacts = append(queries.project.Artifacts, app.WebArtifactLink{Ref: "roadmap_ref", Label: "roadmap", DisplayPath: "projects/alpha/roadmap.md", MediaType: "text/markdown"})
 
 	body := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints", nil).Body.String()
-	for _, want := range []string{`class="latest-sprint"`, `class="sprint-timeline"`, `milestone-current`, `milestone-complete`, `>Open roadmap</a>`, `30-latest`} {
+	for _, want := range []string{`data-add-sprint`, `data-add-sprint-open aria-haspopup="dialog"`, `class="add-sprint-dialog"`, `data-add-sprint-close`, `name="sprint_number"`, `name="sprint_name"`, `name="kind" value="sprint-flow"`, `name="stage" value="plan"`, `>Prepare sprint flow</button>`, `class="latest-sprint"`, `class="sprint-timeline"`, `milestone-current`, `milestone-complete`, `>Open roadmap</a>`, `30-latest`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("sprint roadmap missing %q in %s", want, body)
+		}
+	}
+	js := request(testHandler(t, queries, nil), http.MethodGet, "/static/app.js", nil).Body.String()
+	for _, want := range []string{`[data-add-sprint]`, `dialog?.showModal()`, `dialog?.close()`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("add sprint dialog behavior missing %q", want)
 		}
 	}
 	if strings.Index(body, "30-latest") > strings.Index(body, "29-older") {

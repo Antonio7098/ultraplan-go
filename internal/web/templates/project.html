@@ -15,6 +15,19 @@
 <section><p class="eyebrow">Project overview</p><h2>Overview</h2><p>Understand the project, read its documentation, and move delivery forward through its sprints.</p><dl class="metadata"><div><dt>Sprints</dt><dd>{{len .Project.Sprints}}</dd></div><div><dt>Documentation files</dt><dd>{{len .Project.Docs}}</dd></div><div><dt>Validation findings</dt><dd>{{len .Project.Findings}}</dd></div></dl></section>
 <nav class="destination-grid" aria-label="Project overview destinations"><a href="/projects/{{.Project.Name}}/documentation"><strong>Docs</strong><span>Read project definitions, documentation, and reasoning.</span></a><a href="/projects/{{.Project.Name}}/sprints"><strong>Sprints</strong><span>Open planned and active sprint work.</span></a></nav>
 {{else if eq .Page "sprints"}}
+<div class="add-sprint-control" data-add-sprint>
+  <button type="button" data-add-sprint-open aria-haspopup="dialog">Add sprint</button>
+  <dialog class="add-sprint-dialog" data-add-sprint-dialog aria-labelledby="add-sprint-heading">
+    <div class="add-sprint-heading"><div><p class="eyebrow">Roadmap delivery</p><h2 id="add-sprint-heading">Add sprint</h2></div><button type="button" data-add-sprint-close aria-label="Close add sprint dialog">×</button></div>
+    <p>Start the governed flow for a sprint already defined in the roadmap. Its workspace is created when the confirmed flow starts.</p>
+    <form class="operation-form" method="post" action="/operations/prepare">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="sprint-flow"><input type="hidden" name="project" value="{{.Project.Name}}"><input type="hidden" name="stage" value="plan">
+    <label for="new-sprint-number">Number<input id="new-sprint-number" name="sprint_number" type="text" inputmode="numeric" pattern="[0-9]+" maxlength="12" placeholder="31" required></label>
+    <label for="new-sprint-name">Name<input id="new-sprint-name" name="sprint_name" type="text" maxlength="100" placeholder="navigation history" required></label>
+      <button type="submit">Prepare sprint flow</button>
+    </form>
+  </dialog>
+</div>
 {{if .Project.Sprints}}
 {{range $index, $sprint := .Project.Sprints}}{{if eq $index 0}}
 <section class="latest-sprint">

@@ -24,8 +24,8 @@ func TestMaterialiseAllStageSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	skills := StageSkills()
-	if len(skills) != 9 {
-		t.Fatalf("stage skill count = %d, want 9", len(skills))
+	if len(skills) != 10 {
+		t.Fatalf("stage skill count = %d, want 10", len(skills))
 	}
 	for _, skill := range skills {
 		base := filepath.Join(root, ".agents", "skills", skill.Name)
@@ -126,6 +126,39 @@ func TestReviewSkillResolvesSprintPathAndDelegatesFanOut(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("review skill missing %q", want)
 		}
+	}
+}
+
+func TestReconciliationSkillCoversFindingTriageAndSmokeHarnessReadiness(t *testing.T) {
+	skills, err := ResolveStageSkills("reconcile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := renderStageSkill(skills[0])
+	for _, want := range []string{
+		"name: ultraplan-reconcile-review-smoke",
+		"genuine sprint defect",
+		"Preserve unrelated user changes",
+		"current governed input fingerprint",
+		"recompute the review artifact SHA-256",
+		"explicitly authorized manual-review reconciliation branch",
+		"sprint smoke --dry-run --json",
+		"../ultraplan-go-smoke",
+		"ultraplan-smoke.json",
+		"requiredCoverage",
+		"notApplicable true and complete false",
+		"ready true",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("reconciliation skill missing %q", want)
+		}
+	}
+	if strings.Contains(body, "validate reconcile") {
+		t.Fatal("reconciliation skill advertises a nonexistent validation stage")
+	}
+	byName, err := ResolveStageSkills("ultraplan-reconcile-review-smoke")
+	if err != nil || len(byName) != 1 || byName[0].Stage != "reconcile" {
+		t.Fatalf("resolve reconciliation skill by name = %+v, %v", byName, err)
 	}
 }
 

@@ -245,7 +245,7 @@ func TestReviewResumesValidatedCoverageInFreshSession(t *testing.T) {
 			staleSessions++
 		}
 	}
-	if completed != 1 || staleSessions != 0 {
+	if completed != 1 || staleSessions != 1 {
 		t.Fatalf("resume checkpoints=%+v", state.Review.Resume.Coverage)
 	}
 
@@ -260,8 +260,34 @@ func TestReviewResumesValidatedCoverageInFreshSession(t *testing.T) {
 		t.Fatalf("runtime calls=%d want 3", len(runtime.calls))
 	}
 	last := runtime.calls[2]
-	if last.SessionID != "" || last.SessionAction != "" {
-		t.Fatalf("resume reused snapshot-bound session %q with action %q", last.SessionID, last.SessionAction)
+	if last.SessionID == "" || last.SessionAction != "continue" {
+		t.Fatalf("resume did not continue retained session %q with action %q", last.SessionID, last.SessionAction)
+	}
+}
+
+func TestReviewRebasesValidatedCoverageAfterInputFingerprintChanges(t *testing.T) {
+	root, sp := reviewFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	runtime := &resumableReviewRuntime{cancel: cancel, interruptOnCall: 2}
+	service := NewService(root).WithRuntime(runtime).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "minimax-coding-plan/MiniMax-M3"}}).WithReviewConcurrency(1)
+
+	if _, err := service.Review(ctx, "proj", "01", ReviewRequest{Concurrency: 1}); err == nil {
+		t.Fatal("expected interrupted review")
+	}
+	writeFileContent(t, sp.Path, strings.ReplaceAll(validPlan(), "- [ ]", "- [x]")+"\n<!-- changed after the interrupted review -->\n", "plan.md")
+
+	runtime.interruptOnCall = 0
+	resumed, err := service.Review(context.Background(), "proj", "01", ReviewRequest{Concurrency: 1})
+	if err != nil || resumed.Status != ReviewCompleted || !resumed.Resumed || resumed.Reused != 1 {
+		t.Fatalf("rebased result=%+v err=%v", resumed, err)
+	}
+	if !reviewDiagnosticsContain(resumed.Diagnostics, "reused 1 validated reviewer result") {
+		t.Fatalf("missing rebase diagnostic: %+v", resumed.Diagnostics)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if len(runtime.calls) != 3 {
+		t.Fatalf("runtime calls=%d want 3", len(runtime.calls))
 	}
 }
 

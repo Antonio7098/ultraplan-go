@@ -481,7 +481,7 @@ func (s Service) FlowRequirements(ctx context.Context, projectRef, sprintRef str
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageRequirements)})
 	runtimeReq.Validation = s.requirementsValidationSpec(sp)
-	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
+	runtimeResult, err := s.startPlanningStageRun(ctx, sp, StageRequirements, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
@@ -518,6 +518,7 @@ func (s Service) FlowRequirements(ctx context.Context, projectRef, sprintRef str
 	if err := SaveFlowState(s.root, sp, NewFlowState(sp, stages, now)); err != nil {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
+	_ = clearPlanningStageSession(sp, StageRequirements)
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "requirements complete"}, nil
 }
 
@@ -557,7 +558,7 @@ func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef stri
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageSprintIndex)})
 	runtimeReq.Validation = s.sprintIndexValidationSpec(sp, catalog)
-	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
+	runtimeResult, err := s.startPlanningStageRun(ctx, sp, StageSprintIndex, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
@@ -597,6 +598,7 @@ func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef stri
 	if err := SaveFlowState(s.root, sp, NewFlowState(sp, stages, now)); err != nil {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
+	_ = clearPlanningStageSession(sp, StageSprintIndex)
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "sprint-index complete"}, nil
 }
 
@@ -634,7 +636,7 @@ func (s Service) FlowPlan(ctx context.Context, projectRef, sprintRef string, req
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StagePlan)})
 	runtimeReq.Validation = s.planValidationSpec(sp, manifest)
-	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
+	runtimeResult, err := s.startPlanningStageRun(ctx, sp, StagePlan, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
@@ -671,6 +673,7 @@ func (s Service) FlowPlan(ctx context.Context, projectRef, sprintRef string, req
 	if err := SaveFlowState(s.root, sp, NewFlowState(sp, stages, now)); err != nil {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
+	_ = clearPlanningStageSession(sp, StagePlan)
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "plan complete"}, nil
 }
 
@@ -715,7 +718,7 @@ func (s Service) FlowTechnicalHandbook(ctx context.Context, projectRef, sprintRe
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageTechnicalHandbook)})
 	runtimeReq.Validation = s.technicalHandbookValidationSpec(sp, manifest)
-	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
+	runtimeResult, err := s.startPlanningStageRun(ctx, sp, StageTechnicalHandbook, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
@@ -752,6 +755,7 @@ func (s Service) FlowTechnicalHandbook(ctx context.Context, projectRef, sprintRe
 	if err := SaveFlowState(s.root, sp, NewFlowState(sp, stages, now)); err != nil {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
+	_ = clearPlanningStageSession(sp, StageTechnicalHandbook)
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "technical-handbook complete"}, nil
 }
 
@@ -1082,7 +1086,7 @@ func (s Service) flowAreaReasoning(ctx context.Context, sp Sprint, req FlowReque
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageAreaReasoning)})
 	runtimeReq.Validation = s.areaReasoningValidationSpec(manifest)
-	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
+	runtimeResult, err := s.startPlanningStageRun(ctx, sp, StageAreaReasoning, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
@@ -1137,6 +1141,7 @@ func (s Service) flowAreaReasoning(ctx context.Context, sp Sprint, req FlowReque
 	if err := SaveFlowState(s.root, sp, NewFlowState(sp, stages, now)); err != nil {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
+	_ = clearPlanningStageSession(sp, StageAreaReasoning)
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "area-reasoning complete"}, nil
 }
 
@@ -1183,7 +1188,7 @@ func (s Service) flowFinalReasoning(ctx context.Context, sp Sprint, req FlowRequ
 	}
 	runtimeReq := s.runtimeRequest(prompt.Prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageReasoning)})
 	runtimeReq.Validation = s.finalReasoningValidationSpec(sp, manifest)
-	runtimeResult, err := s.runtime.StartRun(ctx, runtimeReq)
+	runtimeResult, err := s.startPlanningStageRun(ctx, sp, StageReasoning, runtimeReq)
 	if err != nil {
 		stages := flowFailedStages(sp, req.To, err, now)
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
@@ -1220,6 +1225,7 @@ func (s Service) flowFinalReasoning(ctx context.Context, sp Sprint, req FlowRequ
 	if err := SaveFlowState(s.root, sp, NewFlowState(sp, stages, now)); err != nil {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, err
 	}
+	_ = clearPlanningStageSession(sp, StageReasoning)
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "reasoning complete"}, nil
 }
 

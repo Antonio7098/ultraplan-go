@@ -11,14 +11,16 @@ import (
 const stageSkillsRoot = ".agents/skills"
 
 type StageSkill struct {
-	Stage            string
-	Name             string
-	DisplayName      string
-	ShortDescription string
-	Prerequisites    []string
-	Prompt           string
-	PromptAvailable  bool
-	StageWorkflow    string
+	Stage             string
+	Name              string
+	DisplayName       string
+	ShortDescription  string
+	Prerequisites     []string
+	Prompt            string
+	PromptAvailable   bool
+	StageWorkflow     string
+	SkipValidation    bool
+	ManualStateRepair bool
 }
 
 type SkillsOptions struct {
@@ -33,6 +35,50 @@ type SkillsPlan struct {
 
 func StageSkills() []StageSkill {
 	return []StageSkill{
+		{
+			Stage:            "reconcile",
+			Name:             "ultraplan-reconcile-review-smoke",
+			DisplayName:      "UltraPlan Review And Smoke Reconciliation",
+			ShortDescription: "Triage findings, fix genuine issues, and ready the next gate",
+			Prerequisites:    []string{"an existing review.md or smoke.md result", "the sprint planning artifacts", "a resolvable target implementation directory"},
+			Prompt: `# Review And Smoke Reconciliation
+
+Assess a generated UltraPlan review or smoke result against its governed sprint scope and the actual implementation. Fix genuine in-scope defects, preserve unrelated work, reconcile durable evidence truthfully, and prove that the next verification stage is ready or report its exact blocker.`,
+			PromptAvailable:   false,
+			SkipValidation:    true,
+			ManualStateRepair: true,
+			StageWorkflow: `Use this workflow after a review or smoke result needs human assessment and remediation. It is not a substitute for initially running the governed review or smoke process.
+
+1. Establish the frozen and current evidence:
+   - Read the complete review.md or smoke.md, flow-state.json, .run-state.json, requirements.md, sprint-index.md, reasoning.md, plan.md, and execute.md.
+   - Resolve the implementation target from project-index.md and inspect its current status and diff. Preserve unrelated user changes.
+   - Run a review dry-run when reviewing review evidence to obtain the current governed input fingerprint. Record whether the existing result is current or stale.
+2. Classify every reported finding using implementation evidence:
+   - genuine sprint defect: violates an acceptance criterion, explicit plan decision, mutation/security boundary, or claimed verification property;
+   - genuine platform follow-up: real but pre-existing or broader than the sprint, so it must not block this sprint unless the selected contract explicitly made it a release gate;
+   - superseded/already fixed;
+   - unsupported or scope-expanding: speculative, contradicted by the plan, or explicitly deferred/non-goal.
+   Cite concrete files and tests. Do not accept severity labels without reproducing the behavior or tracing the relevant code path.
+3. If the user requested fixes, implement only genuine authorized defects in the target repository. Add focused regression tests, then run verification proportional to risk, including the sprint's required full test/race/vet/build/diff gates when closure is claimed.
+4. Re-run the governed review normally when practical so UltraPlan owns aggregation, fingerprints, artifact publication, and state. If the generated verdict is still demonstrably wrong and the user explicitly authorizes manual reconciliation:
+   - retain the automated result as superseded history;
+   - add a concise manual findings and reconciliation section to review.md;
+   - use only supported verdict values and the current dry-run fingerprint;
+   - recompute the review artifact SHA-256;
+   - update review status, verdict, fingerprint, artifact digest, last-complete identity, timestamps, and diagnostic provenance coherently and atomically;
+   - never invent reviewer coverage, test evidence, or a passing command result;
+   - run sprint status immediately and require it to report the review as completed, fresh, and digest-consistent.
+5. Reconcile obsolete next-stage attempts only when their recorded blocker has actually disappeared. Preserve historical successful evidence. A prior failed smoke attempt caused solely by a now-resolved review gate may be cleared from current smoke state; do not erase a real harness, test, cleanup, or mutation failure.
+6. Discover and inspect the smoke harness before claiming readiness:
+   - Start with sprint smoke --dry-run --json from the workspace root. Read ready, verdict, review_verdict, review_fingerprint, scope, prerequisites, diagnostics, and next_action.
+   - Resolve the harness through the project smoke configuration and manifest. The normal sibling checkout is derived from the manifest/target relationship and is often ../ultraplan-go-smoke; do not assume that path without checking discovery output and ultraplan-smoke.json.
+   - Inspect the protocol-v1 manifest and discovery implementation, especially executable/cwd, commands, evidence roots, prerequisites, suites, tests, sprintMappings, requiredCoverage, complete, and notApplicable.
+   - A complete mapping must reference non-empty tests whose declared coverage satisfies requiredCoverage. Do not create an empty complete mapping to bypass smoke.
+   - Use notApplicable only when the sprint plan or requirements explicitly defer or exclude external/live-runtime smoke. It must be represented as a non-contradictory mapping (notApplicable true and complete false), with a truthful rationale naming the owning later sprint or gate.
+   - If a harness change is needed, edit only declared authoring paths, run the harness build/tests, then repeat the UltraPlan smoke dry-run.
+7. The next stage is ready only when the dry-run reports ready true, the current review verdict/fingerprint match durable state, and the selection is either runnable with satisfied prerequisites or truthfully not_applicable. A dry-run that is blocked, stale, diagnostic-only unexpectedly, or missing coverage is not ready even if review passed.
+8. Finish by running sprint status --json and reporting: reconciled artifact/state paths, current fingerprint/digest, fixes and verification performed, smoke harness path and mapping decision, dry-run readiness/verdict, and the exact remaining next action.`,
+		},
 		{
 			Stage:            "requirements",
 			Name:             "ultraplan-requirements",
@@ -156,9 +202,8 @@ func ResolveStageSkills(selection string) ([]StageSkill, error) {
 	if selection == "" || selection == "all" {
 		return StageSkills(), nil
 	}
-	selection = strings.TrimPrefix(selection, "ultraplan-")
 	for _, skill := range StageSkills() {
-		if skill.Stage == selection {
+		if skill.Stage == strings.TrimPrefix(selection, "ultraplan-") || skill.Name == selection {
 			return []StageSkill{skill}, nil
 		}
 	}
@@ -288,6 +333,14 @@ func renderStageSkill(skill StageSkill) string {
 
    The resolved prompt can include workspace or project overrides and therefore takes precedence over the canonical prompt below.`, skill.Stage)
 	}
+	validationStep := fmt.Sprintf("Run `ultraplan sprint <project> <sprint> validate %s` when supported. Fix validation findings within this stage rather than declaring success early.", skill.Stage)
+	if skill.SkipValidation {
+		validationStep = "Run the validation commands supported for the affected artifact, then use review/smoke dry runs and sprint status as the cross-stage reconciliation checks."
+	}
+	stateRule := "Treat files, the project index, and fresh CLI status as authoritative; never hand-edit flow-state JSON."
+	if skill.ManualStateRepair {
+		stateRule = "Treat files, the project index, and fresh CLI status as authoritative. Do not hand-edit flow-state JSON except in the explicitly authorized manual-review reconciliation branch below, where every fingerprint, digest, verdict, timestamp, and completion identity must be updated coherently and immediately verified through sprint status."
+	}
 	return fmt.Sprintf(`---
 name: %s
 description: Manually run the UltraPlan %s stage when given a project sprint path or project/sprint references. Use only when the user explicitly invokes $%s or directly asks to run this exact UltraPlan stage; do not invoke implicitly.
@@ -301,7 +354,7 @@ Run this stage interactively while preserving UltraPlan's governed artifact chai
 
 1. Treat a supplied sprint path as UltraPlan stage input, not as a Git target. For an input such as `+"`projects/<project>/sprints/<sprint>/`"+` or `+"`.ultra/projects/<project>/sprints/<sprint>/`"+`, find the workspace root, derive `+"`<project>`"+` and `+"`<sprint>`"+` from the path, and read the matching `+"`project-index.md`"+`. The sprint directory contains governed stage artifacts; when implementation access is required, resolve its repository from `+"`Target Implementation Directory`"+`, falling back to `+"`Repository`"+` only when the target field is absent. Resolve relative repository paths against the workspace root and verify the result before using it. Do not search nested source repositories for a similarly named skill, and do not ask what target to use merely because the supplied input is a directory.
 2. If no sprint path was supplied, locate the workspace root and resolve the project and sprint from explicit references and the current location. Ask only when the project index is missing, a required implementation target cannot be resolved, or more than one project/sprint remains possible.
-3. Run all UltraPlan commands from the resolved workspace root. Run `+"`ultraplan project <project> status`"+` and `+"`ultraplan sprint <project> <sprint> status --json`"+`. Treat files, the project index, and fresh CLI status as authoritative; never hand-edit flow-state JSON.
+3. Run all UltraPlan commands from the resolved workspace root. Run `+"`ultraplan project <project> status`"+` and `+"`ultraplan sprint <project> <sprint> status --json`"+`. %s
 4. Check these prerequisites:
 
 %s
@@ -312,7 +365,7 @@ Run this stage interactively while preserving UltraPlan's governed artifact chai
 8. The invoking agent owns the actual stage work. Except for the review stage, do not call an UltraPlan stage, flow, execute, verify, or smoke command to have the CLI or another runtime execute or complete the stage. CLI commands remain appropriate for discovery, effective-prompt resolution, dry-run previews, status inspection, validation, and post-write reconciliation. Review is the deliberate exception: invoke its governed CLI command because UltraPlan owns reviewer subagent fan-out, aggregation, and review state.
 9. %s
 10. Complete the stage-specific workflow, preserve unrelated user edits, and do not cross declared mutation boundaries.
-11. Run `+"`ultraplan sprint <project> <sprint> validate %s`"+` when supported. Fix validation findings within this stage rather than declaring success early.
+11. %s
 12. Run `+"`ultraplan sprint <project> <sprint> status --json`"+` after writes or governed review execution so flow-state, freshness, and artifact status are reconciled. Re-run project status if the project or sprint index changed.
 13. Inspect downstream artifacts for references made stale by this change. Update directly coupled indexes/references when safe; otherwise report the exact dependent stage that must be revisited. Never delete or silently rewrite downstream decisions.
 14. Finish with the artifact/result paths, validation outcome, state transition, and any remaining blocker or dependent stage.
@@ -326,7 +379,7 @@ Run this stage interactively while preserving UltraPlan's governed artifact chai
 The current resolved CLI prompt wins over this embedded baseline.
 
 %s
-`, skill.Name, skill.Stage, skill.Name, skill.DisplayName, strings.Join(prerequisites, "\n"), promptStep, skill.Stage, skill.StageWorkflow, strings.TrimSpace(skill.Prompt))
+`, skill.Name, skill.Stage, skill.Name, skill.DisplayName, stateRule, strings.Join(prerequisites, "\n"), promptStep, validationStep, skill.StageWorkflow, strings.TrimSpace(skill.Prompt))
 }
 
 func renderStageSkillMetadata(skill StageSkill) string {

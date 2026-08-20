@@ -430,7 +430,7 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 	resumeSessions := map[string]string{}
 	completed := 0
 	if len(req.Focus) == 0 {
-		resume, resumeErr := s.initializeReviewResume(projectRef, sprintRef, m, req.Restart)
+		resume, rebased, resumeErr := s.initializeReviewResume(projectRef, sprintRef, m, req.Restart)
 		if resumeErr != nil {
 			result.Status, result.Verdict = ReviewFailed, ReviewVerdictBlocked
 			result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "resume-state", Message: safeReviewText(s.root, resumeErr.Error())})
@@ -439,6 +439,9 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 		runCoverage, coverage, resumeSessions, completed = reviewResumePlan(s.root, m, resume)
 		result.Resumed = !req.Restart && (completed > 0 || len(resumeSessions) > 0)
 		result.Reused = completed
+		if rebased > 0 {
+			result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "resume-rebased", Message: fmt.Sprintf("reused %d validated reviewer result(s) from the prior input fingerprint; incomplete coverage uses the current snapshot", rebased)})
+		}
 	}
 	reviewerRoot, snapshotErr := prepareReviewSnapshot(m)
 	if snapshotErr != nil {
@@ -449,7 +452,6 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 		}
 		return result, snapshotErr
 	}
-	defer os.RemoveAll(reviewerRoot)
 	m.ReviewerRoot = reviewerRoot
 	workers := m.Concurrency
 	if workers > len(runCoverage) {
@@ -495,12 +497,17 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 		}
 		close(jobs)
 		wg.Wait()
+		close(sessions)
 		close(done)
 	}()
 	var progressSaveErr error
-	for done != nil {
+	for done != nil || sessions != nil {
 		select {
-		case session := <-sessions:
+		case session, ok := <-sessions:
+			if !ok {
+				sessions = nil
+				continue
+			}
 			if session.sessionID != "" && len(req.Focus) == 0 {
 				if saveErr := s.saveReviewResumeSession(projectRef, sprintRef, m.Fingerprint, session.coverageID, session.sessionID); saveErr != nil {
 					progressSaveErr = errors.Join(progressSaveErr, saveErr)
@@ -536,7 +543,10 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 		}
 	}
 	result.Coverage = coverage
-	result.Findings, result.Diagnostics, result.Verdict = validateReviewCoverage(s.root, m, coverage)
+	validatedFindings, validationDiagnostics, validatedVerdict := validateReviewCoverage(s.root, m, coverage)
+	result.Findings = validatedFindings
+	result.Diagnostics = append(result.Diagnostics, validationDiagnostics...)
+	result.Verdict = validatedVerdict
 	if progressSaveErr != nil {
 		result.Status, result.Verdict = ReviewFailed, ReviewVerdictBlocked
 		result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "state-write-failed", Message: safeReviewText(s.root, progressSaveErr.Error())})
@@ -577,6 +587,7 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 	if err := s.saveReviewState(projectRef, sprintRef, result, completed, len(coverage)); err != nil {
 		return result, err
 	}
+	_ = os.RemoveAll(reviewerRoot)
 	_ = now
 	if result.Verdict == ReviewFail {
 		return result, fmt.Errorf("review completed with failing verdict")
@@ -639,24 +650,37 @@ func (s Service) reviewCoveragePlan(projectRef, sprintRef string, m ReviewManife
 	return run, coverage, nil
 }
 
-func (s Service) initializeReviewResume(projectRef, sprintRef string, m ReviewManifest, restart bool) (ReviewResumeState, error) {
+func (s Service) initializeReviewResume(projectRef, sprintRef string, m ReviewManifest, restart bool) (ReviewResumeState, int, error) {
 	sp, _, _, err := s.resolveSprintInputs(projectRef, sprintRef)
 	if err != nil {
-		return ReviewResumeState{}, err
+		return ReviewResumeState{}, 0, err
 	}
 	state, err := LoadFlowState(s.root, sp)
 	if err != nil {
-		return ReviewResumeState{}, err
+		return ReviewResumeState{}, 0, err
 	}
 	if state.Review == nil || state.Review.ActiveAttempt == nil {
-		return ReviewResumeState{}, fmt.Errorf("review attempt state is unavailable")
+		return ReviewResumeState{}, 0, fmt.Errorf("review attempt state is unavailable")
 	}
 	current := state.Review.Resume
+	rebased := 0
 	if restart || !reviewResumeCompatible(current, m) {
 		checkpoints := make([]ReviewCoverageCheckpoint, 0, len(m.Coverage))
 		now := s.now().UTC()
+		prior := map[string]ReviewCoverageCheckpoint{}
+		if !restart && reviewResumeShapeCompatible(current, m) {
+			for _, checkpoint := range current.Coverage {
+				prior[checkpoint.CoverageID] = checkpoint
+			}
+		}
 		for _, item := range m.Coverage {
-			checkpoints = append(checkpoints, ReviewCoverageCheckpoint{CoverageID: item.ID, Status: AttemptPending, UpdatedAt: now})
+			checkpoint := ReviewCoverageCheckpoint{CoverageID: item.ID, Status: AttemptPending, UpdatedAt: now}
+			if previous, ok := prior[item.ID]; ok && previous.Status == AttemptCompleted && previous.Result != nil && reviewCoverageCheckpointValid(s.root, m, *previous.Result) {
+				checkpoint.Status = AttemptCompleted
+				checkpoint.Result = previous.Result
+				rebased++
+			}
+			checkpoints = append(checkpoints, checkpoint)
 		}
 		current = &ReviewResumeState{
 			AttemptID:        state.Review.ActiveAttempt.ID,
@@ -671,13 +695,17 @@ func (s Service) initializeReviewResume(projectRef, sprintRef string, m ReviewMa
 	}
 	state.Review.Resume = current
 	if err := SaveFlowState(s.root, sp, state); err != nil {
-		return ReviewResumeState{}, err
+		return ReviewResumeState{}, 0, err
 	}
-	return *current, nil
+	return *current, rebased, nil
 }
 
 func reviewResumeCompatible(state *ReviewResumeState, m ReviewManifest) bool {
-	if state == nil || state.InputFingerprint != m.Fingerprint || state.Model != m.Model || len(state.Coverage) != len(m.Coverage) {
+	return state != nil && state.InputFingerprint == m.Fingerprint && reviewResumeShapeCompatible(state, m)
+}
+
+func reviewResumeShapeCompatible(state *ReviewResumeState, m ReviewManifest) bool {
+	if state == nil || state.Model != m.Model || len(state.Coverage) != len(m.Coverage) {
 		return false
 	}
 	seen := map[string]bool{}
@@ -698,11 +726,6 @@ func reviewResumePlan(root string, m ReviewManifest, state ReviewResumeState) ([
 		checkpoints[item.CoverageID] = item
 	}
 	coverage := make([]ReviewCoverageResult, len(m.Coverage))
-	// Reviewer sessions are bound by OpenCode to the frozen snapshot directory
-	// in which they were created. That directory is intentionally removed when
-	// an attempt ends, so cross-attempt continuation would resume into a deleted
-	// workdir. Reuse validated results, but always start incomplete coverage in a
-	// fresh session against the new snapshot.
 	sessions := map[string]string{}
 	run := make([]ReviewInput, 0, len(m.Coverage))
 	completed := 0
@@ -712,6 +735,9 @@ func reviewResumePlan(root string, m ReviewManifest, state ReviewResumeState) ([
 			coverage[i] = *checkpoint.Result
 			completed++
 			continue
+		}
+		if checkpoint.SessionID != "" && state.InputFingerprint == m.Fingerprint {
+			sessions[item.ID] = checkpoint.SessionID
 		}
 		run = append(run, item)
 	}
@@ -743,15 +769,16 @@ func (s Service) saveReviewResumeSession(projectRef, sprintRef, fingerprint, cov
 	})
 }
 
-func (s Service) saveReviewResumeResult(projectRef, sprintRef, fingerprint string, result ReviewCoverageResult, _ string) error {
+func (s Service) saveReviewResumeResult(projectRef, sprintRef, fingerprint string, result ReviewCoverageResult, sessionID string) error {
 	return s.updateReviewResume(projectRef, sprintRef, fingerprint, result.CoverageID, func(checkpoint *ReviewCoverageCheckpoint, now time.Time) {
-		checkpoint.SessionID = ""
 		checkpoint.UpdatedAt = now
 		if result.Error == "" {
+			checkpoint.SessionID = ""
 			checkpoint.Status = AttemptCompleted
 			copy := result
 			checkpoint.Result = &copy
 		} else {
+			checkpoint.SessionID = sessionID
 			checkpoint.Status = AttemptFailed
 			checkpoint.Result = nil
 		}
@@ -1462,8 +1489,18 @@ func reviewInputReadPath(m ReviewManifest, in ReviewInput) string {
 }
 
 func prepareReviewSnapshot(m ReviewManifest) (string, error) {
-	root, err := os.MkdirTemp("", "ultraplan-review-")
-	if err != nil {
+	if m.Fingerprint == "" || strings.ContainsAny(m.Fingerprint, "\\/\x00\r\n") {
+		return "", fmt.Errorf("create frozen review snapshot: invalid fingerprint")
+	}
+	root := filepath.Join(m.WorkspaceRoot, ".ultra", "cache", "review", m.Project, m.Sprint, m.Fingerprint)
+	marker := filepath.Join(root, ".complete")
+	if _, err := os.Stat(marker); err == nil {
+		return root, nil
+	}
+	if err := os.RemoveAll(root); err != nil {
+		return "", fmt.Errorf("reset incomplete frozen review snapshot: %w", err)
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", fmt.Errorf("create frozen review snapshot: %w", err)
 	}
 	cleanup := true
@@ -1492,6 +1529,9 @@ func prepareReviewSnapshot(m ReviewManifest) (string, error) {
 		if err := os.WriteFile(path, []byte(content), 0o400); err != nil {
 			return "", fmt.Errorf("write frozen review input %q: %w", in.Path, err)
 		}
+	}
+	if err := os.WriteFile(marker, []byte(m.Fingerprint+"\n"), 0o400); err != nil {
+		return "", fmt.Errorf("complete frozen review snapshot: %w", err)
 	}
 	cleanup = false
 	return root, nil

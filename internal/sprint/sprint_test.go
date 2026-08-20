@@ -38,6 +38,13 @@ func TestDomainStagesStatusesAndArtifactPaths(t *testing.T) {
 	}
 }
 
+func TestSafeErrorRedactsSecretsBeforePersistence(t *testing.T) {
+	got := safeError(errors.New("provider rejected Bearer sk-super-secret"))
+	if got != "[REDACTED]" {
+		t.Fatalf("safeError() = %q", got)
+	}
+}
+
 func TestDiscoveryResolutionAndDerivation(t *testing.T) {
 	root := workspaceFixture(t)
 	p := project.Project{Name: "proj", Path: filepath.Join(root, "projects", "proj")}

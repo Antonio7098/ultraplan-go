@@ -605,26 +605,44 @@ func failedOperation(r OperationResult, err error) (OperationResult, error) {
 	} else {
 		r.State = OperationFailed
 	}
-	r.Message = displaySafe(err.Error())
+	cause := displaySafe(err.Error())
 	code, category, guidance := "internal.error", "internal", "Inspect durable state and retry after correcting the reported cause."
 	if smokeErr, ok := sprint.AsSmokeError(err); ok {
 		code, category, guidance = smokeErr.Code, smokeErr.Category, smokeErr.Guidance
-		r.Error = &OperationError{Code: code, Category: category, Operation: "smoke", Component: "sprint", Message: r.Message, Cause: r.Message, Guidance: guidance, Retryable: category == "process" || category == "timeout"}
+		r.Message = operationFailureMessage(category)
+		r.Error = &OperationError{Code: code, Category: category, Operation: "smoke", Component: "sprint", Message: r.Message, Cause: cause, Guidance: guidance, Retryable: category == "process" || category == "timeout"}
 		return r, err
 	}
-	s := strings.ToLower(err.Error())
+	var projectRef project.RefError
+	var sprintRef sprint.RefError
 	switch {
 	case errors.Is(err, context.Canceled):
 		code, category, guidance = "workflow.cancelled", "cancellation", "Resume the operation when ready."
-	case strings.Contains(s, "validation") || strings.Contains(s, "unsupported") || strings.Contains(s, "parallelism") || strings.Contains(s, "incomplete") || strings.Contains(s, "prerequisite") || strings.Contains(s, "missing"):
+	case errors.Is(err, sprint.ErrFlowStateMalformed), errors.Is(err, sprint.ErrFlowStateUnsupported),
+		errors.Is(err, sprint.ErrExecuteRunStateMissing), errors.Is(err, sprint.ErrExecuteRunStateMalformed), errors.Is(err, sprint.ErrExecuteRunStateUnsupported),
+		errors.As(err, &projectRef), errors.As(err, &sprintRef), len(r.Findings) > 0:
 		code, category, guidance = "validation.reference", "validation", "Complete or repair the reported governed evidence, inspect validation findings, and retry."
-	case strings.Contains(s, "runtime") || strings.Contains(s, "provider"):
-		code, category, guidance = "provider.runtime", "runtime", "Check runtime configuration and provider availability."
-	case strings.Contains(s, "lock"):
+	case errors.Is(err, sprint.ErrVerificationConflict), errors.Is(err, ErrStaleOperation):
 		code, category, guidance = "workflow.locked", "concurrency", "Inspect the active or stale study lock before retrying."
 	}
-	r.Error = &OperationError{Code: code, Category: category, Operation: "workflow.operation", Component: "app", Message: r.Message, Cause: r.Message, Guidance: guidance, Retryable: category == "runtime" || category == "concurrency"}
+	r.Message = operationFailureMessage(category)
+	r.Error = &OperationError{Code: code, Category: category, Operation: "workflow.operation", Component: "app", Message: r.Message, Cause: cause, Guidance: guidance, Retryable: category == "runtime" || category == "concurrency"}
 	return r, err
+}
+
+func operationFailureMessage(category string) string {
+	switch category {
+	case "cancellation":
+		return "Operation cancelled."
+	case "validation":
+		return "Operation failed validation."
+	case "runtime", "process", "timeout":
+		return "Runtime operation failed."
+	case "concurrency":
+		return "Operation could not acquire mutation ownership."
+	default:
+		return "Operation failed."
+	}
 }
 func boundContent(s string) (string, bool) {
 	if len(s) > PreviewByteLimit {

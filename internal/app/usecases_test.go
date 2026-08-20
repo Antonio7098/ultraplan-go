@@ -75,6 +75,29 @@ func TestPreviewArtifactTruncatesAndValidatesJSON(t *testing.T) {
 	}
 }
 
+func TestPreviewArtifactRejectsSymlinkedAllowlistedPath(t *testing.T) {
+	dir := initializedWorkspace(t)
+	projectRoot := filepath.Join(dir, "projects", "alpha")
+	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(dir, "unrelated.md")
+	if err := os.WriteFile(secret, []byte("do not disclose\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(projectRoot, "project-index.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	preview, err := NewReadOnlyUseCases(dir).PreviewArtifact(context.Background(), "projects/alpha/project-index.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Error == "" || preview.Content != "" {
+		t.Fatalf("symlink preview = %+v", preview)
+	}
+}
+
 func TestPreviewSupportsStudyArtifacts(t *testing.T) {
 	dir := initializedWorkspace(t)
 	studyRoot := filepath.Join(dir, "studies", "research")

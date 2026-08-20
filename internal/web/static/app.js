@@ -72,6 +72,17 @@
     });
   }
 
+  for (const control of document.querySelectorAll("[data-add-sprint]")) {
+    const open = control.querySelector("[data-add-sprint-open]");
+    const dialog = control.querySelector("[data-add-sprint-dialog]");
+    const close = control.querySelector("[data-add-sprint-close]");
+    open?.addEventListener("click", () => dialog?.showModal());
+    close?.addEventListener("click", () => dialog?.close());
+    dialog?.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+  }
+
   const processes = document.querySelector("[data-running-processes]");
   if (processes) {
     const button = processes.querySelector(":scope > button");
@@ -266,8 +277,9 @@
         showPanel(back.dataset.sidebarBack);
         return;
       }
-      const open = event.target.closest?.("[data-sidebar-open]");
-      if (open && showPanel(open.dataset.sidebarOpen)) event.preventDefault();
+      // Drill-down links must retain normal navigation so the destination's
+      // main content changes as well as its contextual sidebar. Only the back
+      // buttons above are sidebar-local controls.
     });
   }
 
