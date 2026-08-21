@@ -104,6 +104,7 @@ func agentMetadata(result runtimepkg.Result, req runtimepkg.Request) AgentMetada
 			Provider:        attempt.Provider,
 			Model:           attempt.Model,
 			ErrorCategory:   attempt.ErrorCategory,
+			ErrorDetail:     attempt.ErrorDetail,
 			RateLimited:     attempt.RateLimited,
 		}
 		if attempt.RetryAfter > 0 {

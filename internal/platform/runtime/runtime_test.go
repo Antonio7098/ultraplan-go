@@ -123,10 +123,28 @@ func TestAdapterRedactsSDKErrorDetails(t *testing.T) {
 		"debug detail":  got.DebugDetail,
 		"response body": got.ResponseBody,
 		"mapped detail": result.Error.UserDetail,
+		"mapped debug":  result.Error.DebugDetail,
 	} {
 		if value != "[REDACTED]" {
 			t.Fatalf("%s = %q, want redacted", label, value)
 		}
+	}
+}
+
+func TestAdapterMapsSanitizedAttemptErrorDetail(t *testing.T) {
+	attemptErr := agentwrap.NewError(agentwrap.ErrorRuntimeExit, "opencode event", "runtime failed", nil, agentwrap.WithDebugDetail("provider returned malformed model id"))
+	adapter := NewAdapter(fakeRuntime{run: &fakeRun{
+		id: "run-1",
+		result: agentwrap.RunResult{RunID: "run-1", Status: agentwrap.StatusFailed, Metadata: agentwrap.RunMetadata{
+			Attempts: []agentwrap.AttemptSummary{{Attempt: 1, ErrorCategory: agentwrap.ErrorRuntimeExit, Error: attemptErr}},
+		}},
+	}})
+	result, err := adapter.StartRun(context.Background(), Request{Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Attempts) != 1 || result.Attempts[0].ErrorDetail != "provider returned malformed model id" {
+		t.Fatalf("attempt detail not mapped: %+v", result.Attempts)
 	}
 }
 

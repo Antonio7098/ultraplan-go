@@ -61,6 +61,10 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 		result.RuntimeErr = runErr
 		if runtimeResult.Error != nil {
 			result.RuntimeCategory = runtimeResult.Error.Category
+			result.RuntimeDetail = runtimeResult.Error.DebugDetail
+			if result.RuntimeDetail == "" {
+				result.RuntimeDetail = runtimeResult.Error.UserDetail
+			}
 		}
 		result.Validation = ValidateFinalReport(listing.Study, dimension)
 		if result.Validation.Status == ValidationStatusPassed {

@@ -64,6 +64,10 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 		result.RuntimeErr = runErr
 		if runtimeResult.Error != nil {
 			result.RuntimeCategory = runtimeResult.Error.Category
+			result.RuntimeDetail = runtimeResult.Error.DebugDetail
+			if result.RuntimeDetail == "" {
+				result.RuntimeDetail = runtimeResult.Error.UserDetail
+			}
 		}
 		result.Validation = ValidateSourceReport(listing.Study, source, dimension)
 		if result.Validation.Status == ValidationStatusPassed {

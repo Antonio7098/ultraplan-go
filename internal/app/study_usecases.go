@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/study"
@@ -62,6 +63,7 @@ type AttemptSummary struct {
 	Model         string
 	ErrorCategory string
 	Status        string
+	ErrorDetail   string
 }
 
 func (u dashboardUseCases) StudySummaries(ctx context.Context) ([]StudySummary, error) {
@@ -162,6 +164,9 @@ func runTaskSummary(task study.TaskState, now time.Time) RunTaskSummary {
 	if task.LastError != nil {
 		r.ErrorCode = task.LastError.Code
 		r.Error = task.LastError.Message
+		if task.LastError.Detail != "" && !strings.Contains(r.Error, task.LastError.Detail) {
+			r.Error += ": " + task.LastError.Detail
+		}
 	}
 	r.Runtime = task.Agent.Runtime
 	r.RetryAfter = task.RetryAfter
@@ -200,7 +205,7 @@ func runTaskSummary(task study.TaskState, now time.Time) RunTaskSummary {
 		}
 	}
 	for _, a := range task.Agent.Attempts {
-		r.AttemptHistory = append(r.AttemptHistory, AttemptSummary{Provider: a.Provider, Model: a.Model, ErrorCategory: a.ErrorCategory, Status: a.Status})
+		r.AttemptHistory = append(r.AttemptHistory, AttemptSummary{Provider: a.Provider, Model: a.Model, ErrorCategory: a.ErrorCategory, Status: a.Status, ErrorDetail: a.ErrorDetail})
 	}
 	if len(task.Agent.Attempts) >= 2 {
 		first := task.Agent.Attempts[0]

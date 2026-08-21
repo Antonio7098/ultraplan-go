@@ -120,6 +120,9 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 					event.EventKind = p.RuntimeEvent.Kind
 					event.Tool = runtimeEventValue(*p.RuntimeEvent, "tool", "name")
 					event.Action = runtimeEventValue(*p.RuntimeEvent, "action", "state", "phase", "status")
+					event.Reason = runtimeEventValue(*p.RuntimeEvent, "reason")
+					event.Detail = runtimeEventValue(*p.RuntimeEvent, "detail", "error", "message")
+					event.Message = runtimeProgressSummary(*p.RuntimeEvent)
 				}
 				emit(event)
 			}})

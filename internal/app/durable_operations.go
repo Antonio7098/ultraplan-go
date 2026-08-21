@@ -134,7 +134,7 @@ func (m *durableOperationManager) RecordOperationEvent(ctx context.Context, runI
 	if event.State == OperationFailed {
 		eventType = runcontrol.EventWarning
 	}
-	key := string(eventType) + "\x00" + event.Stage + "\x00" + event.Task + "\x00" + event.EventType + "\x00" + event.EventKind + "\x00" + event.Tool
+	key := string(eventType) + "\x00" + event.Stage + "\x00" + event.Task + "\x00" + event.EventType + "\x00" + event.EventKind + "\x00" + event.Tool + "\x00" + event.Reason + "\x00" + event.Detail
 	now := time.Now().UTC()
 	elapsed := now.Sub(owned.progressAt)
 	if eventType == runcontrol.EventProgress && key == owned.progressKey && elapsed >= 0 && elapsed < runcontrol.ProgressCoalesceWindow {
@@ -147,7 +147,7 @@ func (m *durableOperationManager) RecordOperationEvent(ctx context.Context, runI
 	}
 	payload := map[string]string{
 		"state": string(event.State), "type": event.EventType, "kind": event.EventKind,
-		"tool": event.Tool, "action": event.Action,
+		"tool": event.Tool, "action": event.Action, "reason": event.Reason, "detail": event.Detail,
 		"count": fmt.Sprintf("%d/%d", event.Completed, event.Total),
 	}
 	var omission *runcontrol.Omission

@@ -43,3 +43,16 @@ func TestAgentMetadataIncludesRuntimeObservability(t *testing.T) {
 		t.Fatalf("runtime metrics=%+v", meta)
 	}
 }
+
+func TestExecutionTaskErrorPreservesAttemptDetail(t *testing.T) {
+	err := executionTaskError("runtime.failed", ExecutionResult{
+		Status:       ExecutionStatusRuntimeFailed,
+		RuntimeError: "opencode event: runtime_exit: OpenCode reported a fatal session error",
+		Agent: AgentMetadata{Attempts: []AttemptMetadata{{
+			Provider: "openrouter", Model: "stealth/ox-alpha", ErrorCategory: "runtime_exit", ErrorDetail: "Unexpected server error ref=err-1",
+		}}},
+	})
+	if err.Detail != "Unexpected server error ref=err-1" || !strings.Contains(err.Message, "Unexpected server error ref=err-1") {
+		t.Fatalf("task error detail not preserved: %+v", err)
+	}
+}

@@ -137,7 +137,7 @@ type Confirmation struct {
 }
 type OperationEvent struct {
 	State                                                                         OperationState
-	Stage, Task, Message, EventKind, EventType, Tool, Action                      string
+	Stage, Task, Message, EventKind, EventType, Tool, Action, Reason, Detail      string
 	Completed, Total, Attempt                                                     int
 	RuntimeAttempts                                                               int
 	Turns                                                                         int64

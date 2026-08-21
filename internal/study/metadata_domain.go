@@ -48,6 +48,7 @@ type AttemptMetadata struct {
 	Provider        string `json:"provider,omitempty"`
 	Model           string `json:"model,omitempty"`
 	ErrorCategory   string `json:"error_category,omitempty"`
+	ErrorDetail     string `json:"error_detail,omitempty"`
 	RateLimited     bool   `json:"rate_limited,omitempty"`
 	RetryAfter      string `json:"retry_after,omitempty"`
 }

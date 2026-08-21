@@ -723,10 +723,11 @@ func applyExecutionResult(update func(string, func(*TaskState)) error, id string
 			t.Session = nil
 		case ExecutionStatusCancelled:
 			t.Status = TaskStatusCancelled
-			t.LastError = &TaskError{Code: "runtime.cancelled", Message: safeExecutionMessage(res)}
+			t.LastError = executionTaskError("runtime.cancelled", res)
 		case ExecutionStatusValidationFailed, ExecutionStatusPreflightBlocked:
 			t.Status = TaskStatusFailed
-			t.LastError = &TaskError{Code: "validation.failed", Message: safeExecutionMessage(res), Path: res.OutputPath}
+			t.LastError = executionTaskError("validation.failed", res)
+			t.LastError.Path = res.OutputPath
 		default:
 			if executionShouldRetry(res) {
 				t.Status = TaskStatusRetrying
@@ -737,9 +738,22 @@ func applyExecutionResult(update func(string, func(*TaskState)) error, id string
 			} else {
 				t.Status = TaskStatusFailed
 			}
-			t.LastError = &TaskError{Code: "runtime.failed", Message: safeExecutionMessage(res)}
+			t.LastError = executionTaskError("runtime.failed", res)
 		}
 	})
+}
+
+func executionTaskError(code string, res ExecutionResult) *TaskError {
+	detail := compactDiagnostic(res.RuntimeDetail)
+	if detail == "" {
+		for _, attempt := range res.Agent.Attempts {
+			if attempt.ErrorDetail != "" {
+				detail = compactDiagnostic(attempt.ErrorDetail)
+				break
+			}
+		}
+	}
+	return &TaskError{Code: code, Message: safeExecutionMessage(res), Detail: detail}
 }
 
 func executionShouldRetry(res ExecutionResult) bool {
@@ -822,6 +836,9 @@ func formatAttemptTimeline(attempts []AttemptMetadata, decisions []PolicyDecisio
 		}
 		if a.ErrorCategory != "" && a.ErrorCategory != "none" {
 			label += ":" + a.ErrorCategory
+		}
+		if a.ErrorDetail != "" {
+			label += " (" + compactDiagnostic(a.ErrorDetail) + ")"
 		}
 		parts = append(parts, label)
 	}

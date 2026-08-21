@@ -9,6 +9,7 @@ func compactRunStateDiagnostics(state *RunState) {
 		task := &state.Tasks[i]
 		if task.LastError != nil {
 			task.LastError.Message = compactDiagnostic(task.LastError.Message)
+			task.LastError.Detail = compactDiagnostic(task.LastError.Detail)
 		}
 		if task.Validation != nil {
 			task.Validation.Message = compactDiagnostic(task.Validation.Message)
@@ -22,6 +23,9 @@ func compactAgentMetadata(meta *AgentMetadata) {
 	for i := range meta.Policy.Decisions {
 		meta.Policy.Decisions[i].Reason = compactDiagnostic(meta.Policy.Decisions[i].Reason)
 		meta.Policy.Decisions[i].Detail = compactDiagnostic(meta.Policy.Decisions[i].Detail)
+	}
+	for i := range meta.Attempts {
+		meta.Attempts[i].ErrorDetail = compactDiagnostic(meta.Attempts[i].ErrorDetail)
 	}
 	for i := range meta.Permissions.UnsupportedReasons {
 		meta.Permissions.UnsupportedReasons[i] = compactDiagnostic(meta.Permissions.UnsupportedReasons[i])

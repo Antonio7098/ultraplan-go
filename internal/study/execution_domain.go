@@ -40,6 +40,7 @@ type ExecutionResult struct {
 	RuntimeRunID     string
 	RuntimeStatus    string
 	RuntimeError     string
+	RuntimeDetail    string
 	RuntimeErr       error
 	RuntimeCategory  string
 	Agent            AgentMetadata

@@ -169,6 +169,7 @@ type AttemptSummary struct {
 	Provider        string
 	Model           string
 	ErrorCategory   string
+	ErrorDetail     string
 	RateLimited     bool
 	RetryAfter      time.Duration
 }
@@ -229,6 +230,7 @@ type Error struct {
 	Category    string
 	Operation   string
 	UserDetail  string
+	DebugDetail string
 	Provider    string
 	Model       string
 	RuntimeKind string
@@ -644,6 +646,7 @@ func mapSDKError(err *agentwrap.SDKError) *Error {
 		Category:    string(err.Category),
 		Operation:   err.Operation,
 		UserDetail:  redactDiagnosticString("sdk.user_detail", err.UserDetail),
+		DebugDetail: redactDiagnosticString("sdk.debug_detail", err.DebugDetail),
 		Provider:    string(err.Provider),
 		Model:       string(err.Model),
 		RuntimeKind: string(err.RuntimeKind),

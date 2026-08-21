@@ -60,6 +60,12 @@ func mapAttempts(values []agentwrap.AttemptSummary) []AttemptSummary {
 			Model:           string(value.Context.Model),
 			ErrorCategory:   string(value.ErrorCategory),
 		}
+		if value.Error != nil {
+			item.ErrorDetail = redactDiagnosticString("sdk.debug_detail", value.Error.DebugDetail)
+			if item.ErrorDetail == "" {
+				item.ErrorDetail = redactDiagnosticString("sdk.user_detail", value.Error.UserDetail)
+			}
+		}
 		if value.RateLimit != nil {
 			item.RateLimited = true
 			item.RetryAfter = value.RateLimit.RetryAfter

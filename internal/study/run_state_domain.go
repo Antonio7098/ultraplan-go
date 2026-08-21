@@ -82,6 +82,7 @@ type TaskSession struct {
 type TaskError struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
+	Detail  string `json:"detail,omitempty"`
 	Path    string `json:"path,omitempty"`
 }
 
