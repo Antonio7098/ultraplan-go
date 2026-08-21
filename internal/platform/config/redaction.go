@@ -5,19 +5,20 @@ import "strings"
 const redacted = "[REDACTED]"
 
 type Redacted struct {
-	Version   int               `json:"version"`
-	Runtime   Runtime           `json:"runtime"`
-	Models    Models            `json:"models"`
-	Execution Execution         `json:"execution"`
-	Planning  Planning          `json:"planning"`
-	Smoke     Smoke             `json:"smoke"`
-	Logging   Logging           `json:"logging"`
-	Agentwrap Agentwrap         `json:"agentwrap"`
-	Sources   map[string]string `json:"sources,omitempty"`
+	Version    int               `json:"version"`
+	Runtime    Runtime           `json:"runtime"`
+	Models     Models            `json:"models"`
+	Execution  Execution         `json:"execution"`
+	Planning   Planning          `json:"planning"`
+	Smoke      Smoke             `json:"smoke"`
+	RunControl RunControl        `json:"run_control"`
+	Logging    Logging           `json:"logging"`
+	Agentwrap  Agentwrap         `json:"agentwrap"`
+	Sources    map[string]string `json:"sources,omitempty"`
 }
 
 func Redact(e Effective) Redacted {
-	return Redacted{Version: e.Config.Version, Runtime: e.Config.Runtime, Models: redactModels(e.Config.Models), Execution: e.Config.Execution, Planning: redactPlanning(e.Config.Planning), Smoke: e.Config.Smoke, Logging: e.Config.Logging, Agentwrap: redactAgentwrap(e.Config.Agentwrap), Sources: e.Sources}
+	return Redacted{Version: e.Config.Version, Runtime: e.Config.Runtime, Models: redactModels(e.Config.Models), Execution: e.Config.Execution, Planning: redactPlanning(e.Config.Planning), Smoke: e.Config.Smoke, RunControl: e.Config.RunControl, Logging: e.Config.Logging, Agentwrap: redactAgentwrap(e.Config.Agentwrap), Sources: e.Sources}
 }
 
 func Sensitive(key, value string) bool {

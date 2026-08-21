@@ -434,3 +434,32 @@ The compatibility-sensitive JSON surfaces in this release are:
 The Phase 3 field-level compatibility contract is documented in [Phase 3 JSON Schemas](phase3-json-schemas.md).
 
 Sprint `status --json`, `review --json`, and `smoke --json` also expose schema-versioned envelopes. Other text output is intended for humans unless explicitly promoted to stable JSON.
+## Durable run commands
+
+All commands operate on the selected workspace (`--workspace` or normal
+discovery) and do not contact a provider.
+
+```text
+ultraplan run list [--project <ref>] [--sprint <ref>] [--study <ref>]
+                   [--lifecycle <comma-list>] [--limit <1..200>]
+                   [--after <cursor>] [--json]
+ultraplan run show <run-id> [--json]
+ultraplan run follow <run-id> [--after <sequence>] [--json]
+ultraplan run cancel <run-id> [--reason user_requested] [--json]
+ultraplan run diagnostics [--json] [--support-export <file>]
+```
+
+`list` is newest-first, defaults to 50 records, and returns an opaque pagination
+cursor. Active means only `accepted`, `queued`, `running`, or `cancelling`.
+`follow` replays committed events, polls quickly while catching up and at most
+once per second while idle. Interrupting follow stops observation only; use
+`cancel` for an explicit durable cancellation command. Cancellation is
+idempotent and does not overwrite an already-terminal winner.
+
+Diagnostics reports schema/WAL, quota, retention, active/stalled ownership, and
+reconciliation backlog. `--support-export` creates a private, bounded file (at
+most 1 MiB) containing safe snapshots, event headers/omission facts, health,
+config source classes, reconciliation decisions, and the newest sanitized
+records from `.ultraplan/run-control.log`; it excludes event payloads, prompts,
+provider data, source content, credentials, arbitrary output, and the absolute
+workspace path.

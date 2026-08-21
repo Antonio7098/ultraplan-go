@@ -317,3 +317,21 @@ For area and final reasoning, an explicit deep-dive request should become an
 interactive design discussion covering evidence, alternatives, trade-offs,
 risks, technical debt, and future consequences before conclusions are written.
 See [Manually Invoked Stage Skills](stage-skills.md) for the complete contract.
+## Watching and controlling durable runs
+
+Every runtime-backed CLI command, confirmed web/TUI operation, and external
+smoke execution receives a durable run before work starts. Use `ultraplan run
+list` or the web/TUI Runs view to find it. The same ID, lifecycle, liveness,
+cancellation state, product status, retention state, and event cursor are shown
+on every surface.
+
+Lifecycle answers what the operation has durably decided; liveness answers
+whether its current owner is known to be running. Product status is separate.
+For example, `running / stalled / product unknown` is meaningful and must not
+be displayed as success. Likewise, a cancellation request can lose the
+immutable terminal race to a completion that had already committed.
+
+Use `run follow` for observation and `run cancel` for control. Closing a tab,
+leaving a TUI view, quitting the TUI, or interrupting `run follow` does not
+cancel work. A compacted or tombstone record remains truthful about its current
+snapshot even when full event history is no longer available.

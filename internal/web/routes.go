@@ -29,6 +29,7 @@ var staticAssetNames = map[string]struct{}{
 type HandlerOptions struct {
 	Queries     app.WebQueries
 	Operations  app.WebOperations
+	Runs        app.RunUseCases
 	Authority   string
 	Diagnostics io.Writer
 	Now         func() time.Time
@@ -44,6 +45,7 @@ type handler struct {
 	hub          *operationHub
 	preparations *preparationStore
 	diagnostics  io.Writer
+	runs         app.RunUseCases
 }
 
 func NewHandler(opts HandlerOptions) (http.Handler, error) {
@@ -64,7 +66,7 @@ func NewHandler(opts HandlerOptions) (http.Handler, error) {
 	if hub == nil {
 		hub = newOperationHub(opts.RootContext, opts.Operations, opts.Now, opts.RequestID)
 	}
-	h := &handler{queries: opts.Queries, templates: templates, now: opts.Now, hub: hub, preparations: newPreparationStore(opts.Now, opts.RequestID), diagnostics: opts.Diagnostics}
+	h := &handler{queries: opts.Queries, templates: templates, now: opts.Now, hub: hub, preparations: newPreparationStore(opts.Now, opts.RequestID), diagnostics: opts.Diagnostics, runs: opts.Runs}
 	security := newSecurityMiddleware(opts.Authority, opts.Diagnostics, opts.Now, opts.RequestID)
 	return security.wrap(h), nil
 }
@@ -247,12 +249,16 @@ func allowedMethods(match routeMatch) []string {
 		return []string{http.MethodPost}
 	case "api_operations":
 		return []string{http.MethodGet, http.MethodHead, http.MethodPost}
-	case "operation_prepare", "operation_start", "operation_cancel":
+	case "operation_prepare", "operation_start", "operation_cancel", "run_cancel":
 		return []string{http.MethodPost}
 	case "api_operation":
 		return []string{http.MethodGet, http.MethodDelete}
 	case "api_operation_events":
 		return []string{http.MethodGet}
+	case "api_run":
+		return []string{http.MethodGet, http.MethodHead, http.MethodDelete}
+	case "api_run_events":
+		return []string{http.MethodGet, http.MethodHead}
 	default:
 		return []string{http.MethodGet, http.MethodHead}
 	}
@@ -277,6 +283,9 @@ func matchRoute(path string) routeMatch {
 	if path == "/studies" {
 		return routeMatch{name: "studies", known: true}
 	}
+	if path == "/runs" {
+		return routeMatch{name: "runs", known: true}
+	}
 	if path == "/api/v1/dashboard" {
 		return routeMatch{name: "api_dashboard", known: true, api: true}
 	}
@@ -297,6 +306,9 @@ func matchRoute(path string) routeMatch {
 	}
 	if path == "/api/v1/operations" {
 		return routeMatch{name: "api_operations", known: true, api: true}
+	}
+	if path == "/api/v1/runs" {
+		return routeMatch{name: "api_runs", known: true, api: true}
 	}
 	if path == "/operations/prepare" {
 		return routeMatch{name: "operation_prepare", known: true}
@@ -326,6 +338,10 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "artifact", params: parts[1:], known: true}
 	case len(parts) == 2 && parts[0] == "operations":
 		return routeMatch{name: "operation", params: parts[1:], known: true}
+	case len(parts) == 2 && parts[0] == "runs":
+		return routeMatch{name: "run", params: parts[1:], known: true}
+	case len(parts) == 3 && parts[0] == "runs" && parts[2] == "cancel":
+		return routeMatch{name: "run_cancel", params: []string{parts[1]}, known: true}
 	case len(parts) == 3 && parts[0] == "operations" && parts[2] == "cancel":
 		return routeMatch{name: "operation_cancel", params: []string{parts[1]}, known: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects":
@@ -340,6 +356,10 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "api_operation", params: parts[3:], known: true, api: true}
 	case len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "operations" && parts[4] == "events":
 		return routeMatch{name: "api_operation_events", params: []string{parts[3]}, known: true, api: true}
+	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "runs":
+		return routeMatch{name: "api_run", params: parts[3:], known: true, api: true}
+	case len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "runs" && parts[4] == "events":
+		return routeMatch{name: "api_run_events", params: []string{parts[3]}, known: true, api: true}
 	case strings.HasPrefix(path, "/static/"):
 		name := strings.TrimPrefix(path, "/static/")
 		if _, ok := staticAssetNames[name]; ok {

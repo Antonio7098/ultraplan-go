@@ -9,6 +9,7 @@ const (
 	ActionDown         KeyAction = "down"
 	ActionProjects     KeyAction = "projects"
 	ActionStudies      KeyAction = "studies"
+	ActionRuns         KeyAction = "runs"
 	ActionRefresh      KeyAction = "refresh"
 	ActionOpen         KeyAction = "open"
 	ActionClosePreview KeyAction = "close-preview"
@@ -40,6 +41,8 @@ func KeyToAction(key string) KeyAction {
 		return ActionProjects
 	case "2", "u":
 		return ActionStudies
+	case "w":
+		return ActionRuns
 	case "r":
 		return ActionRefresh
 	case "c":
@@ -52,5 +55,5 @@ func KeyToAction(key string) KeyAction {
 }
 
 func HelpText() string {
-	return "q quit | tab switch Projects/Studies | arrows navigate | enter open/confirm | c cancel active run | esc back | r refresh"
+	return "q quit | tab switch Projects/Studies | w runs | arrows navigate | enter open/confirm | c request cancellation | esc back | r refresh"
 }

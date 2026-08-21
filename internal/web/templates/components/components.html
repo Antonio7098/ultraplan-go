@@ -1,2 +1,3 @@
 {{/* Component definitions live beside the current shell during the compatibility migration.
      Every reusable definition is namespaced component/* and may call primitives only. */}}
+{{define "component/run-state"}}<span class="status" aria-label="{{.Cue}} state {{.Value}}">{{.Cue}}: {{.Value}}</span>{{end}}

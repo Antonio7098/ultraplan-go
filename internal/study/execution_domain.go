@@ -129,11 +129,15 @@ type RunLoopResult struct {
 }
 
 type RunLoopProgress struct {
-	Event        RunLoopProgressEvent
-	Task         TaskState
-	Counts       StatusSummary
-	ScopeCounts  StatusSummary
-	RuntimeEvent *runtimepkg.Event
+	Event                RunLoopProgressEvent
+	Task                 TaskState
+	Counts               StatusSummary
+	ScopeCounts          StatusSummary
+	RuntimeEvent         *runtimepkg.Event
+	RequestedParallelism int
+	EffectiveParallelism int
+	MemoryAvailableBytes uint64
+	Message              string
 }
 
 type RunLoopProgressEvent string
@@ -145,4 +149,6 @@ const (
 	RunLoopProgressWaiting   RunLoopProgressEvent = "waiting"
 	RunLoopProgressCancelled RunLoopProgressEvent = "cancelled"
 	RunLoopProgressRuntime   RunLoopProgressEvent = "runtime"
+	RunLoopProgressThrottled RunLoopProgressEvent = "throttled"
+	RunLoopProgressRestored  RunLoopProgressEvent = "restored"
 )

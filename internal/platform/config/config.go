@@ -11,14 +11,15 @@ import (
 )
 
 type Config struct {
-	Version   int       `json:"version"`
-	Runtime   Runtime   `json:"runtime"`
-	Models    Models    `json:"models"`
-	Execution Execution `json:"execution"`
-	Planning  Planning  `json:"planning"`
-	Smoke     Smoke     `json:"smoke"`
-	Logging   Logging   `json:"logging"`
-	Agentwrap Agentwrap `json:"agentwrap"`
+	Version    int        `json:"version"`
+	Runtime    Runtime    `json:"runtime"`
+	Models     Models     `json:"models"`
+	Execution  Execution  `json:"execution"`
+	Planning   Planning   `json:"planning"`
+	Smoke      Smoke      `json:"smoke"`
+	RunControl RunControl `json:"run_control"`
+	Logging    Logging    `json:"logging"`
+	Agentwrap  Agentwrap  `json:"agentwrap"`
 }
 
 type Runtime struct {
@@ -68,6 +69,11 @@ type Smoke struct {
 	StderrLimit      int      `json:"stderr_limit"`
 	CleanupGrace     string   `json:"cleanup_grace"`
 	Environment      []string `json:"environment"`
+}
+type RunControl struct {
+	FullHistory      string `json:"full_history"`
+	TombstoneHistory string `json:"tombstone_history"`
+	WorkspaceQuota   int64  `json:"workspace_quota_bytes"`
 }
 type Agentwrap struct {
 	Executable                    string   `json:"executable"`
@@ -121,6 +127,9 @@ func EnvOverrides() []EnvOverride {
 		{Key: "ULTRAPLAN_SMOKE_STDOUT_LIMIT", Field: "smoke.stdout_limit"},
 		{Key: "ULTRAPLAN_SMOKE_STDERR_LIMIT", Field: "smoke.stderr_limit"},
 		{Key: "ULTRAPLAN_SMOKE_CLEANUP_GRACE", Field: "smoke.cleanup_grace"},
+		{Key: "ULTRAPLAN_RUN_CONTROL_FULL_HISTORY", Field: "run_control.full_history"},
+		{Key: "ULTRAPLAN_RUN_CONTROL_TOMBSTONE_HISTORY", Field: "run_control.tombstone_history"},
+		{Key: "ULTRAPLAN_RUN_CONTROL_WORKSPACE_QUOTA_BYTES", Field: "run_control.workspace_quota_bytes"},
 		{Key: "ULTRAPLAN_LOG_FORMAT", Field: "logging.format"},
 		{Key: "ULTRAPLAN_LOG_LEVEL", Field: "logging.level"},
 		{Key: "ULTRAPLAN_AGENTWRAP_EXECUTABLE", Field: "agentwrap.executable"},
@@ -132,7 +141,7 @@ func EnvOverrides() []EnvOverride {
 
 func Load(opts LoadOptions) (Effective, error) {
 	e := Effective{Config: Defaults(), Sources: map[string]string{}}
-	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.code_context_model", "planning.code_context_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "planning.execute_model", "planning.execute_variant", "planning.review_model", "planning.review_variant", "planning.smoke_model", "planning.smoke_variant", "smoke.discovery_timeout", "smoke.run_timeout", "smoke.stdout_limit", "smoke.stderr_limit", "smoke.cleanup_grace", "smoke.environment", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
+	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.code_context_model", "planning.code_context_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "planning.execute_model", "planning.execute_variant", "planning.review_model", "planning.review_variant", "planning.smoke_model", "planning.smoke_variant", "smoke.discovery_timeout", "smoke.run_timeout", "smoke.stdout_limit", "smoke.stderr_limit", "smoke.cleanup_grace", "smoke.environment", "run_control.full_history", "run_control.tombstone_history", "run_control.workspace_quota_bytes", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
 		e.Sources[field] = "default"
 	}
 	if opts.WorkspaceRoot != "" {
@@ -157,14 +166,15 @@ func Load(opts LoadOptions) (Effective, error) {
 
 func Defaults() Config {
 	return Config{
-		Version:   1,
-		Runtime:   Runtime{Default: "opencode"},
-		Models:    Models{Default: "provider/model", Primary: "provider/model", Backup: "provider/model"},
-		Execution: Execution{DefaultVariant: "high", DefaultParallel: 3, DefaultTimeout: "30m", DefaultRetries: 3},
-		Planning:  Planning{},
-		Smoke:     Smoke{DiscoveryTimeout: "30s", RunTimeout: "30m", StdoutLimit: 4 << 20, StderrLimit: 1 << 20, CleanupGrace: "5s", Environment: []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"}},
-		Logging:   Logging{Format: "text", Level: "info"},
-		Agentwrap: Agentwrap{Executable: "opencode", StderrLimit: 16 * 1024, RequiredHealth: []string{"runtime_available", "structured_output", "workdir"}, RequiredCapabilities: []string{"structured_events", "cancellation"}, Sandbox: "workspace_write", PermissionMode: "restricted", PermissionDefault: "ask"},
+		Version:    1,
+		Runtime:    Runtime{Default: "opencode"},
+		Models:     Models{Default: "provider/model", Primary: "provider/model", Backup: "provider/model"},
+		Execution:  Execution{DefaultVariant: "high", DefaultParallel: 3, DefaultTimeout: "30m", DefaultRetries: 3},
+		Planning:   Planning{},
+		Smoke:      Smoke{DiscoveryTimeout: "30s", RunTimeout: "30m", StdoutLimit: 4 << 20, StderrLimit: 1 << 20, CleanupGrace: "5s", Environment: []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"}},
+		RunControl: RunControl{FullHistory: "168h", TombstoneHistory: "720h", WorkspaceQuota: 512 << 20},
+		Logging:    Logging{Format: "text", Level: "info"},
+		Agentwrap:  Agentwrap{Executable: "opencode", StderrLimit: 16 * 1024, RequiredHealth: []string{"runtime_available", "structured_output", "workdir"}, RequiredCapabilities: []string{"structured_events", "cancellation"}, Sandbox: "workspace_write", PermissionMode: "restricted", PermissionDefault: "ask"},
 	}
 }
 
@@ -348,6 +358,16 @@ func setField(c *Config, field, value string) error {
 			return fmt.Errorf("smoke.stderr_limit: must be an integer")
 		}
 		c.Smoke.StderrLimit = n
+	case "run_control.full_history":
+		c.RunControl.FullHistory = value
+	case "run_control.tombstone_history":
+		c.RunControl.TombstoneHistory = value
+	case "run_control.workspace_quota_bytes":
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("run_control.workspace_quota_bytes: must be an integer")
+		}
+		c.RunControl.WorkspaceQuota = n
 	case "logging.format":
 		c.Logging.Format = value
 	case "logging.level":
@@ -420,6 +440,20 @@ func Validate(c Config) error {
 	}
 	if c.Smoke.StderrLimit <= 0 || c.Smoke.StderrLimit > 16<<20 {
 		return fmt.Errorf("smoke.stderr_limit: must be between 1 and 16777216")
+	}
+	fullHistory, err := time.ParseDuration(c.RunControl.FullHistory)
+	if err != nil || fullHistory < time.Hour {
+		return fmt.Errorf("run_control.full_history: must be at least 1h")
+	}
+	tombstoneHistory, err := time.ParseDuration(c.RunControl.TombstoneHistory)
+	if err != nil || tombstoneHistory < 24*time.Hour {
+		return fmt.Errorf("run_control.tombstone_history: must be at least 24h")
+	}
+	if tombstoneHistory < fullHistory {
+		return fmt.Errorf("run_control.tombstone_history: must not be shorter than full_history")
+	}
+	if c.RunControl.WorkspaceQuota < 64<<20 {
+		return fmt.Errorf("run_control.workspace_quota_bytes: must be at least 67108864")
 	}
 	for _, name := range c.Smoke.Environment {
 		if !validEnvName(name) {

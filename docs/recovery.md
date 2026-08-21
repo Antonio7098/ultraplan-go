@@ -181,3 +181,48 @@ UltraPlan writes durable state and generated artifacts loudly. If a write fails:
 ## Unsafe Data Handling
 
 Do not paste provider tokens, full environment dumps, full prompts, full generated report bodies, or raw unsafe runtime payloads into issue reports or release evidence. Use redacted command summaries and artifact paths.
+## Run-control recovery
+
+Start with `ultraplan run diagnostics`, then inspect the affected run with
+`ultraplan run show <run-id>` and replay retained evidence using
+`ultraplan run follow <run-id> --after <sequence>`. A replay gap means earlier
+events were compacted; refresh the snapshot and resume from its
+`oldest_retained_sequence`. Never infer operational success from sprint/study
+artifacts, a process ID, a lock, or a provider session.
+
+Cancellation is a durable request, not proof that cleanup completed. States
+such as `stalled`, `owner_unreachable`, `interrupted`, `cleanup_uncertain`, and
+`persistence_degraded` intentionally preserve uncertainty. Re-run diagnostics,
+confirm the exact process identity, and let reconciliation record a conservative
+terminal outcome. Do not kill a PID based only on the number shown in support
+evidence.
+
+The private `.ultraplan/run-control.log` is bounded to 1 MiB and contains only
+allowlisted structured correlation and decision fields. Prefer
+`ultraplan run diagnostics --support-export <file>` to collect its newest safe
+records with health, snapshots, omission facts, config source classes, and
+reconciliation evidence. Do not substitute the log for the SQLite journal.
+
+If a process exits after acceptance but before its first owner claim, the run
+has no process identity to probe. After 45 seconds, reconciliation records an
+`interrupted` terminal with `owner_never_claimed_after_grace`; it does not
+invent an attempt or adopt any work that might remain outside run control.
+
+For quota pressure, stop starting new work, free space outside the active
+database, and rerun diagnostics. UltraPlan begins compaction at 80 percent,
+rejects starts at the soft threshold, and reserves 16 MiB for heartbeat,
+cancellation, recovery, and terminal writes. It never deletes an active
+snapshot to regain space.
+
+Schema migrations create private timestamped backups next to
+`.ultraplan/run-control.db` (maximum three retained backups and 512 MiB per
+backup). Restoration is an offline procedure: stop every UltraPlan process for
+the workspace, keep the backup unchanged, restore the matching UltraPlan
+binary, and use the tested restore path before reopening the workspace. Never
+copy only the database while a WAL writer is active. An unsupported newer
+schema or failed integrity check is a stop condition, not a fallback to an
+empty history.
+
+Run control is supported only for same-host processes on a local filesystem
+with reliable SQLite locking/WAL semantics. Move the workspace to such a
+filesystem before recovery if those guarantees are unavailable.

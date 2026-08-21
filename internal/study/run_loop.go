@@ -87,19 +87,28 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	scope := runLoopScope(listing.Study, listing.Sources, scopeSources, scopeDimensions, len(req.SourceRefs) > 0)
 
 	var mu sync.Mutex
+	effectiveParallelism := req.Parallelism
+	var memoryAvailable uint64
+	var schedulingMessage string
 	progressFor := func(event RunLoopProgressEvent, task TaskState, runtimeEvent *runtimeEvent) RunLoopProgress {
 		return RunLoopProgress{
-			Event:        event,
-			Task:         task,
-			Counts:       SummarizeRunStateCounts(state, result.StatePath),
-			ScopeCounts:  summarizeRunStateCountsForScope(state, scope, result.StatePath),
-			RuntimeEvent: runtimeEvent,
+			Event:                event,
+			Task:                 task,
+			Counts:               SummarizeRunStateCounts(state, result.StatePath),
+			ScopeCounts:          summarizeRunStateCountsForScope(state, scope, result.StatePath),
+			RuntimeEvent:         runtimeEvent,
+			RequestedParallelism: req.Parallelism,
+			EffectiveParallelism: effectiveParallelism,
+			MemoryAvailableBytes: memoryAvailable,
+			Message:              schedulingMessage,
 		}
 	}
 	emit := func(event RunLoopProgressEvent, task TaskState) {
 		if req.Progress == nil {
 			return
 		}
+		mu.Lock()
+		defer mu.Unlock()
 		req.Progress(progressFor(event, task, nil))
 	}
 	emitTask := func(event RunLoopProgressEvent, id string) {
@@ -127,18 +136,43 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		req.Progress(progressFor(RunLoopProgressRuntime, state.Tasks[idx], &event))
 	}
 	var saveMu sync.Mutex
-	persist := func(taskID string) error {
+	var stateVersion uint64
+	var persistedVersion uint64
+	var lastPersisted time.Time
+	persist := func(taskID string, force bool) error {
+		mu.Lock()
+		requestedVersion := stateVersion
+		mu.Unlock()
 		saveMu.Lock()
 		defer saveMu.Unlock()
+		if !force && persistedVersion >= requestedVersion {
+			return nil
+		}
+		if !force {
+			if wait := 250*time.Millisecond - time.Since(lastPersisted); wait > 0 {
+				timer := time.NewTimer(wait)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return ctx.Err()
+				case <-timer.C:
+				}
+			}
+		}
 		mu.Lock()
 		stateCopy := cloneRunState(state)
+		savedVersion := stateVersion
 		mu.Unlock()
 		started := time.Now()
 		err := SaveRunState(listing.Study, stateCopy)
 		diagnostics.sample("state.save.end", taskID, time.Since(started), err)
+		if err == nil {
+			persistedVersion = savedVersion
+			lastPersisted = time.Now()
+		}
 		return err
 	}
-	save := func() error { return persist("") }
+	save := func() error { return persist("", true) }
 	update := func(id string, fn func(*TaskState)) error {
 		mu.Lock()
 		idx, ok := taskIndex[id]
@@ -148,8 +182,9 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 		fn(&state.Tasks[idx])
 		state.UpdatedAt = time.Now().UTC()
+		stateVersion++
 		mu.Unlock()
-		return persist(id)
+		return persist(id, false)
 	}
 	taskSnapshot := func(id string) (TaskState, error) {
 		mu.Lock()
@@ -274,7 +309,34 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		if loadFirstErr() != nil {
 			stopScheduling = true
 		}
-		available := req.Parallelism - active
+		pressure := readMemoryPressure()
+		mu.Lock()
+		previousParallelism := effectiveParallelism
+		if pressure.Stretched && effectiveParallelism > 1 {
+			effectiveParallelism--
+		} else if pressure.Recovered && effectiveParallelism < req.Parallelism {
+			effectiveParallelism++
+		}
+		memoryAvailable = pressure.AvailableBytes
+		if effectiveParallelism != previousParallelism {
+			if effectiveParallelism < previousParallelism {
+				schedulingMessage = fmt.Sprintf("memory pressure reduced parallelism from %d to %d", previousParallelism, effectiveParallelism)
+				diagnostics.scheduling("parallelism.throttled", req.Parallelism, effectiveParallelism, pressure.AvailableBytes)
+			} else {
+				schedulingMessage = fmt.Sprintf("memory recovered; restored parallelism from %d to %d", previousParallelism, effectiveParallelism)
+				diagnostics.scheduling("parallelism.restored", req.Parallelism, effectiveParallelism, pressure.AvailableBytes)
+			}
+		}
+		parallelismChanged := effectiveParallelism != previousParallelism
+		changeEvent := RunLoopProgressRestored
+		if effectiveParallelism < previousParallelism {
+			changeEvent = RunLoopProgressThrottled
+		}
+		mu.Unlock()
+		if parallelismChanged {
+			emit(changeEvent, TaskState{})
+		}
+		available := effectiveParallelism - active
 		var ids []string
 		var nextRetry *time.Time
 		mu.Lock()

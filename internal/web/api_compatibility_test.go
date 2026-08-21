@@ -29,6 +29,9 @@ func TestAPICompatibilityRouteMethodMatrix(t *testing.T) {
 		{"api_operations", "/api/v1/operations", []string{"GET", "HEAD", "POST"}},
 		{"api_operation", "/api/v1/operations/op_example", []string{"GET", "DELETE"}},
 		{"api_operation_events", "/api/v1/operations/op_example/events", []string{"GET"}},
+		{"api_runs", "/api/v1/runs", []string{"GET", "HEAD"}},
+		{"api_run", "/api/v1/runs/run_aaaaaaaaaaaaaaaaaaaaaaaaaa", []string{"GET", "HEAD", "DELETE"}},
+		{"api_run_events", "/api/v1/runs/run_aaaaaaaaaaaaaaaaaaaaaaaaaa/events", []string{"GET", "HEAD"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

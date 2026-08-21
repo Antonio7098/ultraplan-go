@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Antonio7098/ultraplan-go/internal/runcontrol"
 	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 	"github.com/Antonio7098/ultraplan-go/internal/study"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
@@ -46,6 +47,7 @@ type WebQueries interface {
 type WebUseCases interface {
 	WebQueries
 	WebOperations
+	RunUseCases
 }
 
 type WebUseCaseOptions struct {
@@ -53,6 +55,8 @@ type WebUseCaseOptions struct {
 	ReviewConcurrency int
 	SmokeSettings     sprint.SmokeSettings
 	Runner            func(context.Context, OperationRequest, func(OperationEvent)) (OperationResult, error)
+	RunControl        RunUseCases
+	DurableOperations DurableOperationManager
 }
 
 type CollectionInfo struct {
@@ -171,6 +175,8 @@ type webUseCases struct {
 	secret    [32]byte
 	mu        sync.RWMutex
 	refs      map[string]webRefTarget
+	runs      RunUseCases
+	durable   DurableOperationManager
 }
 
 func NewWebUseCases(root string, opts WebUseCaseOptions) WebUseCases {
@@ -184,12 +190,70 @@ func NewWebUseCases(root string, opts WebUseCaseOptions) WebUseCases {
 			readOnly:          true,
 			runner:            opts.Runner,
 		},
-		refs: make(map[string]webRefTarget),
+		refs:    make(map[string]webRefTarget),
+		runs:    opts.RunControl,
+		durable: opts.DurableOperations,
 	}
 	if _, err := rand.Read(u.secret[:]); err != nil {
 		u.secret = sha256.Sum256([]byte(filepath.Clean(root)))
 	}
 	return u
+}
+
+func (u *webUseCases) AcceptOperation(ctx context.Context, confirmation Confirmation, digest string) (AcceptedOperation, error) {
+	if u.durable == nil {
+		return AcceptedOperation{}, ErrWebUnavailable
+	}
+	return u.durable.AcceptOperation(ctx, confirmation, digest)
+}
+
+func (u *webUseCases) FinishOperation(ctx context.Context, runID string, state OperationState, runErr error) error {
+	if u.durable == nil {
+		return ErrWebUnavailable
+	}
+	return u.durable.FinishOperation(ctx, runID, state, runErr)
+}
+
+func (u *webUseCases) RecordOperationEvent(ctx context.Context, runID string, event OperationEvent) (bool, error) {
+	if u.durable == nil {
+		return false, ErrWebUnavailable
+	}
+	return u.durable.RecordOperationEvent(ctx, runID, event)
+}
+
+func (u *webUseCases) Runs(ctx context.Context, query runcontrol.Query) (runcontrol.Page, error) {
+	if u.runs == nil {
+		return runcontrol.Page{}, ErrWebUnavailable
+	}
+	return u.runs.Runs(ctx, query)
+}
+
+func (u *webUseCases) Run(ctx context.Context, id runcontrol.RunID) (runcontrol.Snapshot, error) {
+	if u.runs == nil {
+		return runcontrol.Snapshot{}, ErrWebUnavailable
+	}
+	return u.runs.Run(ctx, id)
+}
+
+func (u *webUseCases) RunEvents(ctx context.Context, id runcontrol.RunID, after uint64, limit int) ([]runcontrol.Event, error) {
+	if u.runs == nil {
+		return nil, ErrWebUnavailable
+	}
+	return u.runs.RunEvents(ctx, id, after, limit)
+}
+
+func (u *webUseCases) CancelRun(ctx context.Context, id runcontrol.RunID, reason string) (runcontrol.Snapshot, bool, error) {
+	if u.runs == nil {
+		return runcontrol.Snapshot{}, false, ErrWebUnavailable
+	}
+	return u.runs.CancelRun(ctx, id, reason)
+}
+
+func (u *webUseCases) RunHealth(ctx context.Context) (runcontrol.Health, error) {
+	if u.runs == nil {
+		return runcontrol.Health{}, ErrWebUnavailable
+	}
+	return u.runs.RunHealth(ctx)
 }
 
 func (u *webUseCases) Validate(ctx context.Context, req ValidationRequest) (ValidationOperationResult, error) {

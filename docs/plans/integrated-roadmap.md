@@ -30,16 +30,20 @@ The recommended sequence is:
 2. Guarded web operations and live progress
 3. Web hardening and release
 4. Sprint code-context stage
-5. Minimal content identity and provenance
-6. Read-only QA decomposition and synthesis
-7. Evidence-producing QA and smoke integration
-8. Manual repair and bounded automatic repair
-9. Joint dogfooding and schema revision
-10. Derived retrieval and lexical search
-11. Product persistence boundary and SQLite
-12. Optional knowledge graph
-13. Authority decision, cloud, and Aren
+5. Sprint 35 — Durable run identity and cross-surface observability
+6. Sprint 36 — Read-only QA decomposition and synthesis
+7. Sprint 37 — Evidence-producing QA and smoke integration
+8. Sprint 38 — Manual repair and bounded automatic repair
+9. Sprint 39 — QA and repair dogfooding and hardening
+10. Minimal content identity and revision-aware provenance
+11. Joint content and QA schema dogfooding
+12. Derived retrieval and lexical search
+13. Product persistence boundary and SQLite
+14. Optional knowledge graph
+15. Authority decision, cloud, and Aren
 ```
+
+QA now precedes the global content-identity contract because it delivers immediate product value and produces the real theories, evidence, issues, repairs, and relationships that the later content schema must represent. QA may use schema-versioned, verification-scoped identifiers before that content work begins; those identifiers must remain explicitly migratable and must not be presented as the final workspace-wide identity contract.
 
 The browser comes first, but the filesystem remains the source of truth. The first server is an adapter over shared application use cases, not a database product and not an independent implementation of UltraPlan semantics.
 
@@ -48,6 +52,7 @@ The browser comes first, but the filesystem remains the source of truth. The fir
 This roadmap integrates:
 
 - `docs/plans/ultraplan-local-server-experiment-plan.md`
+- `docs/plans/server-shutdown-run-cancellation-contract.md`
 - `docs/plans/sprint-code-context-stage.md`
 - `docs/plans/retrieval-ready-content-plan.md`
 - `docs/plans/post-execution-qa-and-repair-loop.md`
@@ -137,10 +142,13 @@ Until the persistence decision changes:
 ```text
 Markdown artifact = authoritative authored content
 flow and run JSON = authoritative machine state for its owned concern
+durable operational run record = authoritative execution identity, liveness, event order, and terminal observation for its owned concern
 search record = derived and rebuildable
 knowledge graph = derived and rebuildable
 browser view = projection through application queries
 ```
+
+Operational persistence introduced for durable run control does not select a new authority for authored Markdown, flow outcomes, Git/source state, or external smoke evidence.
 
 ### 4.5 Product persistence is separate from source and execution workspaces
 
@@ -449,71 +457,35 @@ The browser should expose:
 - The browser observes and controls the stage through existing application and event surfaces.
 - No repository index, RAG system, cache subsystem, or JSON context manifest is added.
 
-## 9. Phase 5 — Minimal content identity and provenance
+## 9. Sprint 35 — Durable run identity and cross-surface observability
 
-**Goal:** Improve content structure enough to support reliable evidence, QA, and later retrieval without prematurely building a retrieval system.
+**Goal:** Make accepted runtime-backed work discoverable, inspectable, replayable, cancellable when authorized, and conservatively recoverable from every supported local surface and server instance.
 
-### 9.1 Inventory and retrieval-question corpus
+Introduce a workspace-wide operational run model that records:
 
-Before changing all templates:
+- stable run and attempt identity before child execution starts;
+- lifecycle, ownership, lease, heartbeat, and fencing facts;
+- sanitized ordered events committed before live delivery;
+- durable replay cursors, retention boundaries, gaps, and tombstones;
+- cancellation requests, acknowledgements, and routing;
+- exactly one arbitrated terminal observation;
+- safe product, runtime, process, and external-harness correlations;
+- reconciliation evidence, diagnostics, and recovery guidance.
 
-- inspect representative study, project, sprint, code-context, review, and smoke artifacts;
-- define at least twenty real retrieval and traceability questions;
-- classify whether each needs metadata, lexical search, relationship traversal, or source lookup;
-- measure citation precision, heading consistency, section size, decision grounding, and supersession representation.
+CLI, JSON, TUI, and browser projections must agree. SSE remains a transient delivery transport rather than run authority. Product modules remain authoritative for their artifacts, locks, validation, and stage outcomes.
 
-### 9.2 Optional artifact metadata envelope
+This phase may use the smallest operational persistence mechanism proven by its reasoning, including SQLite, without authorizing alternate persistence for authored product artifacts.
 
-Add an optional, versioned YAML frontmatter parser and validator.
+### Sprint 35 exit criteria
 
-Initial required fields for opted-in artifacts should remain minimal:
+- Every accepted runtime-backed execution has a durable run ID before child work starts.
+- Workspace-wide active counts include CLI-, TUI-, and web-started work.
+- A supported second local server can inspect a run, replay retained events, and follow new committed events.
+- Session expiry, refresh, observer restart, and bounded retention do not erase run identity or produce unexplained operation-not-retained failures.
+- Owner death, stale leases, PID reuse, cancellation races, terminal races, storage failure, backpressure, retention, and redaction are tested.
+- Operational persistence remains separate from canonical authored artifacts and workflow outcomes.
 
-```text
-schema
-id
-type
-title
-status
-authority
-```
-
-Legacy artifacts without frontmatter remain valid.
-
-### 9.3 Pilot order
-
-Apply structure gradually:
-
-1. source reports;
-2. final study reports;
-3. sprint requirements;
-4. sprint decisions;
-5. review and QA findings;
-6. project and sprint indexes;
-7. technical handbooks and area reasoning;
-8. plans only where useful.
-
-Introduce revision-aware evidence before relying heavily on relationships.
-
-### 9.4 Shared identity distinctions
-
-Keep these concepts distinct:
-
-- **artifact ID:** stable semantic identity;
-- **block ID:** stable semantic unit within or across artifacts;
-- **artifact revision:** immutable content version, needed later by database persistence;
-- **input fingerprint:** exact governed inputs to an operation;
-- **source snapshot:** repository revision and dirty-state/content identity;
-- **derived record ID:** rebuildable search or graph projection identity.
-
-### Phase 5 exit criteria
-
-- New pilot artifacts have stable identity and clear authority.
-- Material evidence references repository revision and precise source location.
-- Requirements, evidence, patterns, decisions, and findings can be referenced explicitly.
-- Legacy workspaces remain usable.
-- No search index or graph exists yet.
-
-## 10. Phase 6 — Read-only QA decomposition and synthesis
+## 10. Sprint 36 — Read-only QA decomposition and synthesis
 
 **Goal:** Establish safe, observable QA architecture without generated tests or production repair.
 
@@ -528,6 +500,8 @@ conformance-review
 qa
 repair
 ```
+
+QA state may assign deterministic, schema-versioned identifiers to maps, shards, theories, evidence, issues, and attempts. These identifiers are verification-scoped operational contracts, not the final workspace-wide content identity model, and their compatibility or migration behavior must be explicit.
 
 ### 10.2 Deterministic QA map
 
@@ -570,7 +544,7 @@ Add central synthesis that:
 
 The web UI should immediately expose QA maps, shard progress, theory outcomes, synthesis status, and blocking reasons through the existing observability foundation.
 
-### Phase 6 exit criteria
+### Sprint 36 exit criteria
 
 - QA mapping is deterministic for unchanged inputs.
 - Every changed path belongs to a bounded verification surface.
@@ -579,7 +553,7 @@ The web UI should immediately expose QA maps, shard progress, theory outcomes, s
 - No investigator mutates production or verification code.
 - No automatic repair exists.
 
-## 11. Phase 7 — Evidence-producing QA and smoke integration
+## 11. Sprint 37 — Evidence-producing QA and smoke integration
 
 **Goal:** Allow investigators to gather discriminating empirical evidence safely.
 
@@ -641,7 +615,7 @@ Wrap the current smoke protocol as a QA suite/executor while preserving:
 
 Keep `smoke` and `smoke.md` compatibility until QA parity is proven.
 
-### Phase 7 exit criteria
+### Sprint 37 exit criteria
 
 - QA can safely move from theory to evidence.
 - Evidence-backed issues are distinct from suspicions and failed setups.
@@ -649,7 +623,7 @@ Keep `smoke` and `smoke.md` compatibility until QA parity is proven.
 - The browser exposes shard evidence, adjudication, issues, and current canonical QA status.
 - Stale, malformed, diagnostic, narrow, or uncontained evidence cannot produce a pass.
 
-## 12. Phase 8 — Repair and bounded convergence
+## 12. Sprint 38 — Manual repair and bounded automatic repair
 
 **Goal:** Repair only adjudicated, bounded issues and make non-convergence explicit.
 
@@ -706,24 +680,106 @@ Stop when:
 
 Expose `verified`, `verified_with_findings`, `failed`, `blocked`, `escalated`, and `stalled` distinctly.
 
-### Phase 8 exit criteria
+### Sprint 38 exit criteria
 
 - One issue can be repaired and reverified end to end.
 - Automatic repair is bounded and resumable.
 - Repair cannot manufacture a pass by weakening evidence.
 - The browser shows cycle history, issue changes, repair scope, reverification, and convergence decisions.
 
-## 13. Phase 9 — Joint dogfooding and schema revision
+## 13. Sprint 39 — QA and repair dogfooding and hardening
 
-**Goal:** Evaluate the integrated product before committing to retrieval infrastructure or alternate persistence.
+**Goal:** Prove that QA produces trustworthy evidence and that repair converges before designing a global content contract around it.
 
-Dogfood together:
+Dogfood the browser-visible verification loop on representative real sprints, including:
 
-- the filesystem-backed browser;
-- code-context;
-- content identity and provenance;
-- Conformance Review;
-- QA and repair.
+- a broad multi-package change;
+- concurrency, cancellation, persistence, or recovery behavior;
+- an invalid or flaky investigation setup;
+- a cross-shard theory;
+- one confirmed issue and manual repair;
+- one bounded automatic repair attempt;
+- one cancellation, restart, or cleanup-uncertain case.
+
+Measure shard quality, false-positive and inconclusive rates, evidence validity, isolation reliability, investigation cost, repair convergence, browser usability, and recovery behavior.
+
+### Sprint 39 exit criteria
+
+- Read-only and writable investigation boundaries are reliable.
+- Evidence adjudication rejects invalid, stale, flaky, and ungrounded claims consistently.
+- Manual repair succeeds end to end on at least one real issue.
+- Automatic repair either demonstrates bounded convergence or remains disabled.
+- The team has real QA theories, evidence, issues, repairs, and relationships from which to design the content contract.
+
+## 14. Phase 10 — Minimal content identity and revision-aware provenance
+
+**Goal:** Improve content structure using the evidence produced by real QA and repair workflows, without prematurely building retrieval infrastructure.
+
+### 14.1 Inventory and retrieval-question corpus
+
+Before changing all templates:
+
+- inspect representative study, project, sprint, code-context, Conformance Review, QA, issue, repair, and smoke artifacts;
+- define at least twenty real retrieval and traceability questions;
+- classify whether each needs metadata, lexical search, relationship traversal, or source lookup;
+- measure citation precision, heading consistency, section size, decision grounding, supersession representation, and QA evidence traceability.
+
+### 14.2 Optional artifact metadata envelope
+
+Add an optional, versioned YAML frontmatter parser and validator.
+
+Initial required fields for opted-in artifacts should remain minimal:
+
+```text
+schema
+id
+type
+title
+status
+authority
+```
+
+Legacy artifacts without frontmatter remain valid.
+
+### 14.3 Pilot order
+
+Apply structure gradually:
+
+1. QA theories, evidence, issues, and repair records;
+2. review and QA findings;
+3. sprint requirements and decisions;
+4. source reports;
+5. final study reports;
+6. project and sprint indexes;
+7. technical handbooks and area reasoning;
+8. plans only where useful.
+
+Introduce revision-aware evidence before relying heavily on relationships. Migrate verification-scoped IDs only where the global contract demonstrates value; do not rewrite accepted evidence silently.
+
+### 14.4 Shared identity distinctions
+
+Keep these concepts distinct:
+
+- **artifact ID:** stable semantic identity;
+- **block ID:** stable semantic unit within or across artifacts;
+- **verification-scoped ID:** stable identity within a QA schema and verification scope;
+- **artifact revision:** immutable content version, needed later by database persistence;
+- **input fingerprint:** exact governed inputs to an operation;
+- **source snapshot:** repository revision and dirty-state/content identity;
+- **derived record ID:** rebuildable search or graph projection identity.
+
+### Phase 10 exit criteria
+
+- New pilot artifacts have stable identity and clear authority.
+- Material evidence references repository revision and precise source location.
+- Requirements, decisions, theories, evidence, issues, repairs, and findings can be referenced explicitly.
+- QA state compatibility remains intact or has an explicit migration.
+- Legacy workspaces remain usable.
+- No search index or graph exists yet.
+
+## 15. Phase 11 — Joint content and QA schema dogfooding
+
+**Goal:** Evaluate the content contract across the integrated product before committing to retrieval infrastructure or alternate product persistence.
 
 Required cases should include:
 
@@ -732,38 +788,20 @@ Required cases should include:
 - one full requirements-to-verification sprint;
 - one carried-forward decision;
 - one superseded decision;
-- one finding that contradicts an assumption;
+- one QA finding that contradicts an assumption;
 - one browser-managed long-running operation;
 - one cancellation or recovery case;
 - one repair cycle.
 
-Evaluate:
+Evaluate metadata accuracy and authoring burden, identifier stability, source evidence trustworthiness, QA traceability, repair history, repeated filesystem discovery cost, need for drafts or immutable revisions, lexical-search value, and genuine multi-hop traversal needs.
 
-- whether the browser makes operation state genuinely easier to understand;
-- whether later phases fit the shared application and event boundary cleanly;
-- metadata accuracy and authoring burden;
-- source evidence trustworthiness;
-- QA shard quality and investigation cost;
-- false-positive, inconclusive, and blocked rates;
-- repair convergence;
-- repeated filesystem discovery cost;
-- need for drafts, immutable revisions, approvals, and cross-project queries;
-- whether lexical search would solve real discovery problems;
-- whether multi-hop relationship traversal is genuinely needed.
+This phase produces explicit stop/go decisions for retrieval infrastructure, automatic repair expansion, persistence-boundary extraction, SQLite, and knowledge-graph experiments.
 
-This phase produces explicit stop/go decisions for:
-
-- retrieval infrastructure;
-- automatic repair expansion;
-- persistence-boundary extraction;
-- SQLite;
-- knowledge-graph experiments.
-
-## 14. Phase 10 — Derived retrieval baseline
+## 16. Phase 12 — Derived retrieval baseline
 
 **Goal:** Add retrieval only after the content contract has survived real use.
 
-### 14.1 Derived retrieval records
+### 16.1 Derived retrieval records
 
 Create deterministic, disposable records from authoritative artifacts.
 
@@ -782,7 +820,7 @@ Chunk along semantic boundaries:
 
 Avoid blind fixed-token windows as the primary strategy.
 
-### 14.2 Narrow lexical prototype
+### 16.2 Narrow lexical prototype
 
 Start with:
 
@@ -797,7 +835,7 @@ Start with:
 
 Do not add embeddings before lexical retrieval has a measured baseline. Do not silently inject retrieval results into governed sprint context.
 
-### 14.3 Browser integration
+### 16.3 Browser integration
 
 The existing browser should expose:
 
@@ -807,18 +845,18 @@ The existing browser should expose:
 - provenance and source references;
 - explanation of why a result is current, historical, or superseded.
 
-### Phase 10 exit criteria
+### Phase 12 exit criteria
 
 - Retrieval answers a defined question corpus measurably better than direct navigation alone.
 - Results preserve authority, status, provenance, and exact source text.
 - The index is safe to delete and rebuild.
 - Explicit project and sprint selections still govern agent context.
 
-## 15. Phase 11 — Product persistence boundary and SQLite
+## 17. Phase 13 — Product persistence boundary and SQLite
 
 **Goal:** Introduce alternate product persistence only after the web product demonstrates concrete need.
 
-### 15.1 Classify current state
+### 17.1 Classify current state
 
 Classify each file or output as:
 
@@ -831,7 +869,7 @@ Classify each file or output as:
 
 Repository source state remains outside product persistence.
 
-### 15.2 Extract package-owned persistence contracts
+### 17.2 Extract package-owned persistence contracts
 
 Introduce focused repositories only where replacement is required:
 
@@ -854,7 +892,7 @@ Represent:
 
 Move existing filesystem behavior behind adapters one representative workflow at a time and prove it with shared contract tests.
 
-### 15.3 SQLite mode
+### 17.3 SQLite mode
 
 Add:
 
@@ -867,7 +905,7 @@ Add:
 - browser draft, comparison, and concurrency workflows where justified;
 - no dual writes or silent synchronization.
 
-### 15.4 Agent execution projection
+### 17.4 Agent execution projection
 
 In SQLite mode:
 
@@ -881,7 +919,7 @@ database revisions
 
 Source code remains in Git. OpenCode or a later runtime remains unaware of SQLite.
 
-### Phase 11 exit criteria
+### Phase 13 exit criteria
 
 - A representative project journey works in both filesystem and SQLite modes.
 - Both implementations pass shared repository contracts.
@@ -890,7 +928,7 @@ Source code remains in Git. OpenCode or a later runtime remains unaware of SQLit
 - The filesystem-backed mode remains available for comparison.
 - No continuous bidirectional synchronization exists.
 
-## 16. Phase 12 — Optional knowledge graph
+## 18. Phase 14 — Optional knowledge graph
 
 **Goal:** Add bounded relationship traversal only if retrieval and direct artifact inspection are insufficient.
 
@@ -935,7 +973,7 @@ in-memory graph
 
 The graph remains derived and disposable.
 
-## 17. Phase 13 — Authority decision, cloud, and Aren
+## 19. Phase 15 — Authority decision, cloud, and Aren
 
 After both filesystem and SQLite modes have been used on real work, choose explicitly:
 
@@ -969,26 +1007,34 @@ local attachments -> object storage where appropriate
 
 Aren should expose typed artifact tools over the same application services. Sandboxes continue to own repository discovery, code edits, builds, tests, and temporary work.
 
-## 18. Recommended immediate delivery sequence
+## 20. Recommended immediate delivery sequence
 
 The next implementation order should be:
 
-1. Add the loopback server, application query boundary, and read-only dashboard.
-2. Add run and stage observability, safe artifact previews, validation, locks, and recovery status.
-3. Add guarded browser operations, shared confirmation, SSE progress, cancellation, and reconnect.
-4. Harden and dogfood the filesystem-backed browser until it is a supported interface.
-5. Implement the sprint `code-context` stage and surface it through the existing web operation and observability model.
-6. Complete the content inventory and add the optional minimal metadata parser.
-7. Pilot revision-aware evidence on study reports, then requirement and decision IDs.
-8. Add read-only QA mapping, investigators, and synthesis with full browser visibility.
-9. Add isolated evidence-producing QA and absorb smoke as a QA executor.
-10. Add manual repair, then bounded automatic repair.
-11. Dogfood the integrated system and revise schemas and workflows.
-12. Build lexical retrieval only if the question corpus demonstrates value.
-13. Extract persistence boundaries and add SQLite only if browser usage demonstrates concrete product needs.
-14. Treat knowledge graphs, synchronization, cloud, and Aren as separately gated later phases.
+1. Complete durable run control and prove cross-surface identity, replay, cancellation, reconciliation, and failure behavior.
+2. Add deterministic read-only QA mapping and bounded investigation with full browser visibility.
+3. Add isolated evidence-producing QA, adjudication, and smoke compatibility.
+4. Add manual repair, then bounded automatic repair.
+5. Dogfood and harden QA and repair; keep automatic repair disabled if convergence is weak.
+6. Design minimal content identity and revision-aware provenance from the resulting real QA artifacts.
+7. Dogfood the combined content and QA schema and revise it before retrieval.
+8. Build lexical retrieval only if the question corpus demonstrates value.
+9. Extract product persistence boundaries and add authored-artifact SQLite only if real use demonstrates concrete needs.
+10. Treat knowledge graphs, synchronization, cloud, and Aren as separately gated later phases.
 
-## 19. Stop conditions
+### 20.1 Product Phase 5 sprint mapping
+
+```text
+Sprint 35  Durable run identity and cross-surface observability
+Sprint 36  Read-only QA decomposition and synthesis
+Sprint 37  Evidence-producing QA and smoke integration
+Sprint 38  Manual repair and bounded automatic repair
+Sprint 39  QA and repair dogfooding and hardening
+```
+
+Each sprint is one independently planned, reviewed, executed, and released unit. Sprint 36 does not begin until Sprint 35 passes durable-run dogfood; Sprint 37 does not begin until read-only QA is deterministic and resumable; Sprint 38 does not begin until isolation and adjudication are proven; Sprint 39 owns the integrated hardening and stop/go decision for automatic repair and the later content contract.
+
+## 21. Stop conditions
 
 Pause or simplify a roadmap branch when its evidence gate is not met.
 
@@ -1016,7 +1062,7 @@ Do not proceed merely because a database seems cleaner. Require concrete needs s
 
 Do not persist or expand the graph unless bounded in-memory traversal answers valuable real questions more reliably than direct artifact inspection and retrieval.
 
-## 20. Final recommendation
+## 22. Final recommendation
 
 Build the observable local product first.
 
@@ -1027,8 +1073,9 @@ That gives every later capability an accessible operational home:
 ```text
 web observability foundation
   -> code-context visibility
-  -> structured evidence visibility
+  -> durable cross-surface run control
   -> QA and repair visibility
+  -> content identity shaped by real QA evidence
   -> retrieval visibility
   -> persistence and revision workflows
   -> optional knowledge traversal

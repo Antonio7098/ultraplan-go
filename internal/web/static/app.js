@@ -8,6 +8,14 @@
     });
   }
 
+  for (const form of document.querySelectorAll("form[data-confirm]")) {
+    form.addEventListener("submit", (event) => {
+      if (window.confirm(form.dataset.confirm || "Continue?")) return;
+      event.preventDefault();
+      event.submitter?.focus();
+    });
+  }
+
   for (const flyout of document.querySelectorAll("[data-nav-flyout]")) {
     const button = flyout.querySelector(":scope > .top-nav-disclosure > button");
     const items = flyout.querySelector("[data-nav-items]");
@@ -165,7 +173,7 @@
         "sprint-stage": "Sprint stage", "execute-start": "Execution", "execute-resume": "Execution",
         "review-start": "Review", "smoke-start": "Smoke test", "verify-start": "Verification"
       };
-      return names[operation.kind] || operation.kind.split("-").map((word) => word[0]?.toUpperCase() + word.slice(1)).join(" ");
+      return names[operation.kind] || (operation.kind || "run").split("-").map((word) => word[0]?.toUpperCase() + word.slice(1)).join(" ");
     };
     const processScope = (operation) => {
       if (operation.study) return operation.study;
@@ -229,27 +237,64 @@
         const title = document.createElement("strong");
         const detail = document.createElement("span");
         link.href = operation.href || `/operations/${encodeURIComponent(operation.id)}`;
-        title.textContent = processLabel(operation);
-        detail.textContent = `${processScope(operation)} · ${operation.state}`;
+        if (operation.kind === "study-loop") {
+          title.textContent = `Study · ${operation.study}`;
+          detail.textContent = `${operation.agents} parallel agent${operation.agents === 1 ? "" : "s"}`;
+        } else {
+          title.textContent = processLabel(operation);
+          detail.textContent = `${processScope(operation)} · ${operation.state}`;
+        }
         link.append(title, detail);
         item.append(link);
         items.append(item);
       }
     };
+    const groupActiveRuns = (runs) => {
+      const grouped = [];
+      const studies = new Map();
+      for (const run of runs) {
+        const target = run.target || {};
+        if (!target.study || target.project || target.sprint) {
+          grouped.push(run);
+          continue;
+        }
+        const existing = studies.get(target.study);
+        if (existing) {
+          if (target.kind === "operation" && !existing.loopRunID) existing.loopRunID = run.run_id;
+          else existing.agents++;
+          continue;
+        }
+        const entry = {kind: "study-loop", study: target.study, state: run.lifecycle, loopRunID: target.kind === "operation" ? run.run_id : "", agents: target.kind === "operation" ? 0 : 1};
+        studies.set(target.study, entry);
+        grouped.push(entry);
+      }
+      return grouped;
+    };
     const load = async () => {
       if (loading || document.hidden) return;
       loading = true;
       try {
-        const statusPath = durableStatusPath();
-        const responses = await Promise.all([
-          fetch("/api/v1/operations", {headers: {Accept: "application/json"}}),
-          statusPath ? fetch(statusPath, {headers: {Accept: "application/json"}}) : Promise.resolve(null)
-        ]);
-        const [operationsResponse, durableResponse] = responses;
-        if (!operationsResponse.ok || (durableResponse && !durableResponse.ok)) throw new Error();
-        const [operationsPayload, durablePayload] = await Promise.all([operationsResponse.json(), durableResponse ? durableResponse.json() : Promise.resolve({data: {}})]);
-        const transient = Array.isArray(operationsPayload.data) ? operationsPayload.data : [];
-        render(mergeProcesses(transient, durableProcesses(durablePayload.data)));
+        const response = await fetch("/api/v1/runs?lifecycle=accepted,queued,running,cancelling&limit=50", {headers: {Accept: "application/json"}});
+        if (!response.ok) throw new Error();
+        const payload = await response.json();
+        const runs = Array.isArray(payload?.data?.runs) ? payload.data.runs : [];
+        render(groupActiveRuns(runs).map((run) => run.kind === "study-loop" ? {
+          id: run.loopRunID,
+          kind: run.kind,
+          study: run.study,
+          agents: run.agents,
+          href: run.loopRunID
+            ? `/runs/${encodeURIComponent(run.loopRunID)}`
+            : `/studies/${encodeURIComponent(run.study)}/progress`
+        } : {
+          id: run.run_id,
+          kind: run.target?.operation || run.target?.kind || "run",
+          state: run.lifecycle,
+          project: run.target?.project,
+          sprint: run.target?.sprint,
+          study: run.target?.study,
+          href: `/runs/${encodeURIComponent(run.run_id)}`
+        }));
       } catch (_) {
         status.textContent = "Unavailable";
       } finally {
@@ -285,7 +330,7 @@
     });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
     load();
-    window.setInterval(load, 10000);
+    window.setInterval(load, 5000);
   }
 
   for (const stack of document.querySelectorAll("[data-sidebar-stack]")) {
@@ -496,7 +541,7 @@
   const reviewerDialog = document.getElementById("reviewer-result-dialog");
   const reviewerDialogContent = document.getElementById("reviewer-result-content");
   const reviewerDialogClose = document.getElementById("reviewer-result-close");
-  if (forms.length === 0 && !statusRoot && !reviewStatus && !document.querySelector(".reviewer-card")) return;
+  if (forms.length === 0 && !statusRoot && !reviewStatus && !document.querySelector(".reviewer-card") && !document.querySelector("[data-run-id]")) return;
 
   const csrf = document.querySelector('meta[name="ultraplan-csrf"]')?.content || "";
   let live = document.getElementById("operation-live");
@@ -542,7 +587,8 @@
     const options = {};
     const selectedStage = form.elements?.stage?.value || form.dataset.stage;
     if (selectedStage) options.to_stage = selectedStage;
-    if (form.dataset.parallelism) options.parallelism = Number(form.dataset.parallelism);
+    const selectedParallelism = form.elements?.parallelism?.value || form.dataset.parallelism;
+    if (selectedParallelism) options.parallelism = Number(selectedParallelism);
     return {kind: submitter?.dataset.operationKind || form.dataset.operationKind, scope, options};
   }
 
@@ -852,6 +898,320 @@
 
   cancelButton?.addEventListener("click", cancelCurrentOperation);
 
+  const durableRun = document.querySelector("[data-run-id]");
+  const durableTimeline = document.querySelector("[data-run-timeline]");
+  const durableLive = document.querySelector("[data-run-live-status]");
+  let durableStream = null;
+  let durableReconnect = null;
+  let durableTerminal = false;
+  let durableLast = Number(durableRun?.dataset.lastSequence || 0);
+  let durableLiveTimer = null;
+  let durableLivePending = "";
+  let durableLiveUpdatedAt = 0;
+
+  const setDurableLive = (message) => {
+    if (!durableLive) return;
+    durableLivePending = message;
+    const remaining = Math.max(0, 250 - (Date.now() - durableLiveUpdatedAt));
+    if (durableLiveTimer) return;
+    const update = () => {
+      durableLiveTimer = null;
+      durableLive.textContent = durableLivePending;
+      durableLiveUpdatedAt = Date.now();
+    };
+    if (remaining === 0) update();
+    else durableLiveTimer = window.setTimeout(update, remaining);
+  };
+  const agentSection = document.querySelector("[data-run-agents]");
+  const agentGrid = document.getElementById("run-agent-grid");
+  const agentEmptyMessage = document.getElementById("run-agent-grid-empty");
+  const agentDialog = document.getElementById("run-agent-dialog");
+  const agentDialogClose = document.getElementById("run-agent-dialog-close");
+  const agentDialogTitle = document.getElementById("run-agent-dialog-title");
+  const agentDialogSubtitle = document.getElementById("run-agent-dialog-subtitle");
+  const agentDialogSummary = document.getElementById("run-agent-dialog-summary");
+  const agentDialogTimeline = document.getElementById("run-agent-dialog-timeline");
+  const runAgents = new Map();
+  let openAgentTask = "";
+
+  const humanizeRunText = (value) => String(value || "").replaceAll("_", " ");
+  const formatRunTime = (value) => {
+    if (!value) return "";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(undefined, {hour12: false});
+  };
+  const runAgentIdentity = (task) => {
+    const parts = String(task || "").split(":");
+    const dimension = parts.length >= 4 && parts[2] && parts[3] ? `${parts[2]}-${parts[3]}` : "";
+    const source = parts.length >= 6 ? parts[4] : "";
+    const title = dimension ? (source ? `${dimension} · ${source}` : dimension) : task;
+    return {kind: parts[0] || "agent", dimension, source, title};
+  };
+  const describeRunEvent = (event) => {
+    const payload = event.payload || {};
+    if (payload.kind === "tool") return `Tool call${payload.tool ? ` · ${payload.tool}` : ""}`;
+    const labels = {started: "Agent started", completed: "Report completed", failed: "Agent failed", waiting: "Waiting to retry", cancelled: "Cancelled", validating: "Validating report"};
+    if (labels[event.stage]) return labels[event.stage];
+    if (event.stage === "runtime" && payload.action) return humanizeRunText(payload.action);
+    return event.stage ? humanizeRunText(event.stage) : humanizeRunText(event.type || "event");
+  };
+  const runAgentStatusFor = (event) => {
+    switch (event.stage) {
+      case "started": case "runtime": return "running";
+      case "validating": case "waiting": return "pending";
+      case "completed": return "completed";
+      case "failed": case "cancelled": return "failed";
+      default: return "";
+    }
+  };
+  const runAgentBadge = (status) => status === "completed" ? "ok" : status === "running" ? "info" : status === "pending" ? "warn" : "error";
+
+  const appendAgentStreamRow = (list, entry) => {
+    const item = document.createElement("li");
+    const time = formatRunTime(entry.time);
+    item.textContent = `${time ? `${time} · ` : ""}${entry.label}${entry.detail ? ` (${entry.detail})` : ""}`;
+    list.append(item);
+    while (list.children.length > 500) list.firstElementChild.remove();
+    list.scrollTop = list.scrollHeight;
+  };
+
+  const renderAgentGrid = () => {
+    if (!agentGrid || !agentSection) return;
+    const fragment = document.createDocumentFragment();
+    for (const agent of runAgents.values()) {
+      const identity = runAgentIdentity(agent.task);
+      const card = document.createElement("li");
+      card.className = `reviewer-card reviewer-${agent.status} run-agent-card`;
+      card.dataset.runAgent = agent.task;
+      const heading = document.createElement("div");
+      heading.className = "reviewer-heading";
+      const name = document.createElement("strong");
+      name.textContent = identity.title || agent.task;
+      const badge = document.createElement("span");
+      badge.className = `status status-${runAgentBadge(agent.status)}`;
+      badge.textContent = agent.status;
+      heading.append(name, badge);
+      card.append(heading);
+      const taskCode = document.createElement("code");
+      taskCode.textContent = agent.task;
+      card.append(taskCode);
+      const latest = document.createElement("p");
+      latest.className = "reviewer-summary agent-latest";
+      latest.textContent = agent.latest?.label || "Awaiting committed activity.";
+      card.append(latest);
+      const meta = document.createElement("div");
+      meta.className = "agent-meta";
+      const time = document.createElement("span");
+      time.textContent = formatRunTime(agent.latest?.time) || "no time yet";
+      const tools = document.createElement("span");
+      tools.textContent = `${agent.toolCalls} tool call${agent.toolCalls === 1 ? "" : "s"}`;
+      const total = document.createElement("span");
+      total.textContent = `${agent.events.length} events`;
+      meta.append(time, tools, total);
+      card.append(meta);
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "reviewer-result-open agent-details-open";
+      open.setAttribute("aria-haspopup", "dialog");
+      open.textContent = "View agent details";
+      card.append(open);
+      fragment.append(card);
+    }
+    agentGrid.replaceChildren(fragment);
+    agentSection.hidden = runAgents.size === 0;
+    if (agentEmptyMessage) agentEmptyMessage.hidden = runAgents.size > 0;
+  };
+
+  const refreshAgentDialogSummary = (agent) => {
+    if (!agentDialogSummary || openAgentTask !== agent.task) return;
+    const rows = [
+      ["Status", agent.status],
+      ["Latest event", agent.latest?.label || "—"],
+      ["Last activity", formatRunTime(agent.latest?.time) || "—"],
+      ["Tool calls", String(agent.toolCalls)],
+      ["Events observed", String(agent.events.length)]
+    ];
+    agentDialogSummary.replaceChildren(...rows.map(([term, value]) => {
+      const row = document.createElement("div");
+      const dt = document.createElement("dt");
+      const dd = document.createElement("dd");
+      dt.textContent = term;
+      dd.textContent = value;
+      row.append(dt, dd);
+      return row;
+    }));
+  };
+
+  const ingestRunEvent = (event) => {
+    if (!event?.task || !agentSection) return;
+    let agent = runAgents.get(event.task);
+    if (!agent) {
+      agent = {task: event.task, events: [], toolCalls: 0, status: "running", latest: null};
+      runAgents.set(event.task, agent);
+    }
+    const payload = event.payload || {};
+    if (payload.kind === "tool") agent.toolCalls++;
+    const mappedStatus = runAgentStatusFor(event);
+    if (mappedStatus) agent.status = mappedStatus;
+    const label = describeRunEvent(event);
+    agent.latest = {label, time: event.committed_at || "", sequence: Number(event.sequence) || 0};
+    const entry = {label, detail: payload.action && payload.kind !== "tool" ? humanizeRunText(payload.action) : "", time: event.committed_at || ""};
+    agent.events.push(entry);
+    while (agent.events.length > 500) agent.events.shift();
+    renderAgentGrid();
+    if (openAgentTask === agent.task) {
+      if (agentDialogTimeline) appendAgentStreamRow(agentDialogTimeline, entry);
+      refreshAgentDialogSummary(agent);
+    }
+  };
+
+  const openRunAgent = (task) => {
+    if (!agentDialog) return;
+    const agent = runAgents.get(task);
+    if (!agent) return;
+    openAgentTask = task;
+    const identity = runAgentIdentity(task);
+    if (agentDialogTitle) agentDialogTitle.textContent = identity.title || task;
+    if (agentDialogSubtitle) agentDialogSubtitle.textContent = `${identity.kind} · ${task}`;
+    refreshAgentDialogSummary(agent);
+    if (agentDialogTimeline) {
+      agentDialogTimeline.replaceChildren();
+      for (const entry of agent.events) appendAgentStreamRow(agentDialogTimeline, entry);
+    }
+    agentDialog.showModal();
+  };
+
+  agentGrid?.addEventListener("click", (event) => {
+    const trigger = event.target.closest(".run-agent-card");
+    if (trigger?.dataset.runAgent) openRunAgent(trigger.dataset.runAgent);
+  });
+  agentDialogClose?.addEventListener("click", () => {
+    openAgentTask = "";
+    agentDialog.close();
+  });
+  agentDialog?.addEventListener("close", () => { openAgentTask = ""; });
+  agentDialog?.addEventListener("click", (event) => {
+    if (event.target === agentDialog) agentDialog.close();
+  });
+
+  for (const item of durableTimeline?.querySelectorAll("[data-run-sequence]") || []) {
+    const task = item.dataset.runTask;
+    if (!task) continue;
+    ingestRunEvent({
+      sequence: Number(item.dataset.runSequence) || 0,
+      type: item.dataset.runType,
+      stage: item.dataset.runStage,
+      task,
+      committed_at: item.dataset.runTime,
+      payload: {kind: item.dataset.runKind, tool: item.dataset.runTool}
+    });
+  }
+  renderAgentGrid();
+
+  const appendDurableEvent = (event) => {
+    ingestRunEvent(event);
+    if (!durableTimeline) return;
+    durableTimeline.querySelector(":scope > .empty")?.remove();
+    const item = document.createElement("li");
+    item.dataset.runSequence = String(event.sequence);
+    const heading = document.createElement("strong");
+    heading.textContent = `${event.sequence} · ${event.type || "event"}`;
+    item.append(heading);
+    for (const value of [event.stage, event.task]) {
+      if (!value) continue;
+      const detail = document.createElement("span");
+      detail.textContent = ` ${value}`;
+      item.append(detail);
+    }
+    if (event.omission) {
+      const omission = document.createElement("p");
+      omission.textContent = `Omitted ${event.omission.count || 0} detail item(s): ${event.omission.reason || "bounded history"}`;
+      item.append(omission);
+    }
+    durableTimeline.append(item);
+    let pruned = false;
+    while (durableTimeline.children.length > 500) {
+      durableTimeline.firstElementChild?.remove();
+      pruned = true;
+    }
+    if (pruned) setDurableLive("Live — the page retains the newest 500 rows; repository history is unchanged.");
+  };
+  const stopDurableFollow = () => {
+    durableStream?.close();
+    durableStream = null;
+    if (durableReconnect) window.clearTimeout(durableReconnect);
+    durableReconnect = null;
+  };
+  const preflightDurableRun = async (runID) => {
+    const replay = await fetch(`/api/v1/runs/${encodeURIComponent(runID)}/events?after=${durableLast}`, {headers: {Accept: "application/json"}});
+    if (replay.status === 409) {
+      const problem = await replay.json().catch(() => ({}));
+      setDurableLive(problem?.error?.code === "replay_gap" ? "History gap detected. Refresh the snapshot to resume from the oldest retained event." : "Cursor no longer matches the durable run. Refresh required.");
+      return false;
+    }
+    if (!replay.ok) throw new Error("run replay unavailable");
+    const body = await replay.json();
+    for (const event of body?.data?.events || []) {
+      if (Number(event.sequence) <= durableLast) continue;
+      appendDurableEvent(event);
+      durableLast = Number(event.sequence);
+    }
+    const lifecycle = body?.data?.run?.lifecycle;
+    if (["succeeded", "failed", "cancelled", "timed_out", "interrupted", "cleanup_uncertain", "persistence_degraded"].includes(lifecycle)) {
+      durableTerminal = true;
+      setDurableLive(`Terminal: ${lifecycle}.`);
+      return false;
+    }
+    return true;
+  };
+  const followDurableRun = async () => {
+    if (!durableRun || !durableTimeline || document.hidden || durableTerminal || durableStream) return;
+    const runID = durableRun.dataset.runId;
+    try {
+      if (!await preflightDurableRun(runID)) return;
+    } catch (_) {
+      setDurableLive("Run store unavailable; showing the last committed snapshot.");
+      durableReconnect = window.setTimeout(followDurableRun, 1000);
+      return;
+    }
+    setDurableLive("Connecting to committed run events…");
+    durableStream = new EventSource(`/api/v1/runs/${encodeURIComponent(runID)}/events?after=${durableLast}`);
+    durableStream.addEventListener("open", () => setDurableLive("Live — committed events only."));
+    durableStream.addEventListener("run", (message) => {
+      let event;
+      try { event = JSON.parse(message.data); } catch (_) { return; }
+      const sequence = Number(event.sequence);
+      if (!Number.isSafeInteger(sequence) || sequence <= durableLast) return;
+      appendDurableEvent(event);
+      durableLast = sequence;
+      if (event.type === "terminal") {
+        durableTerminal = true;
+        setDurableLive("Terminal event committed.");
+        stopDurableFollow();
+      }
+    });
+    durableStream.addEventListener("error", () => {
+      durableStream?.close();
+      durableStream = null;
+      if (!durableTerminal && !document.hidden) {
+        setDurableLive("Reconnecting from the last committed sequence…");
+        durableReconnect = window.setTimeout(followDurableRun, 1000);
+      }
+    });
+  };
+
+  if (durableRun) {
+    followDurableRun();
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        stopDurableFollow();
+        if (!durableTerminal) setDurableLive("Observation paused while this tab is hidden.");
+      } else {
+        followDurableRun();
+      }
+    });
+  }
+
   if (statusRoot) {
     follow({id: statusRoot.dataset.operationId, state: statusRoot.dataset.operationState});
   } else if (reviewStatus) {
@@ -861,6 +1221,8 @@
 
   window.addEventListener("pagehide", () => {
     if (stream) stream.close();
+    stopDurableFollow();
+    if (durableLiveTimer) window.clearTimeout(durableLiveTimer);
     if (reviewTimer) clearInterval(reviewTimer);
   });
 })();

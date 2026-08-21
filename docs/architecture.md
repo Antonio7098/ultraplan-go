@@ -145,3 +145,42 @@ mutation remain outside the local web architecture.
 Reference resolution is sequential, repository-contained, symlink-rejecting, regular-file-only, cancellation-aware, and fail-closed. Selected UTF-8 bytes and line endings are preserved, duplicates and overlaps remain authored, and neither source excerpts nor a parallel manifest are persisted. The complete prefix is capped at 256 KiB, with 64 KiB reserved for stage suffixes; overflow is an actionable error, never truncation or omission. Evidence is marked untrusted and transient, and agents retain permission to inspect additional live source.
 
 `internal/platform/runtime` receives only the final ordinary prompt and remains unaware of sprint artifacts or prefix semantics. Planning, execute, independent review requests, and agent-backed smoke authoring call the sprint-owned composition boundary explicitly. Review fan-out shares one immutable prefix, while separate top-level operations rebuild from current files. No provider cache hit is guaranteed or measured, and no UltraPlan cache, retrieval/index, staleness, or provenance authority is introduced.
+## Durable run control
+
+UltraPlan records runtime-backed and asynchronous work in the workspace-local
+`.ultraplan/run-control.db`. `internal/runcontrol` owns operational identity,
+lifecycle, owner leases, fencing, cancellation commands, sanitized event
+ordering, retention, and terminal arbitration. Sprint, study, smoke, runtime,
+lock, artifact, and Git modules remain authoritative for their own product
+state; run control only projects their safe correlations and status.
+
+Each start is accepted and claimed in SQLite before a goroutine, runtime child,
+or external harness starts. A failed required write fails closed. Direct CLI
+commands, TUI actions, web operations, and individual runtime children share
+that boundary. IDs are opaque 128-bit `run_*` and `att_*` values. Writers use
+short transactions, WAL, `synchronous=FULL`, foreign keys, a five-second busy
+timeout, and repository-allocated fencing generations.
+
+Owners tick every second, persist heartbeats every five seconds with a
+15-second lease, and reconcile every ten seconds. Reconciliation waits 45
+seconds beyond lease expiry and uses exact process-birth identity where the
+platform can provide it. An accepted run that never acquired its first claim
+is interrupted after the same grace window, with no fabricated attempt or
+process evidence. Reconciliation never adopts a worker, signals a PID based on
+PID alone, or infers success from artifacts, locks, or product state. One
+immutable terminal proposal wins; a cancellation request may therefore coexist
+with a later successful completion.
+
+Events are sanitized and committed before delivery. Payloads are allowlisted,
+bounded to 16 KiB, and omit prompts, provider-native payloads, credentials,
+absolute paths, and unrestricted output. Consumers resume by `(run_id,
+sequence)` from SQLite; in-process notifications are only an optimization.
+Safe structured repository diagnostics are also written to the private bounded
+`.ultraplan/run-control.log` JSONL file. The log is capped at 1 MiB and uses the
+same run, attempt, owner/fence, sequence, cancellation, reconciliation, and
+terminal correlation vocabulary exposed by diagnostics and support export.
+
+This design supports direct writers and observers on one host and a trustworthy
+local filesystem. Multi-host access, network filesystems without reliable
+SQLite WAL/locking semantics, worker adoption, brokers, and remote signalling
+are outside the supported topology.

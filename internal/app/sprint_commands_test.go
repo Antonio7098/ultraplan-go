@@ -406,6 +406,12 @@ agentwrap:
 	if fake.calls != 2 {
 		t.Fatalf("runtime calls = %d", fake.calls)
 	}
+	runJSON, runStderr, runStatus := runForTest([]string{"--workspace", dir, "run", "list", "--json"})
+	if runStatus != ExitOK || runStderr != "" {
+		t.Fatalf("run list status=%d stderr=%q output=%q", runStatus, runStderr, runJSON)
+	}
+	assertContains(t, runJSON, `"kind": "operation"`)
+	assertContains(t, runJSON, `"operation": "sprint-flow"`)
 	if fake.request.Provider == "" || fake.request.Model == "" {
 		t.Fatalf("runtime request did not include config: %+v", fake.request)
 	}
@@ -461,6 +467,19 @@ agentwrap:
 	if fake.request.Metadata["stage"] != "execute" {
 		t.Fatalf("runtime metadata = %+v", fake.request.Metadata)
 	}
+	privateDir := filepath.Join(dir, ".ultraplan")
+	if err := os.Rename(privateDir, privateDir+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(privateDir, []byte("repository unavailable"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	startedBeforeFailure := fake.calls
+	_, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "flow", "--to", "plan"})
+	if status != ExitRuntime || fake.calls != startedBeforeFailure {
+		t.Fatalf("persistence failure status=%d calls=%d want=%d stderr=%q", status, fake.calls, startedBeforeFailure, stderr)
+	}
+	assertContains(t, stderr, "run-control")
 }
 
 func TestSprintValidateFailuresAndUnsupportedStages(t *testing.T) {

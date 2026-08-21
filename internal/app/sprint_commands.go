@@ -186,18 +186,26 @@ func runSprint(deps dependencies, args []string) error {
 			return classified(ExitUsage, "sprint.flow: %w", err)
 		}
 		flowService := service
+		runCtx := deps.ctx
+		var durable *durableCLICommand
 		if !req.DryRun {
 			if req.To == sprint.StageSmoke && !req.Smoke.NonInteractive {
 				return classified(ExitUsage, "sprint.flow: --yes is required for smoke execution")
 			}
 			req.Progress = renderSprintFlowProgress(deps)
-			flowService, err = sprintRuntimeService(deps, root)
+			durable, err = beginDurableCLICommand(deps, OperationRequest{Kind: OperationFlow, Project: args[0], Sprint: args[1], Stage: string(req.To)})
 			if err != nil {
 				return err
 			}
+			runCtx = durable.Context()
+			flowService, err = sprintRuntimeService(deps, root)
+			if err != nil {
+				return finishDurableCLICommand(durable, err)
+			}
 		}
 		var result sprint.FlowResult
-		result, err = runSprintFlow(deps.ctx, flowService, args[0], args[1], req)
+		result, err = runSprintFlow(runCtx, flowService, args[0], args[1], req)
+		err = finishDurableCLICommand(durable, err)
 		if result.DryRun && err == nil {
 			if jsonOut {
 				return json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.flow", "status": "ready", "result": result})
@@ -237,14 +245,22 @@ func runSprint(deps dependencies, args []string) error {
 			return classified(ExitUsage, "sprint.verify: --yes is required for smoke execution")
 		}
 		verifyService := service
+		runCtx := deps.ctx
+		var durable *durableCLICommand
 		if !req.DryRun {
-			verifyService, err = sprintRuntimeService(deps, root)
+			durable, err = beginDurableCLICommand(deps, OperationRequest{Kind: OperationVerifyStart, Project: args[0], Sprint: args[1], Stage: string(req.To)})
 			if err != nil {
 				return err
 			}
+			runCtx = durable.Context()
+			verifyService, err = sprintRuntimeService(deps, root)
+			if err != nil {
+				return finishDurableCLICommand(durable, err)
+			}
 			req.Progress = renderSprintFlowProgress(deps)
 		}
-		result, runErr := verifyService.Verify(deps.ctx, args[0], args[1], req)
+		result, runErr := verifyService.Verify(runCtx, args[0], args[1], req)
+		runErr = finishDurableCLICommand(durable, runErr)
 		var mappedRunErr error
 		if runErr != nil {
 			if _, ok := sprint.AsSmokeError(runErr); ok {
@@ -275,18 +291,26 @@ func runSprint(deps dependencies, args []string) error {
 			return classified(ExitUsage, "sprint.execute: %w", err)
 		}
 		execService := service
+		runCtx := deps.ctx
+		var durable *durableCLICommand
 		if !req.DryRun && req.DeferReason == "" {
-			execService, err = sprintRuntimeService(deps, root)
+			durable, err = beginDurableCLICommand(deps, OperationRequest{Kind: OperationExecuteStart, Project: args[0], Sprint: args[1], Stage: "execute", Task: req.TaskID})
 			if err != nil {
 				return err
+			}
+			runCtx = durable.Context()
+			execService, err = sprintRuntimeService(deps, root)
+			if err != nil {
+				return finishDurableCLICommand(durable, err)
 			}
 		}
 		var result sprint.ExecuteResult
 		if req.DeferReason != "" {
 			result, err = execService.DeferExecuteTask(deps.ctx, args[0], args[1], req.TaskID, req.DeferReason)
 		} else {
-			result, err = execService.Execute(deps.ctx, args[0], args[1], req)
+			result, err = execService.Execute(runCtx, args[0], args[1], req)
 		}
+		err = finishDurableCLICommand(durable, err)
 		renderSprintExecute(deps, result)
 		if err != nil {
 			if len(result.Findings) > 0 {
@@ -307,6 +331,8 @@ func runSprint(deps dependencies, args []string) error {
 			return classified(ExitUsage, "sprint.review: %w", err)
 		}
 		reviewService := service
+		runCtx := deps.ctx
+		var durable *durableCLICommand
 		if !req.DryRun {
 			req.Progress = func(progress sprint.ReviewProgress) {
 				fmt.Fprintf(deps.stderr, "[sprint] review coverage %d/%d", progress.Completed, progress.Total)
@@ -315,12 +341,18 @@ func runSprint(deps dependencies, args []string) error {
 				}
 				fmt.Fprintf(deps.stderr, ": %s\n", progress.Message)
 			}
-			reviewService, err = sprintRuntimeService(deps, root)
+			durable, err = beginDurableCLICommand(deps, OperationRequest{Kind: OperationReviewStart, Project: args[0], Sprint: args[1], Stage: "review", RestartReview: req.Restart})
 			if err != nil {
 				return err
 			}
+			runCtx = durable.Context()
+			reviewService, err = sprintRuntimeService(deps, root)
+			if err != nil {
+				return finishDurableCLICommand(durable, err)
+			}
 		}
-		result, runErr := reviewService.Review(deps.ctx, args[0], args[1], req)
+		result, runErr := reviewService.Review(runCtx, args[0], args[1], req)
+		runErr = finishDurableCLICommand(durable, runErr)
 		if jsonOut {
 			_ = json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.review", "status": result.Status, "result": result})
 		} else {
@@ -362,13 +394,21 @@ func runSprint(deps dependencies, args []string) error {
 			}
 		}
 		smokeService := service
+		runCtx := deps.ctx
+		var durable *durableCLICommand
 		if !req.DryRun {
-			smokeService, err = sprintRuntimeService(deps, root)
+			durable, err = beginDurableCLICommand(deps, OperationRequest{Kind: OperationSmokeStart, Project: args[0], Sprint: args[1], Stage: "smoke", Level: string(req.Level), Suite: req.Suite, Test: req.Test})
 			if err != nil {
 				return err
 			}
+			runCtx = durable.Context()
+			smokeService, err = sprintRuntimeService(deps, root)
+			if err != nil {
+				return finishDurableCLICommand(durable, err)
+			}
 		}
-		result, runErr := smokeService.RunSmoke(deps.ctx, args[0], args[1], req)
+		result, runErr := smokeService.RunSmoke(runCtx, args[0], args[1], req)
+		runErr = finishDurableCLICommand(durable, runErr)
 		if jsonOut {
 			_ = json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.smoke", "status": result.Status, "result": result})
 		} else {
@@ -416,11 +456,15 @@ func sprintRuntimeService(deps dependencies, root workspace.Root, observers ...f
 	if err != nil {
 		return sprint.Service{}, classified(ExitRuntime, "runtime.init: %w", err)
 	}
+	controlled, err := controlledRuntimeFor(deps, root.Path, effective.Config, rt)
+	if err != nil {
+		return sprint.Service{}, classified(ExitRuntime, "run-control.init: %w", err)
+	}
 	progress := renderSprintRuntimeProgress(deps)
 	if len(observers) > 0 {
 		progress = observers[0]
 	}
-	return sprint.NewService(root.Path).WithRuntime(rt, req).WithRuntimeProgress(progress).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env))), nil
+	return sprint.NewService(root.Path).WithRuntime(controlled, req).WithRuntimeProgress(progress).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env))), nil
 }
 
 func renderSprintFlowProgress(deps dependencies) func(sprint.FlowProgress) {

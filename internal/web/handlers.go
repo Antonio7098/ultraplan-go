@@ -191,11 +191,18 @@ type pageModel struct {
 	CSRF          string
 	Preparation   *operationPreparationView
 	Operation     *operationDocument
+	Runs          []runRowView
+	Run           *runDetailView
+	RunEvents     []runEventView
+	NextRunsURL   string
+	NextEventsURL string
+	RunFilters    runPageFilters
 	Page          string
 }
 
 func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMatch) {
-	if match.name != "api_validations" && r.URL.RawQuery != "" {
+	allowsQuery := match.name == "api_validations" || match.name == "api_runs" || match.name == "api_run_events" || match.name == "runs"
+	if !allowsQuery && r.URL.RawQuery != "" {
 		h.writeRouteError(w, r, match.api, http.StatusBadRequest, "invalid_request", "Unknown query parameters are not accepted.")
 		return
 	}
@@ -295,6 +302,12 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		h.render(w, r, http.StatusOK, "studies", pageModel{Title: "Studies", Heading: "Studies", Studies: result.Items})
+	case "runs":
+		h.handleRunsPage(w, r)
+	case "run":
+		h.handleRunPage(w, r, match.params[0])
+	case "run_cancel":
+		h.handleRunPageCancel(w, r, match.params[0])
 	case "study":
 		result, err := h.queries.Study(r.Context(), match.params[0])
 		if err != nil {
@@ -397,7 +410,26 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		if result.Status != "ok" || !result.Workspace {
 			status = http.StatusServiceUnavailable
 		}
-		h.writeSuccess(w, r, status, map[string]any{"status": result.Status, "server": result.Server, "workspace": result.Workspace}, nil)
+		data := map[string]any{"status": result.Status, "server": result.Server, "workspace": result.Workspace}
+		if h.runs != nil {
+			if runHealth, runErr := h.runs.RunHealth(r.Context()); runErr == nil {
+				data["run_control"] = runHealth
+			} else {
+				data["run_control"] = map[string]any{"status": "failed"}
+				status = http.StatusServiceUnavailable
+			}
+		}
+		h.writeSuccess(w, r, status, data, nil)
+	case "api_runs":
+		h.handleRuns(w, r)
+	case "api_run":
+		if r.Method == http.MethodDelete {
+			h.handleRunCancel(w, r, match.params[0])
+		} else {
+			h.handleRunShow(w, r, match.params[0])
+		}
+	case "api_run_events":
+		h.handleRunEvents(w, r, match.params[0])
 	case "api_operation_prepare":
 		h.handleOperationPrepare(w, r)
 	case "api_operations":

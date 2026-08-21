@@ -178,6 +178,25 @@ func (h *operationHub) startConfirmed(session, dedupKey string, confirm func() (
 	}
 	created := h.now().UTC()
 	ctx, cancel := context.WithCancel(h.rootCtx)
+	if manager, ok := h.ops.(app.DurableOperationManager); ok {
+		accepted, acceptErr := manager.AcceptOperation(ctx, prepared, dedupKey)
+		if acceptErr != nil {
+			if !errors.Is(acceptErr, app.ErrWebUnavailable) {
+				cancel()
+				return operationDocument{}, acceptErr
+			}
+		} else {
+			id = accepted.RunID
+			if accepted.Context != nil {
+				ctx = accepted.Context
+			}
+			if accepted.Existing {
+				doc := operationDocument{ID: id, Kind: prepared.Request.Kind, State: accepted.Lifecycle, CreatedAt: created, DurableStatus: durableStatusDTO{Available: true, RefreshPath: "/runs/" + id}}
+				cancel()
+				return doc, nil
+			}
+		}
+	}
 	record := &operationRecord{
 		doc: operationDocument{
 			ID: id, Kind: prepared.Request.Kind, State: "accepted", CreatedAt: created,
@@ -212,10 +231,28 @@ func (h *operationHub) run(ctx context.Context, record *operationRecord) {
 	result, runErr := h.ops.RunOperation(ctx, record.request, func(event app.OperationEvent) {
 		h.publishAppEvent(record, event)
 	})
+	if manager, ok := h.ops.(app.DurableOperationManager); ok {
+		finishCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		finishErr := manager.FinishOperation(finishCtx, record.doc.ID, result.State, runErr)
+		cancel()
+		if finishErr != nil && !errors.Is(finishErr, app.ErrWebUnavailable) {
+			runErr = errors.Join(runErr, finishErr)
+		}
+	}
 	h.finish(record, result, runErr)
 }
 
 func (h *operationHub) publishAppEvent(record *operationRecord, event app.OperationEvent) {
+	if manager, ok := h.ops.(app.DurableOperationManager); ok {
+		committed, err := manager.RecordOperationEvent(context.Background(), record.doc.ID, event)
+		if err != nil && !errors.Is(err, app.ErrWebUnavailable) {
+			record.cancel()
+			return
+		}
+		if err == nil && !committed {
+			return
+		}
+	}
 	name := "progress"
 	if event.State == app.OperationFailed {
 		name = "warning"

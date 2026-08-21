@@ -105,6 +105,8 @@ func Run(cfg Config) int {
 		version = DefaultVersion()
 	}
 
+	runControl := newRunControlState()
+	defer runControl.Close()
 	deps := dependencies{
 		stdout:               stdout,
 		stderr:               stderr,
@@ -115,6 +117,7 @@ func Run(cfg Config) int {
 		tuiRunner:            cfg.TUIRunner,
 		webRunner:            cfg.WebRunner,
 		sprintRuntimeFactory: cfg.SprintRuntimeFactory,
+		runControl:           runControl,
 	}
 	if deps.sprintRuntimeFactory == nil {
 		deps.sprintRuntimeFactory = defaultSprintRuntimeFactory
@@ -153,6 +156,8 @@ func Run(cfg Config) int {
 		return failOrOK(stderr, runConfig(deps, args[1:]))
 	case "health":
 		return failOrOK(stderr, runHealth(deps, args[1:]))
+	case "run":
+		return failOrOK(stderr, runRun(deps, args[1:]))
 	case "project":
 		return failOrOK(stderr, runProject(deps, args[1:]))
 	case "sprint":
@@ -181,6 +186,7 @@ type dependencies struct {
 	tuiRunner            TUIRunner
 	webRunner            WebRunner
 	sprintRuntimeFactory SprintRuntimeFactory
+	runControl           *runControlState
 }
 
 type globalFlags struct {
@@ -252,6 +258,7 @@ Commands:
   config           Inspect effective configuration.
   code             Extract cited code snippets from reports.
   health           Check workspace, config, filesystem, and environment basics.
+  run              Inspect, follow, cancel, and diagnose durable runs.
   project          Inspect projects and validate project indexes.
   sprint           Inspect planning sprint artifact flow state.
   study            Inspect studies, sources, and dimensions.
