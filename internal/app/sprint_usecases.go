@@ -60,6 +60,7 @@ type SmokeSummary struct {
 	FreshnessReasons             []string
 	Issues                       []sprint.SmokeIssue
 	Override                     *sprint.DiagnosticOverride
+	CoverageMapping              *sprint.SmokeCoverageMapping
 }
 
 type StageSummary struct {
@@ -280,7 +281,7 @@ func summarizeSmoke(state *sprint.SmokeStageState) SmokeSummary {
 	if state == nil {
 		return SmokeSummary{}
 	}
-	return SmokeSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), RunID: state.RunID, Error: displayReasons(state.Diagnostics), Stale: state.Stale, Reconciliation: state.Reconciliation}
+	return SmokeSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), RunID: state.RunID, Error: displayReasons(state.Diagnostics), Stale: state.Stale, Reconciliation: state.Reconciliation, CoverageMapping: state.CoverageMapping}
 }
 
 func summarizeReview(state *sprint.ReviewStageState) ReviewSummary {

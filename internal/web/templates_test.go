@@ -192,6 +192,24 @@ func TestSprintRunExposesStageControls(t *testing.T) {
 	}
 }
 
+func TestSmokeCoverageMappingAppearsInRunAndSmokeResultOnly(t *testing.T) {
+	queries := sampleQueries()
+	overview := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints/30-web", nil).Body.String()
+	if strings.Contains(overview, `id="smoke-coverage-heading"`) {
+		t.Fatal("smoke coverage mapping should not appear on the sprint overview")
+	}
+	run := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
+	queries.artifact.DisplayPath = "projects/alpha/sprints/30-web/smoke.md"
+	smokeResult := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints/30-web/artifacts/artifact_ref", nil).Body.String()
+	for name, body := range map[string]string{"run": run, "smoke result": smokeResult} {
+		for _, want := range []string{`id="smoke-coverage-heading"`, "provider probe missing", "browser-boundary", "sprint-30", "AC-01", "AC-02", "incomplete"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s smoke coverage mapping missing %q", name, want)
+			}
+		}
+	}
+}
+
 func TestSprintCodeContextOrderAndPreservedArtifactOutcome(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
 	requirements := strings.Index(body, `href="#stage-requirements"`)

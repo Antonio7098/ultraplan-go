@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
+	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 )
 
 type fakeQueries struct {
@@ -38,7 +39,7 @@ func sampleQueries() *fakeQueries {
 			{ID: "contract-api", Name: "API contract", Kind: "contract", Path: "contracts/api.md", Status: "running"},
 			{ID: "handbook", Name: "Technical handbook", Kind: "handbook", Path: "technical-handbook.md", Status: "pending"},
 		}},
-		Smoke:    app.SmokeSummary{Available: true, Status: "complete", Verdict: "pass"},
+		Smoke:    app.SmokeSummary{Available: true, Status: "complete", Verdict: "pass", CoverageMapping: &sprint.SmokeCoverageMapping{Sprint: "30-web", Suites: []string{"sprint-30"}, Complete: false, Rationale: "provider probe missing", RequiredCoverage: []string{"AC-01", "AC-02"}, Tests: []sprint.SmokeCoverageTest{{ID: "browser-boundary", Suite: "sprint-30", Coverage: []string{"AC-01"}}}}},
 		Findings: []app.DisplayFinding{finding}, Artifacts: []app.WebArtifactLink{requirementsArtifact, contextArtifact, indexArtifact, artifact},
 	}
 	project := app.WebProjectResult{

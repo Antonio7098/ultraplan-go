@@ -48,6 +48,7 @@
 {{if .Artifact.Truncated}}<p class="notice" role="status">Preview truncated at the safe 256 KiB limit.</p>{{end}}
 {{if and (eq .Artifact.MediaType "application/json") (not .Artifact.JSONValid)}}<p class="notice" role="status">The bounded source is not valid JSON.</p>{{end}}
 {{if .ArtifactHTML}}<article class="markdown-body">{{.ArtifactHTML}}</article>{{else}}<div class="code-wrap artifact-explorer-preview"><pre aria-label="Escaped artifact source"><code>{{.Artifact.Content}}</code></pre></div>{{end}}
+{{if .SmokeArtifact}}{{with .Sprint.Smoke.CoverageMapping}}{{template "component/smoke-coverage-mapping" .}}{{end}}{{end}}
 {{else}}
 <section><p class="eyebrow">Sprint knowledge</p><h2>Artefact Navigator</h2><p>Browse the sprint by purpose. Governed documents explain the work; internal state is kept separate.</p></section>
 <div class="artifact-groups">
@@ -90,7 +91,15 @@
 {{if .Error}}<div class="stage-failure" role="alert"><h3>Why it failed</h3><p>{{.Error}}</p></div>{{end}}<p>Start the governed flow and stop when this stage is complete.</p>
 {{if eq .Name "code-context"}}{{if .ArtifactAvailable}}<p><strong>Authoritative artifact:</strong> available{{if .ArtifactValid}} and structurally valid{{else}}, but currently invalid{{end}}.</p>{{end}}{{if .NextAction}}<p>{{.NextAction}}</p>{{end}}{{end}}
 <form class="operation-form stage-start" method="post" action="/operations/prepare" data-project="{{$.Sprint.Project}}" data-sprint="{{$.Sprint.Slug}}" data-stage="{{.Name}}"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><input type="hidden" name="project" value="{{$.Sprint.Project}}"><input type="hidden" name="sprint" value="{{$.Sprint.Slug}}"><input type="hidden" name="stage" value="{{.Name}}"><button type="submit" name="kind" value="sprint-flow" data-operation-kind="sprint-flow">Start run to {{.Name}}</button></form>
-{{end}}<div class="stage-operation-status" data-stage-operation-status role="status" aria-live="polite" tabindex="-1"></div><div class="stage-confirmation" data-stage-confirmation hidden></div></section>{{end}}<noscript><p class="notice">Stage links and run forms work without JavaScript. Refresh the resulting operation page to see current server status.</p></noscript></div>
+{{end}}{{if eq .Name "smoke"}}{{with $.Sprint.Smoke.CoverageMapping}}{{template "component/smoke-coverage-mapping" .}}{{end}}{{end}}<div class="stage-operation-status" data-stage-operation-status role="status" aria-live="polite" tabindex="-1"></div><div class="stage-confirmation" data-stage-confirmation hidden></div></section>{{end}}<noscript><p class="notice">Stage links and run forms work without JavaScript. Refresh the resulting operation page to see current server status.</p></noscript></div>
 </div></div>
 {{end}}
 </div></div>{{template "layout/bottom" .}}{{end}}
+
+{{define "component/smoke-coverage-mapping"}}<section class="smoke-coverage-mapping" aria-labelledby="smoke-coverage-heading">
+  <p class="eyebrow">Deep smoke</p><h2 id="smoke-coverage-heading">Coverage mapping</h2>
+  <p><span class="status status-{{if .Complete}}ok{{else}}warn{{end}}">{{if .Complete}}complete{{else}}incomplete{{end}}</span> {{.Rationale}}</p>
+  <dl class="metadata"><div><dt>Suites</dt><dd>{{if .Suites}}{{range $index, $suite := .Suites}}{{if $index}}, {{end}}<code>{{$suite}}</code>{{end}}{{else}}none{{end}}</dd></div><div><dt>Required coverage</dt><dd>{{len .RequiredCoverage}}</dd></div><div><dt>Mapped tests</dt><dd>{{len .Tests}}</dd></div></dl>
+  <details open><summary>Required coverage IDs</summary><ul class="coverage-id-list">{{range .RequiredCoverage}}<li><code>{{.}}</code></li>{{else}}<li>None declared.</li>{{end}}</ul></details>
+  <div class="coverage-test-grid">{{range .Tests}}<article class="coverage-test-card"><h3><code>{{.ID}}</code></h3><p>Suite: <code>{{.Suite}}</code></p><ul>{{range .Coverage}}<li><code>{{.}}</code></li>{{else}}<li>No coverage IDs declared.</li>{{end}}</ul></article>{{else}}<p class="empty">No mapped smoke tests were discovered.</p>{{end}}</div>
+</section>{{end}}

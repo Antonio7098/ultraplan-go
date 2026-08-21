@@ -372,6 +372,36 @@ func validateSmokeDiscovery(d smokeDiscovery, m smokeManifest) error {
 	return nil
 }
 
+func smokeCoverageMapping(d smokeDiscovery, sprint string) *SmokeCoverageMapping {
+	for _, mapping := range d.SprintMappings {
+		if mapping.Sprint != sprint {
+			continue
+		}
+		suites := map[string]bool{}
+		for _, suite := range mapping.Suites {
+			suites[suite] = true
+		}
+		out := &SmokeCoverageMapping{
+			Sprint:           mapping.Sprint,
+			Suites:           append([]string(nil), mapping.Suites...),
+			Complete:         mapping.Complete,
+			NotApplicable:    mapping.NotApplicable,
+			Rationale:        mapping.Rationale,
+			RequiredCoverage: append([]string(nil), mapping.RequiredCoverage...),
+			Tests:            []SmokeCoverageTest{},
+		}
+		for _, test := range d.Tests {
+			if suites[test.Suite] {
+				out.Tests = append(out.Tests, SmokeCoverageTest{ID: test.ID, Suite: test.Suite, Coverage: append([]string(nil), test.Coverage...)})
+			}
+		}
+		sort.Strings(out.Suites)
+		sort.Slice(out.Tests, func(i, j int) bool { return out.Tests[i].ID < out.Tests[j].ID })
+		return out
+	}
+	return nil
+}
+
 func selectSmoke(d smokeDiscovery, sprint string, req SmokeRequest) (smokeSelection, error) {
 	levels, suites, tests := map[string]smokeLevel{}, map[string]smokeSuite{}, map[string]smokeTest{}
 	for _, v := range d.Levels {

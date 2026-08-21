@@ -213,6 +213,12 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .sprint-continue-panel .flow-action select, .sprint-continue-panel .flow-action button { width: 100%; }
 .sprint-overview-wide { min-width: 0; }
 .sprint-overview-wide > .operation-console { margin-top: 0; }
+.smoke-coverage-mapping details { margin-top: 1rem; }
+.coverage-id-list { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; list-style: none; }
+.coverage-test-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin-top: 1rem; }
+.coverage-test-card { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-subtle); }
+.coverage-test-card h3 { margin-top: 0; overflow-wrap: anywhere; }
+.coverage-test-card ul { display: flex; flex-wrap: wrap; gap: .4rem; padding: 0; list-style: none; }
 .latest-sprint { position: relative; overflow: hidden; padding: clamp(1.2rem, 3vw, 1.8rem); border: 0; background: linear-gradient(125deg, color-mix(in oklch, var(--accent-soft) 80%, var(--panel)), var(--panel) 58%); box-shadow: 0 18px 45px rgb(0 0 0 / 18%); }
 .latest-sprint::after { content: ""; position: absolute; right: -5rem; top: -7rem; width: 15rem; height: 15rem; border-radius: 50%; background: var(--accent); opacity: .1; filter: blur(28px); pointer-events: none; }
 .latest-sprint-heading { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }

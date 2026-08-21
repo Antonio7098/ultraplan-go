@@ -86,6 +86,7 @@ func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req
 	if err := validateSmokeDiscovery(discovery, prepared.Manifest); err != nil {
 		return smokeFailedResult(result, err)
 	}
+	result.CoverageMapping = smokeCoverageMapping(discovery, prepared.Sprint.Slug)
 	emit(SmokeProgress{Phase: SmokePhaseSelection, Message: "selecting narrowest sufficient scope"})
 	selection, err := selectSmoke(discovery, prepared.Sprint.Slug, req)
 	if err != nil {
@@ -449,7 +450,7 @@ func (s Service) commitSmoke(p smokePrepared, result SmokeResult) (SmokeResult, 
 	if state.Smoke != nil {
 		active = state.Smoke.ActiveAttempt
 	}
-	state.Smoke = &SmokeStageState{Status: result.Status, Verdict: result.Verdict, Path: ArtifactRelPath(p.Sprint, StageSmoke), LastRunAt: &now, ReviewFingerprint: result.ReviewFingerprint, SmokeFingerprint: artifactDigest, ArtifactDigest: artifactDigest, InputFingerprint: inputFingerprint, RunID: result.RunID, AuthorRunID: result.AuthorRunID, AuthorModel: result.AuthorModel, AuthorChangedPaths: append([]string(nil), result.AuthorChangedPaths...), EvidenceID: evidenceID, ReviewOverride: result.ReviewOverride, Diagnostics: result.Diagnostics, Issues: append([]SmokeIssue(nil), result.Issues...), Evidence: refs, Override: override, ActiveAttempt: active, LastComplete: &SmokeCompletion{Verdict: result.Verdict, Artifact: ArtifactRelPath(p.Sprint, StageSmoke), ArtifactDigest: artifactDigest, InputFingerprint: inputFingerprint, CompletedAt: now, RunID: result.RunID, AuthorRunID: result.AuthorRunID, AuthorModel: result.AuthorModel, AuthorChangedPaths: append([]string(nil), result.AuthorChangedPaths...), EvidenceID: evidenceID, Evidence: identityRefs, Issues: append([]SmokeIssue(nil), result.Issues...), Override: override}}
+	state.Smoke = &SmokeStageState{Status: result.Status, Verdict: result.Verdict, Path: ArtifactRelPath(p.Sprint, StageSmoke), LastRunAt: &now, ReviewFingerprint: result.ReviewFingerprint, SmokeFingerprint: artifactDigest, ArtifactDigest: artifactDigest, InputFingerprint: inputFingerprint, RunID: result.RunID, AuthorRunID: result.AuthorRunID, AuthorModel: result.AuthorModel, AuthorChangedPaths: append([]string(nil), result.AuthorChangedPaths...), CoverageMapping: result.CoverageMapping, EvidenceID: evidenceID, ReviewOverride: result.ReviewOverride, Diagnostics: result.Diagnostics, Issues: append([]SmokeIssue(nil), result.Issues...), Evidence: refs, Override: override, ActiveAttempt: active, LastComplete: &SmokeCompletion{Verdict: result.Verdict, Artifact: ArtifactRelPath(p.Sprint, StageSmoke), ArtifactDigest: artifactDigest, InputFingerprint: inputFingerprint, CompletedAt: now, RunID: result.RunID, AuthorRunID: result.AuthorRunID, AuthorModel: result.AuthorModel, AuthorChangedPaths: append([]string(nil), result.AuthorChangedPaths...), CoverageMapping: result.CoverageMapping, EvidenceID: evidenceID, Evidence: identityRefs, Issues: append([]SmokeIssue(nil), result.Issues...), Override: override}}
 	if err := SaveFlowState(s.root, p.Sprint, state); err != nil {
 		result.Reconciliation = true
 		return result, smokeError("smoke_reconciliation", "reconciliation", "smoke.md committed but flow state update failed", "Reconcile flow state by rerunning smoke.", err)
@@ -472,6 +473,13 @@ func RenderSmoke(r SmokeResult) string {
 		}
 	}
 	b.WriteString("\n")
+	if mapping := r.CoverageMapping; mapping != nil {
+		fmt.Fprintf(&b, "## Coverage Mapping\n\nComplete: `%t`\nRequired coverage: `%s`\nRationale: %s\n\n", mapping.Complete, strings.Join(mapping.RequiredCoverage, "`, `"), printable(mapping.Rationale))
+		for _, test := range mapping.Tests {
+			fmt.Fprintf(&b, "- `%s` (suite `%s`): `%s`\n", test.ID, test.Suite, strings.Join(test.Coverage, "`, `"))
+		}
+		b.WriteString("\n")
+	}
 	fmt.Fprintf(&b, "## Selected Scope And Rationale\n\nScope kind: `%s`\nScope: `%s`\nRationale: %s\nDuration class: `%s`\nCost class: `%s`\nDiagnostic only: `%t`\n\n", printable(r.ScopeKind), printable(r.Scope), printable(r.ScopeRationale), printable(r.DurationClass), printable(r.CostClass), r.DiagnosticOnly)
 	fmt.Fprintf(&b, "## Preconditions And Environment\n\nPrerequisites: %s\nEnvironment: bounded allowlist; values not persisted\nEvidence roots: `%s`\nEffective timeout: `%s` (source `%s`)\n\n", printable(strings.Join(r.Prerequisites, "; ")), printable(strings.Join(r.EvidenceRoots, ", ")), r.EffectiveTimeout, printable(r.TimeoutSource))
 	fmt.Fprintf(&b, "## Safe Invocation\n\nArgv: `%s`\n\n", printable(r.SafeArgv))

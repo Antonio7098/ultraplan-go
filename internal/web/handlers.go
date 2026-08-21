@@ -172,25 +172,26 @@ type artifactPreviewDTO struct {
 }
 
 type pageModel struct {
-	Title        string
-	Heading      string
-	Description  string
-	Workspace    string
-	Projects     []app.WebProjectResult
-	Project      *app.WebProjectResult
-	Sprints      []app.WebSprintResult
-	Sprint       *app.WebSprintResult
-	Studies      []app.WebStudyResult
-	Study        *app.WebStudyResult
-	Artifact     *app.WebArtifactPreview
-	ArtifactHTML template.HTML
-	Health       *app.WebHealthResult
-	Status       int
-	Error        string
-	CSRF         string
-	Preparation  *operationPreparationView
-	Operation    *operationDocument
-	Page         string
+	Title         string
+	Heading       string
+	Description   string
+	Workspace     string
+	Projects      []app.WebProjectResult
+	Project       *app.WebProjectResult
+	Sprints       []app.WebSprintResult
+	Sprint        *app.WebSprintResult
+	Studies       []app.WebStudyResult
+	Study         *app.WebStudyResult
+	Artifact      *app.WebArtifactPreview
+	ArtifactHTML  template.HTML
+	SmokeArtifact bool
+	Health        *app.WebHealthResult
+	Status        int
+	Error         string
+	CSRF          string
+	Preparation   *operationPreparationView
+	Operation     *operationDocument
+	Page          string
 }
 
 func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMatch) {
@@ -286,7 +287,7 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			h.handleQueryError(w, r, false, err)
 			return
 		}
-		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: artifact.DisplayPath + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Artifact: &artifact, ArtifactHTML: renderMarkdown(artifact), Page: "artifacts"})
+		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: artifact.DisplayPath + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Artifact: &artifact, ArtifactHTML: renderMarkdown(artifact), SmokeArtifact: artifact.DisplayPath == "smoke.md" || strings.HasSuffix(artifact.DisplayPath, "/smoke.md"), Page: "artifacts"})
 	case "studies":
 		result, err := h.queries.Studies(r.Context())
 		if err != nil {

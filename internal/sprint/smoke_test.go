@@ -329,6 +329,9 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	if err != nil || result.Verdict != SmokePass || len(runner.calls) != 2 {
 		t.Fatalf("result=%+v calls=%v err=%v", result, runner.calls, err)
 	}
+	if result.CoverageMapping == nil || !result.CoverageMapping.Complete || result.CoverageMapping.Rationale != "dedicated" || len(result.CoverageMapping.RequiredCoverage) != 1 || len(result.CoverageMapping.Tests) != 1 || result.CoverageMapping.Tests[0].ID != "live" {
+		t.Fatalf("coverage mapping was not retained in result: %+v", result.CoverageMapping)
+	}
 	if len(author.requests) != 1 || author.requests[0].WorkDir != harness || author.requests[0].Model != "author" || !containsString(author.requests[0].RequireCaps, "permissions") || author.requests[0].Policy.UnsupportedBehavior != "" || !strings.Contains(author.requests[0].Prompt, "required deep-smoke coverage ID") || strings.Count(author.requests[0].Prompt, sharedPromptStageBoundary) != 1 {
 		t.Fatalf("smoke author request was not sprint-specific and model-routed: %+v", author.requests)
 	}
@@ -399,6 +402,10 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	status, statusErr := service.VerificationStatus("proj", "01")
 	if statusErr != nil || !status.Smoke.Fresh {
 		t.Fatalf("fresh smoke status=%+v err=%v", status, statusErr)
+	}
+	flowState, stateErr := LoadFlowState(root, sp)
+	if stateErr != nil || flowState.Smoke == nil || flowState.Smoke.CoverageMapping == nil || flowState.Smoke.CoverageMapping.Tests[0].ID != "live" {
+		t.Fatalf("coverage mapping was not persisted: state=%+v err=%v", flowState.Smoke, stateErr)
 	}
 	originalRun, _ := os.ReadFile(runJSON)
 	if err := os.WriteFile(runJSON, []byte("externally edited\n"), 0o644); err != nil {
