@@ -989,6 +989,10 @@
   const agentSection = document.querySelector("[data-run-agents]");
   const agentGrid = document.getElementById("run-agent-grid");
   const agentEmptyMessage = document.getElementById("run-agent-grid-empty");
+  const completedToggle = document.querySelector("[data-run-completed-toggle]");
+  const completedToggleLabel = completedToggle?.querySelector("[data-run-completed-label]");
+  const completedToggleCount = completedToggle?.querySelector("[data-run-completed-count]");
+  const completedTogglePlural = completedToggle?.querySelector("[data-run-completed-plural]");
   const agentDialog = document.getElementById("run-agent-dialog");
   const agentDialogClose = document.getElementById("run-agent-dialog-close");
   const agentDialogTitle = document.getElementById("run-agent-dialog-title");
@@ -997,6 +1001,10 @@
   const agentDialogTimeline = document.getElementById("run-agent-dialog-timeline");
   const runAgents = new Map();
   let openAgentTask = "";
+  const seenAgentTasks = new Set();
+  let runAgentsLive = false;
+  let completedAgentsExpanded = false;
+  let previousActiveAgentCount = 0;
 
   const humanizeRunText = (value) => String(value || "").replaceAll("_", " ");
   const formatRunTime = (value) => {
@@ -1039,14 +1047,61 @@
     list.scrollTop = list.scrollHeight;
   };
 
+  const runAgentIsActive = (agent) => agent.status === "running" || agent.status === "pending";
+
+  const activeAgentCount = () => {
+    let count = 0;
+    for (const agent of runAgents.values()) if (runAgentIsActive(agent)) count++;
+    return count;
+  };
+
+  const flipAgentGrid = (mutate) => {
+    if (!agentGrid || !runAgentsLive || typeof agentGrid.animate !== "function") {
+      mutate();
+      return;
+    }
+    const before = new Map();
+    for (const card of agentGrid.children) before.set(card.dataset.runAgent, card.getBoundingClientRect());
+    mutate();
+    for (const card of agentGrid.children) {
+      const previous = before.get(card.dataset.runAgent);
+      if (!previous) continue;
+      const now = card.getBoundingClientRect();
+      const dx = previous.left - now.left;
+      const dy = previous.top - now.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      card.animate(
+        [{transform: `translate(${dx}px, ${dy}px)`}, {transform: "translate(0, 0)"}],
+        {duration: 340, easing: "cubic-bezier(.16, 1, .3, 1)"}
+      );
+    }
+  };
+
   const renderAgentGrid = () => {
     if (!agentGrid || !agentSection) return;
-    const fragment = document.createDocumentFragment();
+    if (previousActiveAgentCount > 0 && activeAgentCount() === 0) completedAgentsExpanded = true;
+    const active = [];
+    const settled = [];
+    let activeCount = 0;
     for (const agent of runAgents.values()) {
+      if (runAgentIsActive(agent)) {
+        active.push(agent);
+        activeCount++;
+      } else settled.push(agent);
+    }
+    previousActiveAgentCount = activeCount;
+    const showCompleted = completedAgentsExpanded || activeCount === 0;
+    const fragment = document.createDocumentFragment();
+    for (const agent of [...active, ...(showCompleted ? settled : [])]) {
       const identity = runAgentIdentity(agent.task);
       const card = document.createElement("li");
       card.className = `reviewer-card reviewer-${agent.status} run-agent-card`;
       card.dataset.runAgent = agent.task;
+      if (!seenAgentTasks.has(agent.task)) {
+        seenAgentTasks.add(agent.task);
+        if (runAgentsLive) card.classList.add("agent-card-new");
+      }
+      if (runAgentIsActive(agent)) card.classList.add("agent-card-live");
       const heading = document.createElement("div");
       heading.className = "reviewer-heading";
       const name = document.createElement("strong");
@@ -1081,10 +1136,22 @@
       card.append(open);
       fragment.append(card);
     }
-    agentGrid.replaceChildren(fragment);
+    flipAgentGrid(() => agentGrid.replaceChildren(fragment));
     agentSection.hidden = runAgents.size === 0;
     if (agentEmptyMessage) agentEmptyMessage.hidden = runAgents.size > 0;
+    if (completedToggle) {
+      completedToggle.hidden = activeCount === 0 || settled.length === 0;
+      completedToggle.setAttribute("aria-expanded", String(completedAgentsExpanded));
+      if (completedToggleLabel) completedToggleLabel.textContent = completedAgentsExpanded ? "Hide" : "Show";
+      if (completedToggleCount) completedToggleCount.textContent = String(settled.length);
+      if (completedTogglePlural) completedTogglePlural.hidden = settled.length === 1;
+    }
   };
+
+  completedToggle?.addEventListener("click", () => {
+    completedAgentsExpanded = !completedAgentsExpanded;
+    renderAgentGrid();
+  });
 
   const refreshAgentDialogSummary = (agent) => {
     if (!agentDialogSummary || openAgentTask !== agent.task) return;
@@ -1171,6 +1238,7 @@
     });
   }
   renderAgentGrid();
+  runAgentsLive = true;
 
   const appendDurableEvent = (event) => {
     ingestRunEvent(event);

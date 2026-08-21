@@ -11,6 +11,9 @@
   <h2 id="run-agents-heading">Agents in this run</h2>
   <p class="group-description">Each card follows one study agent. Select a card for its detailed summary and full committed event stream.</p>
   <ul id="run-agent-grid" class="reviewer-grid run-agent-grid"></ul>
+  <div class="run-agent-completed-row">
+    <button id="run-agent-completed-toggle" type="button" data-run-completed-toggle aria-expanded="false" aria-controls="run-agent-grid" hidden><span data-run-completed-label>Show</span> <span data-run-completed-count>0</span> completed agent<span data-run-completed-plural>s</span><span class="run-agent-toggle-chevron" aria-hidden="true">▾</span></button>
+  </div>
   <p id="run-agent-grid-empty" class="empty">No per-agent activity has been committed yet.</p>
 </section>
 <dialog id="run-agent-dialog" class="reviewer-result-dialog run-agent-dialog" aria-labelledby="run-agent-dialog-title">
