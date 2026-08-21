@@ -51,9 +51,14 @@ type WebPromptQueries interface {
 	PromptBundle(context.Context, string, string, string) (WebPromptBundleResult, error)
 }
 
+type WebResourceQueries interface {
+	StudyResources(context.Context, string) (study.RunLoopResourceHistory, error)
+}
+
 type WebUseCases interface {
 	WebQueries
 	WebPromptQueries
+	WebResourceQueries
 	WebOperations
 	RunUseCases
 }
@@ -199,6 +204,17 @@ type webUseCases struct {
 	refs      map[string]webRefTarget
 	runs      RunUseCases
 	durable   DurableOperationManager
+}
+
+func (u *webUseCases) StudyResources(ctx context.Context, name string) (study.RunLoopResourceHistory, error) {
+	if err := ctx.Err(); err != nil {
+		return study.RunLoopResourceHistory{}, err
+	}
+	listing, err := study.NewService(u.root).ListStudy(name)
+	if err != nil {
+		return study.RunLoopResourceHistory{}, fmt.Errorf("%w: study resources", ErrWebNotFound)
+	}
+	return study.LoadRunLoopResourceHistory(listing.Study, 240)
 }
 
 func NewWebUseCases(root string, opts WebUseCaseOptions) WebUseCases {

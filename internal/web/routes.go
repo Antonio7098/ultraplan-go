@@ -21,7 +21,7 @@ import (
 var assets embed.FS
 
 var staticAssetNames = map[string]struct{}{
-	"app.css": {}, "app.js": {},
+	"app.css": {}, "app.js": {}, "resource-monitor.css": {}, "resource-monitor.js": {},
 	"css/tokens.css": {}, "css/base.css": {}, "css/primitives.css": {}, "css/components.css": {}, "css/layouts.css": {}, "css/utilities.css": {},
 	"js/app.js": {}, "js/operations.js": {}, "js/sse.js": {},
 }
@@ -352,6 +352,8 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "api_prompt_bundle", params: []string{parts[3], parts[5], parts[7]}, known: true, api: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "studies":
 		return routeMatch{name: "api_study", params: parts[3:], known: true, api: true}
+	case len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "studies" && parts[4] == "resources":
+		return routeMatch{name: "api_study_resources", params: []string{parts[3]}, known: true, api: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "artifacts":
 		return routeMatch{name: "api_artifact", params: parts[3:], known: true, api: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "operations":

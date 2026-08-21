@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,38 +20,59 @@ const (
 )
 
 type runLoopDiagnostics struct {
-	path  string
-	runID string
-	mu    sync.Mutex
+	path                 string
+	runID                string
+	mu                   sync.Mutex
+	activeTasks          map[string]struct{}
+	requestedParallelism int
+	effectiveParallelism int
 }
 
-type runLoopMemorySample struct {
-	Timestamp            time.Time `json:"timestamp"`
-	RunID                string    `json:"run_id,omitempty"`
-	Phase                string    `json:"phase"`
-	TaskID               string    `json:"task_id,omitempty"`
-	DurationMS           int64     `json:"duration_ms,omitempty"`
-	StateBytes           int64     `json:"state_bytes,omitempty"`
-	HeapAllocBytes       uint64    `json:"heap_alloc_bytes"`
-	HeapInuseBytes       uint64    `json:"heap_inuse_bytes"`
-	HeapSysBytes         uint64    `json:"heap_sys_bytes"`
-	ProcessRSSBytes      uint64    `json:"process_rss_bytes,omitempty"`
-	ProcessHWMBytes      uint64    `json:"process_hwm_bytes,omitempty"`
-	ProcessSwap          uint64    `json:"process_swap_bytes,omitempty"`
-	Goroutines           int       `json:"goroutines"`
-	NumGC                uint32    `json:"num_gc"`
-	Error                string    `json:"error,omitempty"`
-	RequestedParallelism int       `json:"requested_parallelism,omitempty"`
-	EffectiveParallelism int       `json:"effective_parallelism,omitempty"`
-	MemoryAvailableBytes uint64    `json:"memory_available_bytes,omitempty"`
-	ChildProcessCount    int       `json:"child_process_count,omitempty"`
-	ChildRSSBytes        uint64    `json:"child_rss_bytes,omitempty"`
+type RunLoopChildResource struct {
+	PID       int    `json:"pid"`
+	TaskID    string `json:"task_id,omitempty"`
+	RSSBytes  uint64 `json:"rss_bytes,omitempty"`
+	SwapBytes uint64 `json:"swap_bytes,omitempty"`
+	CPUTimeMS uint64 `json:"cpu_time_ms,omitempty"`
+	ElapsedMS uint64 `json:"elapsed_ms,omitempty"`
 }
+
+type RunLoopMemorySample struct {
+	Timestamp            time.Time              `json:"timestamp"`
+	RunID                string                 `json:"run_id,omitempty"`
+	Phase                string                 `json:"phase"`
+	TaskID               string                 `json:"task_id,omitempty"`
+	DurationMS           int64                  `json:"duration_ms,omitempty"`
+	StateBytes           int64                  `json:"state_bytes,omitempty"`
+	HeapAllocBytes       uint64                 `json:"heap_alloc_bytes"`
+	HeapInuseBytes       uint64                 `json:"heap_inuse_bytes"`
+	HeapSysBytes         uint64                 `json:"heap_sys_bytes"`
+	ProcessRSSBytes      uint64                 `json:"process_rss_bytes,omitempty"`
+	ProcessHWMBytes      uint64                 `json:"process_hwm_bytes,omitempty"`
+	ProcessSwap          uint64                 `json:"process_swap_bytes,omitempty"`
+	Goroutines           int                    `json:"goroutines"`
+	NumGC                uint32                 `json:"num_gc"`
+	Error                string                 `json:"error,omitempty"`
+	RequestedParallelism int                    `json:"requested_parallelism,omitempty"`
+	EffectiveParallelism int                    `json:"effective_parallelism,omitempty"`
+	MemoryAvailableBytes uint64                 `json:"memory_available_bytes,omitempty"`
+	ChildProcessCount    int                    `json:"child_process_count,omitempty"`
+	ChildRSSBytes        uint64                 `json:"child_rss_bytes,omitempty"`
+	ActiveTaskIDs        []string               `json:"active_task_ids,omitempty"`
+	Children             []RunLoopChildResource `json:"children,omitempty"`
+}
+
+type RunLoopResourceHistory struct {
+	Study   string                `json:"study"`
+	Samples []RunLoopMemorySample `json:"samples"`
+}
+
+type runLoopMemorySample = RunLoopMemorySample
 
 func newRunLoopDiagnostics(study Study, runID string) *runLoopDiagnostics {
 	return &runLoopDiagnostics{
-		path:  filepath.Join(study.Path, RunStateDirName, "diagnostics", "run-loop-memory.jsonl"),
-		runID: runID,
+		path: filepath.Join(study.Path, RunStateDirName, "diagnostics", "run-loop-memory.jsonl"), runID: runID,
+		activeTasks: map[string]struct{}{},
 	}
 }
 
@@ -75,6 +97,13 @@ func (d *runLoopDiagnostics) start(ctx context.Context) func() {
 	}
 }
 
+func (d *runLoopDiagnostics) configureParallelism(requested int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.requestedParallelism = requested
+	d.effectiveParallelism = requested
+}
+
 func (d *runLoopDiagnostics) sample(phase, taskID string, duration time.Duration, sampleErr error) {
 	if d == nil {
 		return
@@ -82,24 +111,42 @@ func (d *runLoopDiagnostics) sample(phase, taskID string, duration time.Duration
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 	rss, hwm, swap := processMemory()
-	childCount, childRSS := childProcessMemory()
-	sample := runLoopMemorySample{
-		Timestamp:         time.Now().UTC(),
-		RunID:             d.runID,
-		Phase:             phase,
-		TaskID:            taskID,
-		DurationMS:        duration.Milliseconds(),
-		StateBytes:        fileSize(filepath.Join(filepath.Dir(filepath.Dir(d.path)), RunStateFileName)),
-		HeapAllocBytes:    mem.HeapAlloc,
-		HeapInuseBytes:    mem.HeapInuse,
-		HeapSysBytes:      mem.HeapSys,
-		ProcessRSSBytes:   rss,
-		ProcessHWMBytes:   hwm,
-		ProcessSwap:       swap,
-		Goroutines:        runtime.NumGoroutine(),
-		NumGC:             mem.NumGC,
-		ChildProcessCount: childCount,
-		ChildRSSBytes:     childRSS,
+	d.mu.Lock()
+	if phase == "runtime.start" && taskID != "" {
+		d.activeTasks[taskID] = struct{}{}
+	}
+	activeTasks := sortedTaskIDs(d.activeTasks)
+	requestedParallelism := d.requestedParallelism
+	effectiveParallelism := d.effectiveParallelism
+	children := childProcessResources(activeTasks)
+	if phase == "runtime.end" && taskID != "" {
+		delete(d.activeTasks, taskID)
+	}
+	d.mu.Unlock()
+	childRSS := totalChildRSS(children)
+	memoryAvailable := readMemoryPressure().AvailableBytes
+	sample := RunLoopMemorySample{
+		Timestamp:            time.Now().UTC(),
+		RunID:                d.runID,
+		Phase:                phase,
+		TaskID:               taskID,
+		DurationMS:           duration.Milliseconds(),
+		StateBytes:           fileSize(filepath.Join(filepath.Dir(filepath.Dir(d.path)), RunStateFileName)),
+		HeapAllocBytes:       mem.HeapAlloc,
+		HeapInuseBytes:       mem.HeapInuse,
+		HeapSysBytes:         mem.HeapSys,
+		ProcessRSSBytes:      rss,
+		ProcessHWMBytes:      hwm,
+		ProcessSwap:          swap,
+		Goroutines:           runtime.NumGoroutine(),
+		NumGC:                mem.NumGC,
+		ChildProcessCount:    len(children),
+		ChildRSSBytes:        childRSS,
+		ActiveTaskIDs:        activeTasks,
+		Children:             children,
+		RequestedParallelism: requestedParallelism,
+		EffectiveParallelism: effectiveParallelism,
+		MemoryAvailableBytes: memoryAvailable,
 	}
 	if sampleErr != nil {
 		sample.Error = compactDiagnostic(sampleErr.Error())
@@ -111,16 +158,21 @@ func (d *runLoopDiagnostics) scheduling(phase string, requested, effective int, 
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 	rss, hwm, swap := processMemory()
-	childCount, childRSS := childProcessMemory()
-	d.append(runLoopMemorySample{Timestamp: time.Now().UTC(), RunID: d.runID, Phase: phase,
+	d.mu.Lock()
+	d.requestedParallelism = requested
+	d.effectiveParallelism = effective
+	activeTasks := sortedTaskIDs(d.activeTasks)
+	d.mu.Unlock()
+	children := childProcessResources(activeTasks)
+	d.append(RunLoopMemorySample{Timestamp: time.Now().UTC(), RunID: d.runID, Phase: phase,
 		StateBytes:     fileSize(filepath.Join(filepath.Dir(filepath.Dir(d.path)), RunStateFileName)),
 		HeapAllocBytes: mem.HeapAlloc, HeapInuseBytes: mem.HeapInuse, HeapSysBytes: mem.HeapSys,
 		ProcessRSSBytes: rss, ProcessHWMBytes: hwm, ProcessSwap: swap, Goroutines: runtime.NumGoroutine(), NumGC: mem.NumGC,
 		RequestedParallelism: requested, EffectiveParallelism: effective, MemoryAvailableBytes: available,
-		ChildProcessCount: childCount, ChildRSSBytes: childRSS})
+		ChildProcessCount: len(children), ChildRSSBytes: totalChildRSS(children), ActiveTaskIDs: activeTasks, Children: children})
 }
 
-func (d *runLoopDiagnostics) append(sample runLoopMemorySample) {
+func (d *runLoopDiagnostics) append(sample RunLoopMemorySample) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if err := os.MkdirAll(filepath.Dir(d.path), 0o755); err != nil {
@@ -166,21 +218,92 @@ func processMemory() (rss, hwm, swap uint64) {
 	return rss, hwm, swap
 }
 
-func childProcessMemory() (count int, rss uint64) {
+func childProcessResources(activeTasks []string) []RunLoopChildResource {
 	data, err := os.ReadFile("/proc/self/task/" + strconv.Itoa(os.Getpid()) + "/children")
 	if err != nil {
-		return 0, 0
+		return nil
 	}
+	var children []RunLoopChildResource
 	for _, value := range strings.Fields(string(data)) {
 		pid, err := strconv.Atoi(value)
 		if err != nil {
 			continue
 		}
-		childRSS, _, _ := processMemoryForPID(pid)
-		count++
-		rss += childRSS
+		childRSS, _, childSwap := processMemoryForPID(pid)
+		cpuMS, elapsedMS := processTimes(pid)
+		children = append(children, RunLoopChildResource{PID: pid, TaskID: childTaskID(pid, activeTasks), RSSBytes: childRSS, SwapBytes: childSwap, CPUTimeMS: cpuMS, ElapsedMS: elapsedMS})
 	}
-	return count, rss
+	return children
+}
+
+func sortedTaskIDs(active map[string]struct{}) []string {
+	out := make([]string, 0, len(active))
+	for id := range active {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func totalChildRSS(children []RunLoopChildResource) uint64 {
+	var total uint64
+	for _, child := range children {
+		total += child.RSSBytes
+	}
+	return total
+}
+
+func childTaskID(pid int, activeTasks []string) string {
+	if len(activeTasks) == 1 {
+		return activeTasks[0]
+	}
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+	if err != nil {
+		return ""
+	}
+	command := string(data)
+	for _, id := range activeTasks {
+		if strings.Contains(command, id) {
+			return id
+		}
+	}
+	return ""
+}
+
+func processTimes(pid int) (cpuMS, elapsedMS uint64) {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return 0, 0
+	}
+	text := string(data)
+	end := strings.LastIndexByte(text, ')')
+	if end < 0 {
+		return 0, 0
+	}
+	fields := strings.Fields(text[end+1:])
+	if len(fields) < 20 {
+		return 0, 0
+	}
+	userTicks, errUser := strconv.ParseUint(fields[11], 10, 64)
+	systemTicks, errSystem := strconv.ParseUint(fields[12], 10, 64)
+	startTicks, errStart := strconv.ParseUint(fields[19], 10, 64)
+	if errUser != nil || errSystem != nil || errStart != nil {
+		return 0, 0
+	}
+	cpuMS = (userTicks + systemTicks) * 10
+	uptimeData, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return cpuMS, 0
+	}
+	uptimeFields := strings.Fields(string(uptimeData))
+	if len(uptimeFields) == 0 {
+		return cpuMS, 0
+	}
+	uptimeSeconds, err := strconv.ParseFloat(uptimeFields[0], 64)
+	if err == nil && uptimeSeconds*100 > float64(startTicks) {
+		elapsedMS = uint64((uptimeSeconds - float64(startTicks)/100) * 1000)
+	}
+	return cpuMS, elapsedMS
 }
 
 func processMemoryForPID(pid int) (rss, hwm, swap uint64) {
@@ -217,4 +340,38 @@ func fileSize(path string) int64 {
 		return 0
 	}
 	return info.Size()
+}
+
+func LoadRunLoopResourceHistory(study Study, limit int) (RunLoopResourceHistory, error) {
+	if limit < 1 || limit > 1000 {
+		limit = 240
+	}
+	path := filepath.Join(study.Path, RunStateDirName, "diagnostics", "run-loop-memory.jsonl")
+	samples := make([]RunLoopMemorySample, 0, limit)
+	for _, candidate := range []string{path + ".1", path} {
+		file, err := os.Open(candidate)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return RunLoopResourceHistory{}, err
+		}
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+		for scanner.Scan() {
+			var sample RunLoopMemorySample
+			if json.Unmarshal(scanner.Bytes(), &sample) == nil {
+				samples = append(samples, sample)
+			}
+		}
+		scanErr := scanner.Err()
+		_ = file.Close()
+		if scanErr != nil {
+			return RunLoopResourceHistory{}, scanErr
+		}
+	}
+	if len(samples) > limit {
+		samples = append([]RunLoopMemorySample(nil), samples[len(samples)-limit:]...)
+	}
+	return RunLoopResourceHistory{Study: study.Name, Samples: samples}, nil
 }

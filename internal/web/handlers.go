@@ -433,6 +433,18 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		h.writeSuccess(w, r, http.StatusOK, mapStudy(result), nil)
+	case "api_study_resources":
+		queries, ok := h.queries.(app.WebResourceQueries)
+		if !ok {
+			h.handleQueryError(w, r, true, app.ErrWebUnavailable)
+			return
+		}
+		result, err := queries.StudyResources(r.Context(), match.params[0])
+		if err != nil {
+			h.handleQueryError(w, r, true, err)
+			return
+		}
+		h.writeSuccess(w, r, http.StatusOK, result, nil)
 	case "api_validations":
 		h.handleValidations(w, r)
 	case "api_artifact":

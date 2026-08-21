@@ -56,6 +56,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		return RunLoopResult{}, err
 	}
 	diagnostics.runID = state.RunID
+	diagnostics.configureParallelism(req.Parallelism)
 	stopDiagnostics := diagnostics.start(ctx)
 	defer stopDiagnostics()
 	ReconcileRunState(&state, s.workspaceRoot, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
