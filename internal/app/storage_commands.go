@@ -163,6 +163,10 @@ func migrateSprintState(root string, sp sprint.Sprint, dryRun bool, appendItem f
 	executePath, executePathErr := sprint.ExecuteRunStatePath(root, sp)
 	if executePathErr == nil {
 		if _, err := os.Stat(executePath); err == nil {
+			if _, legacy := sprint.LegacyTerminalExecuteStatus(root, sp); legacy {
+				appendItem(storageMigrationItem{Kind: "sprint_execute", Scope: scope, Path: executePath, Status: "skipped"})
+				return
+			}
 			stored, checkErr := sprint.ExecuteStateInDatabase(root, sp)
 			if checkErr != nil {
 				appendItem(storageMigrationItem{Kind: "sprint_execute", Scope: scope, Path: executePath, Status: "failed", Error: checkErr.Error()})
