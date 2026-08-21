@@ -49,7 +49,7 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 		projectFilesBefore = smokeDiagnosticTargetSnapshot(projectRoot)
 	}
 
-	prompt, err := composeStagePromptChecked(sharedPrefix, s.renderSmokeAuthorPrompt(prepared, inputs))
+	prompt, err := composeStagePromptChecked(sharedPrefix, s.renderSmokeAuthorPrompt(prepared))
 	if err != nil {
 		return smokeError("smoke_author_context", "authoring", "smoke author instructions exceed the shared stage-suffix reserve", "Reduce the stage-specific authoring manifest without truncating shared evidence.", err)
 	}
@@ -209,7 +209,7 @@ func smokeDiagnosticTargetSnapshot(root string) map[string]string {
 	return out
 }
 
-func (s Service) renderSmokeAuthorPrompt(prepared smokePrepared, inputs PlanningInputs) string {
+func (s Service) renderSmokeAuthorPrompt(prepared smokePrepared) string {
 	body, source := sprintPromptTemplate(s.root, "prompts/smoke.md")
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(body))
@@ -221,7 +221,6 @@ func (s Service) renderSmokeAuthorPrompt(prepared smokePrepared, inputs Planning
 	for _, rel := range []string{"requirements.md", "sprint-index.md", "technical-handbook.md", "reasoning.md", "plan.md", "execute.md", "review.md", ".run-state.json"} {
 		fmt.Fprintf(&b, "- `%s`\n", filepath.Join(prepared.Sprint.Path, rel))
 	}
-	b.WriteString(s.smokeAuthorHandoff(prepared.Sprint, inputs))
 	fmt.Fprintln(&b, "\nWritable harness paths:")
 	for _, rel := range prepared.Manifest.Authoring.Paths {
 		fmt.Fprintf(&b, "- `%s`\n", filepath.Join(prepared.HarnessRoot, filepath.FromSlash(rel)))
@@ -306,7 +305,19 @@ will reject the whole authoring run if even one path outside the list changes;
 successful tests do not override that rejection. The product target and
 governed project inputs are also read-only. After authoring, UltraPlan
 independently validates discovery coverage and runs the selected suite.`)
-	return b.String()
+	inputsToInject := []directPromptInput{
+		directSprintArtifactInput(s.root, prepared.Sprint, StageSprintIndex),
+		directSprintArtifactInput(s.root, prepared.Sprint, StageTechnicalHandbook),
+	}
+	inputsToInject = append(inputsToInject, directReasoningDirectoryInputs(s.root, prepared.Sprint)...)
+	inputsToInject = append(inputsToInject,
+		directSprintArtifactInput(s.root, prepared.Sprint, StageReasoning),
+		directSprintArtifactInput(s.root, prepared.Sprint, StagePlan),
+		directSprintArtifactInput(s.root, prepared.Sprint, StageExecute),
+		directSprintArtifactInput(s.root, prepared.Sprint, StageReview),
+		directWorkspaceInput(s.root, "execute-run-state", "run-state", ExecuteRunStateRelPath(prepared.Sprint)),
+	)
+	return appendDirectInputPacket(b.String(), inputsToInject, sharedPromptSuffixReserve)
 }
 
 func smokeAuthorModel(req pruntime.Request) string {

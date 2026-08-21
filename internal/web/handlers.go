@@ -81,6 +81,7 @@ type promptInputContractDTO struct {
 type promptBlockDTO struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
+	Mode      string `json:"mode,omitempty"`
 	Cacheable bool   `json:"cacheable"`
 	Bytes     int    `json:"bytes"`
 	Digest    string `json:"sha256"`
@@ -688,7 +689,7 @@ func mapPromptBundle(item app.WebPromptBundleResult) promptBundleDTO {
 	out.CacheCandidate = explanation.CacheCandidate
 	out.CacheTransport = explanation.CacheTransport
 	for _, block := range explanation.Blocks {
-		out.Blocks = append(out.Blocks, promptBlockDTO{ID: block.ID, Kind: block.Kind, Cacheable: block.Cacheable, Bytes: block.Bytes, Digest: block.Digest})
+		out.Blocks = append(out.Blocks, promptBlockDTO{ID: block.ID, Kind: block.Kind, Mode: block.Mode, Cacheable: block.Cacheable, Bytes: block.Bytes, Digest: block.Digest})
 	}
 	return out
 }

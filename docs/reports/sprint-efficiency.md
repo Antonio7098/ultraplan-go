@@ -7,7 +7,7 @@ Worktree: `/home/antonioborgerees/coding/ultraplan/ultraplan-go-sprint-efficienc
 
 ## Outcome
 
-The sprint pipeline now has one auditable prompt assembly contract, a stable provider-cache candidate prefix, bounded derived context reuse, smaller coverage-specific agent inputs, selective downstream handoffs, and persisted content-free runtime measurements. The changes reduce local shared-context composition cost substantially and remove repeated source injection and scanning. They also make future provider token/cache savings measurable.
+The sprint pipeline now has one auditable prompt assembly contract, a stable provider-cache candidate prefix, bounded derived context reuse, smaller coverage-specific agent inputs, complete bounded direct-input packets, and persisted content-free runtime measurements. Agents receive governed upstream material directly and in deterministic dependency order instead of first spending tool calls rediscovering it. The changes also reduce local shared-context composition cost and make provider token/cache behavior measurable.
 
 No exact-match dependency freshness or automatic stage invalidation was added. The existing completed-review and completed-smoke snapshot freshness switches remain `false`. Review fingerprint behavior was not re-enabled or copied to another stage. Content hashes introduced here are used only for disposable cache lookup, prompt explainability, runtime observability, and existing session diagnostics; cache misses fall back to live composition and never rerun a stage. Interrupted sessions remain compatible across prompt edits when provider, model, and work directory still match.
 
@@ -37,9 +37,11 @@ Shared prompts expose this exact ordered block contract:
 3. `code-context`
 4. `source-evidence`
 5. `stage-boundary`
-6. `stage`
+6. `stage-instructions`
+7. one block per direct input, using its canonical input ID
+8. `stage-tail` when content follows the final direct input
 
-`sprint <project> <sprint> prompt <stage> --explain` returns content-free byte counts, SHA-256 digests, stable-prefix breakpoint, cache key, transport status, and the stage input contract. Volatile stage/run/task/reviewer data remains after the boundary. Session continuation instructions are inserted after the boundary, preserving the prefix.
+`sprint <project> <sprint> prompt <stage> --explain` returns content-free byte counts, SHA-256 digests, stable-prefix breakpoint, cache key, transport status, stage input contract, and `full`/`partial` mode for each directly copied input. Volatile stage/run/task/reviewer data remains after the boundary. Session continuation instructions are inserted after the boundary, preserving the prefix.
 
 Runtime requests carry a cache foundation key and a provider/model/work-directory/policy-scoped cohort key in metadata. This prevents observability from incorrectly grouping incompatible runtime envelopes.
 
@@ -57,11 +59,27 @@ The pack freezes the exact resolved source evidence selected during planning so 
 - Reference count is capped at 64 and unique selected source lines at 4,096, with errors reporting the correct unit.
 - Area reasoning launches one independently validated request for each missing/invalid selected template and excludes sibling templates.
 - Valid area outputs are skipped rather than regenerated.
-- Final reasoning, plan, and smoke receive bounded 32 KiB prepared handoffs containing only decision-relevant Markdown sections in dependency order. Omitted sections name the source path to read.
-- Plan and every execute task receive the technical handbook's `Examples Worth Investigating` section directly when present; the legacy `Examples Worth Inspecting` heading is also accepted, and unrelated handbook sections are not copied.
-- Execute now uses one agent session for the ordered pending-task queue. The first turn receives shared sprint context, the concise queue, current task, safety policy, and handbook examples; later tasks are compact continuation turns in the same session. UltraPlan still checkpoints status and evidence after each task, resumes from the latest compatible session, stops on a failed/cancelled task, and falls back to a full fresh prompt if the runtime returns no reusable session ID.
+- Every agent-backed stage receives its governed file inputs directly when those inputs are bounded files. Full files are preferred. If the 64 KiB stage-suffix budget cannot hold everything, each available dependency receives a fair head/tail excerpt, is marked `partial`, and reports its omitted byte count. Unavailable inputs receive a safe omission reason and remain explicit fallbacks rather than silent gaps.
+- Requirements receives project index, roadmap, project docs, and all existing prior-sprint reviews except the current sprint. Sprint index receives project definitions. Handbook receives the selected sprint index and selected reports. Area/final reasoning, plan, and execute receive their required project context and all applicable prior sprint artifacts. Review receives its coverage-specific governed packet. Smoke authoring receives the complete planning, execution, review, and run-state chain.
+- The technical handbook is copied as a complete artifact into Plan and Execute, so `Examples Worth Investigating`/`Examples Worth Inspecting` and surrounding rationale arrive together without a separate special-case excerpt.
+- Execute uses one agent session for the ordered pending-task queue. The first turn receives shared sprint context, project definitions, every prior planning artifact, the concise queue, current task, and safety policy; later tasks are compact continuation turns in the same session. UltraPlan still checkpoints status and evidence after each task, resumes from the latest compatible session, stops on a failed/cancelled task, and falls back to a full fresh prompt if the runtime returns no reusable session ID.
 - Reviewers receive their own contract/handbook plus common governed inputs, execution evidence, and changed files, but no sibling coverage contract/handbook.
 - Code-context repair reuses the existing session without duplicating the full original request.
+
+The implementation repository itself is the intentional exception to file copying: code-context and execution must inspect the current approved repository, which is unbounded and mutable working state. Requirements are still copied into code-context, and the validated code-context references plus resolved source evidence are copied into the stable shared foundation for every later stage.
+
+| Stage | Direct governed inputs beyond generated instructions/templates |
+|---|---|
+| requirements | project index → roadmap → project docs → prior sprint reviews |
+| code-context | complete validated requirements; live approved implementation repository |
+| sprint-index | shared requirements/code/source → project index → roadmap → project docs |
+| technical-handbook | shared foundation → sprint index → selected evidence reports |
+| area-reasoning | shared foundation → project docs → sprint index → handbook → selected contracts/evidence/protocols |
+| reasoning | shared foundation → project index → roadmap → project docs → sprint index → handbook → selected context → area outputs |
+| plan | shared foundation → project index → roadmap → project docs → sprint index → handbook → area outputs → final reasoning |
+| execute | shared foundation → project index → roadmap → project docs → sprint index → handbook → area outputs → reasoning → plan → queue/current task |
+| review | shared foundation → current coverage source → governed review inputs → changed target files |
+| smoke | shared foundation → sprint index → handbook → area outputs → reasoning → plan → execute → review → execute run state → harness contract |
 
 ### Measurement and operational visibility
 
@@ -78,18 +96,18 @@ ultraplan sprint <project> <sprint> metrics --json
 
 The same deterministic fixture and `TestSprintEfficiencyMetrics` measurement were run at the baseline commit and after the changes. Bytes are exact rendered prompt bytes.
 
-| Stage | Baseline total | Improved total | Baseline prefix | Improved prefix | Explanation |
-|---|---:|---:|---:|---:|---|
-| sprint-index | 10,116 | 10,052 | 2,080 | 2,016 | duplicate reference metadata removed |
-| technical-handbook | 7,951 | 7,992 | 2,080 | 2,016 | scaffold now explicitly requests examples worth investigating |
-| area-reasoning | 8,442 | 8,378 | 2,080 | 2,016 | one selected template only |
-| reasoning | 14,287 | 15,481 | 2,080 | 2,016 | selective handbook/area handoff added |
-| plan | 10,417 | 11,427 | 2,080 | 2,016 | requirements/reasoning handoff plus handbook examples |
-| execute | 3,279 | 4,051 | 2,080 | 2,016 | first-turn task prompt, ordered queue primer, and handbook examples |
+| Stage | Baseline total | Improved total | Baseline prefix | Improved prefix | Direct blocks | Explanation |
+|---|---:|---:|---:|---:|---:|---|
+| sprint-index | 10,116 | 11,820 | 2,080 | 2,016 | 3 | project index, roadmap, and PRD copied |
+| technical-handbook | 7,951 | 9,740 | 2,080 | 2,016 | 2 | sprint index and selected report copied |
+| area-reasoning | 8,442 | 11,572 | 2,080 | 2,016 | 4 | project doc, sprint artifacts, and selected evidence copied |
+| reasoning | 14,287 | 19,205 | 2,080 | 2,016 | 7 | project definitions and complete reasoning inputs copied |
+| plan | 10,417 | 15,523 | 2,080 | 2,016 | 7 | project definitions and every prior planning artifact copied |
+| execute | 3,279 | 9,661 | 2,080 | 2,016 | 8 | project definitions, every planning artifact, and queue copied |
 
-Across the one-task preview fixture, total rendered bytes increased from 54,492 to 57,381 (+5.3%). This is deliberate and concentrated in reasoning, plan, and the first execute turn: selected upstream decisions, the queue primer, and one concrete handbook example section are copied once to avoid broader agent-driven artifact reads. Later execute turns do not repeat them. The structural benchmark below measures composition efficiency; provider token telemetry is required to determine the real net token effect of these handoffs.
+Across the one-task preview fixture, total rendered bytes increased from 54,492 to 77,521 (+42.3%). The six prompts contain 31 directly inspectable input blocks totalling 20,101 bytes, all `full` and none `partial` in this fixture. This is an intentional exchange: UltraPlan submits the required material once so the agent does not have to discover paths and reread up to eight files with tool calls. It is not presented as a raw input-token reduction. Provider token/cost telemetry and tool-call telemetry over real sprints are required to determine the net economic result.
 
-For a deterministic two-task execution fixture, independent full task prompts required 7,426 outbound prompt bytes. One shared session used 5,015 bytes across the initial turn and compact continuation, a 32.5% reduction. This measures UltraPlan's submitted prompt strings, not any conversation history that OpenCode or the provider may internally replay.
+For a deterministic two-task execution fixture under the new complete packet contract, two independent full task prompts require 19,718 outbound prompt bytes. One shared execution session uses 10,767 bytes across the initial turn and compact continuation, a 45.4% reduction. The complete packet is sent once, not once per task. This measures UltraPlan's submitted prompt strings, not any conversation history that OpenCode or the provider may internally replay.
 
 Other deterministic checks:
 
@@ -121,12 +139,13 @@ The baseline time samples were 788,225–818,137 ns/op. The improved isolated sa
 ## Verification
 
 - `go test ./... -count=1` — pass
-- `go test -race ./internal/sprint ./internal/platform/runtime -count=1` — pass
+- `go test -race ./internal/sprint ./internal/platform/runtime ./internal/web -count=1` — pass
 - `go vet ./...` — pass
 - Focused app, sprint, runtime, and packaged-web tests — pass
+- Real dashboard prompt-summary endpoint against the representative `ultraplan-go/35-durable-run-observability` sprint — schema v2; individual full/partial project, handbook, area-reasoning, and final-reasoning blocks present; pass
 - `git diff --check` — pass
 
-Coverage added for prompt block order and input contracts, cache cohort isolation, frozen and lazy context reuse, preview read-only behavior, cache identity misses, reference/line budgets, concurrent metrics writers, metrics CLI JSON, selective handoffs, shared multi-task execute sessions, compact continuations, missing-session fallback, stop-on-failure queue behavior, multi-template area isolation, reviewer packet isolation, tolerant interrupted-session reuse, and cache/token usage persistence.
+Coverage added for prompt block order and input contracts, direct block explanation modes, canonical ordering, fair oversized-input allocation, UTF-8-safe excerpts, hard byte caps, safe omission diagnostics, absolute-path redaction, prior-review selection, complete handbook forwarding, complete smoke forwarding, review packet visibility, cache cohort isolation, frozen and lazy context reuse, preview read-only behavior, cache identity misses, reference/line budgets, concurrent metrics writers, metrics CLI JSON, shared multi-task execute sessions, compact continuations, missing-session fallback, stop-on-failure queue behavior, multi-template area isolation, reviewer packet isolation, tolerant interrupted-session reuse, and cache/token usage persistence.
 
 The packaged-binary test now builds with `-buildvcs=false`; this makes the existing source-packaging assertion runnable from a linked Git worktree without changing production build behavior.
 

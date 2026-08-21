@@ -199,7 +199,7 @@ func TestCodeContextPromptDryRunExecutionAndRerunPreservation(t *testing.T) {
 	rt := &codeContextRuntime{output: validCodeContext()}
 	service := NewService(root).WithRuntime(rt)
 	preview, err := service.PromptCodeContext("proj", "01")
-	if err != nil || !strings.Contains(preview.Prompt, "Return only the complete `code-context.md`") || !strings.Contains(preview.Prompt, "at or below 65536 bytes") || !strings.Contains(preview.Prompt, "Store references only") || !strings.Contains(preview.Prompt, "Do not copy source text") {
+	if err != nil || !strings.Contains(preview.Prompt, "Return only the complete `code-context.md`") || !strings.Contains(preview.Prompt, "at or below 65536 bytes") || !strings.Contains(preview.Prompt, "Store references only") || !strings.Contains(preview.Prompt, "Do not copy source text") || !strings.Contains(preview.Prompt, "ID: requirements") || !strings.Contains(preview.Prompt, "Mode: full") {
 		t.Fatalf("preview err=%v prompt=%s", err, preview.Prompt)
 	}
 	dry, err := service.FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext, DryRun: true})

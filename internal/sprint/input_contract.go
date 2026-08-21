@@ -18,6 +18,7 @@ func InputContract(stage PlanningStage) StageInputContract {
 	switch stage {
 	case StageRequirements:
 		contract.Required = []string{"project-index", "roadmap", "project-docs"}
+		contract.Optional = []string{"prior-sprint-reviews"}
 	case StageCodeContext:
 		contract.Required = []string{"requirements", "implementation-repository"}
 	case StageSprintIndex:
@@ -25,22 +26,20 @@ func InputContract(stage PlanningStage) StageInputContract {
 	case StageTechnicalHandbook:
 		contract.Required = append(append([]string{}, shared...), "sprint-index", "selected-evidence")
 	case StageAreaReasoning:
-		contract.Required = append(append([]string{}, shared...), "sprint-index", "technical-handbook", "selected-area-template")
+		contract.Required = append(append([]string{}, shared...), "project-docs", "sprint-index", "technical-handbook", "selected-context-files", "selected-area-template")
 		contract.Forbidden = []string{"sibling-area-templates"}
 	case StageReasoning:
-		contract.Required = append(append([]string{}, shared...), "sprint-index", "technical-handbook", "area-reasoning")
+		contract.Required = append(append([]string{}, shared...), "project-index", "roadmap", "project-docs", "sprint-index", "technical-handbook", "selected-context-files", "area-reasoning")
 	case StagePlan:
-		contract.Required = append(append([]string{}, shared...), "requirements-handoff", "final-reasoning-handoff")
-		contract.Optional = []string{"technical-handbook-examples"}
+		contract.Required = append(append([]string{}, shared...), "project-index", "roadmap", "project-docs", "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "sprint-plan-template")
 	case StageExecute:
-		contract.Required = append(append([]string{}, shared...), "ordered-plan-task-queue", "current-plan-task")
-		contract.Optional = []string{"technical-handbook-examples"}
+		contract.Required = append(append([]string{}, shared...), "project-index", "roadmap", "project-docs", "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "ordered-plan-task-queue", "current-plan-task")
 		contract.Forbidden = []string{"full-details-for-non-current-tasks"}
 	case StageReview:
 		contract.Required = append(append([]string{}, shared...), "coverage-source", "governed-review-inputs", "changed-target-files")
 		contract.Forbidden = []string{"sibling-coverage-sources"}
 	case StageSmoke:
-		contract.Required = append(append([]string{}, shared...), "acceptance-handoff", "execution-evidence", "review-outcome", "smoke-harness")
+		contract.Required = append(append([]string{}, shared...), "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "execution-evidence", "review-outcome", "execute-run-state", "smoke-harness")
 	}
 	return contract
 }

@@ -385,7 +385,11 @@ func (s Service) PromptReview(projectRef, sprintRef string, req ReviewRequest) (
 	if err != nil {
 		return PromptPreview{}, err
 	}
-	prompt, err := composeStagePromptChecked(m.SharedPrefix, renderReviewPreview(m))
+	stagePrompt := renderReviewPreview(m)
+	if len(m.Coverage) > 0 {
+		stagePrompt = renderReviewerPrompt(m, m.Coverage[0])
+	}
+	prompt, err := composeStagePromptChecked(m.SharedPrefix, stagePrompt)
 	if err != nil {
 		return PromptPreview{}, err
 	}
@@ -1513,7 +1517,19 @@ func renderReviewerPrompt(m ReviewManifest, c ReviewInput) string {
 		fmt.Fprintf(&b, "- logical `%s`; kind `%s`; read `%s`; sha256 `%s`\n", in.Path, in.Kind, reviewInputReadPath(m, in), in.Hash)
 	}
 	fmt.Fprintln(&b, "\nThe review prompt asset is already applied above. Assets marked `<embedded>` are consumed by the deterministic review orchestrator and do not require a file read.")
-	return b.String()
+	var direct []directPromptInput
+	for _, input := range reviewerInputPacket(m, c) {
+		if input.ID == "requirements" || input.ID == "code-context" || input.Path == "target/.identity" {
+			continue
+		}
+		content, ok := m.Contents[input.Path]
+		if !ok || strings.TrimSpace(content) == "" {
+			direct = append(direct, directPromptInput{ID: input.ID, Kind: input.Kind, Path: input.Path, Missing: "captured content unavailable"})
+			continue
+		}
+		direct = append(direct, directContentInput(input.ID, input.Kind, input.Path, content))
+	}
+	return appendDirectInputPacket(b.String(), direct, sharedPromptSuffixReserve)
 }
 
 func reviewerInputPacket(m ReviewManifest, coverage ReviewInput) []ReviewInput {

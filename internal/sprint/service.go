@@ -455,7 +455,6 @@ func (s Service) PromptReasoning(projectRef, sprintRef string) (PromptPreview, e
 	if err != nil {
 		return PromptPreview{}, err
 	}
-	prompt = appendPreparedHandoff(prompt, s.finalReasoningHandoff(sp, manifest))
 	return s.composeSharedPrompt(context.Background(), sp, inputs, prompt)
 }
 
@@ -468,7 +467,7 @@ func (s Service) PromptPlan(projectRef, sprintRef string) (PromptPreview, error)
 	if len(findings) > 0 {
 		return PromptPreview{}, fmt.Errorf("plan prerequisites failed validation")
 	}
-	prompt := appendPreparedHandoff(RenderPlanPrompt(s.root, manifest), s.planHandoff(sp, inputs))
+	prompt := RenderPlanPrompt(s.root, manifest)
 	return s.composeSharedPrompt(context.Background(), sp, inputs, prompt)
 }
 
@@ -651,7 +650,7 @@ func (s Service) FlowPlan(ctx context.Context, projectRef, sprintRef string, req
 		}
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages, Findings: findings}, err
 	}
-	planPrompt := appendPreparedHandoff(RenderPlanPrompt(s.root, manifest), s.planHandoff(sp, inputs))
+	planPrompt := RenderPlanPrompt(s.root, manifest)
 	prompt, promptErr := s.composeSharedRuntimePrompt(ctx, sp, inputs, planPrompt)
 	if promptErr != nil {
 		stages := s.flowFailedStages(sp, req.To, promptErr, now)
@@ -1269,7 +1268,6 @@ func (s Service) flowFinalReasoning(ctx context.Context, sp Sprint, inputs Plann
 		}
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, promptErr
 	}
-	prompt = appendPreparedHandoff(prompt, s.finalReasoningHandoff(sp, manifest))
 	prompt, promptErr = s.composeSharedRuntimePrompt(ctx, sp, inputs, prompt)
 	if promptErr != nil {
 		stages := s.flowFailedStages(sp, req.To, promptErr, now)

@@ -30,15 +30,16 @@ func TestSprintEfficiencyMetrics(t *testing.T) {
 
 	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageExecute: {Model: "test/model"}})
 	previews := []struct {
-		name string
-		call func() (PromptPreview, error)
+		name         string
+		directBlocks int
+		call         func() (PromptPreview, error)
 	}{
-		{"sprint-index", func() (PromptPreview, error) { return service.PromptSprintIndex("proj", "01") }},
-		{"technical-handbook", func() (PromptPreview, error) { return service.PromptTechnicalHandbook("proj", "01") }},
-		{"area-reasoning", func() (PromptPreview, error) { return service.PromptAreaReasoning("proj", "01") }},
-		{"reasoning", func() (PromptPreview, error) { return service.PromptReasoning("proj", "01") }},
-		{"plan", func() (PromptPreview, error) { return service.PromptPlan("proj", "01") }},
-		{"execute", func() (PromptPreview, error) { return service.PromptExecute("proj", "01", ExecuteRequest{}) }},
+		{"sprint-index", 3, func() (PromptPreview, error) { return service.PromptSprintIndex("proj", "01") }},
+		{"technical-handbook", 2, func() (PromptPreview, error) { return service.PromptTechnicalHandbook("proj", "01") }},
+		{"area-reasoning", 4, func() (PromptPreview, error) { return service.PromptAreaReasoning("proj", "01") }},
+		{"reasoning", 7, func() (PromptPreview, error) { return service.PromptReasoning("proj", "01") }},
+		{"plan", 7, func() (PromptPreview, error) { return service.PromptPlan("proj", "01") }},
+		{"execute", 8, func() (PromptPreview, error) { return service.PromptExecute("proj", "01", ExecuteRequest{}) }},
 	}
 	for _, item := range previews {
 		preview, err := item.call()
@@ -46,9 +47,27 @@ func TestSprintEfficiencyMetrics(t *testing.T) {
 			t.Fatalf("%s preview: %v", item.name, err)
 		}
 		prefix := testSharedPrefix(t, preview.Prompt)
+		explanation := explainComposedPrompt(preview.Prompt)
+		directBlocks, directBytes, partialBlocks := 0, 0, 0
+		for _, block := range explanation.Blocks {
+			if block.Mode == "" {
+				continue
+			}
+			directBlocks++
+			directBytes += block.Bytes
+			if block.Mode == "partial" {
+				partialBlocks++
+			}
+		}
+		if directBlocks != item.directBlocks || partialBlocks != 0 {
+			t.Fatalf("%s direct blocks=%d partial=%d want=%d/0", item.name, directBlocks, partialBlocks, item.directBlocks)
+		}
 		t.Logf("metric prompt.%s.total_bytes=%d", item.name, len(preview.Prompt))
 		t.Logf("metric prompt.%s.prefix_bytes=%d", item.name, len(prefix))
 		t.Logf("metric prompt.%s.suffix_bytes=%d", item.name, len(preview.Prompt)-len(prefix))
+		t.Logf("metric prompt.%s.direct_input_blocks=%d", item.name, directBlocks)
+		t.Logf("metric prompt.%s.direct_input_bytes=%d", item.name, directBytes)
+		t.Logf("metric prompt.%s.partial_input_blocks=%d", item.name, partialBlocks)
 	}
 
 	usage := pruntime.Usage{InputTokensKnown: true, InputTokens: 1000, OutputTokensKnown: true, OutputTokens: 100, CacheReadTokensKnown: true, CacheReadTokens: 700, CacheWriteTokensKnown: true, CacheWriteTokens: 200}

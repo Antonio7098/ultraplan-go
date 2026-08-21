@@ -241,7 +241,7 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	for _, block := range explanation.Blocks {
 		blockIDs = append(blockIDs, block.ID)
 	}
-	if got := strings.Join(blockIDs, ","); got != "shared-instructions,requirements,code-context,source-evidence,stage-boundary,stage" {
+	if got := strings.Join(blockIDs, ","); got != "shared-instructions,requirements,code-context,source-evidence,stage-boundary,stage-instructions,project-index,roadmap,project-doc-docs-prd-md" {
 		t.Fatalf("prompt block order = %q", got)
 	}
 	if explanation.InputContract == nil || explanation.InputContract.Stage != sprint.StageSprintIndex || len(explanation.InputContract.Required) == 0 {

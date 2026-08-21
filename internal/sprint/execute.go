@@ -458,7 +458,18 @@ func RenderExecutePrompt(sp Sprint, task ExecutePlanTask, target ExecuteTargetRe
 }
 
 func (s Service) renderExecuteSessionPrompt(sp Sprint, task ExecutePlanTask, queue []ExecutePlanTask, target ExecuteTargetRef, selection ExecuteModelSelection) string {
-	return RenderExecutePrompt(sp, task, target, selection) + renderExecuteQueue(task.ID, queue) + s.executeHandoff(sp)
+	prompt := RenderExecutePrompt(sp, task, target, selection) + renderExecuteQueue(task.ID, queue)
+	inputs := directProjectDefinitionInputsFromWorkspace(s.root, sp)
+	inputs = append(inputs,
+		directSprintArtifactInput(s.root, sp, StageSprintIndex),
+		directSprintArtifactInput(s.root, sp, StageTechnicalHandbook),
+	)
+	inputs = append(inputs, directReasoningDirectoryInputs(s.root, sp)...)
+	inputs = append(inputs,
+		directSprintArtifactInput(s.root, sp, StageReasoning),
+		directSprintArtifactInput(s.root, sp, StagePlan),
+	)
+	return appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
 }
 
 func RenderExecuteContinuationPrompt(sp Sprint, task ExecutePlanTask) string {

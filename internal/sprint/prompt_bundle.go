@@ -3,10 +3,11 @@ package sprint
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
 )
 
-const promptExplanationSchemaVersion = 1
+const promptExplanationSchemaVersion = 2
 
 // PromptBlockExplanation exposes product-owned prompt structure without
 // exposing additional content. Digests and byte counts make cache behavior
@@ -14,6 +15,7 @@ const promptExplanationSchemaVersion = 1
 type PromptBlockExplanation struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
+	Mode      string `json:"mode,omitempty"`
 	Cacheable bool   `json:"cacheable"`
 	Bytes     int    `json:"bytes"`
 	Digest    string `json:"sha256"`
@@ -38,18 +40,22 @@ type PromptExplanation struct {
 }
 
 type promptBlock struct {
-	id, kind  string
-	cacheable bool
-	content   string
+	id, kind, mode string
+	cacheable      bool
+	content        string
 }
 
 type promptBundle struct{ blocks []promptBlock }
 
 func (b *promptBundle) append(id, kind string, cacheable bool, content string) {
+	b.appendMode(id, kind, "", cacheable, content)
+}
+
+func (b *promptBundle) appendMode(id, kind, mode string, cacheable bool, content string) {
 	if content == "" {
 		return
 	}
-	b.blocks = append(b.blocks, promptBlock{id: id, kind: kind, cacheable: cacheable, content: content})
+	b.blocks = append(b.blocks, promptBlock{id: id, kind: kind, mode: mode, cacheable: cacheable, content: content})
 }
 
 func (b promptBundle) render() string {
@@ -67,7 +73,7 @@ func (b promptBundle) explain() PromptExplanation {
 	for _, block := range b.blocks {
 		sum := sha256.Sum256([]byte(block.content))
 		explanation.Blocks = append(explanation.Blocks, PromptBlockExplanation{
-			ID: block.id, Kind: block.kind, Cacheable: block.cacheable, Bytes: len(block.content), Digest: hex.EncodeToString(sum[:]),
+			ID: block.id, Kind: block.kind, Mode: block.mode, Cacheable: block.cacheable, Bytes: len(block.content), Digest: hex.EncodeToString(sum[:]),
 		})
 		if block.cacheable {
 			prefix.WriteString(block.content)
@@ -91,7 +97,7 @@ func explainComposedPrompt(prompt string) PromptExplanation {
 	boundaryEnd := strings.Index(prompt, sharedPromptStageBoundary)
 	if boundaryEnd < 0 {
 		var b promptBundle
-		b.append("stage", "stage", false, prompt)
+		appendExplainedStageSuffix(&b, prompt)
 		return b.explain()
 	}
 	boundaryEnd += len(sharedPromptStageBoundary)
@@ -123,8 +129,65 @@ func explainComposedPrompt(prompt string) PromptExplanation {
 	if cursor < len(prefix) {
 		b.append("stage-boundary", "boundary", true, prefix[cursor:])
 	}
-	b.append("stage", "stage", false, prompt[boundaryEnd:])
+	appendExplainedStageSuffix(&b, prompt[boundaryEnd:])
 	return b.explain()
+}
+
+func appendExplainedStageSuffix(bundle *promptBundle, suffix string) {
+	cursor, instruction := 0, 0
+	seen := map[string]int{}
+	for {
+		start := strings.Index(suffix[cursor:], directInputOpen)
+		if start < 0 {
+			break
+		}
+		start += cursor
+		if start > cursor {
+			id := "stage-instructions"
+			if instruction > 0 {
+				id += "-" + string(rune('a'+instruction))
+			}
+			bundle.append(id, "stage", false, suffix[cursor:start])
+			instruction++
+		}
+		end := strings.Index(suffix[start+len(directInputOpen):], directInputClose)
+		if end < 0 {
+			break
+		}
+		end += start + len(directInputOpen) + len(directInputClose)
+		block := suffix[start:end]
+		id := directInputMetadata(block, "ID")
+		if id == "" {
+			id = "direct-input"
+		}
+		seen[id]++
+		if seen[id] > 1 {
+			id = fmt.Sprintf("%s-%d", id, seen[id])
+		}
+		kind := directInputMetadata(block, "Kind")
+		if kind == "" {
+			kind = "artifact"
+		}
+		bundle.appendMode(id, kind, directInputMetadata(block, "Mode"), false, block)
+		cursor = end
+	}
+	if cursor < len(suffix) {
+		id := "stage-instructions"
+		if instruction > 0 {
+			id = "stage-tail"
+		}
+		bundle.append(id, "stage", false, suffix[cursor:])
+	}
+}
+
+func directInputMetadata(block, name string) string {
+	prefix := name + ": "
+	for _, line := range strings.Split(block, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
 }
 
 // ExplainPrompt returns a content-free structural explanation for an already

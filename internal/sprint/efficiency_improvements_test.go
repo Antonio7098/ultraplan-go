@@ -99,17 +99,7 @@ func TestCanonicalSharedSelectionBudgetsReportTheirUnits(t *testing.T) {
 	}
 }
 
-func TestPreparedHandoffCopiesOnlySelectedSections(t *testing.T) {
-	content := "# Artifact\n\n## Acceptance Criteria\n\n- Required behavior\n\n## Background\n\nLarge unrelated history\n"
-	var handoff handoffBuilder
-	handoff.add("Requirements", "requirements.md", content, "Acceptance Criteria")
-	packet := handoff.render()
-	if !strings.Contains(packet, "Required behavior") || strings.Contains(packet, "Large unrelated history") || !strings.Contains(packet, "do not spend tool calls rereading") {
-		t.Fatalf("prepared handoff = %q", packet)
-	}
-}
-
-func TestPlanAndExecuteInjectTechnicalHandbookExamples(t *testing.T) {
+func TestPlanAndExecuteInjectCompleteTechnicalHandbook(t *testing.T) {
 	for _, heading := range []string{"Examples Worth Investigating", "Examples Worth Inspecting"} {
 		t.Run(heading, func(t *testing.T) {
 			_, sp, service := executePersistenceFixture(t, &recordingExecuteRuntime{})
@@ -126,17 +116,19 @@ func TestPlanAndExecuteInjectTechnicalHandbookExamples(t *testing.T) {
 				t.Fatal(err)
 			}
 			for stage, prompt := range map[string]string{"plan": plan.Prompt, "execute": execute.Prompt} {
-				if strings.Count(prompt, example) != 1 || !strings.Contains(prompt, "Technical handbook examples worth investigating") {
-					t.Fatalf("%s prompt did not inject handbook example exactly once:\n%s", stage, prompt)
+				if strings.Count(prompt, example) != 1 || !strings.Contains(prompt, "ID: technical-handbook") || !strings.Contains(prompt, "Mode: full") {
+					t.Fatalf("%s prompt did not inject the complete handbook exactly once:\n%s", stage, prompt)
 				}
-				if strings.Contains(prompt, "DO-NOT-INJECT") {
-					t.Fatalf("%s prompt injected unrelated handbook section", stage)
+				if !strings.Contains(prompt, "DO-NOT-INJECT") {
+					t.Fatalf("%s prompt retained the old selected-section behavior", stage)
 				}
 			}
 		})
 	}
-	if optional := strings.Join(InputContract(StagePlan).Optional, ",") + ";" + strings.Join(InputContract(StageExecute).Optional, ","); optional != "technical-handbook-examples;technical-handbook-examples" {
-		t.Fatalf("technical handbook example input contracts = %q", optional)
+	for _, stage := range []PlanningStage{StagePlan, StageExecute} {
+		if !strings.Contains(strings.Join(InputContract(stage).Required, ","), "technical-handbook") || len(InputContract(stage).Optional) != 0 {
+			t.Fatalf("%s input contract = %+v", stage, InputContract(stage))
+		}
 	}
 }
 
@@ -161,7 +153,7 @@ func TestExecuteUsesOneSessionWithCompactPerTaskContinuations(t *testing.T) {
 	}
 	independentPromptBytes := 0
 	for _, task := range planTasks {
-		prompt, composeErr := composeStagePromptChecked(prefix, RenderExecutePrompt(sp, task, target, selection)+service.executeHandoff(sp))
+		prompt, composeErr := composeStagePromptChecked(prefix, service.renderExecuteSessionPrompt(sp, task, planTasks, target, selection))
 		if composeErr != nil {
 			t.Fatal(composeErr)
 		}
@@ -236,7 +228,7 @@ func TestRuntimeRequestCarriesStableCacheDirective(t *testing.T) {
 	if req.Metadata["prompt_prefix_sha256"] != req.Cache.PrefixDigest || req.Metadata["prompt_cache_transport"] != "agentwrap-metadata-only" {
 		t.Fatalf("cache metadata = %+v", req.Metadata)
 	}
-	if req.Metadata["prompt_optional_inputs"] != "technical-handbook-examples" {
+	if req.Metadata["prompt_optional_inputs"] != "" {
 		t.Fatalf("optional input metadata = %+v", req.Metadata)
 	}
 }

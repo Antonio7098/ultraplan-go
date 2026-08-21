@@ -52,6 +52,9 @@ func RenderRequirementsPrompt(root string, sp Sprint, catalog project.ProjectInd
 	fmt.Fprintln(&b, "- Write editable Markdown only to requirements.md.")
 	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, source repositories, config, Git state, or any artifact other than requirements.md.")
 	prompt := renderPromptFromDefault(root, "prompts/create-requirements.md", sp.Project, sp.Slug, b.String())
+	inputs := directProjectDefinitionInputs(root, sp, docs)
+	inputs = append(inputs, directPriorSprintReviewInputs(root, sp)...)
+	prompt = appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
@@ -61,9 +64,6 @@ func RenderCodeContextPrompt(root string, sp Sprint, requirements string, target
 	fmt.Fprintf(&b, "- Validated requirements: %s\n", ArtifactRelPath(sp, StageRequirements))
 	fmt.Fprintf(&b, "- Read-only implementation repository: %s\n", target.Path)
 	fmt.Fprintf(&b, "- Authoritative output: %s\n", ArtifactRelPath(sp, StageCodeContext))
-	fmt.Fprintln(&b, "\nValidated sprint requirements:")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, strings.TrimRight(requirements, "\n"))
 	appendInjectedWorkspaceFile(root, &b, "Code Context Template", "templates/code-context.md")
 	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Inspect the implementation repository thoroughly, but treat it and its Git metadata as read-only.")
@@ -73,6 +73,9 @@ func RenderCodeContextPrompt(root string, sp Sprint, requirements string, target
 	fmt.Fprintln(&b, "- Do not copy source text or include fenced code blocks. Downstream prompt composition resolves the references and injects source transiently.")
 	fmt.Fprintln(&b, "- Do not produce a design, implementation plan, index, manifest, cache, or additional artifact.")
 	prompt := renderPromptFromDefault(root, "prompts/create-code-context.md", sp.Project, sp.Slug, b.String())
+	prompt = appendDirectInputPacket(prompt, []directPromptInput{
+		directContentInput("requirements", "artifact", ArtifactRelPath(sp, StageRequirements), requirements),
+	}, sharedPromptSuffixReserve)
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
@@ -95,6 +98,7 @@ func RenderSprintIndexPrompt(root string, sp Sprint, catalog project.ProjectInde
 	fmt.Fprintln(&b, "- Use workspace-relative paths.")
 	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, source repositories, config, Git state, or any artifact other than sprint-index.md.")
 	prompt := renderPromptFromDefault(root, "prompts/create-sprint-index.md", sp.Project, sp.Slug, b.String())
+	prompt = appendDirectInputPacket(prompt, directProjectDefinitionInputs(root, sp, docs), sharedPromptSuffixReserve)
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
@@ -109,6 +113,10 @@ func RenderTechnicalHandbookPrompt(root string, manifest HandbookManifest) Promp
 	fmt.Fprintln(&b, "- Write editable Markdown only to the output path.")
 	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, selected evidence reports, source repositories, config, Git state, implementation files, sprint-index.md, reasoning artifacts, or plan.md.")
 	prompt := renderPromptFromDefault(root, "prompts/create-technical-handbook.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
+	sp := Sprint{Project: manifest.ProjectSlug, Slug: manifest.SprintSlug, Path: filepath.Join(root, filepath.FromSlash(manifest.SprintRoot))}
+	inputs := []directPromptInput{directSprintArtifactInput(root, sp, StageSprintIndex)}
+	inputs = append(inputs, directSelectedEvidenceInputs(root, manifest.Evidence)...)
+	prompt = appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
 }
 
@@ -129,6 +137,10 @@ func RenderAreaReasoningPrompt(root string, manifest ReasoningManifest, entry Re
 	fmt.Fprintln(&b, "- Do not write final reasoning.md, plan.md, implementation files, smoke artifacts, review artifacts, issue artifacts, workspace config, source repositories, or Git state.")
 	fmt.Fprintln(&b, "- Write editable Markdown only to the selected area output path.")
 	prompt := renderPromptFromDefault(root, "prompts/create-area-reasoning.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
+	sp := Sprint{Project: manifest.ProjectSlug, Slug: manifest.SprintSlug, Path: filepath.Join(root, filepath.FromSlash(manifest.SprintRoot))}
+	inputs := directProjectDocInputsFromWorkspace(root, sp)
+	inputs = append(inputs, directSelectedReasoningContext(root, sp, manifest)...)
+	prompt = appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}, nil
 }
 
@@ -155,6 +167,11 @@ func RenderFinalReasoningPrompt(root string, manifest ReasoningManifest) (Prompt
 	fmt.Fprintln(&b, "- Do not generate or validate plan.md, task checklists, implementation files, smoke artifacts, review artifacts, issue artifacts, workspace config, source repositories, or Git state.")
 	fmt.Fprintln(&b, "- Write editable Markdown only to reasoning.md.")
 	prompt := renderPromptFromDefault(root, "prompts/create-sprint-reasoning.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
+	sp := Sprint{Project: manifest.ProjectSlug, Slug: manifest.SprintSlug, Path: filepath.Join(root, filepath.FromSlash(manifest.SprintRoot))}
+	inputs := directProjectDefinitionInputsFromWorkspace(root, sp)
+	inputs = append(inputs, directSelectedReasoningContext(root, sp, manifest)...)
+	inputs = append(inputs, directReasoningOutputs(root, manifest.ReasoningTemplates)...)
+	prompt = appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}, nil
 }
 
@@ -187,6 +204,15 @@ func RenderPlanPrompt(root string, manifest PlanManifest) PromptPreview {
 	fmt.Fprintln(&b, "- Do not create .run-state.json, smoke.md, smoke.json, generated review.md, issues.md, or issues.json.")
 	fmt.Fprintln(&b, "- Do not modify requirements.md, sprint-index.md, technical-handbook.md, reasoning/*.md, reasoning.md, project docs, prior reviews, source repositories, implementation files, workspace config, or Git state.")
 	prompt := renderPromptFromDefault(root, "prompts/plan-sprint.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
+	sp := Sprint{Project: manifest.ProjectSlug, Slug: manifest.SprintSlug, Path: filepath.Join(root, filepath.FromSlash(manifest.SprintRoot))}
+	inputs := directProjectDefinitionInputsFromWorkspace(root, sp)
+	inputs = append(inputs,
+		directSprintArtifactInput(root, sp, StageSprintIndex),
+		directSprintArtifactInput(root, sp, StageTechnicalHandbook),
+	)
+	inputs = append(inputs, directReasoningOutputs(root, manifest.ReasoningTemplates)...)
+	inputs = append(inputs, directSprintArtifactInput(root, sp, StageReasoning))
+	prompt = appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
 }
 

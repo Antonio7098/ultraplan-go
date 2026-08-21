@@ -433,7 +433,7 @@
             const name = document.createElement("strong");
             const metadata = document.createElement("span");
             name.textContent = block.id;
-            metadata.textContent = `${block.kind} · ${byteLabel(block.bytes)} · ${block.cacheable ? "stable/cacheable" : "stage-specific"} · ${block.sha256}`;
+            metadata.textContent = `${block.kind}${block.mode ? `/${block.mode}` : ""} · ${byteLabel(block.bytes)} · ${block.cacheable ? "stable/cacheable" : "stage-specific"} · ${block.sha256}`;
             item.append(name, metadata);
             blocks?.append(item);
           }
