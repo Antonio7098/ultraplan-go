@@ -173,7 +173,7 @@ func TestBrowserRunPageSurfacesStudyInsightsCompactly(t *testing.T) {
 			t.Errorf("run study insights missing %q", want)
 		}
 	}
-	for _, want := range []string{`"retry_after":"2026-08-21T12:30:00Z"`, `"provider":"openai"`, `"model":"gpt-5.2"`, `"harness":"codex"`, `"attempts":4`, `"retries":3`} {
+	for _, want := range []string{`"retry_after":"2026-08-21T12:30:00Z"`, `"provider":"openai"`, `"model":"gpt-5.2"`, `"harness":"codex"`, `"attempts":4`, `"retries":3`, `"session_reuse":"same"`, `"session_id":"sess_study_01"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("agent seed facts missing %q", want)
 		}

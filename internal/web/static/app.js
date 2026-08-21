@@ -1247,9 +1247,13 @@
       if (facts.provider) rows.push(["Provider", facts.provider]);
       if (facts.model) rows.push(["Model", facts.model]);
       if (facts.harness) rows.push(["Harness", facts.harness]);
+      if (facts.session_id) rows.push(["Session ID", facts.session_id]);
       if (facts.attempts) rows.push(["Attempts", String(facts.attempts)]);
       const retries = facts.retries || Math.max(0, (facts.attempts || 1) - 1);
-      if (retries) rows.push(["Retries", String(retries)]);
+      if (retries) {
+        rows.push(["Retries", String(retries)]);
+        rows.push(["Session continued", facts.session_reuse === "same" ? "yes — retries kept the same session" : "no — retries started a fresh session"]);
+      }
     }
     const retryWait = agentRetryWait(agent);
     if (retryWait) rows.push(["Backoff", retryWait]);
