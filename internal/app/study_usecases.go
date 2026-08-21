@@ -48,6 +48,20 @@ type RunTaskSummary struct {
 	Events                                                                        int64
 	Cost                                                                          string
 	DurationMS                                                                    int64
+	UpdatedAt                                                                     time.Time
+	Stale                                                                         bool
+	AttemptHistory                                                                []AttemptSummary
+	FallbackFrom                                                                  string
+	FallbackTo                                                                    string
+}
+
+// AttemptSummary is a lightweight view of per-attempt provider/model
+// outcomes for observability (e.g. primary → fallback).
+type AttemptSummary struct {
+	Provider      string
+	Model         string
+	ErrorCategory string
+	Status        string
 }
 
 func (u dashboardUseCases) StudySummaries(ctx context.Context) ([]StudySummary, error) {
@@ -136,7 +150,7 @@ func (u dashboardUseCases) StudySummaries(ctx context.Context) ([]StudySummary, 
 }
 
 func runTaskSummary(task study.TaskState, now time.Time) RunTaskSummary {
-	r := RunTaskSummary{ID: task.ID, Kind: string(task.Kind), Dimension: task.DimensionRef, Source: task.Source, Status: string(task.Status), Provider: task.Agent.Provider, Model: task.Agent.Model, Attempts: task.Attempts, RuntimeAttempts: len(task.Agent.Attempts), Turns: task.Agent.Usage.Turns, TurnsKnown: task.Agent.Usage.TurnsKnown, Tokens: task.Agent.Usage.TotalTokens, TokensKnown: task.Agent.Usage.TotalTokensKnown, InputTokens: task.Agent.Usage.InputTokens, OutputTokens: task.Agent.Usage.OutputTokens, ReasoningTokens: task.Agent.Usage.ReasoningTokens, CacheReadTokens: task.Agent.Usage.CacheReadTokens, CacheWriteTokens: task.Agent.Usage.CacheWriteTokens, Cost: "n/a"}
+	r := RunTaskSummary{ID: task.ID, Kind: string(task.Kind), Dimension: task.DimensionRef, Source: task.Source, Status: string(task.Status), Provider: task.Agent.Provider, Model: task.Agent.Model, Attempts: task.Attempts, RuntimeAttempts: len(task.Agent.Attempts), Turns: task.Agent.Usage.Turns, TurnsKnown: task.Agent.Usage.TurnsKnown, Tokens: task.Agent.Usage.TotalTokens, TokensKnown: task.Agent.Usage.TotalTokensKnown, InputTokens: task.Agent.Usage.InputTokens, OutputTokens: task.Agent.Usage.OutputTokens, ReasoningTokens: task.Agent.Usage.ReasoningTokens, CacheReadTokens: task.Agent.Usage.CacheReadTokens, CacheWriteTokens: task.Agent.Usage.CacheWriteTokens, Cost: "n/a", UpdatedAt: task.UpdatedAt}
 	if retries := task.Attempts - 1; retries > 0 {
 		r.Retries = retries
 		if study.TaskSessionContinued(task) {
@@ -177,6 +191,37 @@ func runTaskSummary(task study.TaskState, now time.Time) RunTaskSummary {
 			currency = "cost"
 		}
 		r.Cost = fmt.Sprintf("%.4g %s", task.Agent.Cost.Amount, currency)
+	}
+	// staleness: running tasks with no update >2m are likely stuck on
+	// retry/fallback (the original bug showed 20m of fake "running")
+	if task.Status == study.TaskStatusRunning || task.Status == study.TaskStatusValidating || task.Status == study.TaskStatusRetrying {
+		if !task.UpdatedAt.IsZero() && now.Sub(task.UpdatedAt) > 2*time.Minute {
+			r.Stale = true
+		}
+	}
+	for _, a := range task.Agent.Attempts {
+		r.AttemptHistory = append(r.AttemptHistory, AttemptSummary{Provider: a.Provider, Model: a.Model, ErrorCategory: a.ErrorCategory, Status: a.Status})
+	}
+	if len(task.Agent.Attempts) >= 2 {
+		first := task.Agent.Attempts[0]
+		last := task.Agent.Attempts[len(task.Agent.Attempts)-1]
+		if first.Provider != last.Provider || first.Model != last.Model {
+			r.FallbackFrom = first.Provider + "/" + first.Model
+			r.FallbackTo = last.Provider + "/" + last.Model
+		}
+	}
+	// also surface fallback from policy decisions when attempts not yet recorded
+	if r.FallbackFrom == "" {
+		for _, d := range task.Agent.Policy.Decisions {
+			if d.Kind == "fallback" {
+				r.FallbackFrom = task.Agent.Provider + "/" + task.Agent.Model
+				// detail often contains target; keep generic if empty
+				if d.Detail != "" {
+					r.FallbackTo = d.Detail
+				}
+				break
+			}
+		}
 	}
 	return r
 }

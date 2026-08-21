@@ -190,6 +190,29 @@ func renderRunView(b *strings.Builder, m Model) {
 		timeText = "0s"
 	}
 	fmt.Fprintf(b, "Run summary — %s\nStatus: %s\nTotal: %d  Completed: %d  Remaining: %d  Active: %d\nFailed: %d  Cancelled: %d  Pending: %d\nTotal tokens: %s  Total runtime: %s\n", s.Name, s.RunStatus, s.Total, s.Completed, remaining, s.ActiveTasks, s.Failed, s.Cancelled, s.Pending, tokenText, timeText)
+	// fallback saturation banner: if ≥2 active tasks have fallen back from primary, surface it
+	fallbackCount, staleCount := 0, 0
+	fallbackExampleFrom, fallbackExampleTo := "", ""
+	for _, task := range s.Tasks {
+		if task.FallbackFrom != "" {
+			fallbackCount++
+			if fallbackExampleFrom == "" {
+				fallbackExampleFrom, fallbackExampleTo = task.FallbackFrom, task.FallbackTo
+			}
+		}
+		if task.Stale {
+			staleCount++
+		}
+	}
+	if fallbackCount >= 2 {
+		fmt.Fprintf(b, "⚠ %d tasks fell back from %s → %s (primary failing)\n", fallbackCount, fallbackExampleFrom, fallbackExampleTo)
+	}
+	if staleCount > 0 {
+		fmt.Fprintf(b, "⚠ %d running tasks stale >2m (no progress)\n", staleCount)
+	}
+	if s.Retries.TotalRetries > 0 {
+		fmt.Fprintf(b, "Retries: %d tasks, %d total (same-session %d, fresh %d)\n", s.Retries.RetriedTasks, s.Retries.TotalRetries, s.Retries.SameSession, s.Retries.FreshSession)
+	}
 	if s.RunActive {
 		fmt.Fprintln(b, "\nPress c to cancel this run.")
 	} else {
@@ -247,8 +270,50 @@ func renderRunTask(b *strings.Builder, task app.RunTaskSummary) {
 	if task.TurnsKnown {
 		turns = fmt.Sprintf("%d", task.Turns)
 	}
-	fmt.Fprintf(b, "- %s [%s] %s\n", task.ID, task.Status, identity)
+	// stale indicator: running/validating/retrying but no update >2m
+	staleMark := ""
+	if task.Stale {
+		staleMark = " STALE"
+	}
+	fmt.Fprintf(b, "- %s [%s%s] %s\n", task.ID, task.Status, staleMark, identity)
 	fmt.Fprintf(b, "  workflow_attempts=%d runtime_attempts=%d agent_turns=%s tokens=%s input=%d output=%d reasoning=%d cache_read=%d cache_write=%d time=%s events=%d provider=%s model=%s cost=%s\n", task.Attempts, task.RuntimeAttempts, turns, tokens, task.InputTokens, task.OutputTokens, task.ReasoningTokens, task.CacheReadTokens, task.CacheWriteTokens, task.Duration, task.Events, provider, model, task.Cost)
+	if task.Stale && !task.UpdatedAt.IsZero() {
+		fmt.Fprintf(b, "  stale: no update since %s (%.0fs ago)\n", task.UpdatedAt.UTC().Format(time.RFC3339), time.Since(task.UpdatedAt).Seconds())
+	}
+	if task.FallbackFrom != "" && task.FallbackTo != "" {
+		fmt.Fprintf(b, "  fallback: %s → %s\n", task.FallbackFrom, task.FallbackTo)
+	}
+	if len(task.AttemptHistory) > 1 {
+		var parts []string
+		for _, a := range task.AttemptHistory {
+			label := a.Provider + "/" + a.Model
+			if label == "/" {
+				label = a.Status
+			}
+			if a.ErrorCategory != "" {
+				label += ":" + a.ErrorCategory
+			}
+			parts = append(parts, label)
+		}
+		fmt.Fprintf(b, "  attempts: %s\n", strings.Join(parts, " → "))
+	}
+	if task.Error != "" {
+		code := task.ErrorCode
+		if code == "" {
+			code = "error"
+		}
+		fmt.Fprintf(b, "  %s: %s\n", code, truncateForDisplay(task.Error, 300))
+	}
+	if task.RetryAfter != nil {
+		fmt.Fprintf(b, "  retry_after: %s\n", task.RetryAfter.UTC().Format(time.RFC3339))
+	}
+}
+
+func truncateForDisplay(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "..."
 }
 
 func renderRouteSummary(b *strings.Builder, m Model) {

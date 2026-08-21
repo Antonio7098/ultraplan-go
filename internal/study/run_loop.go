@@ -780,7 +780,26 @@ func markTaskCancelled(update func(string, func(*TaskState)) error, id string, e
 
 func safeExecutionMessage(res ExecutionResult) string {
 	if res.RuntimeError != "" {
-		return compactDiagnostic(res.RuntimeError)
+		base := compactDiagnostic(res.RuntimeError)
+		// Enrich with provider/model and attempt timeline when available
+		// so fallback from primary (e.g. ox-alpha) to backup is immediately
+		// visible instead of showing a generic "runtime.failed".
+		if res.Agent.Provider != "" || res.Agent.Model != "" || len(res.Agent.Attempts) > 0 {
+			detail := base
+			if res.RuntimeCategory != "" && res.RuntimeCategory != "runtime_exit" {
+				detail = res.RuntimeCategory + ": " + base
+			}
+			if len(res.Agent.Attempts) > 0 {
+				timeline := formatAttemptTimeline(res.Agent.Attempts, res.Agent.Policy.Decisions)
+				if timeline != "" {
+					detail += " [" + timeline + "]"
+				}
+			} else if res.Agent.Provider != "" {
+				detail += " [" + res.Agent.Provider + "/" + res.Agent.Model + "]"
+			}
+			return compactDiagnostic(detail)
+		}
+		return base
 	}
 	if len(res.Blockers) > 0 {
 		return "blocked by invalid or missing reports"
@@ -789,6 +808,39 @@ func safeExecutionMessage(res ExecutionResult) string {
 		return compactDiagnostic(res.SkippedReason)
 	}
 	return string(res.Status)
+}
+
+func formatAttemptTimeline(attempts []AttemptMetadata, decisions []PolicyDecisionMetadata) string {
+	if len(attempts) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, a := range attempts {
+		label := a.Provider + "/" + a.Model
+		if label == "/" {
+			label = a.Status
+		}
+		if a.ErrorCategory != "" && a.ErrorCategory != "none" {
+			label += ":" + a.ErrorCategory
+		}
+		parts = append(parts, label)
+	}
+	// annotate fallbacks from policy decisions
+	for _, d := range decisions {
+		if d.Kind == "fallback" && d.Detail != "" {
+			parts = append(parts, "fallback:"+d.Detail)
+			break
+		}
+	}
+	joined := ""
+	for i, p := range parts {
+		if i == 0 {
+			joined = p
+		} else {
+			joined += " → " + p
+		}
+	}
+	return joined
 }
 
 func allTasksComplete(state RunState) bool {
