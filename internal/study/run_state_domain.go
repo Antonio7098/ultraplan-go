@@ -122,6 +122,28 @@ type StatusSummary struct {
 	Tasks       []TaskState
 }
 
+// RetrySummary aggregates how often study tasks needed retries and whether
+// those retries continued the same agent session or started a fresh one.
+type RetrySummary struct {
+	RetriedTasks int        `json:"retried_tasks"`
+	TotalRetries int        `json:"total_retries"`
+	SameSession  int        `json:"same_session"`
+	FreshSession int        `json:"fresh_session"`
+	Waiting      int        `json:"waiting"`
+	NextRetryAt  *time.Time `json:"next_retry_at,omitempty"`
+}
+
+// ParallelismThrottle summarizes whether memory pressure reduced the run-loop
+// parallelism below the requested level.
+type ParallelismThrottle struct {
+	Decreased            bool      `json:"decreased"`
+	Events               int       `json:"events,omitempty"`
+	RequestedParallelism int       `json:"requested_parallelism,omitempty"`
+	EffectiveParallelism int       `json:"effective_parallelism,omitempty"`
+	MemoryAvailableBytes uint64    `json:"memory_available_bytes,omitempty"`
+	LastAt               time.Time `json:"last_at,omitempty"`
+}
+
 type LockInfo struct {
 	Path       string    `json:"path"`
 	Study      string    `json:"study"`

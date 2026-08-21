@@ -47,6 +47,46 @@ type runDetailView struct {
 	IsActive               bool
 }
 
+type runStudyInsightsView struct {
+	Study       string
+	Status      string
+	RunID       string
+	Total       int
+	Completed   int
+	Pending     int
+	ActiveTasks int
+	Failed      int
+	Cancelled   int
+	Retries     studyRetryDTO
+	Parallelism *studyParallelismDTO
+	Tasks       []studyTaskPerfDTO
+	Failures    []studyTaskFailureDTO
+	SeedTasks   []studyTaskSeedDTO
+}
+
+type studyTaskFailureDTO struct {
+	Task    string `json:"task"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message"`
+}
+
+type studyTaskSeedDTO struct {
+	Task   string `json:"task"`
+	Status string `json:"status"`
+}
+
+type studyTaskPerfDTO struct {
+	ID           string `json:"id"`
+	Kind         string `json:"kind,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Duration     string `json:"duration,omitempty"`
+	Turns        int64  `json:"turns,omitempty"`
+	Tokens       int64  `json:"tokens,omitempty"`
+	Cost         string `json:"cost,omitempty"`
+	Retries      int    `json:"retries,omitempty"`
+	SessionReuse string `json:"session_reuse,omitempty"`
+}
+
 type runEventView struct {
 	Sequence   uint64
 	Type       string
@@ -163,11 +203,40 @@ func (h *handler) handleRunPage(w http.ResponseWriter, r *http.Request, value st
 		nextEventsURL = "/api/v1/runs/" + url.PathEscape(value) + "/events?after=" + strconv.FormatUint(events[len(events)-1].Sequence, 10)
 	}
 	detail := newRunDetailView(snapshot)
+	var insights *runStudyInsightsView
+	if snapshot.Target.Study != "" && h.queries != nil {
+		if study, err := h.queries.Study(r.Context(), snapshot.Target.Study); err == nil {
+			insights = newRunStudyInsightsView(snapshot.Target.Study, study)
+		}
+	}
 	eventViews := make([]runEventView, 0, len(events))
 	for _, event := range events {
 		eventViews = append(eventViews, newRunEventView(event))
 	}
-	h.render(w, r, http.StatusOK, "run", pageModel{Title: "Run " + value, Heading: "Run detail", Run: &detail, RunEvents: eventViews, NextEventsURL: nextEventsURL})
+	h.render(w, r, http.StatusOK, "run", pageModel{Title: "Run " + value, Heading: "Run detail", Run: &detail, StudyInsights: insights, RunEvents: eventViews, NextEventsURL: nextEventsURL})
+}
+
+func newRunStudyInsightsView(study string, result app.WebStudyResult) *runStudyInsightsView {
+	retries := studyRetryDTO{RetriedTasks: result.Retries.RetriedTasks, TotalRetries: result.Retries.TotalRetries, SameSession: result.Retries.SameSession, FreshSession: result.Retries.FreshSession, Waiting: result.Retries.Waiting}
+	if result.Retries.NextRetryAt != nil {
+		next := *result.Retries.NextRetryAt
+		retries.NextRetryAt = &next
+	}
+	tasks := make([]studyTaskPerfDTO, 0, len(result.Tasks))
+	failures := make([]studyTaskFailureDTO, 0)
+	seeds := make([]studyTaskSeedDTO, 0, len(result.Tasks))
+	for _, task := range result.Tasks {
+		tasks = append(tasks, studyTaskPerfDTO{ID: task.ID, Kind: task.Kind, Status: task.Status, Duration: task.Duration, Turns: task.Turns, Tokens: task.Tokens, Cost: task.Cost, Retries: task.Retries, SessionReuse: task.SessionReuse})
+		if task.Error != "" {
+			failures = append(failures, studyTaskFailureDTO{Task: task.ID, Code: task.ErrorCode, Message: task.Error})
+		}
+		if task.Status != "pending" && task.Status != "" {
+			seeds = append(seeds, studyTaskSeedDTO{Task: task.ID, Status: task.Status})
+		}
+	}
+	return &runStudyInsightsView{Study: study, Status: result.Status, RunID: result.RunID, Total: result.Total, Completed: result.Completed,
+		Pending: result.Pending, ActiveTasks: result.ActiveTasks, Failed: result.Failed, Cancelled: result.Cancelled,
+		Retries: retries, Parallelism: mapStudyParallelism(result.Parallelism), Tasks: tasks, Failures: failures, SeedTasks: seeds}
 }
 
 func newRunRowView(snapshot app.RunSnapshot) runRowView {

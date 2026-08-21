@@ -1,32 +1,67 @@
 {{define "page/run"}}{{template "layout/top" .}}{{$csrf := .CSRF}}
 <nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/runs">Runs</a> / Run</nav>
 {{with .Run}}
-<section aria-labelledby="run-state-heading" data-run-id="{{.RunID}}" data-last-sequence="{{.LastSequence}}">
-  <header><h2 id="run-state-heading"><code>{{.RunID}}</code></h2>{{template "component/run-state" .Lifecycle}}</header>
-  <dl><div><dt>Target</dt><dd>{{.Target}}</dd></div><div><dt>Liveness</dt><dd>{{template "component/run-state" .Liveness}}</dd></div><div><dt>Product status</dt><dd>{{.Product}}</dd></div><div><dt>Current attempt</dt><dd>{{.CurrentAttempt}}</dd></div><div><dt>Cancellation</dt><dd>{{template "component/run-state" .Cancellation}}</dd></div><div><dt>Replay boundary</dt><dd>oldest {{.OldestRetainedSequence}}, last {{.LastSequence}}, omitted {{.OmissionTotal}}</dd></div><div><dt>History</dt><dd>{{.History}}</dd></div>{{with .Terminal}}<div><dt>Terminal</dt><dd>{{.}}</dd></div>{{end}}</dl>
-  {{if .IsActive}}<form method="post" action="/runs/{{.RunID}}/cancel" data-confirm="Request durable cancellation for this run?"><input type="hidden" name="_csrf" value="{{$csrf}}"><button type="submit">Request cancellation</button></form>{{end}}
+<section class="run-state-panel" aria-labelledby="run-state-heading" data-run-id="{{.RunID}}" data-last-sequence="{{.LastSequence}}">
+  <header class="run-heading">
+    <div><p class="eyebrow">Run</p><h2 id="run-state-heading"><code>{{.RunID}}</code></h2></div>
+    <div class="run-heading-side">{{template "component/run-state" .Lifecycle}}{{if .IsActive}}<form method="post" action="/runs/{{.RunID}}/cancel" data-confirm="Request durable cancellation for this run?"><input type="hidden" name="_csrf" value="{{$csrf}}"><button type="submit">Request cancellation</button></form>{{end}}</div>
+  </header>
+  <dl class="metadata run-state-primary"><div><dt>Target</dt><dd>{{.Target}}</dd></div><div><dt>Liveness</dt><dd>{{template "component/run-state" .Liveness}}</dd></div><div><dt>Product status</dt><dd>{{.Product}}</dd></div><div><dt>Current attempt</dt><dd>{{.CurrentAttempt}}</dd></div><div><dt>Cancellation</dt><dd>{{template "component/run-state" .Cancellation}}</dd></div></dl>
+  <dl class="run-state-secondary"><div><dt>Replay boundary</dt><dd>oldest {{.OldestRetainedSequence}}, last {{.LastSequence}}, omitted {{.OmissionTotal}}</dd></div><div><dt>History</dt><dd>{{.History}}</dd></div>{{with .Terminal}}<div><dt>Terminal</dt><dd>{{.}}</dd></div>{{end}}</dl>
 </section>
 {{end}}
-<section aria-labelledby="run-agents-heading" data-run-agents hidden>
-  <h2 id="run-agents-heading">Agents in this run</h2>
-  <p class="group-description">Each card follows one study agent. Select a card for its detailed summary and full committed event stream.</p>
-  <ul id="run-agent-grid" class="reviewer-grid run-agent-grid"></ul>
-  <div class="run-agent-completed-row">
-    <button id="run-agent-completed-toggle" type="button" data-run-completed-toggle aria-expanded="false" aria-controls="run-agent-grid" hidden><span data-run-completed-label>Show</span> <span data-run-completed-count>0</span> completed agent<span data-run-completed-plural>s</span><span class="run-agent-toggle-chevron" aria-hidden="true">▾</span></button>
-  </div>
-  <p id="run-agent-grid-empty" class="empty">No per-agent activity has been committed yet.</p>
+<div class="run-workspace">
+  <section class="run-events-panel" aria-labelledby="run-events-heading">
+    <header class="run-events-header"><h2 id="run-events-heading">Retained events</h2><p data-run-live-status role="status" aria-live="polite">Snapshot loaded. Live observation starts when available.</p></header>
+    {{if .RunEvents}}<ol class="operation-timeline" data-run-timeline>{{range .RunEvents}}<li data-run-sequence="{{.Sequence}}" data-run-type="{{.Type}}" data-run-stage="{{.Stage}}" data-run-task="{{.Task}}"{{with .Time}} data-run-time="{{.}}"{{end}} data-run-kind="{{.DetailKind}}" data-run-tool="{{.DetailTool}}"><strong>{{.Sequence}} · {{.Type}}</strong>{{with .Stage}} <span>{{.}}</span>{{end}}{{with .Task}} <span>{{.}}</span>{{end}}{{with .Omission}}<p>{{.}}</p>{{end}}</li>{{end}}</ol>{{else}}<ol class="operation-timeline" data-run-timeline><li class="empty">No retained events.</li></ol>{{end}}
+    <div class="run-events-links">{{with .NextEventsURL}}<a href="{{.}}">Continue retained event replay</a>{{end}}<a href="/api/v1/runs/{{.Run.RunID}}/events?after={{.Run.LastSequence}}">Open canonical event resource</a></div>
+  </section>
+  <section aria-labelledby="run-agents-heading" data-run-agents hidden>
+    <h2 id="run-agents-heading">Agents in this run</h2>
+    <p class="group-description">Each card follows one study agent. Select a card for its detailed summary and full committed event stream.</p>
+    <div class="run-agent-completed-row">
+      <button id="run-agent-completed-toggle" type="button" data-run-completed-toggle aria-expanded="false" aria-controls="run-agent-grid" hidden><span data-run-completed-label>Show</span> <span data-run-completed-count>0</span> completed agent<span data-run-completed-plural>s</span><span class="run-agent-toggle-chevron" aria-hidden="true">▾</span></button>
+    </div>
+    <ul id="run-agent-grid" class="reviewer-grid run-agent-grid"></ul>
+    <p id="run-agent-grid-empty" class="empty">No per-agent activity has been committed yet.</p>
+  </section>
+  <dialog id="run-agent-dialog" class="reviewer-result-dialog run-agent-dialog" aria-labelledby="run-agent-dialog-title">
+    <div class="reviewer-result-heading">
+      <div><h2 id="run-agent-dialog-title"></h2><p id="run-agent-dialog-subtitle" class="group-description"></p></div>
+      <button id="run-agent-dialog-close" type="button" aria-label="Close agent details">×</button>
+    </div>
+    <dl class="agent-dialog-summary" id="run-agent-dialog-summary"></dl>
+    <ol class="operation-timeline run-agent-dialog-timeline" id="run-agent-dialog-timeline" aria-label="Agent event stream"></ol>
+  </dialog>
+  {{with .StudyInsights}}<aside class="run-rail" aria-labelledby="run-insights-heading">
+    <section aria-labelledby="run-insights-heading">
+      <h2 id="run-insights-heading">Study insights · {{.Study}}</h2>
+      <dl class="metadata run-insights-summary"><div><dt>Status</dt><dd>{{.Status}}</dd></div><div><dt>Completed</dt><dd>{{.Completed}}</dd></div><div><dt>Pending</dt><dd>{{.Pending}}</dd></div><div><dt>Active tasks</dt><dd>{{.ActiveTasks}}</dd></div><div><dt>Failed</dt><dd>{{.Failed}}</dd></div><div><dt>Cancelled</dt><dd>{{.Cancelled}}</dd></div>{{if .RunID}}<div><dt>Run ID</dt><dd>{{.RunID}}</dd></div>{{end}}</dl>
+      <details class="run-insight"><summary>Retries · {{.Retries.TotalRetries}} across {{.Retries.RetriedTasks}} task(s)</summary>
+        <dl class="metadata"><div><dt>Total retries</dt><dd>{{.Retries.TotalRetries}}</dd></div><div><dt>Tasks retried</dt><dd>{{.Retries.RetriedTasks}}</dd></div><div><dt>Same session</dt><dd>{{.Retries.SameSession}}</dd></div><div><dt>Fresh session</dt><dd>{{.Retries.FreshSession}}</dd></div>{{if .Retries.Waiting}}<div><dt>Waiting to retry</dt><dd>{{.Retries.Waiting}}</dd></div>{{end}}{{with .Retries.NextRetryAt}}<div><dt>Next retry</dt><dd>{{.Format "15:04:05 MST"}}</dd></div>{{end}}</dl>
+        {{if .Failures}}<h3>Failure reasons</h3><ul class="run-agent-failures">{{range .Failures}}<li><code>{{.Task}}</code>{{if .Code}} <span class="failure-code">{{.Code}}</span>{{end}}<p>{{.Message}}</p></li>{{end}}</ul>{{end}}
+      </details>
+      <details class="run-insight">{{if .Parallelism}}<summary>Parallelism · {{if .Parallelism.Decreased}}decreased to {{.Parallelism.EffectiveParallelism}} of {{.Parallelism.RequestedParallelism}}{{else if .Parallelism.Events}}recovered after {{.Parallelism.Events}} throttle event(s){{else}}not decreased{{end}}</summary>{{if .Parallelism.Decreased}}<p>Memory pressure reduced parallelism from {{.Parallelism.RequestedParallelism}} to {{.Parallelism.EffectiveParallelism}} agent(s).</p>{{else if .Parallelism.Events}}<p>Parallelism was throttled by memory pressure {{.Parallelism.Events}} time(s), but is back at the requested level.</p>{{else}}<p>Parallelism has not been decreased because of memory.</p>{{end}}{{else}}<summary>Parallelism · unknown</summary><p>No run-loop diagnostics recorded for this study.</p>{{end}}</details>
+      <details class="run-insight"><summary>Performance · {{len .Tasks}} task(s)</summary>
+        {{if .Tasks}}<div class="table-wrap"><table><thead><tr><th>Task</th><th>Status</th><th>Duration</th><th>Turns</th><th>Tokens</th><th>Cost</th><th>Retries</th><th>Session</th></tr></thead><tbody>{{range .Tasks}}<tr><td>{{.ID}}</td><td>{{.Status}}</td><td>{{.Duration}}</td><td>{{.Turns}}</td><td>{{.Tokens}}</td><td>{{.Cost}}</td><td>{{.Retries}}</td><td>{{if eq .SessionReuse "same"}}same{{else if eq .SessionReuse "fresh"}}fresh{{else}}-{{end}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="empty">No task performance recorded.</p>{{end}}
+      </details>
+      {{if .Failures}}<script type="application/json" data-run-agent-failures data-study="{{.Study}}">{{.Failures}}</script>{{end}}
+    </section>
+  </aside>{{end}}
+</div>
+{{with .StudyInsights}}
+<script type="application/json" data-run-agent-tasks>{{.SeedTasks}}</script>
+<link rel="stylesheet" href="/static/resource-monitor.css">
+<section class="resource-monitor" data-study-resources="/api/v1/studies/{{.Study}}/resources" aria-label="Live resource diagnostics">
+<header><div><p class="eyebrow">Live diagnostics</p><h3>Resource usage</h3></div><span class="resource-monitor-state" data-resource-state>Loading</span></header>
+<dl class="resource-metrics"><div><dt>Available memory</dt><dd data-resource="available">-</dd></div><div><dt>UltraPlan RSS</dt><dd data-resource="parent-rss">-</dd></div><div><dt>Workers RSS</dt><dd data-resource="child-rss">-</dd></div><div><dt>Swap</dt><dd data-resource="swap">-</dd></div><div><dt>Parallelism</dt><dd data-resource="parallelism">-</dd></div><div><dt>Workers</dt><dd data-resource="workers">-</dd></div></dl>
+<div class="resource-monitor-body">
+<div class="resource-chart"><svg viewBox="0 0 720 180" role="img" aria-label="Memory usage over time"><polyline data-resource-line="children" class="resource-line resource-line-children" points=""></polyline><polyline data-resource-line="parent" class="resource-line resource-line-parent" points=""></polyline></svg><div class="resource-legend"><span><i class="children"></i>Workers RSS</span><span><i class="parent"></i>UltraPlan RSS</span></div></div>
+<p class="resource-empty" data-resource-empty hidden>No run-loop diagnostics have been recorded for this study.</p>
+<div class="resource-events"><h4>Memory controls</h4><ul data-resource-events><li>No throttle events recorded.</li></ul></div>
+<div class="table-wrap"><table class="resource-processes"><thead><tr><th>PID</th><th>Task</th><th>RSS</th><th>Swap</th><th>CPU time</th><th>Elapsed</th></tr></thead><tbody data-resource-processes></tbody></table></div>
+</div>
 </section>
-<dialog id="run-agent-dialog" class="reviewer-result-dialog run-agent-dialog" aria-labelledby="run-agent-dialog-title">
-  <div class="reviewer-result-heading">
-    <div><h2 id="run-agent-dialog-title"></h2><p id="run-agent-dialog-subtitle" class="group-description"></p></div>
-    <button id="run-agent-dialog-close" type="button" aria-label="Close agent details">×</button>
-  </div>
-  <dl class="agent-dialog-summary" id="run-agent-dialog-summary"></dl>
-  <ol class="operation-timeline run-agent-dialog-timeline" id="run-agent-dialog-timeline" aria-label="Agent event stream"></ol>
-</dialog>
-<section aria-labelledby="run-events-heading"><h2 id="run-events-heading">Retained events</h2>
-<p data-run-live-status role="status" aria-live="polite">Snapshot loaded. Live observation starts when available.</p>
-{{if .RunEvents}}<ol class="operation-timeline" data-run-timeline>{{range .RunEvents}}<li data-run-sequence="{{.Sequence}}" data-run-type="{{.Type}}" data-run-stage="{{.Stage}}" data-run-task="{{.Task}}"{{with .Time}} data-run-time="{{.}}"{{end}} data-run-kind="{{.DetailKind}}" data-run-tool="{{.DetailTool}}"><strong>{{.Sequence}} · {{.Type}}</strong>{{with .Stage}} <span>{{.}}</span>{{end}}{{with .Task}} <span>{{.}}</span>{{end}}{{with .Omission}}<p>{{.}}</p>{{end}}</li>{{end}}</ol>{{else}}<ol class="operation-timeline" data-run-timeline><li class="empty">No retained events.</li></ol>{{end}}
-{{with .NextEventsURL}}<p><a href="{{.}}">Continue retained event replay</a></p>{{end}}
-<p><a href="/api/v1/runs/{{.Run.RunID}}/events?after={{.Run.LastSequence}}">Open canonical event resource</a></p></section>
+<script src="/static/resource-monitor.js" defer></script>
+{{end}}
 {{template "layout/bottom" .}}{{end}}

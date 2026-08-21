@@ -130,22 +130,44 @@ type WebPromptBundleResult struct {
 	Explanation       *sprint.PromptExplanation
 }
 
+// ParallelismSummary is the web-facing view of run-loop parallelism throttling.
+type ParallelismSummary struct {
+	Decreased            bool
+	Events               int
+	RequestedParallelism int
+	EffectiveParallelism int
+}
+
 type WebStudyResult struct {
-	Ref         string
-	Name        string
-	Sources     []string
-	Dimensions  []string
-	Status      string
-	RunID       string
-	Total       int
-	Completed   int
-	Failed      int
-	RunActive   bool
-	ActiveTasks int
-	Pending     int
-	Cancelled   int
-	Findings    []DisplayFinding
-	Artifacts   []WebArtifactLink
+	Ref          string
+	Name         string
+	Sources      []string
+	Dimensions   []string
+	Status       string
+	RunID        string
+	Total        int
+	Completed    int
+	Failed       int
+	RunActive    bool
+	ActiveTasks  int
+	Pending      int
+	Cancelled    int
+	Retries      study.RetrySummary
+	Parallelism  *ParallelismSummary
+	RetriedTasks []WebStudyTaskRetry
+	Tasks        []RunTaskSummary
+	Findings     []DisplayFinding
+	Artifacts    []WebArtifactLink
+}
+
+// WebStudyTaskRetry describes one task that needed retries and whether those
+// retries continued the same agent session.
+type WebStudyTaskRetry struct {
+	ID           string
+	Kind         string
+	Status       string
+	Retries      int
+	SessionReuse string
 }
 
 type WebProjectsResult struct {
@@ -618,7 +640,14 @@ func (u *webUseCases) Study(ctx context.Context, name string) (WebStudyResult, e
 	}
 	for _, item := range items {
 		if item.Name == name {
-			return u.webStudy(item), nil
+			result := u.webStudy(item)
+			if listing, listErr := study.NewService(u.root).ListStudy(name); listErr == nil {
+				if history, histErr := study.LoadRunLoopResourceHistory(listing.Study, 240); histErr == nil {
+					throttle := study.SummarizeParallelismThrottle(history)
+					result.Parallelism = &ParallelismSummary{Decreased: throttle.Decreased, Events: throttle.Events, RequestedParallelism: throttle.RequestedParallelism, EffectiveParallelism: throttle.EffectiveParallelism}
+				}
+			}
+			return result, nil
 		}
 	}
 	return WebStudyResult{}, ErrWebNotFound
@@ -779,22 +808,39 @@ func (u *webUseCases) webStudy(item StudySummary) WebStudyResult {
 	if findings == nil {
 		findings = []DisplayFinding{}
 	}
+	retried := make([]WebStudyTaskRetry, 0, len(item.Tasks))
+	for _, task := range item.Tasks {
+		if task.Retries == 0 && task.Status != "retrying" {
+			continue
+		}
+		retries := task.Retries
+		if retries == 0 {
+			retries = 1
+		}
+		retried = append(retried, WebStudyTaskRetry{ID: task.ID, Kind: task.Kind, Status: task.Status, Retries: retries, SessionReuse: task.SessionReuse})
+	}
+	if retried == nil {
+		retried = []WebStudyTaskRetry{}
+	}
 	return WebStudyResult{
-		Ref:         u.issue("study", item.Name),
-		Name:        item.Name,
-		Sources:     nonNil(append([]string(nil), item.Sources...)),
-		Dimensions:  nonNil(append([]string(nil), item.Dimensions...)),
-		Status:      item.Status,
-		RunID:       displaySafe(item.RunID),
-		Total:       item.Total,
-		Completed:   item.Completed,
-		Failed:      item.Failed,
-		RunActive:   item.RunActive,
-		ActiveTasks: item.ActiveTasks,
-		Pending:     item.Pending,
-		Cancelled:   item.Cancelled,
-		Findings:    findings,
-		Artifacts:   u.webArtifacts(item.Artifacts),
+		Ref:          u.issue("study", item.Name),
+		Name:         item.Name,
+		Sources:      nonNil(append([]string(nil), item.Sources...)),
+		Dimensions:   nonNil(append([]string(nil), item.Dimensions...)),
+		Status:       item.Status,
+		RunID:        displaySafe(item.RunID),
+		Total:        item.Total,
+		Completed:    item.Completed,
+		Failed:       item.Failed,
+		RunActive:    item.RunActive,
+		ActiveTasks:  item.ActiveTasks,
+		Pending:      item.Pending,
+		Cancelled:    item.Cancelled,
+		Retries:      item.Retries,
+		RetriedTasks: retried,
+		Tasks:        append([]RunTaskSummary(nil), item.Tasks...),
+		Findings:     findings,
+		Artifacts:    u.webArtifacts(item.Artifacts),
 	}
 }
 

@@ -26,6 +26,7 @@ type StudySummary struct {
 	ActiveTasks int
 	Pending     int
 	Cancelled   int
+	Retries     study.RetrySummary
 	Tasks       []RunTaskSummary
 	Findings    []DisplayFinding
 	Artifacts   []DisplayArtifact
@@ -34,6 +35,9 @@ type StudySummary struct {
 type RunTaskSummary struct {
 	ID, Kind, Dimension, Source, Status, Provider, Model, Duration                string
 	Attempts, RuntimeAttempts                                                     int
+	Retries                                                                       int
+	SessionReuse                                                                  string
+	ErrorCode, Error                                                              string
 	Turns                                                                         int64
 	TurnsKnown                                                                    bool
 	Tokens                                                                        int64
@@ -93,6 +97,7 @@ func (u dashboardUseCases) StudySummaries(ctx context.Context) ([]StudySummary, 
 			summary.ActiveTasks = status.Active
 			summary.Pending = status.Pending + status.Waiting + status.Retrying
 			summary.Cancelled = status.Cancelled
+			summary.Retries = study.SummarizeRetries(state)
 			for _, task := range state.Tasks {
 				summary.Tasks = append(summary.Tasks, runTaskSummary(task, now))
 			}
@@ -130,6 +135,18 @@ func (u dashboardUseCases) StudySummaries(ctx context.Context) ([]StudySummary, 
 
 func runTaskSummary(task study.TaskState, now time.Time) RunTaskSummary {
 	r := RunTaskSummary{ID: task.ID, Kind: string(task.Kind), Dimension: task.DimensionRef, Source: task.Source, Status: string(task.Status), Provider: task.Agent.Provider, Model: task.Agent.Model, Attempts: task.Attempts, RuntimeAttempts: len(task.Agent.Attempts), Turns: task.Agent.Usage.Turns, TurnsKnown: task.Agent.Usage.TurnsKnown, Tokens: task.Agent.Usage.TotalTokens, TokensKnown: task.Agent.Usage.TotalTokensKnown, InputTokens: task.Agent.Usage.InputTokens, OutputTokens: task.Agent.Usage.OutputTokens, ReasoningTokens: task.Agent.Usage.ReasoningTokens, CacheReadTokens: task.Agent.Usage.CacheReadTokens, CacheWriteTokens: task.Agent.Usage.CacheWriteTokens, Cost: "n/a"}
+	if retries := task.Attempts - 1; retries > 0 {
+		r.Retries = retries
+		if study.TaskSessionContinued(task) {
+			r.SessionReuse = "same"
+		} else {
+			r.SessionReuse = "fresh"
+		}
+	}
+	if task.LastError != nil {
+		r.ErrorCode = task.LastError.Code
+		r.Error = task.LastError.Message
+	}
 	if task.Agent.DurationMS > 0 {
 		r.DurationMS = task.Agent.DurationMS
 		r.Duration = (time.Duration(task.Agent.DurationMS) * time.Millisecond).Round(time.Second).String()

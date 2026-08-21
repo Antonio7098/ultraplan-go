@@ -342,6 +342,30 @@ func fileSize(path string) int64 {
 	return info.Size()
 }
 
+// SummarizeParallelismThrottle reports whether memory pressure reduced the
+// run-loop parallelism below the requested level, based on the retained
+// diagnostics history.
+func SummarizeParallelismThrottle(history RunLoopResourceHistory) ParallelismThrottle {
+	var summary ParallelismThrottle
+	for _, sample := range history.Samples {
+		if sample.Phase == "parallelism.throttled" {
+			summary.Events++
+			summary.LastAt = sample.Timestamp
+			if sample.MemoryAvailableBytes > 0 {
+				summary.MemoryAvailableBytes = sample.MemoryAvailableBytes
+			}
+		}
+		if sample.RequestedParallelism > 0 {
+			summary.RequestedParallelism = sample.RequestedParallelism
+		}
+		if sample.EffectiveParallelism > 0 {
+			summary.EffectiveParallelism = sample.EffectiveParallelism
+		}
+	}
+	summary.Decreased = summary.EffectiveParallelism > 0 && summary.EffectiveParallelism < summary.RequestedParallelism
+	return summary
+}
+
 func LoadRunLoopResourceHistory(study Study, limit int) (RunLoopResourceHistory, error) {
 	if limit < 1 || limit > 1000 {
 		limit = 240

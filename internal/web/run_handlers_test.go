@@ -144,6 +144,46 @@ func (f *fakeRunUseCases) RunHealth(context.Context) (runHealth app.RunHealthRes
 	return runHealth, nil
 }
 
+func TestBrowserRunPageSurfacesStudyInsightsCompactly(t *testing.T) {
+	runs := newFakeRunUseCases()
+	runs.snapshot.Target.Kind = "operation"
+	runs.snapshot.Target.Operation = string(app.OperationStudyStart)
+	runs.snapshot.Target.Study = "research"
+	h, err := NewHandler(HandlerOptions{Queries: sampleQueries(), Runs: runs, Authority: testAuthority})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := request(h, http.MethodGet, "/runs/"+string(testRunID), nil).Body.String()
+	for _, want := range []string{
+		`id="run-insights-heading"`, `Study insights · research`,
+		`Retries · 3 across 1 task(s)`,
+		`Parallelism · decreased to 2 of 4`,
+		`Memory pressure reduced parallelism from 4 to 2 agent(s)`,
+		`Performance · 1 task(s)`,
+		`analysis:01-structure:repo`, `<td>4m32s</td>`, `<td>45678</td>`, `<td>0.42 USD</td>`, `<td>same</td>`,
+		`data-run-agent-failures`,
+		`Failure reasons`, `runtime.failed`,
+		`provider exited before the report was committed (exit 1)`,
+		`<dt>Active tasks</dt>`, `<dt>Failed</dt>`, `<dt>Pending</dt>`,
+		`data-study-resources="/api/v1/studies/research/resources"`,
+		`data-resource="parallelism"`, `/static/resource-monitor.js`,
+		`data-run-agent-tasks`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("run study insights missing %q", want)
+		}
+	}
+	if count := strings.Count(body, `<details class="run-insight">`); count != 3 {
+		t.Fatalf("insight details blocks=%d, want 3 compacted sections", count)
+	}
+
+	runs.snapshot.Target.Study = ""
+	body = request(h, http.MethodGet, "/runs/"+string(testRunID), nil).Body.String()
+	if strings.Contains(body, "run-insights-heading") {
+		t.Fatal("non-study run rendered study insights")
+	}
+}
+
 func TestCanonicalRunListDetailReplayAndCursorErrors(t *testing.T) {
 	runs := newFakeRunUseCases()
 	h, err := NewHandler(HandlerOptions{

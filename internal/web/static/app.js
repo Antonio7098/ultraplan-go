@@ -218,7 +218,11 @@
       const study = location.pathname.match(/^\/studies\/([^/]+)/);
       return study ? `/api/v1/studies/${study[1]}` : "";
     };
+    let renderedKey = "";
     const render = (operations) => {
+      const key = JSON.stringify(operations);
+      if (key === renderedKey) return;
+      renderedKey = key;
       count.textContent = String(operations.length);
       button.setAttribute("aria-label", `Running processes: ${operations.length}`);
       processes.classList.toggle("has-running-processes", operations.length > 0);
@@ -1005,6 +1009,37 @@
   let runAgentsLive = false;
   let completedAgentsExpanded = false;
   let previousActiveAgentCount = 0;
+  const agentFailures = new Map();
+  let agentFailuresFetch;
+  for (const payload of document.querySelectorAll("script[data-run-agent-failures]")) {
+    for (const failure of JSON.parse(payload.textContent || "[]")) {
+      if (failure?.task && failure.message) agentFailures.set(failure.task, {code: failure.code || "", message: failure.message});
+    }
+  }
+  const seededAgentStatus = (status) => ({completed: "completed", failed: "failed", cancelled: "failed", retrying: "pending", waiting: "pending", running: "running", validating: "running"}[status]);
+  for (const payload of document.querySelectorAll("script[data-run-agent-tasks]")) {
+    for (const item of JSON.parse(payload.textContent || "[]")) {
+      const status = seededAgentStatus(item?.status);
+      if (!item?.task || !status || runAgents.has(item.task)) continue;
+      runAgents.set(item.task, {task: item.task, events: [], toolCalls: 0, status, latest: null});
+    }
+  }
+  const loadAgentFailures = () => {
+    if (agentFailuresFetch) return agentFailuresFetch;
+    const source = document.querySelector("script[data-run-agent-failures]");
+    const study = source?.dataset.study;
+    agentFailuresFetch = study ? fetch(`/api/v1/studies/${encodeURIComponent(study)}`, {headers: {Accept: "application/json"}})
+      .then((response) => response.ok ? response.json() : null)
+      .then((body) => {
+        for (const failure of body?.data?.failures || []) {
+          if (failure?.task && failure.message) agentFailures.set(failure.task, {code: failure.code || "", message: failure.message});
+        }
+        renderAgentGrid();
+        if (openAgentTask) refreshAgentDialogSummary(runAgents.get(openAgentTask));
+      })
+      .catch(() => {}) : Promise.resolve();
+    return agentFailuresFetch;
+  };
 
   const humanizeRunText = (value) => String(value || "").replaceAll("_", " ");
   const formatRunTime = (value) => {
@@ -1118,6 +1153,13 @@
       latest.className = "reviewer-summary agent-latest";
       latest.textContent = agent.latest?.label || "Awaiting committed activity.";
       card.append(latest);
+      const failure = agentFailures.get(agent.task);
+      if (agent.status === "failed" && failure) {
+        const reason = document.createElement("p");
+        reason.className = "agent-failure";
+        reason.textContent = failure.code ? `${failure.code}: ${failure.message}` : failure.message;
+        card.append(reason);
+      }
       const meta = document.createElement("div");
       meta.className = "agent-meta";
       const time = document.createElement("span");
@@ -1154,7 +1196,8 @@
   });
 
   const refreshAgentDialogSummary = (agent) => {
-    if (!agentDialogSummary || openAgentTask !== agent.task) return;
+    if (!agentDialogSummary || !agent || openAgentTask !== agent.task) return;
+    const failure = agentFailures.get(agent.task);
     const rows = [
       ["Status", agent.status],
       ["Latest event", agent.latest?.label || "—"],
@@ -1162,6 +1205,10 @@
       ["Tool calls", String(agent.toolCalls)],
       ["Events observed", String(agent.events.length)]
     ];
+    if (failure) {
+      if (failure.code) rows.splice(1, 0, ["Failure code", failure.code]);
+      rows.push(["Failure reason", failure.message]);
+    }
     agentDialogSummary.replaceChildren(...rows.map(([term, value]) => {
       const row = document.createElement("div");
       const dt = document.createElement("dt");
@@ -1184,6 +1231,7 @@
     if (payload.kind === "tool") agent.toolCalls++;
     const mappedStatus = runAgentStatusFor(event);
     if (mappedStatus) agent.status = mappedStatus;
+    if (mappedStatus === "failed" && !agentFailures.has(event.task)) loadAgentFailures();
     const label = describeRunEvent(event);
     agent.latest = {label, time: event.committed_at || "", sequence: Number(event.sequence) || 0};
     const entry = {label, detail: payload.action && payload.kind !== "tool" ? humanizeRunText(payload.action) : "", time: event.committed_at || ""};

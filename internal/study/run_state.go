@@ -195,6 +195,43 @@ func SummarizeRunState(state RunState, statePath string) StatusSummary {
 	return summary
 }
 
+// SummarizeRetries aggregates retry activity across tasks. A retry continued
+// the same agent session when a compatible durable checkpoint exists without
+// recorded continue failures; otherwise the retry started a fresh session.
+func SummarizeRetries(state RunState) RetrySummary {
+	var summary RetrySummary
+	for _, task := range state.Tasks {
+		retries := task.Attempts - 1
+		if retries < 0 {
+			retries = 0
+		}
+		if retries > 0 {
+			summary.RetriedTasks++
+			summary.TotalRetries += retries
+			if TaskSessionContinued(task) {
+				summary.SameSession++
+			} else {
+				summary.FreshSession++
+			}
+		}
+		if task.Status == TaskStatusRetrying {
+			summary.Waiting++
+		}
+		if task.RetryAfter != nil && (summary.NextRetryAt == nil || task.RetryAfter.Before(*summary.NextRetryAt)) {
+			next := *task.RetryAfter
+			summary.NextRetryAt = &next
+		}
+	}
+	return summary
+}
+
+// TaskSessionContinued reports whether a task's retries continued the same
+// agent session: a durable checkpoint exists without recorded continue
+// failures.
+func TaskSessionContinued(task TaskState) bool {
+	return task.Session != nil && task.Session.SessionID != "" && task.Session.ContinueFailures == 0
+}
+
 func SummarizeRunStateCounts(state RunState, statePath string) StatusSummary {
 	summary := StatusSummary{Total: len(state.Tasks), Complete: state.Complete, StatePath: statePath, RunID: state.RunID}
 	for _, task := range state.Tasks {

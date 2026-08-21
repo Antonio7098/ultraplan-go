@@ -176,22 +176,50 @@ type smokeDTO struct {
 	RunID     string `json:"run_id,omitempty"`
 }
 
+type studyRetryDTO struct {
+	RetriedTasks int        `json:"retried_tasks"`
+	TotalRetries int        `json:"total_retries"`
+	SameSession  int        `json:"same_session"`
+	FreshSession int        `json:"fresh_session"`
+	Waiting      int        `json:"waiting,omitempty"`
+	NextRetryAt  *time.Time `json:"next_retry_at,omitempty"`
+}
+
+type studyParallelismDTO struct {
+	Decreased            bool `json:"decreased"`
+	Events               int  `json:"events,omitempty"`
+	RequestedParallelism int  `json:"requested_parallelism,omitempty"`
+	EffectiveParallelism int  `json:"effective_parallelism,omitempty"`
+}
+
+type studyTaskRetryDTO struct {
+	ID           string `json:"id"`
+	Kind         string `json:"kind,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Retries      int    `json:"retries"`
+	SessionReuse string `json:"session_reuse,omitempty"`
+}
+
 type studyDTO struct {
-	Ref         string        `json:"ref"`
-	Name        string        `json:"name"`
-	Sources     []string      `json:"sources"`
-	Dimensions  []string      `json:"dimensions"`
-	Status      string        `json:"status"`
-	RunID       string        `json:"run_id,omitempty"`
-	Total       int           `json:"total"`
-	Completed   int           `json:"completed"`
-	Failed      int           `json:"failed"`
-	RunActive   bool          `json:"run_active"`
-	ActiveTasks int           `json:"active_tasks"`
-	Pending     int           `json:"pending"`
-	Cancelled   int           `json:"cancelled"`
-	Findings    []findingDTO  `json:"findings"`
-	Artifacts   []artifactDTO `json:"artifacts"`
+	Ref          string                `json:"ref"`
+	Name         string                `json:"name"`
+	Sources      []string              `json:"sources"`
+	Dimensions   []string              `json:"dimensions"`
+	Status       string                `json:"status"`
+	RunID        string                `json:"run_id,omitempty"`
+	Total        int                   `json:"total"`
+	Completed    int                   `json:"completed"`
+	Failed       int                   `json:"failed"`
+	RunActive    bool                  `json:"run_active"`
+	ActiveTasks  int                   `json:"active_tasks"`
+	Pending      int                   `json:"pending"`
+	Cancelled    int                   `json:"cancelled"`
+	Retries      studyRetryDTO         `json:"retries"`
+	Parallelism  *studyParallelismDTO  `json:"parallelism,omitempty"`
+	RetriedTasks []studyTaskRetryDTO   `json:"retried_tasks,omitempty"`
+	Failures     []studyTaskFailureDTO `json:"failures,omitempty"`
+	Findings     []findingDTO          `json:"findings"`
+	Artifacts    []artifactDTO         `json:"artifacts"`
 }
 
 type artifactPreviewDTO struct {
@@ -227,6 +255,7 @@ type pageModel struct {
 	Operation     *operationDocument
 	Runs          []runRowView
 	Run           *runDetailView
+	StudyInsights *runStudyInsightsView
 	RunEvents     []runEventView
 	NextRunsURL   string
 	NextEventsURL string
@@ -746,8 +775,30 @@ func mapSprints(items []app.WebSprintResult) []sprintDTO {
 	return out
 }
 
+func mapStudyParallelism(item *app.ParallelismSummary) *studyParallelismDTO {
+	if item == nil {
+		return nil
+	}
+	return &studyParallelismDTO{Decreased: item.Decreased, Events: item.Events, RequestedParallelism: item.RequestedParallelism, EffectiveParallelism: item.EffectiveParallelism}
+}
+
 func mapStudy(item app.WebStudyResult) studyDTO {
-	return studyDTO{Ref: item.Ref, Name: item.Name, Sources: nonNilSlice(item.Sources), Dimensions: nonNilSlice(item.Dimensions), Status: item.Status, RunID: item.RunID, Total: item.Total, Completed: item.Completed, Failed: item.Failed, RunActive: item.RunActive, ActiveTasks: item.ActiveTasks, Pending: item.Pending, Cancelled: item.Cancelled, Findings: mapFindings(item.Findings), Artifacts: mapArtifacts(item.Artifacts)}
+	retries := studyRetryDTO{RetriedTasks: item.Retries.RetriedTasks, TotalRetries: item.Retries.TotalRetries, SameSession: item.Retries.SameSession, FreshSession: item.Retries.FreshSession, Waiting: item.Retries.Waiting}
+	if item.Retries.NextRetryAt != nil {
+		next := *item.Retries.NextRetryAt
+		retries.NextRetryAt = &next
+	}
+	retried := make([]studyTaskRetryDTO, 0, len(item.RetriedTasks))
+	for _, task := range item.RetriedTasks {
+		retried = append(retried, studyTaskRetryDTO{ID: task.ID, Kind: task.Kind, Status: task.Status, Retries: task.Retries, SessionReuse: task.SessionReuse})
+	}
+	var failures []studyTaskFailureDTO
+	for _, task := range item.Tasks {
+		if task.Error != "" {
+			failures = append(failures, studyTaskFailureDTO{Task: task.ID, Code: task.ErrorCode, Message: task.Error})
+		}
+	}
+	return studyDTO{Ref: item.Ref, Name: item.Name, Sources: nonNilSlice(item.Sources), Dimensions: nonNilSlice(item.Dimensions), Status: item.Status, RunID: item.RunID, Total: item.Total, Completed: item.Completed, Failed: item.Failed, RunActive: item.RunActive, ActiveTasks: item.ActiveTasks, Pending: item.Pending, Cancelled: item.Cancelled, Retries: retries, Parallelism: mapStudyParallelism(item.Parallelism), RetriedTasks: retried, Failures: failures, Findings: mapFindings(item.Findings), Artifacts: mapArtifacts(item.Artifacts)}
 }
 
 func mapStudies(items []app.WebStudyResult) []studyDTO {
