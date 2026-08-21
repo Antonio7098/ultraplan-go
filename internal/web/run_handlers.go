@@ -71,8 +71,14 @@ type studyTaskFailureDTO struct {
 }
 
 type studyTaskSeedDTO struct {
-	Task   string `json:"task"`
-	Status string `json:"status"`
+	Task       string `json:"task"`
+	Status     string `json:"status"`
+	Attempts   int    `json:"attempts,omitempty"`
+	Retries    int    `json:"retries,omitempty"`
+	RetryAfter string `json:"retry_after,omitempty"`
+	Provider   string `json:"provider,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Harness    string `json:"harness,omitempty"`
 }
 
 type studyTaskPerfDTO struct {
@@ -231,7 +237,11 @@ func newRunStudyInsightsView(study string, result app.WebStudyResult) *runStudyI
 			failures = append(failures, studyTaskFailureDTO{Task: task.ID, Code: task.ErrorCode, Message: task.Error})
 		}
 		if task.Status != "pending" && task.Status != "" {
-			seeds = append(seeds, studyTaskSeedDTO{Task: task.ID, Status: task.Status})
+			seed := studyTaskSeedDTO{Task: task.ID, Status: task.Status, Attempts: task.Attempts, Retries: task.Retries, Provider: task.Provider, Model: task.Model, Harness: task.Runtime}
+			if task.RetryAfter != nil {
+				seed.RetryAfter = task.RetryAfter.UTC().Format(time.RFC3339)
+			}
+			seeds = append(seeds, seed)
 		}
 	}
 	return &runStudyInsightsView{Study: study, Status: result.Status, RunID: result.RunID, Total: result.Total, Completed: result.Completed,

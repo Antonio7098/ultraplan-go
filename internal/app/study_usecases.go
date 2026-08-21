@@ -38,6 +38,8 @@ type RunTaskSummary struct {
 	Retries                                                                       int
 	SessionReuse                                                                  string
 	ErrorCode, Error                                                              string
+	Runtime                                                                       string
+	RetryAfter                                                                    *time.Time
 	Turns                                                                         int64
 	TurnsKnown                                                                    bool
 	Tokens                                                                        int64
@@ -147,6 +149,8 @@ func runTaskSummary(task study.TaskState, now time.Time) RunTaskSummary {
 		r.ErrorCode = task.LastError.Code
 		r.Error = task.LastError.Message
 	}
+	r.Runtime = task.Agent.Runtime
+	r.RetryAfter = task.RetryAfter
 	if task.Agent.DurationMS > 0 {
 		r.DurationMS = task.Agent.DurationMS
 		r.Duration = (time.Duration(task.Agent.DurationMS) * time.Millisecond).Round(time.Second).String()

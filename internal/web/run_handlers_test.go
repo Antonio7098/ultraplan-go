@@ -173,6 +173,17 @@ func TestBrowserRunPageSurfacesStudyInsightsCompactly(t *testing.T) {
 			t.Errorf("run study insights missing %q", want)
 		}
 	}
+	for _, want := range []string{`"retry_after":"2026-08-21T12:30:00Z"`, `"provider":"openai"`, `"model":"gpt-5.2"`, `"harness":"codex"`, `"attempts":4`, `"retries":3`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("agent seed facts missing %q", want)
+		}
+	}
+	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
+	for _, want := range []string{"agentRetryWait", "Next retry in", `["Provider", facts.provider]`, `["Harness", facts.harness]`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("agent retry/harness enhancement missing %q", want)
+		}
+	}
 	if count := strings.Count(body, `<details class="run-insight">`); count != 3 {
 		t.Fatalf("insight details blocks=%d, want 3 compacted sections", count)
 	}

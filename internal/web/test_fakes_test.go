@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
 	sprintpkg "github.com/Antonio7098/ultraplan-go/internal/sprint"
@@ -70,7 +71,10 @@ func sampleQueries() *fakeQueries {
 	study.Retries.SameSession = 1
 	study.Parallelism = &app.ParallelismSummary{Decreased: true, Events: 2, RequestedParallelism: 4, EffectiveParallelism: 2}
 	study.RetriedTasks = []app.WebStudyTaskRetry{{ID: "analysis:01-structure:repo", Kind: "analysis", Status: "completed", Retries: 3, SessionReuse: "same"}}
-	study.Tasks = []app.RunTaskSummary{{ID: "analysis:01-structure:repo", Kind: "analysis", Dimension: "01", Source: "repo", Status: "failed", Duration: "4m32s", Attempts: 4, Retries: 3, SessionReuse: "same", ErrorCode: "runtime.failed", Error: "provider exited before the report was committed (exit 1)", Turns: 12, TurnsKnown: true, Tokens: 45678, TokensKnown: true, Cost: "0.42 USD"}}
+	study.Tasks = func() []app.RunTaskSummary {
+		retryAt := time.Date(2026, 8, 21, 12, 30, 0, 0, time.UTC)
+		return []app.RunTaskSummary{{ID: "analysis:01-structure:repo", Kind: "analysis", Dimension: "01", Source: "repo", Status: "failed", Duration: "4m32s", Attempts: 4, Retries: 3, SessionReuse: "same", ErrorCode: "runtime.failed", Error: "provider exited before the report was committed (exit 1)", Runtime: "codex", RetryAfter: &retryAt, Provider: "openai", Model: "gpt-5.2", Turns: 12, TurnsKnown: true, Tokens: 45678, TokensKnown: true, Cost: "0.42 USD"}}
+	}()
 	return &fakeQueries{
 		dashboard: app.WebDashboardResult{
 			Ref: "workspace_ref", Workspace: "workspace",

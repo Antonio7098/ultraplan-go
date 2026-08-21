@@ -1017,13 +1017,36 @@
     }
   }
   const seededAgentStatus = (status) => ({completed: "completed", failed: "failed", cancelled: "failed", retrying: "pending", waiting: "pending", running: "running", validating: "running"}[status]);
+  const agentFacts = new Map();
   for (const payload of document.querySelectorAll("script[data-run-agent-tasks]")) {
     for (const item of JSON.parse(payload.textContent || "[]")) {
-      const status = seededAgentStatus(item?.status);
-      if (!item?.task || !status || runAgents.has(item.task)) continue;
+      if (!item?.task) continue;
+      agentFacts.set(item.task, item);
+      const status = seededAgentStatus(item.status);
+      if (!status || runAgents.has(item.task)) continue;
       runAgents.set(item.task, {task: item.task, events: [], toolCalls: 0, status, latest: null});
     }
   }
+  const formatRunWait = (ms) => {
+    let seconds = Math.max(0, Math.round(ms / 1000));
+    const parts = [];
+    for (const [size, unit] of [[3600, "h"], [60, "m"], [1, "s"]]) {
+      const value = Math.floor(seconds / size);
+      seconds -= value * size;
+      if (value || parts.length) parts.push(`${value}${unit}`);
+    }
+    return parts.join(" ") || "0s";
+  };
+  const agentRetryWait = (agent) => {
+    const facts = agentFacts.get(agent.task);
+    const retryAt = facts?.retry_after ? new Date(facts.retry_after).getTime() : NaN;
+    if (!Number.isFinite(retryAt) || retryAt <= Date.now()) return "";
+    return `Next retry in ${formatRunWait(retryAt - Date.now())} · ${facts.retries || Math.max(0, (facts.attempts || 1) - 1)} retr${(facts.retries || Math.max(0, (facts.attempts || 1) - 1)) === 1 ? "y" : "ies"} so far`;
+  };
+  const agentHarnessLabel = (facts) => {
+    if (!facts) return "";
+    return [facts.provider, facts.model, facts.harness].filter(Boolean).join(" · ");
+  };
   const loadAgentFailures = () => {
     if (agentFailuresFetch) return agentFailuresFetch;
     const source = document.querySelector("script[data-run-agent-failures]");
@@ -1160,6 +1183,13 @@
         reason.textContent = failure.code ? `${failure.code}: ${failure.message}` : failure.message;
         card.append(reason);
       }
+      const retryWait = agentRetryWait(agent);
+      if (retryWait) {
+        const wait = document.createElement("p");
+        wait.className = "agent-retry-wait";
+        wait.textContent = retryWait;
+        card.append(wait);
+      }
       const meta = document.createElement("div");
       meta.className = "agent-meta";
       const time = document.createElement("span");
@@ -1169,6 +1199,13 @@
       const total = document.createElement("span");
       total.textContent = `${agent.events.length} events`;
       meta.append(time, tools, total);
+      const harness = agentHarnessLabel(agentFacts.get(agent.task));
+      if (harness) {
+        const harnessLabel = document.createElement("span");
+        harnessLabel.className = "agent-harness";
+        harnessLabel.textContent = harness;
+        meta.append(harnessLabel);
+      }
       card.append(meta);
       const open = document.createElement("button");
       open.type = "button";
@@ -1198,6 +1235,7 @@
   const refreshAgentDialogSummary = (agent) => {
     if (!agentDialogSummary || !agent || openAgentTask !== agent.task) return;
     const failure = agentFailures.get(agent.task);
+    const facts = agentFacts.get(agent.task);
     const rows = [
       ["Status", agent.status],
       ["Latest event", agent.latest?.label || "—"],
@@ -1205,9 +1243,19 @@
       ["Tool calls", String(agent.toolCalls)],
       ["Events observed", String(agent.events.length)]
     ];
+    if (facts) {
+      if (facts.provider) rows.push(["Provider", facts.provider]);
+      if (facts.model) rows.push(["Model", facts.model]);
+      if (facts.harness) rows.push(["Harness", facts.harness]);
+      if (facts.attempts) rows.push(["Attempts", String(facts.attempts)]);
+      const retries = facts.retries || Math.max(0, (facts.attempts || 1) - 1);
+      if (retries) rows.push(["Retries", String(retries)]);
+    }
+    const retryWait = agentRetryWait(agent);
+    if (retryWait) rows.push(["Backoff", retryWait]);
     if (failure) {
-      if (failure.code) rows.splice(1, 0, ["Failure code", failure.code]);
-      rows.push(["Failure reason", failure.message]);
+      if (failure.code) rows.splice(rows.length - (failure.message ? 1 : 0), 0, ["Failure code", failure.code]);
+      if (failure.message) rows.push(["Failure reason", failure.message]);
     }
     agentDialogSummary.replaceChildren(...rows.map(([term, value]) => {
       const row = document.createElement("div");
