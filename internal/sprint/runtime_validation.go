@@ -7,12 +7,11 @@ import (
 
 	"github.com/Antonio7098/agentwrap"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
-	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 const generatedArtifactRepairAttempts = 1
 
-func buildCodeContextRepairPrompt(path, originalPrompt string, findings []ValidationFinding) string {
+func buildCodeContextRepairPrompt(path string, findings []ValidationFinding) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Correct the previous response for UltraPlan artifact `%s`.\n", path)
 	fmt.Fprintln(&b, "Return only one complete Markdown document beginning with `# Sprint Code Context`. Do not include a preamble or closing commentary, perform more tool calls, search for the workspace output path, or write any file. UltraPlan owns candidate persistence and promotion.")
@@ -25,9 +24,6 @@ func buildCodeContextRepairPrompt(path, originalPrompt string, findings []Valida
 			fmt.Fprintf(&b, "- %s\n", formatValidationFindings([]ValidationFinding{finding}))
 		}
 	}
-	fmt.Fprintln(&b, "\nOriginal stage request and context:")
-	fmt.Fprintln(&b)
-	b.WriteString(originalPrompt)
 	return b.String()
 }
 
@@ -62,24 +58,9 @@ func (s Service) technicalHandbookValidationSpec(sp Sprint, manifest HandbookMan
 	})
 }
 
-func (s Service) areaReasoningValidationSpec(manifest ReasoningManifest) *agentwrap.ValidationSpec {
-	return generatedArtifactValidationSpec("area-reasoning", manifest.SprintRoot+"/reasoning", func() []ValidationFinding {
-		var findings []ValidationFinding
-		for _, entry := range manifest.ReasoningTemplates {
-			path, pathErr := workspace.ResolveInside(s.root, normalizeWorkspacePath(entry.OutputPath))
-			if pathErr != nil {
-				findings = append(findings, finding("area-reasoning", entry.Name, entry.OutputPath, "unsafe area reasoning path", pathErr.Error(), "Use a workspace-contained selected output path."))
-				continue
-			}
-			data, readErr := s.store.ReadFile(path)
-			if readErr != nil {
-				findings = append(findings, finding("area-reasoning", entry.Name, entry.OutputPath, "missing area reasoning", readErr.Error(), "Generate the selected area reasoning artifact."))
-				continue
-			}
-			findings = append(findings, ValidateAreaReasoningContent(data, entry, manifest)...)
-		}
-		sortSprintFindings(findings)
-		return findings
+func (s Service) areaReasoningEntryValidationSpec(manifest ReasoningManifest, entry ReasoningTemplateEntry) *agentwrap.ValidationSpec {
+	return generatedArtifactValidationSpec("area-reasoning-"+slugReviewID(entry.Name), entry.OutputPath, func() []ValidationFinding {
+		return s.areaReasoningEntryFindings(manifest, entry)
 	})
 }
 

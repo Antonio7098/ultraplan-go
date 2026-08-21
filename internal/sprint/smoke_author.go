@@ -25,7 +25,7 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 	if err != nil {
 		return smokeError("smoke_author_context", "authoring", "shared sprint context could not be loaded", "Restore the governed planning inputs and rerun smoke.", err)
 	}
-	sharedPrefix, err := s.prepareSharedPromptContext(ctx, prepared.Sprint, inputs)
+	sharedPrefix, err := s.prepareSharedPromptContext(ctx, prepared.Sprint, inputs, true)
 	if err != nil {
 		return smokeError("smoke_author_context", "authoring", "shared sprint context could not be prepared", "Repair the selected source reference or prompt budget failure and rerun smoke.", err)
 	}
@@ -49,7 +49,7 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 		projectFilesBefore = smokeDiagnosticTargetSnapshot(projectRoot)
 	}
 
-	prompt, err := composeStagePromptChecked(sharedPrefix, s.renderSmokeAuthorPrompt(prepared))
+	prompt, err := composeStagePromptChecked(sharedPrefix, s.renderSmokeAuthorPrompt(prepared, inputs))
 	if err != nil {
 		return smokeError("smoke_author_context", "authoring", "smoke author instructions exceed the shared stage-suffix reserve", "Reduce the stage-specific authoring manifest without truncating shared evidence.", err)
 	}
@@ -209,7 +209,7 @@ func smokeDiagnosticTargetSnapshot(root string) map[string]string {
 	return out
 }
 
-func (s Service) renderSmokeAuthorPrompt(prepared smokePrepared) string {
+func (s Service) renderSmokeAuthorPrompt(prepared smokePrepared, inputs PlanningInputs) string {
 	body, source := sprintPromptTemplate(s.root, "prompts/smoke.md")
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(body))
@@ -221,6 +221,7 @@ func (s Service) renderSmokeAuthorPrompt(prepared smokePrepared) string {
 	for _, rel := range []string{"requirements.md", "sprint-index.md", "technical-handbook.md", "reasoning.md", "plan.md", "execute.md", "review.md", ".run-state.json"} {
 		fmt.Fprintf(&b, "- `%s`\n", filepath.Join(prepared.Sprint.Path, rel))
 	}
+	b.WriteString(s.smokeAuthorHandoff(prepared.Sprint, inputs))
 	fmt.Fprintln(&b, "\nWritable harness paths:")
 	for _, rel := range prepared.Manifest.Authoring.Paths {
 		fmt.Fprintf(&b, "- `%s`\n", filepath.Join(prepared.HarnessRoot, filepath.FromSlash(rel)))

@@ -52,7 +52,7 @@ func TestRenderSharedPromptContextPreservesExactArtifactAndSourceBytes(t *testin
 	}
 }
 
-func TestRenderSharedPromptContextPreservesAuthoredReferenceOrderDuplicatesAndOverlaps(t *testing.T) {
+func TestRenderSharedPromptContextCanonicalizesDuplicateAndOverlappingSourceBytes(t *testing.T) {
 	root := t.TempDir()
 	writeSharedSource(t, root, "source.go", "one\ntwo\nthree\nfour\n")
 	codeContext := validSharedCodeContext(
@@ -64,14 +64,14 @@ func TestRenderSharedPromptContextPreservesAuthoredReferenceOrderDuplicatesAndOv
 	if err != nil {
 		t.Fatal(err)
 	}
-	later := strings.Index(prefix, "Selected entry: Later")
-	earlier := strings.Index(prefix, "Selected entry: Earlier\n")
-	duplicate := strings.Index(prefix, "Selected entry: Earlier Duplicate")
-	if later < 0 || earlier <= later || duplicate <= earlier {
-		t.Fatalf("references were not rendered in authored order: %d %d %d", later, earlier, duplicate)
+	if !strings.Contains(prefix, "Selected entries: Later; Earlier; Earlier Duplicate;") {
+		t.Fatalf("canonical frame lost authored reference order:\n%s", prefix)
 	}
-	if strings.Count(prefix, "one\ntwo\nthree\n") != 2 {
-		t.Fatal("duplicate/overlapping selections were merged or omitted")
+	if strings.Count(prefix, "Source bytes:\none\ntwo\nthree\nfour\n") != 1 {
+		t.Fatal("duplicate/overlapping source bytes were not merged")
+	}
+	if !strings.Contains(prefix, "SOURCE EVIDENCE: source.go:1-4") {
+		t.Fatal("canonical frame did not publish the merged range")
 	}
 }
 
@@ -322,6 +322,9 @@ func TestPlanningAndExecuteRuntimeRequestsReuseOneExactSharedPrefix(t *testing.T
 	writeFileContent(t, sp.Path, validPlan(), "plan.md")
 
 	runtime := &sharedPromptCaptureRuntime{sp: sp}
+	if err := os.Remove(filepath.Join(sp.Path, "reasoning", "architecture.md")); err != nil {
+		t.Fatal(err)
+	}
 	service := NewService(root).WithRuntime(runtime).WithStageRuntime(map[PlanningStage]StageRuntime{StageExecute: {Model: "test/model"}})
 	operations := []struct {
 		name string
@@ -378,6 +381,14 @@ type sharedPromptCaptureRuntime struct {
 
 func (r *sharedPromptCaptureRuntime) StartRun(_ context.Context, request pruntime.Request) (pruntime.Result, error) {
 	r.requests = append(r.requests, request)
+	if request.Metadata["stage"] == string(StageAreaReasoning) {
+		if err := os.MkdirAll(filepath.Join(r.sp.Path, "reasoning"), 0o755); err != nil {
+			return pruntime.Result{}, err
+		}
+		if err := os.WriteFile(filepath.Join(r.sp.Path, "reasoning", "architecture.md"), []byte(validAreaReasoning()), 0o644); err != nil {
+			return pruntime.Result{}, err
+		}
+	}
 	if request.Metadata["stage"] == string(StageExecute) {
 		path := filepath.Join(r.sp.Path, "plan.md")
 		content, err := os.ReadFile(path)

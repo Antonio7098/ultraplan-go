@@ -3,6 +3,9 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	stdruntime "runtime"
@@ -32,6 +35,17 @@ type Request struct {
 	Policy        PermissionPolicy
 	Validation    *agentwrap.ValidationSpec
 	OnEvent       func(Event)
+	Cache         CacheDirective
+}
+
+// CacheDirective carries product-owned prompt boundary semantics to runtime
+// adapters. The current OpenCode adapter preserves these values as request
+// metadata; adapters with provider-native support can apply them directly.
+type CacheDirective struct {
+	Key             string
+	BreakpointBytes int
+	PrefixDigest    string
+	Mode            string
 }
 
 // PromptReference identifies the exact product-owned prompt sent to a runtime.
@@ -483,6 +497,22 @@ func toAgentwrapRequest(req Request) (agentwrap.RunRequest, error) {
 	if err != nil {
 		return agentwrap.RunRequest{}, err
 	}
+	metadata := cloneStringMap(req.Metadata)
+	if req.Cache.Key != "" {
+		if metadata == nil {
+			metadata = map[string]string{}
+		}
+		cohort, _ := json.Marshal(struct {
+			Foundation, Provider, Model, WorkDir, Sandbox, Permissions string
+			Policy                                                     PermissionPolicy
+		}{req.Cache.Key, req.Provider, req.Model, req.WorkDir, req.Sandbox, req.Permissions, req.Policy})
+		sum := sha256.Sum256(cohort)
+		metadata["prompt_cache_foundation_key"] = req.Cache.Key
+		metadata["prompt_cache_key"] = "ultraplan-cohort-v1-" + hex.EncodeToString(sum[:16])
+		metadata["prompt_cache_breakpoint_bytes"] = fmt.Sprintf("%d", req.Cache.BreakpointBytes)
+		metadata["prompt_cache_prefix_sha256"] = req.Cache.PrefixDigest
+		metadata["prompt_cache_mode"] = req.Cache.Mode
+	}
 	return agentwrap.RunRequest{
 		Prompt:           req.Prompt,
 		WorkDir:          req.WorkDir,
@@ -491,7 +521,7 @@ func toAgentwrapRequest(req Request) (agentwrap.RunRequest, error) {
 		Provider:         agentwrap.ProviderID(req.Provider),
 		Model:            agentwrap.ModelID(req.Model),
 		Timeout:          req.Timeout,
-		Metadata:         cloneStringMap(req.Metadata),
+		Metadata:         metadata,
 		RequireHealth:    health,
 		RequireCaps:      caps,
 		Sandbox:          agentwrap.SandboxMode(req.Sandbox),

@@ -111,15 +111,17 @@ func (s Service) PromptExecute(projectRef, sprintRef string, req ExecuteRequest)
 	if err != nil {
 		return PromptPreview{}, err
 	}
-	prefix, err := s.prepareSharedPromptContext(context.Background(), sp, inputs)
+	prefix, err := s.prepareSharedPromptContext(context.Background(), sp, inputs, false)
 	if err != nil {
 		return PromptPreview{}, err
 	}
-	prompt, err := composeStagePromptChecked(prefix, RenderExecutePrompt(sp, task, target, selection))
+	queue := filterExecuteQueue(tasks, req.TaskID)
+	prompt, err := composeStagePromptChecked(prefix, s.renderExecuteSessionPrompt(sp, task, queue, target, selection))
 	if err != nil {
 		return PromptPreview{}, err
 	}
-	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}, nil
+	explanation := explainComposedPrompt(prompt)
+	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt, Explanation: &explanation}, nil
 }
 
 func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req ExecuteRequest) (ExecuteResult, error) {
@@ -143,7 +145,7 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 	if err != nil {
 		return result, err
 	}
-	sharedPrefix, err := s.prepareSharedPromptContext(ctx, sp, inputs)
+	sharedPrefix, err := s.prepareSharedPromptContext(ctx, sp, inputs, true)
 	if err != nil {
 		return result, err
 	}
@@ -157,7 +159,7 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 				}
 			}
 		}
-		result.Prompt, err = composeStagePromptChecked(sharedPrefix, RenderExecutePrompt(sp, promptTask, target, selection))
+		result.Prompt, err = composeStagePromptChecked(sharedPrefix, s.renderExecuteSessionPrompt(sp, promptTask, filterExecuteQueue(tasks, req.TaskID), target, selection))
 		if err != nil {
 			return result, err
 		}
@@ -176,6 +178,12 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 	if err := SaveExecuteRunState(s.root, sp, state); err != nil {
 		return result, err
 	}
+	executionQueue := executeQueueFromState(state.Tasks, tasks, req.TaskID)
+	batchSessionID := ""
+	if req.Resume && filepath.Clean(state.Target.Path) == filepath.Clean(target.Path) {
+		batchSessionID = reusableExecuteSession(state.Tasks, req.TaskID, selection.Model)
+	}
+	executionTurn := 0
 	for i := range state.Tasks {
 		task := &state.Tasks[i]
 		if req.TaskID != "" && task.ID != req.TaskID {
@@ -201,18 +209,33 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 			return result, fmt.Errorf("persist running execute task %q: %w", task.ID, err)
 		}
 		planTask := taskByID(tasks, task.ID)
-		stagePrompt := RenderExecutePrompt(sp, planTask, target, selection)
-		if req.Resume && task.Runtime != nil && task.Runtime.SessionID != "" && task.Runtime.Model == selection.Model {
-			stagePrompt = "Continue the interrupted UltraPlan execute task from this existing session. Re-read the current task prompt and repository state, then finish only this task.\n\n" + stagePrompt
+		executionTurn++
+		continueSession := batchSessionID != ""
+		stagePrompt := ""
+		promptPrefix := sharedPrefix
+		if continueSession {
+			stagePrompt = RenderExecuteContinuationPrompt(sp, planTask)
+			promptPrefix = ""
+		} else {
+			stagePrompt = s.renderExecuteSessionPrompt(sp, planTask, executionQueue, target, selection)
 		}
-		composedPrompt, composeErr := composeStagePromptChecked(sharedPrefix, stagePrompt)
+		composedPrompt, composeErr := composeStagePromptChecked(promptPrefix, stagePrompt)
 		if composeErr != nil {
 			return result, composeErr
 		}
-		runtimeReq := s.runtimeRequest(composedPrompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageExecute), "task": task.ID, "model_source": selection.Source})
+		sessionMode := "initial"
+		if continueSession {
+			sessionMode = "continue"
+		} else if executionTurn > 1 {
+			sessionMode = "fresh-fallback"
+		}
+		runtimeReq := s.runtimeRequest(composedPrompt, map[string]string{
+			"project": sp.Project, "sprint": sp.Slug, "stage": string(StageExecute), "task": task.ID, "model_source": selection.Source,
+			"execution_session_mode": sessionMode, "execution_turn": fmt.Sprintf("%d", executionTurn), "execution_queue_size": fmt.Sprintf("%d", len(executionQueue)),
+		})
 		runtimeReq.WorkDir = target.Path
-		if req.Resume && task.Runtime != nil && task.Runtime.SessionID != "" && task.Runtime.Model == selection.Model {
-			runtimeReq.SessionID = task.Runtime.SessionID
+		if continueSession {
+			runtimeReq.SessionID = batchSessionID
 			runtimeReq.SessionAction = "continue"
 		}
 		previousOnEvent := runtimeReq.OnEvent
@@ -234,13 +257,19 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 				sessionSaveErr = err
 			}
 		}
-		run, runErr := s.runtime.StartRun(ctx, runtimeReq)
+		run, runErr := s.startSprintRuntime(ctx, sp, StageExecute, runtimeReq)
 		sessionMu.Lock()
 		checkpointErr := sessionSaveErr
 		sessionMu.Unlock()
 		result.Runtime = append(result.Runtime, run)
 		finish := s.now().UTC()
 		task.Runtime = mergeRuntimeSummary(task.Runtime, runtimeSummary(run, selection))
+		if runErr == nil {
+			batchSessionID = run.SessionID
+			if batchSessionID == "" && task.Runtime != nil {
+				batchSessionID = task.Runtime.SessionID
+			}
+		}
 		task.UpdatedAt = finish
 		task.CompletedAt = &finish
 		deferReason, deferErr := s.agentDeferredTaskReason(sp, task.ID)
@@ -277,6 +306,9 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 		}
 		if checkpointErr != nil {
 			return result, fmt.Errorf("persist runtime session for execute task %q: %w", task.ID, checkpointErr)
+		}
+		if task.Status == ExecuteTaskFailed || task.Status == ExecuteTaskCancelled {
+			break
 		}
 		if req.TaskID != "" {
 			break
@@ -425,6 +457,91 @@ func RenderExecutePrompt(sp Sprint, task ExecutePlanTask, target ExecuteTargetRe
 	return b.String()
 }
 
+func (s Service) renderExecuteSessionPrompt(sp Sprint, task ExecutePlanTask, queue []ExecutePlanTask, target ExecuteTargetRef, selection ExecuteModelSelection) string {
+	return RenderExecutePrompt(sp, task, target, selection) + renderExecuteQueue(task.ID, queue) + s.executeHandoff(sp)
+}
+
+func RenderExecuteContinuationPrompt(sp Sprint, task ExecutePlanTask) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Continue Sprint Execution\n\nProject: `%s`\nSprint: `%s`\nTask ID: `%s`\nTask: %s\n", sp.Project, sp.Slug, task.ID, task.Name)
+	fmt.Fprintln(&b, "\nContinue in the same execution session. The original approved target, safety constraints, shared sprint context, handbook examples, and ordered queue remain in force. Re-read the current repository state, execute only this next task, and retain context for the following checkpoint.")
+	fmt.Fprintln(&b, "\nTraceability:")
+	for _, decision := range task.Decisions {
+		fmt.Fprintf(&b, "- %s\n", decision)
+	}
+	for _, requirement := range task.Requirements {
+		fmt.Fprintf(&b, "- %s\n", requirement)
+	}
+	fmt.Fprintln(&b, "\nImplementation steps:")
+	for _, step := range task.Steps {
+		fmt.Fprintf(&b, "- %s\n", step)
+	}
+	fmt.Fprintln(&b, "\nExpected evidence:")
+	for _, evidence := range task.Evidence {
+		fmt.Fprintf(&b, "- %s\n", evidence)
+	}
+	fmt.Fprintln(&b, "\nComplete only after producing verifiable evidence or an explicit safe diagnostic explaining why evidence cannot be machine-validated.")
+	fmt.Fprintln(&b, "If remaining work is explicitly accepted for later follow-up, change this task's top-level plan marker to `[/]` and append `— Deferred: <concrete reason>` on the same line.")
+	return b.String()
+}
+
+func renderExecuteQueue(currentTaskID string, queue []ExecutePlanTask) string {
+	if len(queue) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## Ordered Sprint Execution Queue\n\n")
+	b.WriteString("This agent session owns the complete ordered queue below. Execute only the current task during this turn; UltraPlan will checkpoint its evidence before advancing the same session.\n\n")
+	for index, task := range queue {
+		marker := "queued"
+		if task.ID == currentTaskID {
+			marker = "current"
+		}
+		fmt.Fprintf(&b, "%d. [%s] `%s` — %s\n", index+1, marker, task.ID, task.Name)
+	}
+	return b.String()
+}
+
+func filterExecuteQueue(tasks []ExecutePlanTask, taskID string) []ExecutePlanTask {
+	if taskID == "" {
+		return append([]ExecutePlanTask(nil), tasks...)
+	}
+	selected := taskByID(tasks, taskID)
+	if selected.ID == "" {
+		return nil
+	}
+	return []ExecutePlanTask{selected}
+}
+
+func executeQueueFromState(records []ExecuteTaskRecord, tasks []ExecutePlanTask, taskID string) []ExecutePlanTask {
+	queue := make([]ExecutePlanTask, 0, len(records))
+	for _, record := range records {
+		if taskID != "" && record.ID != taskID {
+			continue
+		}
+		if record.Status == ExecuteTaskComplete || record.Status == ExecuteTaskDeferred {
+			continue
+		}
+		if task := taskByID(tasks, record.ID); task.ID != "" {
+			queue = append(queue, task)
+		}
+	}
+	return queue
+}
+
+func reusableExecuteSession(records []ExecuteTaskRecord, taskID, model string) string {
+	sessionID := ""
+	for _, record := range records {
+		if taskID != "" && record.ID != taskID {
+			continue
+		}
+		if record.Runtime != nil && record.Runtime.Model == model && record.Runtime.SessionID != "" {
+			sessionID = record.Runtime.SessionID
+		}
+	}
+	return sessionID
+}
+
 func WriteExecuteSummary(root string, sp Sprint, state ExecuteRunState) error {
 	path, err := resolveSprintContained(root, sp, ArtifactRelPath(sp, StageExecute))
 	if err != nil {
@@ -490,7 +607,24 @@ func reconcileExecuteState(existing ExecuteRunState, planned []ExecuteTaskRecord
 }
 
 func runtimeSummary(run pruntime.Result, selection ExecuteModelSelection) *ExecuteRuntimeSummary {
-	return &ExecuteRuntimeSummary{RunID: run.RunID, SessionID: run.SessionID, Model: selection.Model, ModelSource: selection.Source, PermissionSummary: run.Permissions.Mode, ValidationSummary: fmt.Sprintf("configured=%t passed=%t failures=%d", run.Validation.Configured, run.Validation.Passed, run.Validation.Failures), OmissionReason: "raw runtime payloads omitted"}
+	return &ExecuteRuntimeSummary{RunID: run.RunID, SessionID: run.SessionID, Model: selection.Model, ModelSource: selection.Source, PermissionSummary: run.Permissions.Mode, ValidationSummary: fmt.Sprintf("configured=%t passed=%t failures=%d", run.Validation.Configured, run.Validation.Passed, run.Validation.Failures), UsageSummary: formatRuntimeUsage(run.Usage), OmissionReason: "raw runtime payloads omitted"}
+}
+
+func formatRuntimeUsage(usage pruntime.Usage) string {
+	var parts []string
+	appendKnown := func(name string, known bool, value int64) {
+		if known {
+			parts = append(parts, fmt.Sprintf("%s=%d", name, value))
+		}
+	}
+	appendKnown("input", usage.InputTokensKnown, usage.InputTokens)
+	appendKnown("output", usage.OutputTokensKnown, usage.OutputTokens)
+	appendKnown("reasoning", usage.ReasoningTokensKnown, usage.ReasoningTokens)
+	appendKnown("cache_read", usage.CacheReadTokensKnown, usage.CacheReadTokens)
+	appendKnown("cache_write", usage.CacheWriteTokensKnown, usage.CacheWriteTokens)
+	appendKnown("total", usage.TotalTokensKnown, usage.TotalTokens)
+	appendKnown("turns", usage.TurnsKnown, usage.Turns)
+	return strings.Join(parts, " ")
 }
 
 func mergeRuntimeSummary(previous, current *ExecuteRuntimeSummary) *ExecuteRuntimeSummary {

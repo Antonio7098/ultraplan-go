@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,9 @@ func runSprint(deps dependencies, args []string) error {
 		case "validate":
 			_, err := deps.stdout.Write([]byte(sprintValidateHelp()))
 			return err
+		case "metrics":
+			_, err := deps.stdout.Write([]byte(sprintMetricsHelp()))
+			return err
 		case "prompt":
 			_, err := deps.stdout.Write([]byte(sprintPromptHelp()))
 			return err
@@ -64,7 +68,7 @@ func runSprint(deps dependencies, args []string) error {
 		if len(args) == 2 {
 			return classified(ExitUsage, "sprint: expected '<project> <sprint> status'")
 		}
-		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|validate|prompt|flow|execute|review|smoke|verify>'")
+		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|metrics|validate|prompt|flow|execute|review|smoke|verify>'")
 	}
 	root, err := discoverWorkspace(deps)
 	if err != nil {
@@ -108,6 +112,23 @@ func runSprint(deps dependencies, args []string) error {
 			fmt.Fprintf(deps.stdout, "  diagnostic: %s\n", diagnostic)
 		}
 		return nil
+	case "metrics":
+		jsonOut := len(args) == 4 && args[3] == "--json"
+		if len(args) != 3 && !jsonOut {
+			return classified(ExitUsage, "sprint.metrics: expected 'metrics [--json]'")
+		}
+		metrics, err := service.RuntimeMetrics(args[0], args[1])
+		if err != nil {
+			return mapSprintError("sprint.metrics", err)
+		}
+		if jsonOut {
+			return json.NewEncoder(deps.stdout).Encode(metrics)
+		}
+		fmt.Fprintf(deps.stdout, "Sprint runtime metrics: %s/%s\nRuns: %d\n", metrics.Project, metrics.Sprint, len(metrics.Runs))
+		for _, run := range metrics.Runs {
+			fmt.Fprintf(deps.stdout, "- stage=%s operation=%s task=%s coverage=%s provider=%s model=%s prompt=%d prefix=%d suffix=%d input=%s output=%s reasoning=%s cache_read=%s cache_write=%s\n", run.Stage, run.Operation, run.Task, run.Coverage, run.Provider, run.Model, run.PromptBytes, run.SharedPrefixBytes, run.StageSuffixBytes, formatRuntimeTokenMetric(run.InputTokens), formatRuntimeTokenMetric(run.OutputTokens), formatRuntimeTokenMetric(run.ReasoningTokens), formatRuntimeTokenMetric(run.CacheReadTokens), formatRuntimeTokenMetric(run.CacheWriteTokens))
+		}
+		return nil
 	case "validate":
 		if len(args) != 4 {
 			return classified(ExitUsage, "sprint.validate: expected 'validate <requirements|code-context|sprint-index|technical-handbook|area-reasoning|reasoning|plan>'")
@@ -147,7 +168,8 @@ func runSprint(deps dependencies, args []string) error {
 		}
 		return nil
 	case "prompt":
-		if len(args) != 4 {
+		explain := len(args) == 5 && args[4] == "--explain"
+		if len(args) != 4 && !explain {
 			return classified(ExitUsage, "sprint.prompt: expected 'prompt <requirements|code-context|sprint-index|technical-handbook|area-reasoning|reasoning|plan>'")
 		}
 		var preview sprint.PromptPreview
@@ -176,6 +198,15 @@ func runSprint(deps dependencies, args []string) error {
 		}
 		if err != nil {
 			return mapSprintError("sprint.prompt", err)
+		}
+		if explain {
+			if preview.Explanation == nil {
+				explanation := sprint.ExplainPrompt(preview.Prompt)
+				preview.Explanation = &explanation
+			}
+			contract := sprint.InputContract(sprint.PlanningStage(args[3]))
+			preview.Explanation.InputContract = &contract
+			return json.NewEncoder(deps.stdout).Encode(preview.Explanation)
 		}
 		fmt.Fprint(deps.stdout, preview.Prompt)
 		return nil
@@ -1052,6 +1083,7 @@ func sprintHelp() string {
 
 Usage:
   ultraplan sprint <project> <sprint> status
+  ultraplan sprint <project> <sprint> metrics [--json]
   ultraplan sprint <project> <sprint> validate requirements
   ultraplan sprint <project> <sprint> validate code-context
   ultraplan sprint <project> <sprint> validate sprint-index
@@ -1071,6 +1103,7 @@ Usage:
   ultraplan sprint <project> <sprint> prompt plan
   ultraplan sprint <project> <sprint> prompt execute
   ultraplan sprint <project> <sprint> prompt review
+  ultraplan sprint <project> <sprint> prompt <stage> --explain
   ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
   ultraplan sprint <project> <sprint> flow --to code-context [--dry-run] [--model <provider/model>] [--variant <name>]
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
@@ -1090,6 +1123,7 @@ Usage:
 
 Commands:
   <project> <sprint> status  Inspect planning artifacts and refresh flow-state.json.
+  <project> <sprint> metrics Inspect persisted prompt/cache/token measurements without raw runtime payloads.
   <project> <sprint> validate <stage>  Validate requirements.md, sprint-index.md, technical-handbook.md, area reasoning, reasoning.md, plan.md, or execute readiness.
   <project> <sprint> prompt <stage>    Print a runtime-free stage prompt preview.
   <project> <sprint> flow --to <stage> Run or preview sprint planning and execute flow.
@@ -1120,7 +1154,7 @@ Usage:
   ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
   ultraplan sprint <project> <sprint> execute --task <id> --defer --reason <text>
 
-Executes validated plan tasks through the configured generic runtime. Dry-run prints the frozen execution prompt without invoking the runtime. Deferral requires an explicit task ID and rationale, records both durably, and leaves the plan checkbox visibly unchecked.
+Executes validated plan tasks in one reusable agent session. The first turn receives the ordered queue and shared sprint context; later tasks are compact continuation turns with a durable status/evidence checkpoint between them. --resume reuses the latest compatible model/target session when available. Dry-run prints the first frozen execution prompt without invoking the runtime. Deferral requires an explicit task ID and rationale, records both durably, and leaves the plan checkbox visibly unchecked.
 `
 }
 
@@ -1184,6 +1218,16 @@ Requires complete execute evidence, obtains a current review, then applies the r
 `
 }
 
+func sprintMetricsHelp() string {
+	return `ultraplan sprint <project> <sprint> metrics
+
+Usage:
+  ultraplan sprint <project> <sprint> metrics [--json]
+
+Prints bounded, content-free measurements persisted for sprint runtime calls: prompt and stable-prefix bytes, provider-reported tokens, cache reads/writes, model identity, and run status. Unknown provider metrics are printed as n/a. It does not invoke the runtime or read raw runtime payloads.
+`
+}
+
 func sprintPromptHelp() string {
 	return `ultraplan sprint <project> <sprint> prompt
 
@@ -1197,9 +1241,17 @@ Usage:
   ultraplan sprint <project> <sprint> prompt plan
   ultraplan sprint <project> <sprint> prompt execute
   ultraplan sprint <project> <sprint> prompt review
+  ultraplan sprint <project> <sprint> prompt <stage> --explain
 
-Prints a deterministic runtime-free prompt preview. Execute prompts are rendered from validated plan tasks and target safety policy. It does not invoke the runtime and does not write artifacts.
+Prints a deterministic runtime-free prompt preview. Execute prompts are rendered from validated plan tasks and target safety policy. --explain emits the ordered prompt-block contract, sizes, digests, cache metadata, and required inputs as JSON. It does not invoke the runtime and does not write artifacts.
 `
+}
+
+func formatRuntimeTokenMetric(metric sprint.RuntimeTokenMetric) string {
+	if !metric.Known {
+		return "n/a"
+	}
+	return strconv.FormatInt(metric.Value, 10)
 }
 
 func sprintFlowHelp() string {

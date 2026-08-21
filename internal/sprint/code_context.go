@@ -323,15 +323,17 @@ func (s Service) FlowCodeContext(ctx context.Context, projectRef, sprintRef stri
 	}
 	content := codeContextResultContent(result)
 	findings = ValidateCodeContextContent(content)
+	findings = append(findings, validateResolvedCodeContext(ctx, sp, inputs.Requirements, content, target.Path)...)
+	sortSprintFindings(findings)
 	result.Validation = pruntime.ValidationSummary{Configured: true, Passed: len(findings) == 0, Failures: len(findings)}
 	result.Repair = pruntime.RepairSummary{Configured: true, MaxAttempts: generatedArtifactRepairAttempts}
 	if len(findings) > 0 && result.SessionID != "" {
 		repairReq := runtimeReq
-		repairReq.Prompt = buildCodeContextRepairPrompt(ArtifactRelPath(sp, StageCodeContext), prompt.Prompt, findings)
+		repairReq.Prompt = buildCodeContextRepairPrompt(ArtifactRelPath(sp, StageCodeContext), findings)
 		repairReq.SessionID = result.SessionID
 		repairReq.SessionAction = "continue"
 		repairReq.Metadata = cloneMetadata(repairReq.Metadata, map[string]string{"repair": "validation", "repair_artifact": ArtifactRelPath(sp, StageCodeContext)})
-		repaired, repairErr := s.runtime.StartRun(ctx, repairReq)
+		repaired, repairErr := s.startSprintRuntime(ctx, sp, StageCodeContext, repairReq)
 		repaired.Repair = pruntime.RepairSummary{Configured: true, Attempted: true, MaxAttempts: generatedArtifactRepairAttempts, AttemptCount: 1}
 		if repairErr != nil {
 			return s.failCodeContext(sp, req, now, repaired, findings, repairErr)
@@ -342,6 +344,8 @@ func (s Service) FlowCodeContext(ctx context.Context, projectRef, sprintRef stri
 		result = repaired
 		content = codeContextResultContent(result)
 		findings = ValidateCodeContextContent(content)
+		findings = append(findings, validateResolvedCodeContext(ctx, sp, inputs.Requirements, content, target.Path)...)
+		sortSprintFindings(findings)
 		result.Validation = pruntime.ValidationSummary{Configured: true, Passed: len(findings) == 0, Failures: len(findings)}
 		if len(findings) > 0 {
 			result.Repair.Exhausted = true
@@ -361,6 +365,8 @@ func (s Service) FlowCodeContext(ctx context.Context, projectRef, sprintRef stri
 		return s.failCodeContext(sp, req, now, result, nil, readErr)
 	}
 	findings = ValidateCodeContextContent(string(data))
+	findings = append(findings, validateResolvedCodeContext(ctx, sp, inputs.Requirements, string(data), target.Path)...)
+	sortSprintFindings(findings)
 	if len(findings) > 0 {
 		return s.failCodeContext(sp, req, now, result, findings, fmt.Errorf("generated code-context.md failed validation"))
 	}
@@ -368,11 +374,28 @@ func (s Service) FlowCodeContext(ctx context.Context, projectRef, sprintRef stri
 		return s.failCodeContext(sp, req, now, result, nil, fmt.Errorf("set code-context candidate permissions: %w", err))
 	}
 	stages := flowCodeContextSuccessStages(sp, now)
+	prefix, prefixErr := renderSharedPromptContext(ctx, sp, inputs.Requirements, string(data), target.Path)
+	if prefixErr != nil {
+		return s.failCodeContext(sp, req, now, result, nil, prefixErr)
+	}
+	// Best effort only: the pack is derived and live resolution remains the
+	// authoritative fallback.
+	_ = saveContextPack(s.root, sp, inputs.Requirements, string(data), target.Path, prefix, now)
 	if err := s.promoteCodeContext(ctx, sp, candidatePath, NewFlowState(sp, stages, now)); err != nil {
 		return s.failCodeContext(sp, req, now, result, nil, err)
 	}
 	_ = clearPlanningStageSession(sp, StageCodeContext)
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: result, Stages: stages, Message: "code-context complete"}, nil
+}
+
+func validateResolvedCodeContext(ctx context.Context, sp Sprint, requirements, content, target string) []ValidationFinding {
+	if len(ValidateCodeContextContent(content)) > 0 {
+		return nil
+	}
+	if _, err := renderSharedPromptContext(ctx, sp, requirements, content, target); err != nil {
+		return []ValidationFinding{finding("Selected Source References", "resolved context", ArtifactRelPath(sp, StageCodeContext), "source context cannot be prepared", err.Error(), "Correct missing, excessive, or out-of-range source references and retry code-context generation.")}
+	}
+	return nil
 }
 
 func codeContextResultContent(result pruntime.Result) string {

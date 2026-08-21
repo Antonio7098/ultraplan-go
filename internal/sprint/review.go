@@ -381,7 +381,7 @@ func (s Service) PromptReview(projectRef, sprintRef string, req ReviewRequest) (
 	if err != nil {
 		return PromptPreview{}, err
 	}
-	m.SharedPrefix, err = s.prepareSharedPromptContext(context.Background(), sp, inputs)
+	m.SharedPrefix, err = s.prepareSharedPromptContext(context.Background(), sp, inputs, false)
 	if err != nil {
 		return PromptPreview{}, err
 	}
@@ -389,7 +389,8 @@ func (s Service) PromptReview(projectRef, sprintRef string, req ReviewRequest) (
 	if err != nil {
 		return PromptPreview{}, err
 	}
-	return PromptPreview{Project: m.Project, Sprint: m.Sprint, Prompt: prompt}, nil
+	explanation := explainComposedPrompt(prompt)
+	return PromptPreview{Project: m.Project, Sprint: m.Sprint, Prompt: prompt, Explanation: &explanation}, nil
 }
 
 func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req ReviewRequest) (ReviewResult, error) {
@@ -422,7 +423,7 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 	if err != nil {
 		return result, err
 	}
-	m.SharedPrefix, err = s.prepareSharedPromptContext(ctx, sp, inputs)
+	m.SharedPrefix, err = s.prepareSharedPromptContext(ctx, sp, inputs, true)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			result.Status = ReviewCancelled
@@ -904,7 +905,8 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 			}
 		}
 	}
-	r, err := s.runtime.StartRun(ctx, req)
+	sp := Sprint{Project: m.Project, Slug: m.Sprint, Path: filepath.Join(s.root, "projects", m.Project, "sprints", m.Sprint)}
+	r, err := s.startSprintRuntime(ctx, sp, StageReview, req)
 	sessionID = r.SessionID
 	if sessionID != "" && onSession != nil {
 		onSession(sessionID)
@@ -952,7 +954,7 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 		} else {
 			repair.SessionID, repair.SessionAction = "", "fresh"
 		}
-		repaired, repairErr := s.runtime.StartRun(ctx, repair)
+		repaired, repairErr := s.startSprintRuntime(ctx, sp, StageReview, repair)
 		if repaired.SessionID != "" {
 			sessionID = repaired.SessionID
 			if onSession != nil {
@@ -1507,11 +1509,25 @@ func renderReviewerPrompt(m ReviewManifest, c ReviewInput) string {
 	b.WriteString(strings.TrimSpace(m.PromptTemplate))
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, "# Read-only Sprint Reviewer\n\nReview coverage `%s` (%s: %s). Do not write files, mutate git, or run destructive commands. Read the coverage source and governed inputs from the exact paths below; their hashes form the frozen fingerprint and inputs are checked again before promotion. Review only those inputs and the target scope. Cite logical manifest paths, not absolute read paths. Return exactly one JSON object matching: {\"schemaVersion\":1,\"coverageId\":string,\"applicability\":\"direct|partial|not_triggered|explicitly_deferred\",\"summary\":string,\"findings\":[{\"id\":string,\"severity\":\"info|low|medium|high|blocker\",\"applicability\":\"direct|partial|not_triggered|explicitly_deferred\",\"title\":string,\"detail\":string,\"action\":string,\"citations\":[{\"path\":string,\"startLine\":number,\"endLine\":number}]}]}. Every direct or partial finding requires real line citations. Findings are only for actionable deviations; summarize confirmed conformance in `summary` instead of emitting informational findings. Use stable unique finding IDs and emit no more than %d findings.\n\nTarget: %s\nFingerprint: %s\nChanged paths: %s\n\nCoverage source: logical `%s`; read `%s`; sha256 `%s`.\n\nFrozen input index:\n", c.ID, c.Kind, c.Name, maxReviewFindingsPerCoverage, m.Target, m.Fingerprint, strings.Join(m.ChangedPaths, ", "), c.Path, reviewInputReadPath(m, c), c.Hash)
-	for _, in := range m.Inputs {
+	for _, in := range reviewerInputPacket(m, c) {
 		fmt.Fprintf(&b, "- logical `%s`; kind `%s`; read `%s`; sha256 `%s`\n", in.Path, in.Kind, reviewInputReadPath(m, in), in.Hash)
 	}
 	fmt.Fprintln(&b, "\nThe review prompt asset is already applied above. Assets marked `<embedded>` are consumed by the deterministic review orchestrator and do not require a file read.")
 	return b.String()
+}
+
+func reviewerInputPacket(m ReviewManifest, coverage ReviewInput) []ReviewInput {
+	packet := make([]ReviewInput, 0, len(m.Inputs))
+	for _, input := range m.Inputs {
+		// Independent coverage agents receive their own contract or handbook,
+		// never sibling coverage sources. Common governed planning inputs,
+		// protocols, execution evidence, and changed target files remain shared.
+		if (input.Kind == "contract" || input.Kind == "handbook") && input.Path != coverage.Path {
+			continue
+		}
+		packet = append(packet, input)
+	}
+	return packet
 }
 
 func reviewInputReadPath(m ReviewManifest, in ReviewInput) string {

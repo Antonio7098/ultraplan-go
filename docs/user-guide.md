@@ -287,7 +287,7 @@ Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use 
 
 `code-context` reads the configured implementation target under a restricted read-only runtime policy and atomically replaces only the sprint's `code-context.md` after structural validation. The artifact records paths, exact line ranges, optional symbols, and rationale—not copied source. Downstream agent-backed prompts share the exact requirements and code-context bytes plus transient bounded source excerpts, clearly marked untrusted; the context pack never prevents further live repository inspection. A bad path, range, encoding, containment check, changed read, or 256 KiB shared-prefix budget overflow stops before runtime invocation and leaves the last valid artifacts/state intact.
 
-The planning flow continues through controlled execute from validated `plan.md` tasks. Execute writes `.run-state.json` and `execute.md`; automated review then writes the current `review.md`.
+The planning flow continues through controlled execute from validated `plan.md` tasks. One reusable agent session owns the ordered pending-task queue: its first turn receives shared sprint context and the queue, later tasks use compact continuation turns, and UltraPlan checkpoints task status and evidence between turns. Execute writes `.run-state.json` and `execute.md`; automated review then writes the current `review.md`.
 
 Use the integrated transition after execute:
 

@@ -85,6 +85,9 @@ func saveStageSessions(sp Sprint, state stageSessionState) error {
 }
 
 func stageSessionCompatible(record stageSessionRecord, req pruntime.Request) bool {
+	// Prompt checksums are retained for diagnostics only. Exact prompt matching
+	// would make interrupted-session recovery brittle after harmless artifact
+	// edits; the continuation explicitly tells the agent to reread current state.
 	return record.SessionID != "" && record.Provider == req.Provider && record.Model == req.Model && record.WorkDir == req.WorkDir
 }
 
@@ -94,7 +97,7 @@ func (s Service) startPlanningStageRun(ctx context.Context, sp Sprint, stage Pla
 		if record, ok := state.Sessions[string(stage)]; ok && stageSessionCompatible(record, req) {
 			req.SessionID = record.SessionID
 			req.SessionAction = "continue"
-			req.Prompt = "Continue the interrupted UltraPlan stage from the existing session. Re-read the current stage prompt and filesystem state, then finish only the requested stage.\n\n" + req.Prompt
+			req.Prompt = insertStageContinuation(req.Prompt, "Continue the interrupted UltraPlan stage from the existing session. Re-read the current stage prompt and filesystem state, then finish only the requested stage.")
 		}
 	}
 	previousOnEvent := req.OnEvent
@@ -123,9 +126,18 @@ func (s Service) startPlanningStageRun(ctx context.Context, sp Sprint, stage Pla
 		}
 		persist(event.SessionID)
 	}
-	result, err := s.runtime.StartRun(ctx, req)
+	result, err := s.startSprintRuntime(ctx, sp, stage, req)
 	persist(result.SessionID)
 	return result, err
+}
+
+func insertStageContinuation(prompt, instruction string) string {
+	boundary := strings.Index(prompt, sharedPromptStageBoundary)
+	if boundary < 0 {
+		return instruction + "\n\n" + prompt
+	}
+	boundary += len(sharedPromptStageBoundary)
+	return prompt[:boundary] + instruction + "\n\n" + prompt[boundary:]
 }
 
 func clearPlanningStageSession(sp Sprint, stage PlanningStage) error {

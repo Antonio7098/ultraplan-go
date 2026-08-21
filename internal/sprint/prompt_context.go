@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -18,6 +20,8 @@ const (
 	maxSharedPromptPrefixBytes = 256 << 10
 	sharedPromptSuffixReserve  = 64 << 10
 	sharedSourceReadBuffer     = 32 << 10
+	maxSharedContextReferences = 64
+	maxSharedSourceLines       = 4096
 )
 
 type promptContextErrorKind string
@@ -39,6 +43,7 @@ type promptContextError struct {
 	LineRange string
 	Allowed   int
 	Observed  int
+	Unit      string
 	Err       error
 }
 
@@ -51,7 +56,11 @@ func (e *promptContextError) Error() string {
 		location = "shared prompt context"
 	}
 	if e.Kind == promptContextBudget {
-		return fmt.Sprintf("%s: %s (%d bytes observed; %d allowed)", e.Kind, location, e.Observed, e.Allowed)
+		unit := e.Unit
+		if unit == "" {
+			unit = "bytes"
+		}
+		return fmt.Sprintf("%s: %s (%d %s observed; %d allowed)", e.Kind, location, e.Observed, unit, e.Allowed)
 	}
 	if e.Err != nil {
 		return fmt.Sprintf("%s: %s: %s", e.Kind, location, safePromptContextCause(e.Err))
@@ -75,9 +84,16 @@ type sharedContextReference struct {
 
 type sharedLineRange struct{ Start, End int }
 
+type sharedSourceSelection struct {
+	Path       string
+	Lines      string
+	Ranges     []sharedLineRange
+	References []sharedContextReference
+}
+
 var codeContextSymbolRE = regexp.MustCompile(`(?im)^\s*-?\s*\*\*Symbol:\*\*\s*` + "`?" + `([^` + "`" + `\r\n]+)` + "`?" + `\s*$`)
 
-func (s Service) prepareSharedPromptContext(ctx context.Context, sp Sprint, inputs PlanningInputs) (string, error) {
+func (s Service) prepareSharedPromptContext(ctx context.Context, sp Sprint, inputs PlanningInputs, persistCache bool) (string, error) {
 	// Pre-code-context workspaces retain the compatibility behavior established
 	// when the stage was introduced. Once the artifact exists, all covered
 	// agent-backed operations use the shared renderer and fail closed.
@@ -94,11 +110,31 @@ func (s Service) prepareSharedPromptContext(ctx context.Context, sp Sprint, inpu
 	if len(findings) > 0 {
 		return "", fmt.Errorf("resolve shared prompt implementation target: %s", formatValidationFindings(findings))
 	}
-	return renderSharedPromptContext(ctx, sp, inputs.Requirements, inputs.CodeContext, target.Path)
+	if prefix, cacheErr := loadContextPack(s.root, sp, inputs.Requirements, inputs.CodeContext, target.Path); cacheErr == nil {
+		return prefix, nil
+	}
+	prefix, err := renderSharedPromptContext(ctx, sp, inputs.Requirements, inputs.CodeContext, target.Path)
+	if err != nil {
+		return "", err
+	}
+	if persistCache {
+		// This is a disposable acceleration layer. Failure to write it must not
+		// fail, stale, or rerun the governed stage.
+		_ = saveContextPack(s.root, sp, inputs.Requirements, inputs.CodeContext, target.Path, prefix, time.Now().UTC())
+	}
+	return prefix, nil
 }
 
 func (s Service) composeSharedPrompt(ctx context.Context, sp Sprint, inputs PlanningInputs, preview PromptPreview) (PromptPreview, error) {
-	prefix, err := s.prepareSharedPromptContext(ctx, sp, inputs)
+	return s.composeSharedPromptWithCache(ctx, sp, inputs, preview, false)
+}
+
+func (s Service) composeSharedRuntimePrompt(ctx context.Context, sp Sprint, inputs PlanningInputs, preview PromptPreview) (PromptPreview, error) {
+	return s.composeSharedPromptWithCache(ctx, sp, inputs, preview, true)
+}
+
+func (s Service) composeSharedPromptWithCache(ctx context.Context, sp Sprint, inputs PlanningInputs, preview PromptPreview, persistCache bool) (PromptPreview, error) {
+	prefix, err := s.prepareSharedPromptContext(ctx, sp, inputs, persistCache)
 	if err != nil {
 		return PromptPreview{}, err
 	}
@@ -106,6 +142,8 @@ func (s Service) composeSharedPrompt(ctx context.Context, sp Sprint, inputs Plan
 	if err != nil {
 		return PromptPreview{}, err
 	}
+	explanation := explainComposedPrompt(preview.Prompt)
+	preview.Explanation = &explanation
 	return preview, nil
 }
 
@@ -153,35 +191,34 @@ func renderSharedPromptContext(ctx context.Context, sp Sprint, requirements, cod
 	if err := checkSharedPromptBudget(b.Len(), "", ""); err != nil {
 		return "", err
 	}
-	for _, ref := range references {
+	selections, err := canonicalSharedSelections(references)
+	if err != nil {
+		return "", err
+	}
+	for _, selection := range selections {
 		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		ranges, err := parseSharedLineRanges(ref.Path, ref.Lines)
-		if err != nil {
 			return "", err
 		}
 		available := maxSharedPromptPrefixBytes - b.Len() - len(sharedSourceEvidenceClose) - len(sharedPromptStageBoundary)
 		if available < 0 {
-			return "", budgetPromptContextError(ref.Path, ref.Lines, maxSharedPromptPrefixBytes, b.Len())
+			return "", budgetPromptContextError(selection.Path, selection.Lines, maxSharedPromptPrefixBytes, b.Len())
 		}
-		source, err := readSharedSource(ctx, root, ref.Path, ref.Lines, ranges, available)
+		source, err := readSharedSource(ctx, root, selection.Path, selection.Lines, selection.Ranges, available)
 		if err != nil {
 			return "", err
 		}
 		var frame strings.Builder
-		fmt.Fprintf(&frame, "\n<<< BEGIN UNTRUSTED TRANSIENT SOURCE EVIDENCE: %s:%s >>>\n", ref.Path, ref.Lines)
-		fmt.Fprintf(&frame, "Selected entry: %s\n", ref.Name)
-		if ref.Symbol != "" {
-			fmt.Fprintf(&frame, "Symbol: %s\n", ref.Symbol)
+		fmt.Fprintf(&frame, "\n<<< BEGIN UNTRUSTED TRANSIENT SOURCE EVIDENCE: %s:%s >>>\n", selection.Path, selection.Lines)
+		frame.WriteString("Selected entries:")
+		for _, ref := range selection.References {
+			fmt.Fprintf(&frame, " %s;", ref.Name)
 		}
-		fmt.Fprintf(&frame, "Rationale: %s\n", ref.Rationale)
-		frame.WriteString("Source bytes:\n")
+		frame.WriteString("\nSource bytes:\n")
 		frame.WriteString(source)
-		fmt.Fprintf(&frame, "\n<<< END UNTRUSTED TRANSIENT SOURCE EVIDENCE: %s:%s >>>\n", ref.Path, ref.Lines)
+		fmt.Fprintf(&frame, "\n<<< END UNTRUSTED TRANSIENT SOURCE EVIDENCE: %s:%s >>>\n", selection.Path, selection.Lines)
 		observed := b.Len() + frame.Len() + len(sharedSourceEvidenceClose) + len(sharedPromptStageBoundary)
 		if observed > maxSharedPromptPrefixBytes {
-			return "", budgetPromptContextError(ref.Path, ref.Lines, maxSharedPromptPrefixBytes, observed)
+			return "", budgetPromptContextError(selection.Path, selection.Lines, maxSharedPromptPrefixBytes, observed)
 		}
 		b.WriteString(frame.String())
 	}
@@ -194,6 +231,69 @@ func renderSharedPromptContext(ctx context.Context, sp Sprint, requirements, cod
 		return "", err
 	}
 	return b.String(), nil
+}
+
+func canonicalSharedSelections(refs []sharedContextReference) ([]sharedSourceSelection, error) {
+	if len(refs) > maxSharedContextReferences {
+		return nil, &promptContextError{Kind: promptContextBudget, Allowed: maxSharedContextReferences, Observed: len(refs), Unit: "references", Err: errors.New("too many selected source references")}
+	}
+	positions := map[string]int{}
+	selections := make([]sharedSourceSelection, 0, len(refs))
+	for _, ref := range refs {
+		ranges, err := parseSharedLineRanges(ref.Path, ref.Lines)
+		if err != nil {
+			return nil, err
+		}
+		position, ok := positions[ref.Path]
+		if !ok {
+			position = len(selections)
+			positions[ref.Path] = position
+			selections = append(selections, sharedSourceSelection{Path: ref.Path})
+		}
+		selections[position].Ranges = append(selections[position].Ranges, ranges...)
+		selections[position].References = append(selections[position].References, ref)
+	}
+	totalLines := 0
+	for i := range selections {
+		ranges := selections[i].Ranges
+		sort.Slice(ranges, func(a, b int) bool {
+			if ranges[a].Start != ranges[b].Start {
+				return ranges[a].Start < ranges[b].Start
+			}
+			return ranges[a].End < ranges[b].End
+		})
+		merged := make([]sharedLineRange, 0, len(ranges))
+		for _, current := range ranges {
+			if len(merged) == 0 || current.Start > merged[len(merged)-1].End+1 {
+				merged = append(merged, current)
+				continue
+			}
+			if current.End > merged[len(merged)-1].End {
+				merged[len(merged)-1].End = current.End
+			}
+		}
+		for _, selected := range merged {
+			totalLines += selected.End - selected.Start + 1
+		}
+		if totalLines > maxSharedSourceLines {
+			return nil, &promptContextError{Kind: promptContextBudget, Path: selections[i].Path, Allowed: maxSharedSourceLines, Observed: totalLines, Unit: "lines", Err: errors.New("selected source line budget exceeded")}
+		}
+		selections[i].Ranges = merged
+		selections[i].Lines = formatSharedLineRanges(merged)
+	}
+	return selections, nil
+}
+
+func formatSharedLineRanges(ranges []sharedLineRange) string {
+	parts := make([]string, 0, len(ranges))
+	for _, selected := range ranges {
+		if selected.Start == selected.End {
+			parts = append(parts, strconv.Itoa(selected.Start))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d-%d", selected.Start, selected.End))
+		}
+	}
+	return strings.Join(parts, ",")
 }
 
 func parseSharedContextReferences(content string) ([]sharedContextReference, error) {
@@ -309,24 +409,20 @@ func readSharedSource(ctx context.Context, root, rel, lineRange string, ranges [
 		return "", &promptContextError{Kind: promptContextChanged, Path: rel, LineRange: lineRange, Err: err}
 	}
 
-	var out strings.Builder
+	data, totalLines, err := readSharedLineRanges(ctx, f, ranges, budget)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return "", err
+		}
+		return "", &promptContextError{Kind: promptContextBudget, Path: rel, LineRange: lineRange, Allowed: budget, Observed: budget + 1, Err: err}
+	}
 	for _, selected := range ranges {
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return "", &promptContextError{Kind: promptContextInvalidRange, Path: rel, LineRange: lineRange, Err: err}
-		}
-		data, totalLines, err := readSharedLineRange(ctx, f, selected, budget-out.Len())
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return "", err
-			}
-			return "", &promptContextError{Kind: promptContextBudget, Path: rel, LineRange: lineRange, Allowed: budget, Observed: budget + 1, Err: err}
-		}
 		if selected.End > totalLines {
 			return "", &promptContextError{Kind: promptContextInvalidRange, Path: rel, LineRange: lineRange, Err: fmt.Errorf("range ends at line %d but file has %d lines", selected.End, totalLines)}
 		}
-		out.Write(data)
 	}
-	if !utf8.ValidString(out.String()) {
+	source := string(data)
+	if !utf8.ValidString(source) {
 		return "", &promptContextError{Kind: promptContextEncoding, Path: rel, LineRange: lineRange, Err: errors.New("selected source is not valid UTF-8")}
 	}
 	handleAfter, err := f.Stat()
@@ -336,7 +432,7 @@ func readSharedSource(ctx context.Context, root, rel, lineRange string, ranges [
 	if err := verifySharedSourceUnchanged(root, candidate, canonical, rel, lineRange, handleBefore, handleAfter); err != nil {
 		return "", err
 	}
-	return out.String(), nil
+	return source, nil
 }
 
 func verifySharedSourceUnchanged(root, candidate, canonical, rel, lineRange string, handleBefore, handleAfter os.FileInfo) error {
@@ -358,10 +454,15 @@ func verifySharedSourceUnchanged(root, candidate, canonical, rel, lineRange stri
 }
 
 func readSharedLineRange(ctx context.Context, r io.Reader, selected sharedLineRange, budget int) ([]byte, int, error) {
+	return readSharedLineRanges(ctx, r, []sharedLineRange{selected}, budget)
+}
+
+func readSharedLineRanges(ctx context.Context, r io.Reader, selected []sharedLineRange, budget int) ([]byte, int, error) {
 	reader := bufio.NewReaderSize(r, sharedSourceReadBuffer)
 	line := 1
 	total := 0
 	var out []byte
+	rangeIndex := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, 0, err
@@ -369,7 +470,11 @@ func readSharedLineRange(ctx context.Context, r io.Reader, selected sharedLineRa
 		fragment, err := reader.ReadSlice('\n')
 		if len(fragment) > 0 {
 			total = line
-			if line >= selected.Start && line <= selected.End {
+			for rangeIndex < len(selected) && line > selected[rangeIndex].End {
+				rangeIndex++
+			}
+			included := rangeIndex < len(selected) && line >= selected[rangeIndex].Start && line <= selected[rangeIndex].End
+			if included {
 				if len(fragment) > budget-len(out) {
 					return nil, 0, errors.New("selected source exceeds remaining shared prompt budget")
 				}

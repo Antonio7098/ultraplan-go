@@ -21,7 +21,10 @@ func TestPackagedBinaryServesEmbeddedAssetsOutsideSourceTree(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
-	build := exec.Command("go", "build", "-o", binary, "./cmd/ultraplan")
+	// The repository may be checked out as a linked worktree whose .git file is
+	// intentionally absent from source-only packaging fixtures. VCS stamping is
+	// unrelated to the embedded-asset contract under test.
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/ultraplan")
 	build.Dir = filepath.Join("..", "..")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build packaged binary: %v\n%s", err, output)

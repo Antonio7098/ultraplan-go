@@ -27,7 +27,7 @@ This handbook distills the studies and reports selected by `sprint-index.md` for
 
 - **[Warning]:** [What to avoid and why]
 
-## Examples Worth Inspecting
+## Examples Worth Investigating
 
 | Example | Path / Source | Why It Is Useful |
 | --- | --- | --- |

@@ -311,7 +311,7 @@ Runs or previews the governed stage flow through smoke. Cumulative planning orde
 ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
 ```
 
-Executes validated top-level `plan.md` task checkboxes through the generic runtime boundary. It writes `.run-state.json` and `execute.md`, requires runtime evidence or a safe diagnostic before marking a task complete, and constrains work to the project index target implementation directory.
+Executes validated top-level `plan.md` task checkboxes through one reusable generic-runtime agent session. The first turn receives the shared sprint context, ordered queue, and current task; each later task is a compact continuation in that session. UltraPlan checkpoints each task before advancing, stops the queue on failure/cancellation, writes `.run-state.json` and `execute.md`, requires runtime evidence or a safe diagnostic before marking a task complete, and constrains work to the project index target implementation directory. If the runtime supplies no reusable session ID, execution safely falls back to complete independent prompts.
 
 Explicitly defer accepted follow-up work with a required rationale:
 

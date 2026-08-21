@@ -56,5 +56,6 @@ The technical handbook must:
 - Identify at least 3 relevant patterns with evidence basis (file paths + line numbers from evidence reports)
 - Document at least 2 trade-offs with benefit/cost analysis
 - Include at least 2 warnings or anti-patterns
+- Identify concrete examples worth investigating, with their paths or sources and why they are useful
 - List open questions for sprint reasoning
 - Point to specific evidence (file paths, sections) to inspect

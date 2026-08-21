@@ -12,9 +12,10 @@ import (
 )
 
 type PromptPreview struct {
-	Project string
-	Sprint  string
-	Prompt  string
+	Project     string             `json:"project"`
+	Sprint      string             `json:"sprint"`
+	Prompt      string             `json:"prompt"`
+	Explanation *PromptExplanation `json:"explanation,omitempty"`
 }
 
 const (

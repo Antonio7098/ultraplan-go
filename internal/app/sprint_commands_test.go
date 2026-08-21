@@ -28,6 +28,7 @@ func TestSprintHelpIsRegistered(t *testing.T) {
 	for _, args := range [][]string{
 		{"sprint", "--help"},
 		{"sprint", "proj", "01", "status", "--help"},
+		{"sprint", "proj", "01", "metrics", "--help"},
 		{"sprint", "proj", "01", "execute", "--help"},
 		{"sprint", "proj", "01", "review", "--help"},
 	} {
@@ -224,6 +225,39 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	assertContains(t, stdout, "Do not mutate")
 	if strings.Contains(stdout+stderr, "\x1b[") || strings.Contains(stdout, dir) {
 		t.Fatalf("unsafe prompt output stdout=%q stderr=%q", stdout, stderr)
+	}
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "sprint-index", "--explain"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("prompt explanation status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	var explanation sprint.PromptExplanation
+	if err := json.Unmarshal([]byte(stdout), &explanation); err != nil {
+		t.Fatalf("decode prompt explanation: %v output=%q", err, stdout)
+	}
+	if !explanation.CacheCandidate || explanation.SharedPrefixDigest == "" || explanation.CacheKey == "" || explanation.CacheBreakpoint != explanation.SharedPrefixBytes || len(explanation.Blocks) < 5 {
+		t.Fatalf("prompt explanation = %+v", explanation)
+	}
+	var blockIDs []string
+	for _, block := range explanation.Blocks {
+		blockIDs = append(blockIDs, block.ID)
+	}
+	if got := strings.Join(blockIDs, ","); got != "shared-instructions,requirements,code-context,source-evidence,stage-boundary,stage" {
+		t.Fatalf("prompt block order = %q", got)
+	}
+	if explanation.InputContract == nil || explanation.InputContract.Stage != sprint.StageSprintIndex || len(explanation.InputContract.Required) == 0 {
+		t.Fatalf("input contract = %+v", explanation.InputContract)
+	}
+
+	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "metrics", "--json"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("metrics status=%d stdout=%q stderr=%q", status, stdout, stderr)
+	}
+	var metrics sprint.SprintRuntimeMetrics
+	if err := json.Unmarshal([]byte(stdout), &metrics); err != nil {
+		t.Fatalf("decode runtime metrics: %v output=%q", err, stdout)
+	}
+	if metrics.Project != "proj" || metrics.Sprint != "01-alpha" || len(metrics.Runs) != 0 {
+		t.Fatalf("runtime metrics = %+v", metrics)
 	}
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "prompt", "technical-handbook"})

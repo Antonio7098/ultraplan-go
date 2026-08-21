@@ -40,7 +40,7 @@ func TestPlanningStageRunContinuesCheckpointedSession(t *testing.T) {
 	}
 
 	req.Prompt = "refreshed prompt"
-	req.PromptRef.Checksum = "two"
+	req.PromptRef.Checksum = "one"
 	if _, err := service.startPlanningStageRun(context.Background(), sp, StageRequirements, req); err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +52,24 @@ func TestPlanningStageRunContinuesCheckpointedSession(t *testing.T) {
 	}
 	if _, err := os.Stat(stageSessionPath(sp)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("session checkpoint was not cleared: %v", err)
+	}
+}
+
+func TestPlanningStageRunToleratesPromptChangesWithoutExactMatchGate(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-session-change")
+	runtime := &checkpointRuntime{}
+	service := NewService(root).WithRuntime(runtime)
+	req := pruntime.Request{Prompt: "first prompt", Provider: "opencode", Model: "model", WorkDir: root, PromptRef: pruntime.PromptReference{Checksum: "one"}}
+	if _, err := service.startPlanningStageRun(context.Background(), sp, StageRequirements, req); !errors.Is(err, context.Canceled) {
+		t.Fatalf("first run error=%v", err)
+	}
+	req.Prompt, req.PromptRef.Checksum = "changed prompt", "two"
+	if _, err := service.startPlanningStageRun(context.Background(), sp, StageRequirements, req); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.calls[1].SessionID != "retained-session" || runtime.calls[1].SessionAction != "continue" {
+		t.Fatalf("changed prompt did not reuse compatible interrupted session: %+v", runtime.calls[1])
 	}
 }
 

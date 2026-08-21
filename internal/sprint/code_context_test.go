@@ -252,7 +252,7 @@ func TestCodeContextRepairsInvalidTerminalOutputWithinRuntimeBoundary(t *testing
 	if runtime.requests[1].SessionID != "session-1" || runtime.requests[1].SessionAction != "continue" {
 		t.Fatalf("repair did not continue the original session: %+v", runtime.requests[1])
 	}
-	for _, want := range []string{"Return only one complete Markdown document", "Do not include a preamble", "Original stage request and context", "missing required section"} {
+	for _, want := range []string{"Return only one complete Markdown document", "Do not include a preamble", "missing required section"} {
 		if !strings.Contains(runtime.requests[1].Prompt, want) {
 			t.Fatalf("repair prompt missing %q: %s", want, runtime.requests[1].Prompt)
 		}
@@ -287,6 +287,7 @@ func TestCodeContextExecutionLeavesResolvedRepositoryAndUnrelatedArtifactsUnchan
 	target := t.TempDir()
 	writeFileContent(t, target, "package source\n", "internal", "source.go")
 	writeFileContent(t, target, "package source\n", "internal", "source_test.go")
+	writeFileContent(t, target, strings.Repeat("// source line\n", 50), "internal", "sprint", "domain.go")
 	writeFileContent(t, target, "ref: refs/heads/main\n", ".git", "HEAD")
 	before := snapshotCodeContextTree(t, target)
 	requirementsBefore, _ := os.ReadFile(filepath.Join(sp.Path, "requirements.md"))
