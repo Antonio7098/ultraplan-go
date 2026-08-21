@@ -156,6 +156,8 @@ func Run(cfg Config) int {
 		return failOrOK(stderr, runConfig(deps, args[1:]))
 	case "health":
 		return failOrOK(stderr, runHealth(deps, args[1:]))
+	case "storage":
+		return failOrOK(stderr, runStorage(deps, args[1:]))
 	case "run":
 		return failOrOK(stderr, runRun(deps, args[1:]))
 	case "project":
@@ -256,6 +258,7 @@ Commands:
   defaults         Install editable built-in prompts and templates.
   skills           Materialise manually invoked stage skills.
   config           Inspect effective configuration.
+  storage          Migrate mutable product state into SQLite.
   code             Extract cited code snippets from reports.
   health           Check workspace, config, filesystem, and environment basics.
   run              Inspect, follow, cancel, and diagnose durable runs.

@@ -24,6 +24,14 @@ type atomicWriteHooks struct {
 }
 
 func LoadRunState(study Study) (RunState, error) {
+	if state, found, err := loadRunStateDatabase(study); err != nil {
+		return RunState{}, err
+	} else if found {
+		if err := ValidateRunState(state, RunStatePath(study)); err != nil {
+			return RunState{}, err
+		}
+		return state, nil
+	}
 	path := RunStatePath(study)
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -48,6 +56,16 @@ func LoadRunState(study Study) (RunState, error) {
 }
 
 func SaveRunState(study Study, state RunState) error {
+	if authoritative, err := RunStateInDatabase(study); err != nil {
+		return err
+	} else if authoritative {
+		if err := saveRunStateDatabase(study, state); err != nil {
+			return err
+		}
+		if !state.Complete {
+			return nil
+		}
+	}
 	return saveRunStateWithHooks(study, state, atomicWriteHooks{})
 }
 

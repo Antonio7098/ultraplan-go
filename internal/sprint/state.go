@@ -18,6 +18,18 @@ type atomicWriteHooks struct {
 }
 
 func LoadFlowState(root string, s Sprint) (FlowState, error) {
+	if state, found, err := loadFlowStateDatabase(root, s); err != nil {
+		return FlowState{}, err
+	} else if found {
+		path, pathErr := FlowStatePath(root, s)
+		if pathErr != nil {
+			return FlowState{}, pathErr
+		}
+		if err := ValidateFlowState(root, s, state, path); err != nil {
+			return FlowState{}, err
+		}
+		return state, nil
+	}
 	path, err := FlowStatePath(root, s)
 	if err != nil {
 		return FlowState{}, err
@@ -201,7 +213,27 @@ func SaveFlowState(root string, s Sprint, state FlowState) error {
 			return err
 		}
 	}
+	if authoritative, err := FlowStateInDatabase(root, s); err != nil {
+		return err
+	} else if authoritative {
+		if err := saveFlowStateDatabase(root, s, state); err != nil {
+			return err
+		}
+		if !flowStateCheckpoint(state) {
+			return nil
+		}
+		return saveFlowStateWithHooks(root, s, state, atomicWriteHooks{})
+	}
 	return saveFlowStateWithHooks(root, s, state, atomicWriteHooks{})
+}
+
+func flowStateCheckpoint(state FlowState) bool {
+	for _, stage := range state.Stages {
+		if stage.Status != StatusComplete && stage.Status != StatusFailed && stage.Status != StatusSkipped {
+			return false
+		}
+	}
+	return len(state.Stages) > 0
 }
 
 func saveFlowStateWithHooks(root string, s Sprint, state FlowState, hooks atomicWriteHooks) error {

@@ -33,6 +33,18 @@ func NewExecuteRunState(s Sprint, target ExecuteTargetRef, planPath, planFingerp
 }
 
 func LoadExecuteRunState(root string, s Sprint) (ExecuteRunState, error) {
+	if state, found, err := loadExecuteStateDatabase(root, s); err != nil {
+		return ExecuteRunState{}, err
+	} else if found {
+		path, pathErr := ExecuteRunStatePath(root, s)
+		if pathErr != nil {
+			return ExecuteRunState{}, pathErr
+		}
+		if err := ValidateExecuteRunState(root, s, state, path); err != nil {
+			return ExecuteRunState{}, err
+		}
+		return state, nil
+	}
 	path, err := ExecuteRunStatePath(root, s)
 	if err != nil {
 		return ExecuteRunState{}, err
@@ -91,7 +103,30 @@ func LegacyTerminalExecuteStatus(root string, s Sprint) (string, bool) {
 }
 
 func SaveExecuteRunState(root string, s Sprint, state ExecuteRunState) error {
+	if authoritative, err := ExecuteStateInDatabase(root, s); err != nil {
+		return err
+	} else if authoritative {
+		if err := saveExecuteStateDatabase(root, s, state); err != nil {
+			return err
+		}
+		if !executeStateCheckpoint(state) {
+			return nil
+		}
+		return saveExecuteRunStateWithHooks(root, s, state, atomicWriteHooks{})
+	}
 	return saveExecuteRunStateWithHooks(root, s, state, atomicWriteHooks{})
+}
+
+func executeStateCheckpoint(state ExecuteRunState) bool {
+	if len(state.Tasks) == 0 {
+		return false
+	}
+	for _, task := range state.Tasks {
+		if !isTerminalExecuteStatus(task.Status) {
+			return false
+		}
+	}
+	return true
 }
 
 func saveExecuteRunStateWithHooks(root string, s Sprint, state ExecuteRunState, hooks atomicWriteHooks) error {
