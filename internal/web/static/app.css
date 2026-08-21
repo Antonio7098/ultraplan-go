@@ -223,6 +223,20 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .coverage-test-card { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-subtle); }
 .coverage-test-card h3 { margin-top: 0; overflow-wrap: anywhere; }
 .coverage-test-card ul { display: flex; flex-wrap: wrap; gap: .4rem; padding: 0; list-style: none; }
+.coverage-matrix-wrap { margin-top: 1rem; overflow-x: auto; border: 1px solid var(--border); border-radius: .75rem; }
+.coverage-matrix { width: max-content; min-width: 100%; border-collapse: collapse; background: var(--panel); }
+.coverage-matrix caption { padding: .75rem; color: var(--muted); text-align: left; }
+.coverage-matrix th, .coverage-matrix td { padding: .55rem; border-top: 1px solid var(--border-soft); border-right: 1px solid var(--border-soft); text-align: center; }
+.coverage-matrix th:first-child { position: sticky; left: 0; z-index: 1; min-width: 18rem; background: var(--panel-raised); text-align: left; }
+.coverage-matrix th:first-child small { display: block; margin-top: .25rem; color: var(--subtle); font-weight: 400; }
+.coverage-requirement-trigger { min-width: 4.2rem; padding: .4rem .5rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--control); color: var(--text); font: inherit; cursor: help; }
+.coverage-requirement-trigger:hover, .coverage-requirement-trigger:focus-visible { border-color: var(--accent); background: var(--panel-hover); }
+.coverage-cell-mapped { color: var(--success); font-weight: 700; background: color-mix(in srgb, var(--success) 8%, transparent); }
+.coverage-cell-empty { color: var(--subtle); }
+.coverage-requirement-dialog { width: min(34rem, calc(100% - 2rem)); padding: .65rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--panel-raised); color: var(--text); box-shadow: 0 18px 55px rgb(0 0 0 / 48%), 0 0 0 1px rgb(255 255 255 / 3%); }
+.coverage-requirement-dialog::backdrop { background: rgb(0 0 0 / 68%); backdrop-filter: blur(3px); }
+.coverage-requirement-dialog > p { margin: .8rem .55rem; }
+.coverage-requirement-dialog .top-nav-flyout-heading button { min-width: 2rem; min-height: 2rem; padding: 0; }
 .latest-sprint { position: relative; overflow: hidden; padding: clamp(1.2rem, 3vw, 1.8rem); border: 0; background: linear-gradient(125deg, color-mix(in oklch, var(--accent-soft) 80%, var(--panel)), var(--panel) 58%); box-shadow: 0 18px 45px rgb(0 0 0 / 18%); }
 .latest-sprint::after { content: ""; position: absolute; right: -5rem; top: -7rem; width: 15rem; height: 15rem; border-radius: 50%; background: var(--accent); opacity: .1; filter: blur(28px); pointer-events: none; }
 .latest-sprint-heading { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }

@@ -281,6 +281,7 @@ func summarizeSmoke(state *sprint.SmokeStageState) SmokeSummary {
 	if state == nil {
 		return SmokeSummary{}
 	}
+	state.CoverageMapping.EnsureMatrix()
 	return SmokeSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), RunID: state.RunID, Error: displayReasons(state.Diagnostics), Stale: state.Stale, Reconciliation: state.Reconciliation, CoverageMapping: state.CoverageMapping}
 }
 

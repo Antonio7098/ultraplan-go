@@ -202,7 +202,7 @@ func TestSmokeCoverageMappingAppearsInRunAndSmokeResultOnly(t *testing.T) {
 	queries.artifact.DisplayPath = "projects/alpha/sprints/30-web/smoke.md"
 	smokeResult := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints/30-web/artifacts/artifact_ref", nil).Body.String()
 	for name, body := range map[string]string{"run": run, "smoke result": smokeResult} {
-		for _, want := range []string{`id="smoke-coverage-heading"`, "provider probe missing", "browser-boundary", "sprint-30", "AC-01", "The browser boundary is exercised.", "AC-02", "The provider boundary is exercised.", "mapped", "unmapped", "incomplete"} {
+		for _, want := range []string{`id="smoke-coverage-heading"`, `class="coverage-matrix"`, `class="coverage-requirement-trigger status-ok"`, `data-coverage-id="AC-01"`, `data-coverage-description="The browser boundary is exercised."`, `data-coverage-status="mapped"`, `data-coverage-id="AC-02"`, `data-coverage-status="unmapped"`, `data-coverage-requirement-dialog`, "provider probe missing", "browser-boundary", "sprint-30", "✓", "incomplete"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s smoke coverage mapping missing %q", name, want)
 			}

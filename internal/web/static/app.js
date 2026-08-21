@@ -83,6 +83,39 @@
     });
   }
 
+  for (const mapping of document.querySelectorAll(".smoke-coverage-mapping")) {
+    const dialog = mapping.querySelector("[data-coverage-requirement-dialog]");
+    const id = dialog?.querySelector("[data-coverage-dialog-id]");
+    const status = dialog?.querySelector("[data-coverage-dialog-status]");
+    const description = dialog?.querySelector("[data-coverage-dialog-description]");
+    const tests = dialog?.querySelector("[data-coverage-dialog-tests]");
+    const close = dialog?.querySelector("[data-coverage-dialog-close]");
+    let lastTrigger = null;
+    const openRequirement = (trigger) => {
+      if (!dialog || dialog.open) return;
+      lastTrigger = trigger;
+      if (id) id.textContent = trigger.dataset.coverageId || "Requirement";
+      if (status) {
+        status.textContent = trigger.dataset.coverageStatus || "unknown";
+        status.className = `status status-${trigger.dataset.coverageStatus === "mapped" ? "ok" : "warn"}`;
+      }
+      if (description) description.textContent = trigger.dataset.coverageDescription || "No governed description was available.";
+      if (tests) tests.textContent = trigger.dataset.coverageTests || "None";
+      dialog.showModal();
+    };
+    for (const trigger of mapping.querySelectorAll(".coverage-requirement-trigger")) {
+      trigger.addEventListener("pointerenter", (event) => {
+        if (event.pointerType !== "touch") openRequirement(trigger);
+      });
+      trigger.addEventListener("click", () => openRequirement(trigger));
+    }
+    close?.addEventListener("click", () => dialog?.close());
+    dialog?.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+    dialog?.addEventListener("close", () => lastTrigger?.focus({preventScroll: true}));
+  }
+
   const processes = document.querySelector("[data-running-processes]");
   if (processes) {
     const button = processes.querySelector(":scope > button");

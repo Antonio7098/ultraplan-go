@@ -45,6 +45,7 @@ func sampleQueries() *fakeQueries {
 		}, Tests: []sprint.SmokeCoverageTest{{ID: "browser-boundary", Suite: "sprint-30", Coverage: []string{"AC-01"}}}}},
 		Findings: []app.DisplayFinding{finding}, Artifacts: []app.WebArtifactLink{requirementsArtifact, contextArtifact, indexArtifact, artifact},
 	}
+	sprint.Smoke.CoverageMapping.EnsureMatrix()
 	project := app.WebProjectResult{
 		Ref: "project_ref", Name: "alpha", Docs: []string{"docs/PRD.md"},
 		Findings: []app.DisplayFinding{finding}, Artifacts: []app.WebArtifactLink{artifact},

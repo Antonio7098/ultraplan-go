@@ -123,6 +123,12 @@ type SmokeCoverageRequirement struct {
 	MappedTests []string `json:"mapped_tests"`
 }
 
+type SmokeCoverageMatrixRow struct {
+	TestID string `json:"test_id"`
+	Suite  string `json:"suite"`
+	Cells  []bool `json:"cells"`
+}
+
 type SmokeCoverageMapping struct {
 	Sprint           string                     `json:"sprint"`
 	Suites           []string                   `json:"suites"`
@@ -132,6 +138,25 @@ type SmokeCoverageMapping struct {
 	RequiredCoverage []string                   `json:"required_coverage"`
 	Requirements     []SmokeCoverageRequirement `json:"requirements,omitempty"`
 	Tests            []SmokeCoverageTest        `json:"tests"`
+	Matrix           []SmokeCoverageMatrixRow   `json:"matrix,omitempty"`
+}
+
+func (m *SmokeCoverageMapping) EnsureMatrix() {
+	if m == nil {
+		return
+	}
+	m.Matrix = make([]SmokeCoverageMatrixRow, 0, len(m.Tests))
+	for _, test := range m.Tests {
+		covered := map[string]bool{}
+		for _, id := range test.Coverage {
+			covered[id] = true
+		}
+		row := SmokeCoverageMatrixRow{TestID: test.ID, Suite: test.Suite, Cells: make([]bool, len(m.Requirements))}
+		for i, requirement := range m.Requirements {
+			row.Cells[i] = covered[requirement.ID]
+		}
+		m.Matrix = append(m.Matrix, row)
+	}
 }
 
 type SmokeResult struct {

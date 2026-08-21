@@ -435,6 +435,7 @@ func populateSmokeCoverageRequirements(mapping *SmokeCoverageMapping, requiremen
 		sort.Strings(tests)
 		mapping.Requirements = append(mapping.Requirements, SmokeCoverageRequirement{ID: coverageID, Description: descriptions[coverageID], MappedTests: tests})
 	}
+	mapping.EnsureMatrix()
 }
 
 func selectSmoke(d smokeDiscovery, sprint string, req SmokeRequest) (smokeSelection, error) {
