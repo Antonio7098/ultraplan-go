@@ -34,14 +34,19 @@ func TestMaterialiseAllStageSkills(t *testing.T) {
 			t.Fatalf("read %s: %v", skill.Name, err)
 		}
 		body := string(content)
-		for _, want := range []string{
+		wants := []string{
 			"name: " + skill.Name,
-			"ask whether to fill them",
 			"do not stop at a proposal",
 			"status --json",
 			"Canonical stage prompt",
 			strings.TrimSpace(skill.Prompt),
-		} {
+		}
+		if skill.Stage == "reconcile" {
+			wants = append(wants, "A stale review fingerprint is context for reconciliation, not a prerequisite failure")
+		} else {
+			wants = append(wants, "ask whether to fill them")
+		}
+		for _, want := range wants {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s missing %q", skill.Name, want)
 			}
@@ -140,14 +145,23 @@ func TestReconciliationSkillCoversFindingTriageAndSmokeHarnessReadiness(t *testi
 		"genuine sprint defect",
 		"Preserve unrelated user changes",
 		"current governed input fingerprint",
+		"A stale review fingerprint is context for reconciliation, not a prerequisite failure",
+		"continue classifying the existing review findings",
+		"do not ask to rerun review or stop reconciliation merely because they differ",
+		"Do not use `validate execute` as a reconciliation prerequisite after execution",
 		"recompute the review artifact SHA-256",
-		"explicitly authorized manual-review reconciliation branch",
+		"explicitly authorized manual review or smoke reconciliation branches",
 		"sprint smoke --dry-run --json",
 		"../ultraplan-go-smoke",
 		"ultraplan-smoke.json",
 		"requiredCoverage",
 		"notApplicable true and complete false",
 		"ready true",
+		"update the sprint-root smoke.md and smoke flow state as one coherent result",
+		"Recompute the smoke.md SHA-256 and the input fingerprint",
+		"active-attempt state, and last-complete identity",
+		"Run validate smoke and sprint status --json immediately",
+		"do not claim that smoke or the sprint is passing",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("reconciliation skill missing %q", want)
