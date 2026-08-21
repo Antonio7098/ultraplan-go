@@ -215,6 +215,10 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .sprint-overview-wide > .operation-console { margin-top: 0; }
 .smoke-coverage-mapping details { margin-top: 1rem; }
 .coverage-id-list { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; list-style: none; }
+.coverage-requirement-list { display: grid; gap: .75rem; padding-left: 1.5rem; }
+.coverage-requirement-list > li { padding: .75rem; border-left: 3px solid var(--border); }
+.coverage-requirement-list p { margin: .45rem 0 0; }
+.coverage-mapped-tests { color: var(--muted); font-size: .9rem; }
 .coverage-test-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin-top: 1rem; }
 .coverage-test-card { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-subtle); }
 .coverage-test-card h3 { margin-top: 0; overflow-wrap: anywhere; }

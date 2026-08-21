@@ -402,6 +402,41 @@ func smokeCoverageMapping(d smokeDiscovery, sprint string) *SmokeCoverageMapping
 	return nil
 }
 
+func populateSmokeCoverageRequirements(mapping *SmokeCoverageMapping, requirementsPath string) {
+	if mapping == nil {
+		return
+	}
+	descriptions := map[string]string{}
+	if content, err := os.ReadFile(requirementsPath); err == nil {
+		inAcceptance := false
+		index := 0
+		for _, line := range strings.Split(string(content), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "## ") {
+				inAcceptance = strings.EqualFold(strings.TrimSpace(strings.TrimPrefix(trimmed, "## ")), "Acceptance Criteria")
+				continue
+			}
+			if !inAcceptance || (!strings.HasPrefix(trimmed, "- [ ] ") && !strings.HasPrefix(trimmed, "- [x] ") && !strings.HasPrefix(trimmed, "- [X] ")) {
+				continue
+			}
+			index++
+			descriptions[fmt.Sprintf("AC-%02d", index)] = strings.TrimSpace(trimmed[6:])
+		}
+	}
+	mapped := map[string][]string{}
+	for _, test := range mapping.Tests {
+		for _, coverageID := range test.Coverage {
+			mapped[coverageID] = append(mapped[coverageID], test.ID)
+		}
+	}
+	mapping.Requirements = make([]SmokeCoverageRequirement, 0, len(mapping.RequiredCoverage))
+	for _, coverageID := range mapping.RequiredCoverage {
+		tests := append([]string(nil), mapped[coverageID]...)
+		sort.Strings(tests)
+		mapping.Requirements = append(mapping.Requirements, SmokeCoverageRequirement{ID: coverageID, Description: descriptions[coverageID], MappedTests: tests})
+	}
+}
+
 func selectSmoke(d smokeDiscovery, sprint string, req SmokeRequest) (smokeSelection, error) {
 	levels, suites, tests := map[string]smokeLevel{}, map[string]smokeSuite{}, map[string]smokeTest{}
 	for _, v := range d.Levels {

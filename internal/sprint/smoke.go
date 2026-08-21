@@ -87,6 +87,7 @@ func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req
 		return smokeFailedResult(result, err)
 	}
 	result.CoverageMapping = smokeCoverageMapping(discovery, prepared.Sprint.Slug)
+	populateSmokeCoverageRequirements(result.CoverageMapping, filepath.Join(prepared.Sprint.Path, "requirements.md"))
 	emit(SmokeProgress{Phase: SmokePhaseSelection, Message: "selecting narrowest sufficient scope"})
 	selection, err := selectSmoke(discovery, prepared.Sprint.Slug, req)
 	if err != nil {
@@ -475,6 +476,10 @@ func RenderSmoke(r SmokeResult) string {
 	b.WriteString("\n")
 	if mapping := r.CoverageMapping; mapping != nil {
 		fmt.Fprintf(&b, "## Coverage Mapping\n\nComplete: `%t`\nRequired coverage: `%s`\nRationale: %s\n\n", mapping.Complete, strings.Join(mapping.RequiredCoverage, "`, `"), printable(mapping.Rationale))
+		for _, requirement := range mapping.Requirements {
+			fmt.Fprintf(&b, "- `%s` — %s (mapped tests: %s)\n", requirement.ID, printable(requirement.Description), printable(strings.Join(requirement.MappedTests, ", ")))
+		}
+		b.WriteString("\nTests:\n")
 		for _, test := range mapping.Tests {
 			fmt.Fprintf(&b, "- `%s` (suite `%s`): `%s`\n", test.ID, test.Suite, strings.Join(test.Coverage, "`, `"))
 		}

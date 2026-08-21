@@ -117,14 +117,21 @@ type SmokeCoverageTest struct {
 	Coverage []string `json:"coverage"`
 }
 
+type SmokeCoverageRequirement struct {
+	ID          string   `json:"id"`
+	Description string   `json:"description,omitempty"`
+	MappedTests []string `json:"mapped_tests"`
+}
+
 type SmokeCoverageMapping struct {
-	Sprint           string              `json:"sprint"`
-	Suites           []string            `json:"suites"`
-	Complete         bool                `json:"complete"`
-	NotApplicable    bool                `json:"not_applicable,omitempty"`
-	Rationale        string              `json:"rationale,omitempty"`
-	RequiredCoverage []string            `json:"required_coverage"`
-	Tests            []SmokeCoverageTest `json:"tests"`
+	Sprint           string                     `json:"sprint"`
+	Suites           []string                   `json:"suites"`
+	Complete         bool                       `json:"complete"`
+	NotApplicable    bool                       `json:"not_applicable,omitempty"`
+	Rationale        string                     `json:"rationale,omitempty"`
+	RequiredCoverage []string                   `json:"required_coverage"`
+	Requirements     []SmokeCoverageRequirement `json:"requirements,omitempty"`
+	Tests            []SmokeCoverageTest        `json:"tests"`
 }
 
 type SmokeResult struct {

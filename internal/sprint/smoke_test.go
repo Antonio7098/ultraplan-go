@@ -243,6 +243,20 @@ func TestSmokeDiscoveryAllowsIdentityReuseAcrossKinds(t *testing.T) {
 	}
 }
 
+func TestPopulateSmokeCoverageRequirementsUsesGovernedAcceptanceOrder(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "requirements.md")
+	content := "# Requirements\n\n## Acceptance Criteria\n\n- [ ] First governed behavior.\n- [x] Second `governed` behavior.\n\n## Constraints\n\n- not coverage\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mapping := &SmokeCoverageMapping{RequiredCoverage: []string{"AC-01", "AC-02", "external-boundary"}, Tests: []SmokeCoverageTest{{ID: "probe-b", Coverage: []string{"AC-01"}}, {ID: "probe-a", Coverage: []string{"AC-01", "external-boundary"}}}}
+	populateSmokeCoverageRequirements(mapping, path)
+	if len(mapping.Requirements) != 3 || mapping.Requirements[0].Description != "First governed behavior." || mapping.Requirements[1].Description != "Second `governed` behavior." || mapping.Requirements[2].Description != "" || strings.Join(mapping.Requirements[0].MappedTests, ",") != "probe-a,probe-b" {
+		t.Fatalf("unexpected governed coverage descriptions: %+v", mapping.Requirements)
+	}
+}
+
 func TestLegacyMappingsDoNotBlockAuthoredSprintButCannotPass(t *testing.T) {
 	m := smokeManifest{ProtocolVersion: "1.0", Harness: smokeHarnessIdentity{ID: "fake"}}
 	d := smokeDiscovery{
