@@ -114,6 +114,34 @@ func TestWebUseCasesCodeContextPreservesArtifactAndLatestOutcome(t *testing.T) {
 	t.Fatal("code-context artifact missing from web projection")
 }
 
+func TestWebPromptBundleIsContentFreeLazyAndReadOnly(t *testing.T) {
+	root := initializedWorkspace(t)
+	writeCommandSprintProject(t, root, "proj", "01-alpha")
+	queries := NewWebUseCases(root, WebUseCaseOptions{})
+
+	result, err := queries.PromptBundle(context.Background(), "proj", "01-alpha", "requirements")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Available || result.Explanation == nil || result.Explanation.TotalBytes == 0 || len(result.Explanation.Blocks) == 0 {
+		t.Fatalf("prompt bundle = %+v", result)
+	}
+	if result.InputContract.Stage != sprint.StageRequirements || strings.Join(result.InputContract.Required, ",") != "project-index,roadmap,project-docs" {
+		t.Fatalf("input contract = %+v", result.InputContract)
+	}
+	if _, err := os.Stat(filepath.Join(root, "projects", "proj", "sprints", "01-alpha", "flow-state.json")); !os.IsNotExist(err) {
+		t.Fatalf("prompt observability wrote flow state: %v", err)
+	}
+
+	smoke, err := queries.PromptBundle(context.Background(), "proj", "01-alpha", "smoke")
+	if err != nil || smoke.Available || smoke.UnavailableReason == "" || smoke.InputContract.Stage != sprint.StageSmoke {
+		t.Fatalf("smoke bundle = %+v err=%v", smoke, err)
+	}
+	if _, err := queries.PromptBundle(context.Background(), "proj", "01-alpha", "unknown"); !errors.Is(err, ErrWebNotFound) {
+		t.Fatalf("unknown stage err=%v", err)
+	}
+}
+
 func TestWebArtifactTruncationJSONAndSymlinkEscape(t *testing.T) {
 	root := initializedWorkspace(t)
 	sprintRoot := filepath.Join(root, "projects", "alpha", "sprints", "30-web")

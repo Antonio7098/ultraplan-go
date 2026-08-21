@@ -347,6 +347,29 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .stage-detail[hidden] { display: none; }
 .stage-detail > header, .operation-run-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding-bottom: .9rem; border-bottom: 1px solid var(--border); text-transform: capitalize; }
 .stage-detail header h2, .stage-detail header p, .operation-run-panel header h2 { margin: 0; }
+.prompt-observability { margin-top: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklch, var(--panel) 82%, transparent); }
+.prompt-observability > summary { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; cursor: pointer; padding: .8rem 1rem; font-weight: 700; }
+.prompt-observability > summary small { color: var(--muted); font-size: .7rem; font-weight: 500; }
+.prompt-observability-body { display: grid; gap: 1rem; padding: 0 1rem 1rem; border-top: 1px solid var(--border); }
+.prompt-observability-body > section { min-width: 0; padding-top: 1rem; }
+.prompt-section-heading p, .prompt-section-heading h3 { margin: 0; }
+.prompt-section-heading h3 { margin-top: .15rem; font-size: .95rem; }
+.prompt-contract-groups, .prompt-cache-details { display: grid; gap: .65rem; margin: .8rem 0 0; }
+.prompt-contract-groups div, .prompt-cache-details div { display: grid; grid-template-columns: minmax(5.5rem, .3fr) minmax(0, 1fr); gap: .75rem; align-items: start; }
+.prompt-contract-groups dt, .prompt-cache-details dt { color: var(--muted); font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.prompt-contract-groups dd, .prompt-cache-details dd { display: flex; min-width: 0; flex-wrap: wrap; gap: .35rem; margin: 0; }
+.prompt-contract-groups code { padding: .16rem .38rem; border: 1px solid var(--border); border-radius: .35rem; background: var(--control); font-size: .7rem; }
+.prompt-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; margin: .75rem 0; }
+.prompt-metrics div { padding: .6rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--panel); }
+.prompt-metrics dt { color: var(--muted); font-size: .67rem; text-transform: uppercase; }
+.prompt-metrics dd { margin: .15rem 0 0; font-weight: 700; }
+.prompt-cache-details code { overflow-wrap: anywhere; font-size: .68rem; }
+.prompt-scope, .prompt-unavailable, .prompt-json-link { font-size: .78rem; }
+.prompt-unavailable { padding: .65rem .75rem; border-left: 2px solid var(--warning); background: var(--panel); }
+.prompt-blocks { display: grid; gap: .45rem; margin: .5rem 0 0; padding-left: 1.5rem; }
+.prompt-blocks li { padding: .5rem .6rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--panel); }
+.prompt-blocks strong { display: block; font-size: .78rem; }
+.prompt-blocks span { color: var(--muted); font-size: .68rem; overflow-wrap: anywhere; }
 .stage-result { padding-top: 1rem; }
 .stage-result-link { display: inline-flex; margin-top: .5rem; font-weight: 600; }
 .stage-start button { margin-top: .5rem; }
@@ -409,12 +432,15 @@ footer { min-height: 3.25rem; display: flex; align-items: center; justify-conten
   .sprint-status-summary { flex-direction: column; }
   .sprint-overview-hero, .sprint-overview-wide { grid-column: auto; }
   .sprint-roadmap-heading { flex-direction: column; }
+  .prompt-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 32rem) {
   .site-header { gap: .5rem; }
   .brand { gap: .45rem; padding-inline: .25rem; font-size: .88rem; }
   .heading-row { flex-direction: column; gap: .8rem; }
   .activity-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .prompt-observability > summary { align-items: flex-start; flex-direction: column; gap: .15rem; }
+  .prompt-contract-groups div, .prompt-cache-details div { grid-template-columns: 1fr; gap: .2rem; }
   footer { align-items: flex-start; flex-direction: column; }
 }
 @media (prefers-reduced-motion: reduce) {

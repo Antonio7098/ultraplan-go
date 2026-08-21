@@ -332,6 +332,8 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "api_project", params: parts[3:], known: true, api: true}
 	case len(parts) == 6 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints":
 		return routeMatch{name: "api_sprint", params: []string{parts[3], parts[5]}, known: true, api: true}
+	case len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "prompts":
+		return routeMatch{name: "api_prompt_bundle", params: []string{parts[3], parts[5], parts[7]}, known: true, api: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "studies":
 		return routeMatch{name: "api_study", params: parts[3:], known: true, api: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "artifacts":

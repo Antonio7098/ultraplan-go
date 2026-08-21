@@ -72,6 +72,7 @@ type StageSummary struct {
 	ArtifactValid     bool
 	LatestOutcome     string
 	NextAction        string
+	PromptContract    *sprint.StageInputContract
 }
 
 type ExecuteSummary struct {

@@ -43,8 +43,16 @@ type WebQueries interface {
 	Health(context.Context) (WebHealthResult, error)
 }
 
+// WebPromptQueries is an additive read-only capability used by prompt
+// observability clients without widening the compatibility-critical WebQueries
+// interface implemented by existing embedders.
+type WebPromptQueries interface {
+	PromptBundle(context.Context, string, string, string) (WebPromptBundleResult, error)
+}
+
 type WebUseCases interface {
 	WebQueries
+	WebPromptQueries
 	WebOperations
 }
 
@@ -97,6 +105,20 @@ type WebSprintResult struct {
 	TotalStages       int
 	CurrentStage      string
 	AttentionFindings []DisplayFinding
+}
+
+// WebPromptBundleResult is a content-free, read-only projection of the prompt
+// that would be sent for one sprint stage. The full prompt is deliberately not
+// returned by the web surface: its ordered blocks, sizes, digests, and stable
+// prefix boundary provide observability without duplicating governed artifact
+// and source contents into the browser.
+type WebPromptBundleResult struct {
+	Stage             sprint.PlanningStage
+	Available         bool
+	Scope             string
+	UnavailableReason string
+	InputContract     sprint.StageInputContract
+	Explanation       *sprint.PromptExplanation
 }
 
 type WebStudyResult struct {
@@ -369,6 +391,69 @@ func (u *webUseCases) Sprint(ctx context.Context, project, slug string) (WebSpri
 	return WebSprintResult{}, ErrWebNotFound
 }
 
+func (u *webUseCases) PromptBundle(ctx context.Context, project, slug, stageName string) (WebPromptBundleResult, error) {
+	if err := ctx.Err(); err != nil {
+		return WebPromptBundleResult{}, err
+	}
+	stage := sprint.PlanningStage(stageName)
+	result := WebPromptBundleResult{
+		Stage:         stage,
+		Scope:         "Deterministic stage preview",
+		InputContract: sprint.InputContract(stage),
+	}
+	service := u.dashboard.sprintService()
+	var (
+		preview sprint.PromptPreview
+		err     error
+	)
+	switch stage {
+	case sprint.StageRequirements:
+		preview, err = service.PromptRequirements(project, slug)
+	case sprint.StageCodeContext:
+		preview, err = service.PromptCodeContext(project, slug)
+	case sprint.StageSprintIndex:
+		preview, err = service.PromptSprintIndex(project, slug)
+	case sprint.StageTechnicalHandbook:
+		preview, err = service.PromptTechnicalHandbook(project, slug)
+	case sprint.StageAreaReasoning:
+		result.Scope = "First selected area prompt"
+		preview, err = service.PromptAreaReasoning(project, slug)
+	case sprint.StageReasoning:
+		preview, err = service.PromptReasoning(project, slug)
+	case sprint.StagePlan:
+		preview, err = service.PromptPlan(project, slug)
+	case sprint.StageExecute:
+		result.Scope = "One session for the ordered task queue"
+		preview, err = service.PromptExecute(project, slug, sprint.ExecuteRequest{})
+	case sprint.StageReview:
+		result.Scope = "Review manifest preview; reviewer suffixes vary"
+		preview, err = service.PromptReview(project, slug, sprint.ReviewRequest{})
+	case sprint.StageSmoke:
+		result.Scope = "Prepared after smoke harness discovery"
+		result.UnavailableReason = "The smoke prompt is assembled only after the governed harness and acceptance coverage are discovered."
+		return result, nil
+	default:
+		return WebPromptBundleResult{}, ErrWebNotFound
+	}
+	if err := ctx.Err(); err != nil {
+		return WebPromptBundleResult{}, err
+	}
+	if err != nil {
+		result.UnavailableReason = displaySafe(err.Error())
+		return result, nil
+	}
+	explanation := preview.Explanation
+	if explanation == nil {
+		value := sprint.ExplainPrompt(preview.Prompt)
+		explanation = &value
+	}
+	contract := result.InputContract
+	explanation.InputContract = &contract
+	result.Available = true
+	result.Explanation = explanation
+	return result, nil
+}
+
 func (u *webUseCases) sprintOverview(project, slug string) string {
 	path := filepath.Join(u.root, "projects", project, "sprints", slug, "requirements.md")
 	data, err := os.ReadFile(path)
@@ -424,7 +509,12 @@ func sprintRunStages(item SprintSummary) []StageSummary {
 			smokeStatus = "ready"
 		}
 	}
-	return append(stages, StageSummary{Name: "smoke", Status: smokeStatus, Error: item.Smoke.Error})
+	stages = append(stages, StageSummary{Name: "smoke", Status: smokeStatus, Error: item.Smoke.Error})
+	for index := range stages {
+		contract := sprint.InputContract(sprint.PlanningStage(stages[index].Name))
+		stages[index].PromptContract = &contract
+	}
+	return stages
 }
 
 func (u *webUseCases) Studies(ctx context.Context) (WebStudiesResult, error) {

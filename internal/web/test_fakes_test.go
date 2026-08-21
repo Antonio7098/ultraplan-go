@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
-	"github.com/Antonio7098/ultraplan-go/internal/sprint"
+	sprintpkg "github.com/Antonio7098/ultraplan-go/internal/sprint"
 )
 
 type fakeQueries struct {
@@ -17,8 +17,10 @@ type fakeQueries struct {
 	validation  app.WebValidationResult
 	artifact    app.WebArtifactPreview
 	health      app.WebHealthResult
+	prompt      app.WebPromptBundleResult
 	err         error
 	healthCalls int
+	promptCalls int
 }
 
 func sampleQueries() *fakeQueries {
@@ -39,13 +41,20 @@ func sampleQueries() *fakeQueries {
 			{ID: "contract-api", Name: "API contract", Kind: "contract", Path: "contracts/api.md", Status: "running"},
 			{ID: "handbook", Name: "Technical handbook", Kind: "handbook", Path: "technical-handbook.md", Status: "pending"},
 		}},
-		Smoke: app.SmokeSummary{Available: true, Status: "complete", Verdict: "pass", CoverageMapping: &sprint.SmokeCoverageMapping{Sprint: "30-web", Suites: []string{"sprint-30"}, Complete: false, Rationale: "provider probe missing", RequiredCoverage: []string{"AC-01", "AC-02"}, Requirements: []sprint.SmokeCoverageRequirement{
+		Smoke: app.SmokeSummary{Available: true, Status: "complete", Verdict: "pass", CoverageMapping: &sprintpkg.SmokeCoverageMapping{Sprint: "30-web", Suites: []string{"sprint-30"}, Complete: false, Rationale: "provider probe missing", RequiredCoverage: []string{"AC-01", "AC-02"}, Requirements: []sprintpkg.SmokeCoverageRequirement{
 			{ID: "AC-01", Description: "The browser boundary is exercised.", MappedTests: []string{"browser-boundary"}},
 			{ID: "AC-02", Description: "The provider boundary is exercised."},
-		}, Tests: []sprint.SmokeCoverageTest{{ID: "browser-boundary", Suite: "sprint-30", Coverage: []string{"AC-01"}}}}},
+		}, Tests: []sprintpkg.SmokeCoverageTest{{ID: "browser-boundary", Suite: "sprint-30", Coverage: []string{"AC-01"}}}}},
 		Findings: []app.DisplayFinding{finding}, Artifacts: []app.WebArtifactLink{requirementsArtifact, contextArtifact, indexArtifact, artifact},
 	}
 	sprint.Smoke.CoverageMapping.EnsureMatrix()
+	for index := range sprint.RunStages {
+		contract := sprintpkg.InputContract(sprintpkg.PlanningStage(sprint.RunStages[index].Name))
+		sprint.RunStages[index].PromptContract = &contract
+	}
+	contract := sprintpkg.InputContract(sprintpkg.StagePlan)
+	explanation := sprintpkg.ExplainPrompt("stable\n<<< ULTRAPLAN STAGE-SPECIFIC INSTRUCTIONS BEGIN >>>\nstage")
+	explanation.InputContract = &contract
 	project := app.WebProjectResult{
 		Ref: "project_ref", Name: "alpha", Docs: []string{"docs/PRD.md"},
 		Findings: []app.DisplayFinding{finding}, Artifacts: []app.WebArtifactLink{artifact},
@@ -70,6 +79,7 @@ func sampleQueries() *fakeQueries {
 		validation: app.WebValidationResult{Scope: "project", Ref: "project_ref", Findings: []app.DisplayFinding{finding}, CollectionInfo: app.CollectionInfo{ReturnedCount: 1, TotalCount: 1}},
 		artifact:   app.WebArtifactPreview{Ref: "artifact_ref", DisplayPath: artifact.DisplayPath, MediaType: "text/markdown", Content: "# Plan\n", SizeBytes: 7, ReturnedBytes: 7},
 		health:     app.WebHealthResult{Status: "ok", Server: true, Workspace: true},
+		prompt:     app.WebPromptBundleResult{Stage: sprintpkg.StagePlan, Available: true, Scope: "Deterministic stage preview", InputContract: contract, Explanation: &explanation},
 	}
 }
 
@@ -84,6 +94,10 @@ func (f *fakeQueries) Project(context.Context, string) (app.WebProjectResult, er
 }
 func (f *fakeQueries) Sprint(context.Context, string, string) (app.WebSprintResult, error) {
 	return f.sprint, f.err
+}
+func (f *fakeQueries) PromptBundle(context.Context, string, string, string) (app.WebPromptBundleResult, error) {
+	f.promptCalls++
+	return f.prompt, f.err
 }
 func (f *fakeQueries) Studies(context.Context) (app.WebStudiesResult, error) { return f.studies, f.err }
 func (f *fakeQueries) Study(context.Context, string) (app.WebStudyResult, error) {

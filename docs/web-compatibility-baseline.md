@@ -24,6 +24,7 @@ The JSON/SSE matrix is fixed as follows:
 | `/api/v1/projects` | `GET`, `HEAD` | `200` JSON collection |
 | `/api/v1/projects/{project}` | `GET`, `HEAD` | `200` JSON |
 | `/api/v1/projects/{project}/sprints/{sprint}` | `GET`, `HEAD` | `200` JSON |
+| `/api/v1/projects/{project}/sprints/{sprint}/prompts/{stage}` | `GET`, `HEAD` | `200` content-free JSON summary |
 | `/api/v1/studies` | `GET`, `HEAD` | `200` JSON collection |
 | `/api/v1/studies/{study}` | `GET`, `HEAD` | `200` JSON |
 | `/api/v1/validations?scope=...&ref=...` | `GET`, `HEAD` | `200` JSON |
@@ -40,6 +41,12 @@ transport DTO tags and Go types are frozen in the compatibility test. Unknown
 confirmations, operation projections, and SSE use `Cache-Control: no-store`.
 Static assets use `public, max-age=0, must-revalidate`; filenames are not
 content-addressed.
+
+The prompt-summary route is an additive observability surface. It is loaded on
+demand from the sprint Run page, never invokes an agent, never writes sprint
+state, and omits raw prompt and artifact contents. Expected prerequisite gaps
+return an available input contract with `available: false`; unknown stages keep
+the normal `404` envelope.
 
 ## Boundary Inventory
 

@@ -182,13 +182,35 @@ func TestPrimaryNavigationUsesTopBarDestinations(t *testing.T) {
 
 func TestSprintRunExposesStageControls(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `class="run-workspace-columns"`, `data-previous-artifacts aria-labelledby="previous-artifacts-heading"`, `data-artifact-stage="requirements"`, `data-artifact-stage="code-context"`, `data-artifact-preview aria-live="polite"`, `data-artifact-source`, `href="#stage-requirements" data-stage-select="stage-requirements" data-stage-has-artifact="true"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, `data-stage-operation-status role="status" aria-live="polite"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript"} {
+	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `class="run-workspace-columns"`, `data-previous-artifacts aria-labelledby="previous-artifacts-heading"`, `data-artifact-stage="requirements"`, `data-artifact-stage="code-context"`, `data-artifact-preview aria-live="polite"`, `data-artifact-source`, `href="#stage-requirements" data-stage-select="stage-requirements" data-stage-has-artifact="true"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, `data-stage-operation-status role="status" aria-live="polite"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript", `class="prompt-observability" data-prompt-observability`, `Stage input contract`, `Injected in this order`, `input contract + bundle summary`, `/api/v1/projects/alpha/sprints/30-web/prompts/requirements`, `<code>project-index</code>`, `<code>project-docs</code>`, `Open JSON summary`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("stage controls missing %q in %s", want, body)
 		}
 	}
 	if strings.Contains(body, `data-stage-panel hidden`) || strings.Contains(body, "JavaScript is required") {
 		t.Fatalf("server-rendered run controls are hidden without JavaScript: %s", body)
+	}
+}
+
+func TestPromptBundleSummaryAPIIsContentFree(t *testing.T) {
+	queries := sampleQueries()
+	handler := testHandler(t, queries, nil)
+	page := request(handler, http.MethodGet, "/projects/alpha/sprints/30-web/run", nil)
+	if page.Code != http.StatusOK || queries.promptCalls != 0 {
+		t.Fatalf("run page eagerly prepared prompt bundle: status=%d calls=%d", page.Code, queries.promptCalls)
+	}
+	response := request(handler, http.MethodGet, "/api/v1/projects/alpha/sprints/30-web/prompts/plan", nil)
+	body := response.Body.String()
+	if response.Code != http.StatusOK || queries.promptCalls != 1 {
+		t.Fatalf("status=%d calls=%d body=%s", response.Code, queries.promptCalls, body)
+	}
+	for _, want := range []string{`"stage":"plan"`, `"available":true`, `"scope":"Deterministic stage preview"`, `"input_contract"`, `"required"`, `"total_bytes"`, `"cache_candidate":true`, `"blocks"`, `"sha256"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("prompt summary missing %q in %s", want, body)
+		}
+	}
+	if strings.Contains(body, `"prompt"`) || strings.Contains(body, "ULTRAPLAN STAGE-SPECIFIC") {
+		t.Fatalf("prompt summary exposed raw prompt content: %s", body)
 	}
 }
 

@@ -71,6 +71,39 @@ type stageDTO struct {
 	NextAction        string `json:"next_action,omitempty"`
 }
 
+type promptInputContractDTO struct {
+	Stage     string   `json:"stage"`
+	Required  []string `json:"required"`
+	Optional  []string `json:"optional,omitempty"`
+	Forbidden []string `json:"forbidden,omitempty"`
+}
+
+type promptBlockDTO struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Cacheable bool   `json:"cacheable"`
+	Bytes     int    `json:"bytes"`
+	Digest    string `json:"sha256"`
+}
+
+type promptBundleDTO struct {
+	Stage                string                 `json:"stage"`
+	Available            bool                   `json:"available"`
+	Scope                string                 `json:"scope"`
+	UnavailableReason    string                 `json:"unavailable_reason,omitempty"`
+	InputContract        promptInputContractDTO `json:"input_contract"`
+	SchemaVersion        int                    `json:"schema_version,omitempty"`
+	TotalBytes           int                    `json:"total_bytes,omitempty"`
+	SharedPrefixBytes    int                    `json:"shared_prefix_bytes,omitempty"`
+	StageSuffixBytes     int                    `json:"stage_suffix_bytes,omitempty"`
+	SharedPrefixDigest   string                 `json:"shared_prefix_sha256,omitempty"`
+	CacheKey             string                 `json:"cache_key,omitempty"`
+	CacheBreakpointBytes int                    `json:"cache_breakpoint_bytes,omitempty"`
+	CacheCandidate       bool                   `json:"cache_candidate"`
+	CacheTransport       string                 `json:"cache_transport,omitempty"`
+	Blocks               []promptBlockDTO       `json:"blocks"`
+}
+
 type projectDTO struct {
 	Ref       string        `json:"ref"`
 	Name      string        `json:"name"`
@@ -360,6 +393,18 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		h.writeSuccess(w, r, http.StatusOK, mapSprint(result), nil)
+	case "api_prompt_bundle":
+		queries, ok := h.queries.(app.WebPromptQueries)
+		if !ok {
+			h.handleQueryError(w, r, true, app.ErrWebUnavailable)
+			return
+		}
+		result, err := queries.PromptBundle(r.Context(), match.params[0], match.params[1], match.params[2])
+		if err != nil {
+			h.handleQueryError(w, r, true, err)
+			return
+		}
+		h.writeSuccess(w, r, http.StatusOK, mapPromptBundle(result), nil)
 	case "api_studies":
 		result, err := h.queries.Studies(r.Context())
 		if err != nil {
@@ -618,6 +663,34 @@ func mapSprint(item app.WebSprintResult) sprintDTO {
 		Smoke:    smokeDTO{Available: item.Smoke.Available, Status: item.Smoke.Status, Verdict: item.Smoke.Verdict, Stale: item.Smoke.Stale, RunID: item.Smoke.RunID},
 		Findings: mapFindings(item.Findings), Artifacts: mapArtifacts(item.Artifacts),
 	}
+}
+
+func mapPromptBundle(item app.WebPromptBundleResult) promptBundleDTO {
+	contract := promptInputContractDTO{
+		Stage: string(item.InputContract.Stage), Required: item.InputContract.Required,
+		Optional: item.InputContract.Optional, Forbidden: item.InputContract.Forbidden,
+	}
+	out := promptBundleDTO{
+		Stage: string(item.Stage), Available: item.Available, Scope: item.Scope,
+		UnavailableReason: item.UnavailableReason, InputContract: contract, Blocks: []promptBlockDTO{},
+	}
+	if item.Explanation == nil {
+		return out
+	}
+	explanation := item.Explanation
+	out.SchemaVersion = explanation.SchemaVersion
+	out.TotalBytes = explanation.TotalBytes
+	out.SharedPrefixBytes = explanation.SharedPrefixBytes
+	out.StageSuffixBytes = explanation.StageSuffixBytes
+	out.SharedPrefixDigest = explanation.SharedPrefixDigest
+	out.CacheKey = explanation.CacheKey
+	out.CacheBreakpointBytes = explanation.CacheBreakpoint
+	out.CacheCandidate = explanation.CacheCandidate
+	out.CacheTransport = explanation.CacheTransport
+	for _, block := range explanation.Blocks {
+		out.Blocks = append(out.Blocks, promptBlockDTO{ID: block.ID, Kind: block.Kind, Cacheable: block.Cacheable, Bytes: block.Bytes, Digest: block.Digest})
+	}
+	return out
 }
 
 func mapSprints(items []app.WebSprintResult) []sprintDTO {

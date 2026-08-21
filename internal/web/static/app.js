@@ -389,6 +389,70 @@
     const unavailableArtifacts = new Set();
     let artifactRequest = 0;
 
+    const byteLabel = (value) => `${Number(value || 0).toLocaleString()} bytes`;
+    for (const disclosure of workspace.querySelectorAll("[data-prompt-observability]")) {
+      let loaded = false;
+      let loading = false;
+      disclosure.addEventListener("toggle", async () => {
+        if (!disclosure.open || loaded || loading) return;
+        loading = true;
+        const pending = disclosure.querySelector("[data-prompt-loading]");
+        const result = disclosure.querySelector("[data-prompt-result]");
+        const unavailable = disclosure.querySelector("[data-prompt-unavailable]");
+        if (pending) pending.textContent = "Preparing content-free prompt summary…";
+        try {
+          const response = await fetch(disclosure.dataset.endpoint, {headers: {Accept: "application/json"}});
+          if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+          const bundle = (await response.json()).data;
+          const setText = (selector, value) => {
+            const element = disclosure.querySelector(selector);
+            if (element) element.textContent = value;
+          };
+          setText("[data-prompt-scope]", bundle.scope || "Deterministic stage preview");
+          if (!bundle.available) {
+            if (unavailable) {
+              unavailable.hidden = false;
+              unavailable.textContent = bundle.unavailable_reason || "This bundle cannot be prepared until its required inputs are available.";
+            }
+            if (result) result.hidden = true;
+            if (pending) pending.hidden = true;
+            loaded = true;
+            return;
+          }
+          setText("[data-prompt-total]", byteLabel(bundle.total_bytes));
+          setText("[data-prompt-prefix]", byteLabel(bundle.shared_prefix_bytes));
+          setText("[data-prompt-suffix]", byteLabel(bundle.stage_suffix_bytes));
+          setText("[data-prompt-cache]", bundle.cache_candidate ? "yes" : "no");
+          setText("[data-prompt-transport]", bundle.cache_transport || "none");
+          setText("[data-prompt-key]", bundle.cache_key || "none");
+          setText("[data-prompt-digest]", bundle.shared_prefix_sha256 || "none");
+          const blocks = disclosure.querySelector("[data-prompt-blocks]");
+          blocks?.replaceChildren();
+          for (const block of Array.isArray(bundle.blocks) ? bundle.blocks : []) {
+            const item = document.createElement("li");
+            const name = document.createElement("strong");
+            const metadata = document.createElement("span");
+            name.textContent = block.id;
+            metadata.textContent = `${block.kind} · ${byteLabel(block.bytes)} · ${block.cacheable ? "stable/cacheable" : "stage-specific"} · ${block.sha256}`;
+            item.append(name, metadata);
+            blocks?.append(item);
+          }
+          if (pending) pending.hidden = true;
+          if (unavailable) unavailable.hidden = true;
+          if (result) result.hidden = false;
+          loaded = true;
+        } catch (_) {
+          if (pending) pending.hidden = true;
+          if (unavailable) {
+            unavailable.hidden = false;
+            unavailable.textContent = "The prompt summary could not be loaded. The stage input contract above is still authoritative.";
+          }
+        } finally {
+          loading = false;
+        }
+      });
+    }
+
     const showArtifact = async (link, fallbacks = []) => {
       const request = ++artifactRequest;
       for (const item of artifactLinks) item.setAttribute("aria-current", String(item === link));
