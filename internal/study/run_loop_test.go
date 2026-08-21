@@ -11,6 +11,87 @@ import (
 	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
+type resumableStudyRuntime struct {
+	mu       sync.Mutex
+	requests []runtimepkg.Request
+}
+
+func (r *resumableStudyRuntime) StartRun(_ context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
+	r.mu.Lock()
+	r.requests = append(r.requests, req)
+	call := len(r.requests)
+	r.mu.Unlock()
+	if call == 1 {
+		if req.OnEvent != nil {
+			req.OnEvent(runtimepkg.Event{SessionID: "interrupted-study-session", Kind: "session"})
+		}
+		return runtimepkg.Result{SessionID: "interrupted-study-session", Status: "cancelled", Error: &runtimepkg.Error{Category: "cancellation"}, Cleanup: runtimepkg.CleanupSummary{Attempted: true, Completed: true}}, errors.New("cancelled")
+	}
+	path := req.Validation.Expectations[0].Path
+	content := validSourceReport
+	if req.Metadata["task.kind"] == string(TaskKindSynthesis) {
+		content = validFinalReport
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return runtimepkg.Result{}, err
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return runtimepkg.Result{}, err
+	}
+	return runtimepkg.Result{SessionID: req.SessionID, Status: "completed"}, nil
+}
+
+func TestRunLoopPersistsAndContinuesCancelledStudySession(t *testing.T) {
+	root, st := executionFixture(t)
+	runtime := &resumableStudyRuntime{}
+	service := NewService(root, WithRuntime(runtime, runtimeRequest()))
+	request := RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, SourceRefs: []string{"repo"}, Parallelism: 1, Command: []string{"ultraplan", "study", "demo", "run-loop"}}
+	first, err := service.RunLoop(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Status != RunAllStatusCancelled {
+		t.Fatalf("first status = %q", first.Status)
+	}
+	state, err := LoadRunState(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resumedTask *TaskState
+	for i := range state.Tasks {
+		if state.Tasks[i].Source == "repo" {
+			resumedTask = &state.Tasks[i]
+			break
+		}
+	}
+	if resumedTask == nil || resumedTask.Session == nil || resumedTask.Session.SessionID != "interrupted-study-session" {
+		t.Fatalf("cancelled session was not retained: %+v", resumedTask)
+	}
+
+	request.Continue = true
+	second, err := service.RunLoop(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Status != RunAllStatusCompleted {
+		t.Fatalf("second status = %q counts=%+v", second.Status, second.Counts)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if len(runtime.requests) < 2 || runtime.requests[1].SessionID != "interrupted-study-session" || runtime.requests[1].SessionAction != "continue" {
+		t.Fatalf("resume requests = %+v", runtime.requests)
+	}
+	state, err = LoadRunState(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range state.Tasks {
+		if state.Tasks[i].Source == "repo" && state.Tasks[i].Session != nil {
+			t.Fatalf("completed task retained session: %+v", state.Tasks[i].Session)
+		}
+	}
+}
+
 func TestRunLoopCreatesDurableStateRunsTasksAndReleasesLock(t *testing.T) {
 	root, st := executionFixture(t)
 	rt := &runAllRuntime{write: validSourceReport}
@@ -192,29 +273,34 @@ func TestRunLoopSynthesizesDimensionAsSoonAsItsAnalysisCompletes(t *testing.T) {
 	}
 }
 
-func TestRunLoopFillsParallelSlotsFromLaterPriorityTiers(t *testing.T) {
+func TestRunLoopStartsPriorityTierBeforeLaterTiers(t *testing.T) {
 	root, st := executionFixture(t)
 	writeReport(t, filepath.Join(st.Path, "dimensions", "02-runtime.md"), "# Runtime\n")
 	writeReport(t, StudyConfigPath(st), `{"version":1,"dimension_order":["02"]}`)
 	rt := &orderedRuntime{}
 	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+	var startedMu sync.Mutex
+	var startedTasks []string
 
-	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", Parallelism: 3})
+	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", Parallelism: 3, Progress: func(progress RunLoopProgress) {
+		if progress.Event != RunLoopProgressStarted {
+			return
+		}
+		startedMu.Lock()
+		startedTasks = append(startedTasks, string(progress.Task.Kind)+":"+progress.Task.DimensionRef)
+		startedMu.Unlock()
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Status != RunAllStatusCompleted {
 		t.Fatalf("Status = %q counts = %+v", result.Status, result.Counts)
 	}
-	if len(rt.order) < 3 {
-		t.Fatalf("order = %#v", rt.order)
+	if len(startedTasks) < 2 {
+		t.Fatalf("started tasks = %#v", startedTasks)
 	}
-	started := map[string]int{}
-	for _, task := range rt.order[:3] {
-		started[task]++
-	}
-	if started["analysis:02-runtime"] != 2 || started["analysis:01-structure"] != 1 {
-		t.Fatalf("first three starts = %#v, want two priority tasks plus one backfill; full order %#v", rt.order[:3], rt.order)
+	if startedTasks[0] != "analysis:02-runtime" || startedTasks[1] != "analysis:02-runtime" {
+		t.Fatalf("first starts = %#v, want the priority dimension; all starts %#v", startedTasks[:2], startedTasks)
 	}
 }
 

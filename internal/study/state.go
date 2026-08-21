@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -153,6 +154,12 @@ func ValidateRunState(state RunState, path string) error {
 		}
 		if task.Kind == TaskKindAnalysis && (task.Dimension == "" || task.Source == "" || task.SourceKind == "") {
 			return fmt.Errorf("%w: %s: analysis task %q missing metadata", ErrRunStateMalformed, path, task.ID)
+		}
+		if task.Session != nil {
+			session := task.Session
+			if session.SessionID == "" || session.WorkDir == "" || session.InputFingerprint == "" || session.UpdatedAt.IsZero() || session.ContinueFailures < 0 || len(session.SessionID) > 512 || strings.ContainsAny(session.SessionID, "\x00\r\n") {
+				return fmt.Errorf("%w: %s: task %q has invalid session checkpoint", ErrRunStateMalformed, path, task.ID)
+			}
 		}
 	}
 	return nil

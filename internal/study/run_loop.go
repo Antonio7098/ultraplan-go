@@ -279,16 +279,23 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		diagnostics.sample("runtime.start", id, 0, nil)
 		runtimeStarted := time.Now()
 		var res ExecutionResult
+		checkpointSession := func(session TaskSession) {
+			recordErr(update(id, func(t *TaskState) {
+				copy := session
+				t.Session = &copy
+				t.UpdatedAt = time.Now().UTC()
+			}))
+		}
 		switch task.Kind {
 		case TaskKindAnalysis:
-			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, OnEvent: func(event runtimeEvent) {
+			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {
 				res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
 			}
 		case TaskKindSynthesis:
-			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), OnEvent: func(event runtimeEvent) {
+			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {
@@ -706,10 +713,14 @@ func applyExecutionResult(update func(string, func(*TaskState)) error, id string
 			summary := validationSummary(res.Validation, now)
 			t.Validation = &summary
 		}
+		if t.Agent.Cleanup.Attempted && !t.Agent.Cleanup.Completed {
+			t.Session = nil
+		}
 		switch res.Status {
 		case ExecutionStatusCompleted, ExecutionStatusSkipped:
 			t.Status = TaskStatusCompleted
 			t.RetryAfter = nil
+			t.Session = nil
 		case ExecutionStatusCancelled:
 			t.Status = TaskStatusCancelled
 			t.LastError = &TaskError{Code: "runtime.cancelled", Message: safeExecutionMessage(res)}

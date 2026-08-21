@@ -25,6 +25,9 @@ func (f *fakeRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (run
 		panic("nil context")
 	}
 	f.requests = append(f.requests, req)
+	if f.result.SessionID != "" && req.OnEvent != nil {
+		req.OnEvent(runtimepkg.Event{SessionID: f.result.SessionID, Kind: "session"})
+	}
 	if f.write != "" && req.Validation != nil && len(req.Validation.Expectations) > 0 {
 		path := req.Validation.Expectations[0].Path
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -40,6 +43,89 @@ func (f *fakeRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (run
 		}
 	}
 	return f.result, f.err
+}
+
+func TestRunAnalysisContinuesCompatibleInterruptedSession(t *testing.T) {
+	root, _ := executionFixture(t)
+	first := &fakeRuntime{result: runtimepkg.Result{RunID: "run-1", SessionID: "study-session", Status: "failed", Error: &runtimepkg.Error{Category: "rate_limit"}}, err: errors.New("rate limited")}
+	service := NewService(root, WithRuntime(first, runtimeRequest()))
+	var checkpoint TaskSession
+	if _, err := service.RunAnalysis(context.Background(), ExecutionRequest{StudyRef: "demo", DimensionRef: "01", SourceRef: "repo", OnSession: func(value TaskSession) { checkpoint = value }}); err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint.SessionID != "study-session" || checkpoint.InputFingerprint == "" {
+		t.Fatalf("checkpoint = %+v", checkpoint)
+	}
+
+	second := &fakeRuntime{result: runtimepkg.Result{RunID: "run-2", SessionID: "study-session", Status: "completed"}, write: validSourceReport}
+	service = NewService(root, WithRuntime(second, runtimeRequest()))
+	result, err := service.RunAnalysis(context.Background(), ExecutionRequest{StudyRef: "demo", DimensionRef: "01", SourceRef: "repo", ResumeSession: &checkpoint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != ExecutionStatusCompleted || len(second.requests) != 1 {
+		t.Fatalf("result=%+v requests=%d", result, len(second.requests))
+	}
+	request := second.requests[0]
+	if request.SessionID != "study-session" || request.SessionAction != "continue" || !strings.HasPrefix(request.Prompt, "Continue the interrupted study task") {
+		t.Fatalf("continuation request = %+v", request)
+	}
+}
+
+func TestRunAnalysisStartsFreshWhenStudyInputChanged(t *testing.T) {
+	root, st := executionFixture(t)
+	first := &fakeRuntime{result: runtimepkg.Result{SessionID: "old-session", Status: "failed", Error: &runtimepkg.Error{Category: "rate_limit"}}, err: errors.New("rate limited")}
+	service := NewService(root, WithRuntime(first, runtimeRequest()))
+	var checkpoint TaskSession
+	_, _ = service.RunAnalysis(context.Background(), ExecutionRequest{StudyRef: "demo", DimensionRef: "01", SourceRef: "repo", OnSession: func(value TaskSession) { checkpoint = value }})
+	writeReport(t, filepath.Join(st.Path, "dimensions", "01-structure.md"), "# Changed structure\n")
+
+	second := &fakeRuntime{result: runtimepkg.Result{Status: "completed"}, write: validSourceReport}
+	service = NewService(root, WithRuntime(second, runtimeRequest()))
+	if _, err := service.RunAnalysis(context.Background(), ExecutionRequest{StudyRef: "demo", DimensionRef: "01", SourceRef: "repo", ResumeSession: &checkpoint}); err != nil {
+		t.Fatal(err)
+	}
+	if len(second.requests) != 1 || second.requests[0].SessionID != "" || second.requests[0].SessionAction != "" {
+		t.Fatalf("changed input reused session: %+v", second.requests)
+	}
+}
+
+type continuationFallbackRuntime struct {
+	requests []runtimepkg.Request
+	path     string
+}
+
+func (r *continuationFallbackRuntime) StartRun(_ context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
+	r.requests = append(r.requests, req)
+	if len(r.requests) == 1 {
+		return runtimepkg.Result{SessionID: req.SessionID, Status: "failed", Error: &runtimepkg.Error{Category: "runtime_exit"}}, errors.New("session not found")
+	}
+	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
+		return runtimepkg.Result{}, err
+	}
+	if err := os.WriteFile(r.path, []byte(validSourceReport), 0o644); err != nil {
+		return runtimepkg.Result{}, err
+	}
+	return runtimepkg.Result{SessionID: "fresh-session", Status: "completed"}, nil
+}
+
+func TestRunAnalysisFallsBackOnceWhenContinuationFails(t *testing.T) {
+	root, st := executionFixture(t)
+	requestConfig := runtimeRequest()
+	first := &fakeRuntime{result: runtimepkg.Result{SessionID: "missing-session", Status: "failed", Error: &runtimepkg.Error{Category: "rate_limit"}}, err: errors.New("rate limited")}
+	service := NewService(root, WithRuntime(first, requestConfig))
+	var checkpoint TaskSession
+	_, _ = service.RunAnalysis(context.Background(), ExecutionRequest{StudyRef: "demo", DimensionRef: "01", SourceRef: "repo", OnSession: func(value TaskSession) { checkpoint = value }})
+	output := SourceReportPath(st, Source{Name: "repo", Kind: SourceKindDirectory}, Dimension{Number: "01", Slug: "structure"})
+	runtime := &continuationFallbackRuntime{path: output}
+	service = NewService(root, WithRuntime(runtime, requestConfig))
+	result, err := service.RunAnalysis(context.Background(), ExecutionRequest{StudyRef: "demo", DimensionRef: "01", SourceRef: "repo", ResumeSession: &checkpoint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != ExecutionStatusCompleted || len(runtime.requests) != 2 || runtime.requests[0].SessionAction != "continue" || runtime.requests[1].SessionAction != "fresh" || runtime.requests[1].SessionID != "" {
+		t.Fatalf("result=%+v requests=%+v", result, runtime.requests)
+	}
 }
 
 func TestRunAnalysisSuccessMapsRuntimeRequestAndValidates(t *testing.T) {

@@ -21,10 +21,12 @@ const (
 )
 
 type ExecutionRequest struct {
-	StudyRef     string
-	DimensionRef string
-	SourceRef    string
-	OnEvent      func(runtimepkg.Event)
+	StudyRef      string
+	DimensionRef  string
+	SourceRef     string
+	OnEvent       func(runtimepkg.Event)
+	ResumeSession *TaskSession
+	OnSession     func(TaskSession)
 }
 
 type ExecutionResult struct {
@@ -48,10 +50,12 @@ type ExecutionResult struct {
 }
 
 type SynthesisRequest struct {
-	StudyRef     string
-	DimensionRef string
-	SourceRefs   []string
-	OnEvent      func(runtimepkg.Event)
+	StudyRef      string
+	DimensionRef  string
+	SourceRefs    []string
+	OnEvent       func(runtimepkg.Event)
+	ResumeSession *TaskSession
+	OnSession     func(TaskSession)
 }
 
 type RunAllRequest struct {

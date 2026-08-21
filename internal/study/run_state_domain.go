@@ -63,7 +63,20 @@ type TaskState struct {
 	LastError    *TaskError            `json:"last_error,omitempty"`
 	Validation   *ValidationSummary    `json:"validation,omitempty"`
 	Agent        AgentMetadata         `json:"agent,omitempty"`
+	Session      *TaskSession          `json:"session,omitempty"`
 	Dependencies []SynthesisDependency `json:"dependencies,omitempty"`
+}
+
+// TaskSession is the durable checkpoint needed to continue interrupted study
+// work without attaching a different task or a changed prompt to the session.
+type TaskSession struct {
+	SessionID        string    `json:"session_id"`
+	Provider         string    `json:"provider,omitempty"`
+	Model            string    `json:"model,omitempty"`
+	WorkDir          string    `json:"work_dir"`
+	InputFingerprint string    `json:"input_fingerprint"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	ContinueFailures int       `json:"continue_failures,omitempty"`
 }
 
 type TaskError struct {
