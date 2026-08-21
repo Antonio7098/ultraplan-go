@@ -91,9 +91,27 @@
     const tests = dialog?.querySelector("[data-coverage-dialog-tests]");
     const close = dialog?.querySelector("[data-coverage-dialog-close]");
     let lastTrigger = null;
+    let closeTimer = null;
+    const cancelClose = () => {
+      if (closeTimer) window.clearTimeout(closeTimer);
+      closeTimer = null;
+    };
+    const closeRequirement = () => {
+      cancelClose();
+      if (lastTrigger) lastTrigger.setAttribute("aria-expanded", "false");
+      if (dialog) dialog.hidden = true;
+      lastTrigger = null;
+    };
+    const scheduleClose = () => {
+      cancelClose();
+      closeTimer = window.setTimeout(closeRequirement, 140);
+    };
     const openRequirement = (trigger) => {
-      if (!dialog || dialog.open) return;
+      if (!dialog) return;
+      cancelClose();
+      if (lastTrigger && lastTrigger !== trigger) lastTrigger.setAttribute("aria-expanded", "false");
       lastTrigger = trigger;
+      trigger.setAttribute("aria-expanded", "true");
       if (id) id.textContent = trigger.dataset.coverageId || "Requirement";
       if (status) {
         status.textContent = trigger.dataset.coverageStatus || "unknown";
@@ -101,19 +119,36 @@
       }
       if (description) description.textContent = trigger.dataset.coverageDescription || "No governed description was available.";
       if (tests) tests.textContent = trigger.dataset.coverageTests || "None";
-      dialog.showModal();
+      dialog.hidden = false;
+      const anchor = trigger.getBoundingClientRect();
+      const panel = dialog.getBoundingClientRect();
+      const gap = 8;
+      let left = anchor.right + gap;
+      if (left + panel.width > window.innerWidth - gap) left = anchor.left - panel.width - gap;
+      left = Math.max(gap, Math.min(left, window.innerWidth - panel.width - gap));
+      let top = anchor.top;
+      if (top + panel.height > window.innerHeight - gap) top = window.innerHeight - panel.height - gap;
+      dialog.style.left = `${Math.max(gap, left)}px`;
+      dialog.style.top = `${Math.max(gap, top)}px`;
     };
     for (const trigger of mapping.querySelectorAll(".coverage-requirement-trigger")) {
+      trigger.setAttribute("aria-expanded", "false");
       trigger.addEventListener("pointerenter", (event) => {
         if (event.pointerType !== "touch") openRequirement(trigger);
       });
+      trigger.addEventListener("pointerleave", scheduleClose);
+      trigger.addEventListener("focus", () => openRequirement(trigger));
+      trigger.addEventListener("blur", scheduleClose);
       trigger.addEventListener("click", () => openRequirement(trigger));
     }
-    close?.addEventListener("click", () => dialog?.close());
-    dialog?.addEventListener("click", (event) => {
-      if (event.target === dialog) dialog.close();
+    dialog?.addEventListener("pointerenter", cancelClose);
+    dialog?.addEventListener("pointerleave", scheduleClose);
+    dialog?.addEventListener("focusin", cancelClose);
+    dialog?.addEventListener("focusout", scheduleClose);
+    close?.addEventListener("click", closeRequirement);
+    mapping.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeRequirement();
     });
-    dialog?.addEventListener("close", () => lastTrigger?.focus({preventScroll: true}));
   }
 
   const processes = document.querySelector("[data-running-processes]");
