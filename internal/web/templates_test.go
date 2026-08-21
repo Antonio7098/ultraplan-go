@@ -115,7 +115,12 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 		}
 	}
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select", "data-stage-operation-status", "setInterval(refreshReviewers, 2000)", "durableStatusPath", "durableProcesses", "operation.href", `processes.addEventListener("pointerenter"`, `querySelectorAll(".detail-sidebar details")`, `addEventListener("pointerenter"`, `addEventListener("pointerleave"`, "pinnedOpen", "sidebar-hover-preview"} {
+	for _, want := range []string{"data-previous-artifacts", "data-artifact-select", "/api/v1/artifacts/", "artifactIndex < currentIndex"} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("previous artefact browser JavaScript missing %q", want)
+		}
+	}
+	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select", "data-stage-operation-status", "setInterval(refreshReviewers, 2000)", "durableStatusPath", "durableProcesses", `item.kind === "sprint-flow"`, "activeFlows.has(sprintScope)", "operation.href", `processes.addEventListener("pointerenter"`, `querySelectorAll(".detail-sidebar details")`, `addEventListener("pointerenter"`, `addEventListener("pointerleave"`, "pinnedOpen", "sidebar-hover-preview"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("JavaScript missing %q", want)
 		}
@@ -177,7 +182,7 @@ func TestPrimaryNavigationUsesTopBarDestinations(t *testing.T) {
 
 func TestSprintRunExposesStageControls(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `href="#stage-requirements" data-stage-select="stage-requirements"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, `data-stage-operation-status role="status" aria-live="polite"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript"} {
+	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `class="run-workspace-columns"`, `data-previous-artifacts aria-labelledby="previous-artifacts-heading"`, `data-artifact-stage="requirements"`, `data-artifact-stage="code-context"`, `data-artifact-preview aria-live="polite"`, `data-artifact-source`, `href="#stage-requirements" data-stage-select="stage-requirements" data-stage-has-artifact="true"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, `data-stage-operation-status role="status" aria-live="polite"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("stage controls missing %q in %s", want, body)
 		}

@@ -2,7 +2,7 @@
 
 UltraPlan Go is a local-first CLI for durable architecture studies and governed sprint delivery. It initializes study workspaces, runs source and dimension analyses through agentwrap/OpenCode, synthesizes reports, validates artifacts, executes sprint plans, runs resumable automated reviews, drives review-gated smoke verification, and embeds manually invoked skills for every sprint stage.
 
-This release includes study workflows and the governed sprint chain through `execute -> review -> smoke`, including integrated `sprint verify`, durable review resume, focused review reruns, and explicit diagnostic smoke overrides. Issue management, hosted SaaS, browser UI, multi-user collaboration, automatic Git mutation, signing, notarization, tags, and artifact upload remain deferred.
+This release includes study workflows and the grounded governed sprint chain `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan -> execute -> review -> smoke`, including integrated `sprint verify`, durable review resume, focused review reruns, and explicit diagnostic smoke overrides. `code-context.md` stores repository-relative references only; later agent-backed stages receive one byte-stable shared prefix containing the exact requirements and context-pack bytes plus bounded transient live source evidence. Agents may still inspect additional repository files. Issue management, hosted SaaS, multi-user collaboration, automatic Git mutation, retrieval/indexing, UltraPlan cache ownership, signing, notarization, tags, and artifact upload remain deferred.
 
 Phase 3 operators should start with the [CLI reference](docs/cli-reference.md), [recovery runbook](docs/recovery.md), [JSON schema contract](docs/phase3-json-schemas.md), and [legacy verification migration guide](docs/phase3-migration.md). The authoritative product requirements, technical requirements, architecture, roadmap, and sprint plans live in the adjacent `ultraplan-go-workspace/projects/ultraplan-go/` planning workspace; this repository does not duplicate them.
 
@@ -87,6 +87,7 @@ Materialise all manually invoked stage skills, or just one:
 ```bash
 ultraplan skills materialise
 ultraplan skills materialise reasoning
+ultraplan skills materialise code-context
 ```
 
 Run study work:
@@ -189,12 +190,13 @@ Each initialized study also has an editable `studies/<study>/study.json`. Its op
 
 Study reports are dimension-scoped. Per-source reports are written to `studies/<study>/reports/source/<dimension-ref>/<source>.md`, and synthesis writes `studies/<study>/reports/final/<dimension-ref>.md`.
 
-Projects live under `projects/<project>/` with `docs/`, `roadmap.md`, `project-index.md`, and `sprints/<sprint>/`. A project can keep specialised area reasoning documents under `projects/<project>/reasoning/` and list them in `project-index.md`. Planning sprints are editable Markdown/JSON artifact chains through `requirements.md`, `sprint-index.md`, `technical-handbook.md`, optional `reasoning/*.md`, `reasoning.md`, `plan.md`, and `flow-state.json`.
+Projects live under `projects/<project>/` with `docs/`, `roadmap.md`, `project-index.md`, and `sprints/<sprint>/`. A project can keep specialised area reasoning documents under `projects/<project>/reasoning/` and list them in `project-index.md`. Planning sprints are editable Markdown/JSON artifact chains through `requirements.md`, reference-only `code-context.md`, `sprint-index.md`, `technical-handbook.md`, optional `reasoning/*.md`, `reasoning.md`, `plan.md`, and `flow-state.json`. `flow --to plan` runs code-context exactly once after requirements.
 
 Manually invoked stage skills are materialised under `.agents/skills/`. Each
 skill contains the corresponding canonical prompt plus interactive
 prerequisite, proposal, validation, and reconciliation rules. They are marked
 manual-only and therefore require explicit `$ultraplan-<stage>` invocation.
+`$ultraplan-code-context` is the narrow canonical-delegation exception: it invokes `ultraplan sprint "$PROJECT" "$SPRINT" flow --to code-context`, leaving target resolution, read-only runtime policy, validation, atomic promotion, and state transitions in the product operation.
 
 ## Runtime Boundary
 

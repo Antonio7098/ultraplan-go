@@ -9,6 +9,7 @@ The normal release gates are offline and do not require OpenCode, provider crede
 - Valid `ultraplan.yml`.
 - A project containing `docs/`, `roadmap.md`, and `project-index.md`.
 - A sprint containing at least `requirements.md`.
+- An absolute, readable `Target Implementation Directory` and source references contained by it.
 - OpenCode executable available through `agentwrap.executable` if running non-dry-run flow.
 - Provider/model configured through OpenCode/provider-native mechanisms if running non-dry-run flow.
 - Required network access for the provider if running non-dry-run flow.
@@ -23,6 +24,8 @@ ultraplan skills materialise all --dry-run
 ultraplan project <project> status
 ultraplan project <project> validate
 ultraplan sprint <project> <sprint> status
+ultraplan sprint <project> <sprint> prompt code-context
+ultraplan sprint <project> <sprint> validate code-context
 ultraplan sprint <project> <sprint> prompt sprint-index
 ultraplan sprint <project> <sprint> prompt technical-handbook
 ultraplan sprint <project> <sprint> prompt area-reasoning
@@ -43,6 +46,8 @@ Run only when the runtime prerequisites are available:
 ```bash
 ultraplan sprint <project> <sprint> flow --to requirements
 ultraplan sprint <project> <sprint> validate requirements
+ultraplan sprint <project> <sprint> flow --to code-context
+ultraplan sprint <project> <sprint> validate code-context
 ultraplan sprint <project> <sprint> flow --to sprint-index
 ultraplan sprint <project> <sprint> validate sprint-index
 ultraplan sprint <project> <sprint> flow --to technical-handbook
@@ -55,6 +60,19 @@ ultraplan sprint <project> <sprint> validate execute
 ```
 
 Use `area-reasoning` only when the selected sprint-index includes reasoning templates that require area artifacts.
+
+### Disposable requirements-to-plan dogfood
+
+Run the grounded-planning dogfood only in a newly created disposable workspace. Copy or author the minimum project catalog/docs/roadmap and requirements there, point its absolute `Target Implementation Directory` at the real read-only implementation repository, and keep the production planning workspace, product source/tests, smoke harness, and Git metadata outside every writable runtime path. Record before/after `git status --short` and content identities for those protected locations.
+
+```bash
+go run ./cmd/ultraplan --workspace "$DOGFOOD_WORKSPACE" \
+  sprint "$DOGFOOD_PROJECT" "$DOGFOOD_SPRINT" flow --to plan
+```
+
+A pass requires observed evidence that at least one real runtime request was sent, `code-context.md` is valid and reference-only, `plan.md` is valid, the call log is `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan` with code-context exactly once, captured downstream prompts have one identical prefix through the stage boundary, and protected locations did not change. Record the runtime executable, provider/model, command, prompt/call evidence, artifact validation, and mutation comparison.
+
+If the executable, credential, provider/model, network, permissions, or required runtime capability is unavailable, record `blocked` and name that exact prerequisite. A fake runtime, constructed but unsent prompt, permission-denied request, or artifact-only observation is not a real-runtime pass. The renderer's stable layout does not guarantee, measure, own, or depend on provider cache hits.
 
 ## Review-Gated Deep Smoke
 
@@ -87,6 +105,7 @@ Without the gate, harness, current review, runtime, credentials, or network, rec
 ## Expected Artifacts
 
 - `projects/<project>/sprints/<sprint>/sprint-index.md`
+- `projects/<project>/sprints/<sprint>/code-context.md`
 - `projects/<project>/sprints/<sprint>/technical-handbook.md`
 - optional files under `projects/<project>/sprints/<sprint>/reasoning/`
 - `projects/<project>/sprints/<sprint>/reasoning.md`

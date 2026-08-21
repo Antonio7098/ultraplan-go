@@ -50,8 +50,8 @@ ultraplan skills materialise [all|stage] [--path <dir>] [--dry-run] [--force]
 ```
 
 Writes manually invoked sprint-stage skills to
-`.agents/skills/ultraplan-<stage>/`. With no selection, all nine skills are
-materialised. Supported stages are `requirements`, `sprint-index`,
+`.agents/skills/ultraplan-<stage>/`. With no selection, all eleven skills are
+materialised. Supported stages are `reconcile`, `requirements`, `code-context`, `sprint-index`,
 `technical-handbook`, `area-reasoning`, `reasoning`, `plan`, `execute`,
 `review`, and `smoke`.
 
@@ -59,6 +59,8 @@ Each generated skill includes `SKILL.md` and `agents/openai.yaml`. Implicit
 invocation is disabled. The `SKILL.md` embeds the canonical stage prompt and
 adds interactive prerequisite checks, explicit proposal-only behavior,
 validation, and flow-state reconciliation.
+
+The manual-only `code-context` skill delegates to the canonical `sprint ... flow --to code-context` operation. It does not reproduce repository selection, prompt construction, artifact validation, atomic replacement, or state transitions.
 
 Behavior matches `defaults install`: missing files are created, identical
 files are unchanged, customized files require confirmation, `--force`
@@ -255,6 +257,8 @@ Inspects planning, execute, review, and smoke state and refreshes `projects/<pro
 ### `ultraplan sprint <project> <sprint> validate`
 
 ```text
+ultraplan sprint <project> <sprint> validate requirements
+ultraplan sprint <project> <sprint> validate code-context
 ultraplan sprint <project> <sprint> validate sprint-index
 ultraplan sprint <project> <sprint> validate technical-handbook
 ultraplan sprint <project> <sprint> validate area-reasoning
@@ -265,11 +269,13 @@ ultraplan sprint <project> <sprint> validate review
 ultraplan sprint <project> <sprint> validate smoke
 ```
 
-Validates one planning or execute stage artifact without invoking runtime. `sprint-index` references must be a subset of `project-index.md`. Plan validation checks traceability to `reasoning.md` and task/evidence checklist structure. Execute validation checks plan task extraction and target safety.
+Validates one planning or execute stage artifact without invoking runtime. `code-context` requires the canonical reference-only Markdown shape with safe repository-relative paths, exact positive line ranges, optional symbols, rationale, and no fenced source. `sprint-index` references must be a subset of `project-index.md`. Plan validation checks traceability to `reasoning.md` and task/evidence checklist structure. Execute validation checks plan task extraction and target safety.
 
 ### `ultraplan sprint <project> <sprint> prompt`
 
 ```text
+ultraplan sprint <project> <sprint> prompt requirements
+ultraplan sprint <project> <sprint> prompt code-context
 ultraplan sprint <project> <sprint> prompt sprint-index
 ultraplan sprint <project> <sprint> prompt technical-handbook
 ultraplan sprint <project> <sprint> prompt area-reasoning
@@ -278,7 +284,7 @@ ultraplan sprint <project> <sprint> prompt plan
 ultraplan sprint <project> <sprint> prompt execute
 ```
 
-Prints runtime-free prompt previews for planning and execute stages. Prompt previews are for inspection and do not call agentwrap, OpenCode, providers, subprocesses, or the network.
+Prints runtime-free prompt previews for planning and execute stages. Prompt previews are for inspection and do not call agentwrap, OpenCode, providers, subprocesses, or the network. Once a completed valid code-context artifact exists, compatible downstream previews use the same shared composition path as runtime requests: exact stored requirements/context bytes, bounded transient contained source evidence, then the stage boundary and stage-specific suffix.
 
 Planning prompts use the same default/override model as study prompts. The prototype markdown prompt is the instruction source; UltraPlan appends a runtime manifest with concrete project, sprint, path, and selection data.
 
@@ -286,6 +292,7 @@ Planning prompts use the same default/override model as study prompts. The proto
 
 ```text
 ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
+ultraplan sprint <project> <sprint> flow --to code-context [--dry-run]
 ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
 ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
 ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
@@ -296,7 +303,7 @@ ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-r
 ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run] [--yes]
 ```
 
-Runs or previews the governed stage flow through smoke. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. Review and smoke use the same sprint-owned transition as `verify`. Compatible interrupted reviews resume by default; `--restart-review` discards retained review progress. A non-dry-run smoke transition requires `--yes`.
+Runs or previews the governed stage flow through smoke. Cumulative planning order is `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan`; `flow --to plan` dispatches code-context exactly once when it is not already complete and valid. A code-context rerun reads the configured implementation target with restricted permissions and atomically replaces only `code-context.md`. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. Review and smoke use the same sprint-owned transition as `verify`. Compatible interrupted reviews resume by default; `--restart-review` discards retained review progress. A non-dry-run smoke transition requires `--yes`.
 
 ### `ultraplan sprint <project> <sprint> execute`
 

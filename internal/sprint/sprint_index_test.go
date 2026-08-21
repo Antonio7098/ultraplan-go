@@ -172,6 +172,29 @@ func TestCumulativeFlowMaterializesMissingSprintBeforeMutationLock(t *testing.T)
 	}
 }
 
+func TestFlowToPlanSchedulesCodeContextExactlyOnceInCanonicalOrder(t *testing.T) {
+	stages, err := flowStages(StagePlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []PlanningStage{StageRequirements, StageCodeContext, StageSprintIndex, StageTechnicalHandbook, StageAreaReasoning, StageReasoning, StagePlan}
+	if len(stages) != len(want) {
+		t.Fatalf("flow stages = %v, want %v", stages, want)
+	}
+	count := 0
+	for i := range want {
+		if stages[i] != want[i] {
+			t.Fatalf("flow stages = %v, want %v", stages, want)
+		}
+		if stages[i] == StageCodeContext {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("code-context scheduled %d times", count)
+	}
+}
+
 type fakeRuntime struct{}
 
 func (fakeRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {

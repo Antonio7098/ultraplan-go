@@ -36,6 +36,14 @@ type Service struct {
 
 func (s Service) WithReviewConcurrency(n int) Service { s.reviewConcurrency = n; return s }
 
+// WithClock supplies a deterministic clock for state-transition tests.
+func (s Service) WithClock(now func() time.Time) Service {
+	if now != nil {
+		s.now = now
+	}
+	return s
+}
+
 func (s Service) WithProcessRunner(runner pprocess.Runner) Service {
 	s.processRunner = runner
 	return s
@@ -296,7 +304,7 @@ func (s Service) PromptSprintIndex(projectRef, sprintRef string) (PromptPreview,
 	if err != nil {
 		return PromptPreview{}, err
 	}
-	return RenderSprintIndexPrompt(s.root, sp, catalog, inputs.Docs), nil
+	return s.composeSharedPrompt(context.Background(), sp, inputs, RenderSprintIndexPrompt(s.root, sp, catalog, inputs.Docs))
 }
 
 func (s Service) PromptTechnicalHandbook(projectRef, sprintRef string) (PromptPreview, error) {
@@ -308,7 +316,7 @@ func (s Service) PromptTechnicalHandbook(projectRef, sprintRef string) (PromptPr
 	if len(findings) > 0 {
 		return PromptPreview{}, fmt.Errorf("selected evidence validation failed")
 	}
-	return RenderTechnicalHandbookPrompt(s.root, manifest), nil
+	return s.composeSharedPrompt(context.Background(), sp, inputs, RenderTechnicalHandbookPrompt(s.root, manifest))
 }
 
 func (s Service) ValidateAreaReasoning(projectRef, sprintRef string) (ValidationResult, error) {
@@ -425,7 +433,11 @@ func (s Service) PromptAreaReasoning(projectRef, sprintRef string) (PromptPrevie
 	if len(manifest.ReasoningTemplates) == 0 {
 		return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: "No selected reasoning templates; area-reasoning is skipped.\n"}, nil
 	}
-	return RenderAreaReasoningPrompt(s.root, manifest, manifest.ReasoningTemplates[0])
+	prompt, err := RenderAreaReasoningPrompt(s.root, manifest, manifest.ReasoningTemplates[0])
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	return s.composeSharedPrompt(context.Background(), sp, inputs, prompt)
 }
 
 func (s Service) PromptReasoning(projectRef, sprintRef string) (PromptPreview, error) {
@@ -437,7 +449,11 @@ func (s Service) PromptReasoning(projectRef, sprintRef string) (PromptPreview, e
 	if len(findings) > 0 {
 		return PromptPreview{}, fmt.Errorf("selected reasoning template validation failed")
 	}
-	return RenderFinalReasoningPrompt(s.root, manifest)
+	prompt, err := RenderFinalReasoningPrompt(s.root, manifest)
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	return s.composeSharedPrompt(context.Background(), sp, inputs, prompt)
 }
 
 func (s Service) PromptPlan(projectRef, sprintRef string) (PromptPreview, error) {
@@ -449,7 +465,7 @@ func (s Service) PromptPlan(projectRef, sprintRef string) (PromptPreview, error)
 	if len(findings) > 0 {
 		return PromptPreview{}, fmt.Errorf("plan prerequisites failed validation")
 	}
-	return RenderPlanPrompt(s.root, manifest), nil
+	return s.composeSharedPrompt(context.Background(), sp, inputs, RenderPlanPrompt(s.root, manifest))
 }
 
 func (s Service) PromptRequirements(projectRef, sprintRef string) (PromptPreview, error) {
@@ -546,7 +562,14 @@ func (s Service) FlowSprintIndex(ctx context.Context, projectRef, sprintRef stri
 		}
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, err
 	}
-	prompt := RenderSprintIndexPrompt(s.root, sp, catalog, inputs.Docs)
+	prompt, promptErr := s.composeSharedPrompt(ctx, sp, inputs, RenderSprintIndexPrompt(s.root, sp, catalog, inputs.Docs))
+	if promptErr != nil {
+		stages := s.flowFailedStages(sp, req.To, promptErr, now)
+		if !req.DryRun {
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		}
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, promptErr
+	}
 	if req.DryRun {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: true, Message: prompt.Prompt}, nil
 	}
@@ -624,7 +647,14 @@ func (s Service) FlowPlan(ctx context.Context, projectRef, sprintRef string, req
 		}
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages, Findings: findings}, err
 	}
-	prompt := RenderPlanPrompt(s.root, manifest)
+	prompt, promptErr := s.composeSharedPrompt(ctx, sp, inputs, RenderPlanPrompt(s.root, manifest))
+	if promptErr != nil {
+		stages := s.flowFailedStages(sp, req.To, promptErr, now)
+		if !req.DryRun {
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		}
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, promptErr
+	}
 	if req.DryRun {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: true, Message: prompt.Prompt}, nil
 	}
@@ -706,7 +736,14 @@ func (s Service) FlowTechnicalHandbook(ctx context.Context, projectRef, sprintRe
 		_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages, Findings: findings}, err
 	}
-	prompt := RenderTechnicalHandbookPrompt(s.root, manifest)
+	prompt, promptErr := s.composeSharedPrompt(ctx, sp, inputs, RenderTechnicalHandbookPrompt(s.root, manifest))
+	if promptErr != nil {
+		stages := s.flowFailedStages(sp, req.To, promptErr, now)
+		if !req.DryRun {
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		}
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, promptErr
+	}
 	if req.DryRun {
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: true, Message: prompt.Prompt}, nil
 	}
@@ -798,9 +835,9 @@ func (s Service) FlowReasoning(ctx context.Context, projectRef, sprintRef string
 		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages, Findings: findings}, err
 	}
 	if req.To == StageAreaReasoning {
-		return s.flowAreaReasoning(ctx, sp, req, manifest, now)
+		return s.flowAreaReasoning(ctx, sp, inputs, req, manifest, now)
 	}
-	return s.flowFinalReasoning(ctx, sp, req, manifest, now)
+	return s.flowFinalReasoning(ctx, sp, inputs, req, manifest, now)
 }
 
 func (s Service) resolveSprintInputs(projectRef, sprintRef string) (Sprint, PlanningInputs, project.ProjectIndex, error) {
@@ -1056,7 +1093,7 @@ func cloneMetadata(base, overlay map[string]string) map[string]string {
 	return out
 }
 
-func (s Service) flowAreaReasoning(ctx context.Context, sp Sprint, req FlowRequest, manifest ReasoningManifest, now time.Time) (FlowResult, error) {
+func (s Service) flowAreaReasoning(ctx context.Context, sp Sprint, inputs PlanningInputs, req FlowRequest, manifest ReasoningManifest, now time.Time) (FlowResult, error) {
 	if len(manifest.ReasoningTemplates) == 0 {
 		stages := flowAreaReasoningSuccessStages(sp, true, now)
 		if req.DryRun {
@@ -1070,6 +1107,14 @@ func (s Service) flowAreaReasoning(ctx context.Context, sp Sprint, req FlowReque
 	prompt, promptErr := RenderAreaReasoningPrompt(s.root, manifest, manifest.ReasoningTemplates[0])
 	if promptErr != nil {
 		stages := flowFailedStages(sp, req.To, promptErr, now)
+		if !req.DryRun {
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		}
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, promptErr
+	}
+	prompt, promptErr = s.composeSharedPrompt(ctx, sp, inputs, prompt)
+	if promptErr != nil {
+		stages := s.flowFailedStages(sp, req.To, promptErr, now)
 		if !req.DryRun {
 			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		}
@@ -1145,7 +1190,7 @@ func (s Service) flowAreaReasoning(ctx context.Context, sp Sprint, req FlowReque
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages, Message: "area-reasoning complete"}, nil
 }
 
-func (s Service) flowFinalReasoning(ctx context.Context, sp Sprint, req FlowRequest, manifest ReasoningManifest, now time.Time) (FlowResult, error) {
+func (s Service) flowFinalReasoning(ctx context.Context, sp Sprint, inputs PlanningInputs, req FlowRequest, manifest ReasoningManifest, now time.Time) (FlowResult, error) {
 	var findings []ValidationFinding
 	for _, entry := range manifest.ReasoningTemplates {
 		path, pathErr := workspace.ResolveInside(s.root, normalizeWorkspacePath(entry.OutputPath))
@@ -1172,6 +1217,14 @@ func (s Service) flowFinalReasoning(ctx context.Context, sp Sprint, req FlowRequ
 	prompt, promptErr := RenderFinalReasoningPrompt(s.root, manifest)
 	if promptErr != nil {
 		stages := flowFailedStages(sp, req.To, promptErr, now)
+		if !req.DryRun {
+			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
+		}
+		return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, DryRun: req.DryRun, Stages: stages}, promptErr
+	}
+	prompt, promptErr = s.composeSharedPrompt(ctx, sp, inputs, prompt)
+	if promptErr != nil {
+		stages := s.flowFailedStages(sp, req.To, promptErr, now)
 		if !req.DryRun {
 			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 		}

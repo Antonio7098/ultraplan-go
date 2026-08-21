@@ -269,3 +269,9 @@ attribution and relevance rules are designed reliably. Canonical artifact
 existence, format, and recorded digest checks remain active, as does the smoke
 harness authoring allowlist; harness changes outside that allowlist are still
 hard failures.
+
+## Code-Context And Shared Readiness
+
+The browser projects the same `code-context` readiness, running state, bounded artifact preview, validation findings, explicit rerun, cancellation, terminal outcome, and restart recovery as CLI/TUI through shared app operations and durable sprint state. It does not parse context references, inspect the implementation repository, compose prompts, or persist alternate workflow truth. `flow --to plan` shows code-context once after requirements, and browser refresh/reconnect reads the resulting artifact/state rather than relying on an SSE session.
+
+Every later agent-backed planning, execute, review, or smoke-authoring request receives the sprint-owned byte-stable prefix. The web adapter contributes no route, request, confirmation, operation ID, timestamp, or browser state to those bytes. A source containment/range/budget failure is surfaced as the shared product-operation failure with actionable findings; the browser cannot bypass it or weaken repository permissions.

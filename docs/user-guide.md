@@ -265,11 +265,14 @@ Project validation checks that the project catalog resolves selected contracts, 
 
 ## 17. Work Through Sprint Planning
 
-Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `requirements`, `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, `plan`, controlled `execute`, automated `review`, and review-gated `smoke`.
+Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `requirements`, `code-context`, `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, `plan`, controlled `execute`, automated `review`, and review-gated `smoke`.
 
 ```bash
 ultraplan sprint <project> <sprint> status
 ultraplan sprint <project> <sprint> validate requirements
+ultraplan sprint <project> <sprint> prompt code-context
+ultraplan sprint <project> <sprint> validate code-context
+ultraplan sprint <project> <sprint> flow --to code-context
 ultraplan sprint <project> <sprint> validate sprint-index
 ultraplan sprint <project> <sprint> validate execute
 ultraplan sprint <project> <sprint> prompt requirements
@@ -281,6 +284,8 @@ ultraplan sprint <project> <sprint> execute --resume
 ```
 
 Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use `flow --to <stage> --dry-run` to preview planned stage execution. Non-dry-run flow can generate planning artifacts when runtime prerequisites are available. While it runs, the CLI prints stage transitions and sanitized runtime progress to stderr, leaving the final result on stdout. The TUI shows the same stage and runtime events in the active operation view for sprint flow, execute, and review.
+
+`code-context` reads the configured implementation target under a restricted read-only runtime policy and atomically replaces only the sprint's `code-context.md` after structural validation. The artifact records paths, exact line ranges, optional symbols, and rationale—not copied source. Downstream agent-backed prompts share the exact requirements and code-context bytes plus transient bounded source excerpts, clearly marked untrusted; the context pack never prevents further live repository inspection. A bad path, range, encoding, containment check, changed read, or 256 KiB shared-prefix budget overflow stops before runtime invocation and leaves the last valid artifacts/state intact.
 
 The planning flow continues through controlled execute from validated `plan.md` tasks. Execute writes `.run-state.json` and `execute.md`; automated review then writes the current `review.md`.
 
@@ -300,7 +305,7 @@ The smoke preview shows the review gate, sufficient scope, prerequisites, durati
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`. A project may override only the area-reasoning prompt, final-reasoning prompt, and final-reasoning template. Project status reports which source is effective.
 
 The materialised stage skills are interactive forms of those prompts. Invoke
-them explicitly as `$ultraplan-requirements`,
+them explicitly as `$ultraplan-requirements`, `$ultraplan-code-context`,
 `$ultraplan-sprint-index`, `$ultraplan-technical-handbook`,
 `$ultraplan-area-reasoning`, `$ultraplan-reasoning`, `$ultraplan-plan`,
 `$ultraplan-execute`, `$ultraplan-review`, or `$ultraplan-smoke`. A skill

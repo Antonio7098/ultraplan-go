@@ -43,11 +43,14 @@ Common missing artifacts include per-source reports, final reports, `summary.csv
 Planning artifacts use a separate chain under `projects/<project>/sprints/<sprint>/`. Missing planning artifacts should be repaired stage by stage:
 
 - Missing `requirements.md`: run `sprint <project> <sprint> prompt requirements` to inspect roadmap/docs context, then `sprint <project> <sprint> flow --to requirements`.
+- Missing or invalid `code-context.md`: validate requirements and the configured implementation target, inspect `prompt code-context`, then run `flow --to code-context`. A successful rerun atomically replaces only `code-context.md`; runtime failure, cancellation, validation failure, or promotion/state failure preserves the last valid artifact.
 - Missing `sprint-index.md`: run `sprint <project> <sprint> prompt sprint-index` to inspect context, then `sprint <project> <sprint> flow --to sprint-index`.
 - Missing `technical-handbook.md`: validate `sprint-index` first, then run `flow --to technical-handbook`.
 - Missing `reasoning.md`: validate area reasoning inputs if selected, then run `flow --to reasoning`.
 - Missing `plan.md`: validate `reasoning`, then run `flow --to plan`.
 - Missing `flow-state.json`: run `sprint <project> <sprint> status` to refresh artifact state.
+
+If a downstream stage reports `invalid_path`, `containment`, `file_kind`, `missing_source`, `invalid_range`, `changed_during_read`, `invalid_encoding`, or `budget_exceeded`, repair or regenerate the reference-only context pack and rerun the affected stage. UltraPlan does not silently omit or truncate selected evidence. The shared prefix is rebuilt from current files on each top-level operation; browser reconnect/restart recovers readiness and the latest durable outcome from sprint state rather than retaining prompt bytes in the web process.
 
 If stage skills are missing or stale, preview and rematerialise them:
 

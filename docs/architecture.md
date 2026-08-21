@@ -137,3 +137,11 @@ Hosted or LAN/public serving, accounts, authentication, TLS, teams, tenants,
 collaboration, remote workers, browser editing, WebSockets, terminal transport,
 general-purpose issue tracking, automatic fixes, database state, and Git
 mutation remain outside the local web architecture.
+
+## Grounded Planning And Shared Prompt Boundary
+
+`internal/sprint` owns `code-context` generation, validation, source-reference resolution, and downstream prompt composition. The complete common prefix is rendered once per top-level operation in this fixed order: stable shared instructions; project/sprint identity; an external frame containing the exact stored `requirements.md` bytes; an external frame containing the exact stored reference-only `code-context.md` bytes; transient resolved source evidence in authored order; and one constant stage-specific boundary as the final prefix bytes. Stage names, output paths/contracts, task and reviewer identities, model/run/session/attempt data, timestamps, and smoke scope occur only after that boundary or in runtime metadata.
+
+Reference resolution is sequential, repository-contained, symlink-rejecting, regular-file-only, cancellation-aware, and fail-closed. Selected UTF-8 bytes and line endings are preserved, duplicates and overlaps remain authored, and neither source excerpts nor a parallel manifest are persisted. The complete prefix is capped at 256 KiB, with 64 KiB reserved for stage suffixes; overflow is an actionable error, never truncation or omission. Evidence is marked untrusted and transient, and agents retain permission to inspect additional live source.
+
+`internal/platform/runtime` receives only the final ordinary prompt and remains unaware of sprint artifacts or prefix semantics. Planning, execute, independent review requests, and agent-backed smoke authoring call the sprint-owned composition boundary explicitly. Review fan-out shares one immutable prefix, while separate top-level operations rebuild from current files. No provider cache hit is guaranteed or measured, and no UltraPlan cache, retrieval/index, staleness, or provenance authority is introduced.

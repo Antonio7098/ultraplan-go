@@ -107,7 +107,19 @@ func (s Service) PromptExecute(projectRef, sprintRef string, req ExecuteRequest)
 			}
 		}
 	}
-	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: RenderExecutePrompt(sp, task, target, selection)}, nil
+	inputs, err := s.store.ReadPlanningInputs(sp)
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	prefix, err := s.prepareSharedPromptContext(context.Background(), sp, inputs)
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	prompt, err := composeStagePromptChecked(prefix, RenderExecutePrompt(sp, task, target, selection))
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}, nil
 }
 
 func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req ExecuteRequest) (ExecuteResult, error) {
@@ -127,6 +139,14 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 	if len(findings) > 0 {
 		return result, fmt.Errorf("execute prerequisites failed validation")
 	}
+	inputs, err := s.store.ReadPlanningInputs(sp)
+	if err != nil {
+		return result, err
+	}
+	sharedPrefix, err := s.prepareSharedPromptContext(ctx, sp, inputs)
+	if err != nil {
+		return result, err
+	}
 	if req.DryRun {
 		promptTask := tasks[0]
 		if req.TaskID != "" {
@@ -137,7 +157,10 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 				}
 			}
 		}
-		result.Prompt = RenderExecutePrompt(sp, promptTask, target, selection)
+		result.Prompt, err = composeStagePromptChecked(sharedPrefix, RenderExecutePrompt(sp, promptTask, target, selection))
+		if err != nil {
+			return result, err
+		}
 		result.Message = "execute dry run"
 		return result, nil
 	}
@@ -174,17 +197,27 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 		task.Attempts++
 		task.StartedAt = &start
 		task.UpdatedAt = start
-		_ = SaveExecuteRunState(s.root, sp, state)
+		if err := SaveExecuteRunState(s.root, sp, state); err != nil {
+			return result, fmt.Errorf("persist running execute task %q: %w", task.ID, err)
+		}
 		planTask := taskByID(tasks, task.ID)
-		runtimeReq := s.runtimeRequest(RenderExecutePrompt(sp, planTask, target, selection), map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageExecute), "task": task.ID, "model_source": selection.Source})
+		stagePrompt := RenderExecutePrompt(sp, planTask, target, selection)
+		if req.Resume && task.Runtime != nil && task.Runtime.SessionID != "" && task.Runtime.Model == selection.Model {
+			stagePrompt = "Continue the interrupted UltraPlan execute task from this existing session. Re-read the current task prompt and repository state, then finish only this task.\n\n" + stagePrompt
+		}
+		composedPrompt, composeErr := composeStagePromptChecked(sharedPrefix, stagePrompt)
+		if composeErr != nil {
+			return result, composeErr
+		}
+		runtimeReq := s.runtimeRequest(composedPrompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageExecute), "task": task.ID, "model_source": selection.Source})
 		runtimeReq.WorkDir = target.Path
 		if req.Resume && task.Runtime != nil && task.Runtime.SessionID != "" && task.Runtime.Model == selection.Model {
 			runtimeReq.SessionID = task.Runtime.SessionID
 			runtimeReq.SessionAction = "continue"
-			runtimeReq.Prompt = "Continue the interrupted UltraPlan execute task from this existing session. Re-read the current task prompt and repository state, then finish only this task.\n\n" + runtimeReq.Prompt
 		}
 		previousOnEvent := runtimeReq.OnEvent
 		var sessionMu sync.Mutex
+		var sessionSaveErr error
 		runtimeReq.OnEvent = func(event pruntime.Event) {
 			if previousOnEvent != nil {
 				previousOnEvent(event)
@@ -197,9 +230,14 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 			task.Runtime = &ExecuteRuntimeSummary{SessionID: event.SessionID, Model: selection.Model, ModelSource: selection.Source, OmissionReason: "raw runtime payloads omitted"}
 			task.UpdatedAt = s.now().UTC()
 			state.UpdatedAt = task.UpdatedAt
-			_ = SaveExecuteRunState(s.root, sp, state)
+			if err := SaveExecuteRunState(s.root, sp, state); err != nil && sessionSaveErr == nil {
+				sessionSaveErr = err
+			}
 		}
 		run, runErr := s.runtime.StartRun(ctx, runtimeReq)
+		sessionMu.Lock()
+		checkpointErr := sessionSaveErr
+		sessionMu.Unlock()
 		result.Runtime = append(result.Runtime, run)
 		finish := s.now().UTC()
 		task.Runtime = mergeRuntimeSummary(task.Runtime, runtimeSummary(run, selection))
@@ -207,6 +245,9 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 		task.CompletedAt = &finish
 		deferReason, deferErr := s.agentDeferredTaskReason(sp, task.ID)
 		switch {
+		case checkpointErr != nil:
+			task.Status = ExecuteTaskFailed
+			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "state-save-failed", Message: safeExecuteText("execute.state_save_error", checkpointErr.Error()), At: finish})
 		case deferErr != nil:
 			task.Status = ExecuteTaskFailed
 			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "invalid-deferral", Message: safeExecuteText("execute.defer_error", deferErr.Error()), At: finish})
@@ -232,7 +273,10 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 			task.Diagnostics = append(task.Diagnostics, ExecuteDiagnostic{Code: "missing-evidence", Message: "runtime succeeded without expected evidence", At: finish})
 		}
 		if err := SaveExecuteRunState(s.root, sp, state); err != nil {
-			return result, err
+			return result, fmt.Errorf("persist terminal execute task %q: %w", task.ID, err)
+		}
+		if checkpointErr != nil {
+			return result, fmt.Errorf("persist runtime session for execute task %q: %w", task.ID, checkpointErr)
 		}
 		if req.TaskID != "" {
 			break

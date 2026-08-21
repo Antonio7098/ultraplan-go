@@ -8,7 +8,38 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
+
+type recordingExecuteRuntime struct {
+	calls int
+}
+
+func (r *recordingExecuteRuntime) StartRun(_ context.Context, _ pruntime.Request) (pruntime.Result, error) {
+	r.calls++
+	return pruntime.Result{RunID: "execute-run", Status: "success", Artifacts: []pruntime.Artifact{{ID: "evidence", Kind: "test", Description: "verified"}}}, nil
+}
+
+type checkpointSaveFailureRuntime struct {
+	statePath string
+}
+
+func (r checkpointSaveFailureRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
+	if err := os.Remove(r.statePath); err != nil {
+		return pruntime.Result{}, err
+	}
+	if err := os.Mkdir(r.statePath, 0o755); err != nil {
+		return pruntime.Result{}, err
+	}
+	if req.OnEvent != nil {
+		req.OnEvent(pruntime.Event{SessionID: "execute-session"})
+	}
+	if err := os.Remove(r.statePath); err != nil {
+		return pruntime.Result{}, err
+	}
+	return pruntime.Result{RunID: "execute-run", SessionID: "execute-session", Status: "success", Artifacts: []pruntime.Artifact{{ID: "evidence", Kind: "test", Description: "verified"}}}, nil
+}
 
 func TestExecuteRunStateStrictLoadingAndAtomicWritePreservesPrior(t *testing.T) {
 	root := workspaceFixture(t)
@@ -197,6 +228,75 @@ func TestDeferExecuteTaskPersistsRationaleAndSummary(t *testing.T) {
 	if err != nil || !strings.Contains(string(data), "deferred") || !strings.Contains(string(data), "Accepted for Sprint 32") {
 		t.Fatalf("summary=%q err=%v", data, err)
 	}
+}
+
+func TestExecuteFailsBeforeRuntimeWhenRunningStateCannotBePersisted(t *testing.T) {
+	runtime := &recordingExecuteRuntime{}
+	root, sp, service := executePersistenceFixture(t, runtime)
+	statePath, err := ExecuteRunStatePath(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clockCalls := 0
+	var sabotageErr error
+	service = service.WithClock(func() time.Time {
+		clockCalls++
+		if clockCalls == 3 {
+			sabotageErr = os.Remove(statePath)
+			if sabotageErr == nil {
+				sabotageErr = os.Mkdir(statePath, 0o755)
+			}
+		}
+		return time.Date(2026, 8, 21, 12, 0, clockCalls, 0, time.UTC)
+	})
+	_, err = service.Execute(context.Background(), "proj", "01", ExecuteRequest{})
+	if sabotageErr != nil {
+		t.Fatalf("test setup failed: %v", sabotageErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "persist running execute task") {
+		t.Fatalf("running-state persistence err=%v", err)
+	}
+	if runtime.calls != 0 {
+		t.Fatalf("runtime called after running-state persistence failed: %d", runtime.calls)
+	}
+}
+
+func TestExecuteFailsAndRecordsFailedTaskWhenSessionCheckpointCannotBePersisted(t *testing.T) {
+	root, sp, _ := executePersistenceFixture(t, &recordingExecuteRuntime{})
+	statePath, err := ExecuteRunStatePath(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(root).WithRuntime(checkpointSaveFailureRuntime{statePath: statePath}).WithStageRuntime(map[PlanningStage]StageRuntime{StageExecute: {Model: "test/model"}})
+	_, err = service.Execute(context.Background(), "proj", "01", ExecuteRequest{})
+	if err == nil || !strings.Contains(err.Error(), "persist runtime session") {
+		t.Fatalf("session checkpoint persistence err=%v", err)
+	}
+	state, loadErr := LoadExecuteRunState(root, sp)
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if state.Tasks[0].Status != ExecuteTaskFailed || len(state.Tasks[0].Diagnostics) == 0 || state.Tasks[0].Diagnostics[len(state.Tasks[0].Diagnostics)-1].Code != "state-save-failed" {
+		t.Fatalf("checkpoint failure was not persisted as a failed task: %+v", state.Tasks[0])
+	}
+}
+
+func executePersistenceFixture(t *testing.T, runtime Runtime) (string, Sprint, Service) {
+	t.Helper()
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-alpha")
+	writeFixtureProjectIndex(t, root, "proj")
+	writeFileContent(t, root, "# Architecture Template\n", "system", "reasoning", "architecture_reasoning_template.md")
+	writeEvidenceFile(t, root)
+	writeFileContent(t, sp.Path, "# Requirements\n\nExecute persistence.\n", "requirements.md")
+	writeCompletedCodeContext(t, root, sp)
+	writeFileContent(t, sp.Path, validSprintIndex(), "sprint-index.md")
+	writeFileContent(t, sp.Path, validReasoningTechnicalHandbook(), "technical-handbook.md")
+	writeFileContent(t, sp.Path, validAreaReasoning(), "reasoning", "architecture.md")
+	writeFileContent(t, sp.Path, validPlanFinalReasoning(), "reasoning.md")
+	writeFileContent(t, sp.Path, validPlan(), "plan.md")
+	service := NewService(root).WithRuntime(runtime).WithStageRuntime(map[PlanningStage]StageRuntime{StageExecute: {Model: "test/model"}})
+	return root, sp, service
 }
 
 func validExecuteRunState(sp Sprint, now time.Time) ExecuteRunState {

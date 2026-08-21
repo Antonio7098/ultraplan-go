@@ -61,7 +61,16 @@
 {{else}}
 <div class="run-heading"><div><p class="eyebrow">Governed lifecycle</p><h2>Run</h2></div><p><strong>{{.Sprint.CompletedStages}} of {{.Sprint.TotalStages}}</strong> stages complete</p></div>
 <div class="run-layout" data-stage-workspace>
-<ol class="stage-timeline" aria-label="Sprint stages">{{range .Sprint.RunStages}}<li class="stage-{{.Status}}"><a href="#stage-{{.Name}}" data-stage-select="stage-{{.Name}}" aria-controls="stage-{{.Name}}"><span class="stage-marker" aria-hidden="true"></span><strong>{{.Name}}</strong><span class="status status-{{if or (eq .Status "complete") (eq .Status "completed") (eq .Status "skipped")}}ok{{else if eq .Status "running"}}info{{else if or (eq .Status "failed") (eq .Status "blocked")}}error{{else}}warn{{end}}">{{.Status}}</span></a></li>{{end}}</ol>
+<ol class="stage-timeline" aria-label="Sprint stages">{{range .Sprint.RunStages}}<li class="stage-{{.Status}}"><a href="#stage-{{.Name}}" data-stage-select="stage-{{.Name}}" data-stage-has-artifact="{{if or (eq .Status "complete") (eq .Status "completed") .ArtifactAvailable}}true{{else}}false{{end}}" aria-controls="stage-{{.Name}}"><span class="stage-marker" aria-hidden="true"></span><strong>{{.Name}}</strong><span class="status status-{{if or (eq .Status "complete") (eq .Status "completed") (eq .Status "skipped")}}ok{{else if eq .Status "running"}}info{{else if or (eq .Status "failed") (eq .Status "blocked")}}error{{else}}warn{{end}}">{{.Status}}</span></a></li>{{end}}</ol>
+<div class="run-workspace-columns">
+<aside class="previous-artifacts-panel" data-previous-artifacts aria-labelledby="previous-artifacts-heading">
+<header><p class="eyebrow">Stage context</p><h2 id="previous-artifacts-heading">Previous artefacts</h2><p>Browse outputs produced before the selected stage.</p></header>
+<ul class="previous-artifact-list">{{range .Sprint.Artifacts}}{{if not (or (eq .Label "flow-state") (eq .Label "run-state"))}}<li data-artifact-item><a href="/projects/{{$.Sprint.Project}}/sprints/{{$.Sprint.Slug}}/artifacts/{{.Ref}}" data-artifact-select data-artifact-stage="{{.Label}}" data-artifact-ref="{{.Ref}}"><strong>{{.Label}}</strong><span>{{.DisplayPath}}</span></a></li>{{end}}{{end}}</ul>
+<div class="previous-artifact-preview" data-artifact-preview aria-live="polite">
+<p class="empty" data-artifact-empty>Select a stage to browse its previous artefacts.</p>
+<div data-artifact-content hidden><div class="previous-artifact-preview-heading"><div><strong data-artifact-name>Artefact</strong><span data-artifact-meta></span></div><a data-artifact-open href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts">Open full artefact</a></div><div class="code-wrap"><pre aria-label="Artefact source preview"><code data-artifact-source></code></pre></div></div>
+</div>
+</aside>
 <div class="stage-details">{{range .Sprint.RunStages}}{{$stage := .}}<section id="stage-{{.Name}}" class="stage-detail" data-stage-panel tabindex="-1"><header><div><p class="eyebrow">Stage</p><h2>{{.Name}}</h2></div><span class="status status-{{if or (eq .Status "complete") (eq .Status "completed") (eq .Status "skipped")}}ok{{else if eq .Status "running"}}info{{else if or (eq .Status "failed") (eq .Status "blocked")}}error{{else}}warn{{end}}">{{.Status}}</span></header>
 {{if and (eq .Name "code-context") .LatestOutcome}}<p><strong>Latest attempt:</strong> {{.LatestOutcome}}.</p>{{end}}
 {{if or (eq .Status "complete") (eq .Status "completed") (eq .Status "skipped")}}
@@ -81,6 +90,7 @@
 {{if .Error}}<div class="stage-failure" role="alert"><h3>Why it failed</h3><p>{{.Error}}</p></div>{{end}}<p>Start the governed flow and stop when this stage is complete.</p>
 {{if eq .Name "code-context"}}{{if .ArtifactAvailable}}<p><strong>Authoritative artifact:</strong> available{{if .ArtifactValid}} and structurally valid{{else}}, but currently invalid{{end}}.</p>{{end}}{{if .NextAction}}<p>{{.NextAction}}</p>{{end}}{{end}}
 <form class="operation-form stage-start" method="post" action="/operations/prepare" data-project="{{$.Sprint.Project}}" data-sprint="{{$.Sprint.Slug}}" data-stage="{{.Name}}"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><input type="hidden" name="project" value="{{$.Sprint.Project}}"><input type="hidden" name="sprint" value="{{$.Sprint.Slug}}"><input type="hidden" name="stage" value="{{.Name}}"><button type="submit" name="kind" value="sprint-flow" data-operation-kind="sprint-flow">Start run to {{.Name}}</button></form>
-{{end}}<div class="stage-operation-status" data-stage-operation-status role="status" aria-live="polite" tabindex="-1"></div><div class="stage-confirmation" data-stage-confirmation hidden></div></section>{{end}}<noscript><p class="notice">Stage links and run forms work without JavaScript. Refresh the resulting operation page to see current server status.</p></noscript></div></div>
+{{end}}<div class="stage-operation-status" data-stage-operation-status role="status" aria-live="polite" tabindex="-1"></div><div class="stage-confirmation" data-stage-confirmation hidden></div></section>{{end}}<noscript><p class="notice">Stage links and run forms work without JavaScript. Refresh the resulting operation page to see current server status.</p></noscript></div>
+</div></div>
 {{end}}
 </div></div>{{template "layout/bottom" .}}{{end}}

@@ -15,12 +15,17 @@ import (
 )
 
 type smokeAuthorRuntime struct {
-	requests []pruntime.Request
+	requests    []pruntime.Request
+	permissions pruntime.PermissionSummary
 }
 
 func (r *smokeAuthorRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
 	r.requests = append(r.requests, req)
-	return pruntime.Result{RunID: "author-1", Permissions: pruntime.PermissionSummary{Mode: "restricted"}}, nil
+	permissions := r.permissions
+	if permissions.Mode == "" {
+		permissions.Mode = "restricted"
+	}
+	return pruntime.Result{RunID: "author-1", Permissions: permissions}, nil
 }
 
 type smokeRecordingRunner struct {
@@ -324,13 +329,24 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	if err != nil || result.Verdict != SmokePass || len(runner.calls) != 2 {
 		t.Fatalf("result=%+v calls=%v err=%v", result, runner.calls, err)
 	}
-	if len(author.requests) != 1 || author.requests[0].WorkDir != harness || author.requests[0].Model != "author" || !strings.Contains(author.requests[0].Prompt, "required deep-smoke coverage ID") {
+	if len(author.requests) != 1 || author.requests[0].WorkDir != harness || author.requests[0].Model != "author" || !containsString(author.requests[0].RequireCaps, "permissions") || author.requests[0].Policy.UnsupportedBehavior != "" || !strings.Contains(author.requests[0].Prompt, "required deep-smoke coverage ID") || strings.Count(author.requests[0].Prompt, sharedPromptStageBoundary) != 1 {
 		t.Fatalf("smoke author request was not sprint-specific and model-routed: %+v", author.requests)
+	}
+	boundary := strings.Index(author.requests[0].Prompt, sharedPromptStageBoundary) + len(sharedPromptStageBoundary)
+	if strings.Contains(author.requests[0].Prompt[:boundary], "UltraPlan Smoke Authoring Manifest") {
+		t.Fatal("smoke-specific manifest entered the shared prefix")
 	}
 	for _, required := range []string{
 		"writable-path list above is exhaustive, not illustrative",
 		"Use the existing-coverage fast path",
 		"run only the harness discovery command",
+		"inspect the implementation of every selected test",
+		"Coverage IDs and a complete mapping are routing metadata, not evidence",
+		"package, integration, fake-runtime",
+		"broad test-name regex is insufficient",
+		"local regression command cannot convert that criterion to passed",
+		"criterion-to-probe audit",
+		"union of declared coverage IDs alone must never justify",
 		"inspect the run adapter statically",
 		"every failed or errored result must be",
 		"associated with an open issue returned in the protocol response",
@@ -343,7 +359,7 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 		"testId, observedSummary, falsifiableTheory, supportingEvidence",
 		"Every displayed value must be a non-empty string",
 		"evidence is one string, not an array",
-		"failure-to-issue wiring are complete",
+		"failure-to-issue wiring and the criterion-to-probe audit are complete",
 		"make no changes and return success promptly",
 		"Do not add opportunistic tests",
 		"resume it narrowly",
@@ -395,6 +411,15 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	if err := os.WriteFile(runJSON, originalRun, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	author.permissions.UnsupportedCount = 1
+	runnerCalls := len(runner.calls)
+	if _, err := service.RunSmoke(context.Background(), "proj", "01", SmokeRequest{}); err == nil || !strings.Contains(err.Error(), "permission enforcement was unsupported") {
+		t.Fatalf("unsupported smoke author permissions err=%v", err)
+	}
+	if len(runner.calls) != runnerCalls {
+		t.Fatalf("smoke proceeded after unsupported author permissions: calls=%v", runner.calls)
+	}
+	author.permissions.UnsupportedCount = 0
 	runner.malformed = true
 	if _, err := service.RunSmoke(context.Background(), "proj", "01", SmokeRequest{}); err == nil {
 		t.Fatal("expected malformed discovery failure")

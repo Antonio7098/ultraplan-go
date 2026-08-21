@@ -96,6 +96,7 @@ type ReviewManifest struct {
 	Project, Sprint, SprintRoot, Target, Fingerprint string
 	WorkspaceRoot                                    string
 	ReviewerRoot                                     string
+	SharedPrefix                                     string
 	Model, ModelSource, Variant                      string
 	Concurrency                                      int
 	Inputs, Coverage                                 []ReviewInput
@@ -213,7 +214,7 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 		id, kind string
 		stage    PlanningStage
 	}{
-		{"requirements", "governed", StageRequirements}, {"sprint-index", "governed", StageSprintIndex},
+		{"requirements", "governed", StageRequirements}, {"code-context", "governed", StageCodeContext}, {"sprint-index", "governed", StageSprintIndex},
 		{"technical-handbook", "handbook", StageTechnicalHandbook}, {"reasoning", "governed", StageReasoning},
 		{"plan", "governed", StagePlan}, {"execute", "governed", StageExecute},
 	}
@@ -376,7 +377,19 @@ func (s Service) PromptReview(projectRef, sprintRef string, req ReviewRequest) (
 	if len(findings) > 0 {
 		return PromptPreview{}, fmt.Errorf("review prerequisites failed validation")
 	}
-	return PromptPreview{Project: m.Project, Sprint: m.Sprint, Prompt: renderReviewPreview(m)}, nil
+	sp, inputs, _, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	m.SharedPrefix, err = s.prepareSharedPromptContext(context.Background(), sp, inputs)
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	prompt, err := composeStagePromptChecked(m.SharedPrefix, renderReviewPreview(m))
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	return PromptPreview{Project: m.Project, Sprint: m.Sprint, Prompt: prompt}, nil
 }
 
 func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req ReviewRequest) (ReviewResult, error) {
@@ -405,7 +418,25 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 		}
 		return result, fmt.Errorf("review prerequisites failed validation")
 	}
-	result.Prompt = renderReviewPreview(m)
+	sp, inputs, _, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return result, err
+	}
+	m.SharedPrefix, err = s.prepareSharedPromptContext(ctx, sp, inputs)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			result.Status = ReviewCancelled
+			result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "cancelled", Message: safeReviewText(s.root, err.Error())})
+			if !req.DryRun && !req.PromptOnly {
+				return s.persistReviewFailure(projectRef, sprintRef, result, 0, len(m.Coverage), err)
+			}
+		}
+		return result, err
+	}
+	result.Prompt, err = composeStagePromptChecked(m.SharedPrefix, renderReviewPreview(m))
+	if err != nil {
+		return result, err
+	}
 	if req.DryRun || req.PromptOnly {
 		result.Message = "review dry run"
 		return result, nil
@@ -574,7 +605,6 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 		result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "artifact-invalid", Message: vf[0].Problem})
 		return s.persistReviewFailure(projectRef, sprintRef, result, completed, len(coverage), fmt.Errorf("generated review.md failed validation"))
 	}
-	sp, _, _, _ := s.resolveSprintInputs(projectRef, sprintRef)
 	path, _ := ArtifactPath(s.root, sp, StageReview)
 	if err := atomicWriteReview(path, []byte(content)); err != nil {
 		result.Status = ReviewFailed
@@ -837,7 +867,15 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 			out.Error = fmt.Sprintf("reviewer panic: %v", r)
 		}
 	}()
-	prompt := renderReviewerPrompt(m, c)
+	stagePrompt := renderReviewerPrompt(m, c)
+	if resumeSession != "" {
+		stagePrompt = "Resume the interrupted review using the refreshed frozen snapshot paths in this request. " + stagePrompt
+	}
+	prompt, composeErr := composeStagePromptChecked(m.SharedPrefix, stagePrompt)
+	if composeErr != nil {
+		out.Error = safeReviewText(s.root, composeErr.Error())
+		return
+	}
 	if len(prompt) > reviewPromptMaxBytes {
 		out.Error = fmt.Sprintf("review prompt exceeds safe subprocess argument budget: %d > %d bytes", len(prompt), reviewPromptMaxBytes)
 		return
@@ -853,7 +891,6 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 	req.Validation = s.reviewValidationSpec(m, c, captured)
 	if resumeSession != "" {
 		req.SessionID, req.SessionAction = resumeSession, "continue"
-		req.Prompt = "Resume the interrupted review using the refreshed frozen snapshot paths in this request. " + req.Prompt
 	}
 	previousOnEvent := req.OnEvent
 	req.OnEvent = func(event pruntime.Event) {
@@ -905,7 +942,11 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 	for attempt := 1; attempt <= 2; attempt++ {
 		repair := req
 		repair.Validation = nil
-		repair.Prompt = buildReviewRepairPrompt(m, c, problems, r.TerminalOutput)
+		repair.Prompt, composeErr = composeStagePromptChecked(m.SharedPrefix, buildReviewRepairPrompt(m, c, problems, r.TerminalOutput))
+		if composeErr != nil {
+			out.Error = safeReviewText(s.root, composeErr.Error())
+			return
+		}
 		if attempt == 1 && sessionID != "" {
 			repair.SessionID, repair.SessionAction = sessionID, "continue"
 		} else {
@@ -1024,6 +1065,7 @@ func RenderReviewMarkdown(m ReviewManifest, r ReviewResult) string {
 			} else {
 				for _, f := range r.Findings {
 					fmt.Fprintf(&b, "- [%s] `%s` %s — %s\n", f.Severity, f.ID, f.Title, f.Detail)
+					fmt.Fprintf(&b, "  - action: %s\n", f.Action)
 					for _, c := range f.Citations {
 						fmt.Fprintf(&b, "  - citation: `%s:%d-%d`\n", c.Path, c.StartLine, c.EndLine)
 					}
@@ -1458,7 +1500,7 @@ func renderReviewPreview(m ReviewManifest) string {
 	return b.String()
 }
 
-const reviewPromptMaxBytes = 96 * 1024
+const reviewPromptMaxBytes = maxSharedPromptPrefixBytes + sharedPromptSuffixReserve
 
 func renderReviewerPrompt(m ReviewManifest, c ReviewInput) string {
 	var b strings.Builder

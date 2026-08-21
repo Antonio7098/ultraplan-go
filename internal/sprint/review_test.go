@@ -167,12 +167,18 @@ func TestReviewManifestExecutionAndArtifactPreservation(t *testing.T) {
 	if stateErr != nil || state.Review.LastComplete == nil || state.Review.LastComplete.Verdict != ReviewPass || state.Review.LastAttempt == nil || state.Review.LastAttempt.Status != AttemptFailed {
 		t.Fatalf("failed attempt did not preserve last complete review: state=%+v err=%v", state.Review, stateErr)
 	}
+	var sharedPrefix string
 	for _, req := range rt.requests {
 		if req.WorkDir == "" || req.Policy.Default != "deny" || req.Policy.Tools["external_directory"] != "" || req.Sandbox != "read_only" {
 			t.Fatalf("unsafe reviewer request: %+v", req)
 		}
-		if len(req.Prompt) > reviewPromptMaxBytes || strings.Contains(req.Prompt, "# Requirements\n\nReview this sprint.") {
-			t.Fatalf("reviewer prompt was not compact and path-backed: bytes=%d", len(req.Prompt))
+		if len(req.Prompt) > reviewPromptMaxBytes || !strings.Contains(req.Prompt, "# Requirements\n\nReview this sprint.") || strings.Count(req.Prompt, sharedPromptStageBoundary) != 1 {
+			t.Fatalf("reviewer prompt omitted the one shared prefix: bytes=%d", len(req.Prompt))
+		}
+		if got := testSharedPrefix(t, req.Prompt); sharedPrefix == "" {
+			sharedPrefix = got
+		} else if got != sharedPrefix {
+			t.Fatal("independent review requests did not reuse identical shared prefix bytes")
 		}
 		if req.SessionAction == "" && (strings.Contains(req.Prompt, filepath.Join(root, filepath.FromSlash(ArtifactRelPath(sp, StageRequirements)))) || !strings.Contains(req.Prompt, filepath.Join(req.WorkDir, "workspace", filepath.FromSlash(ArtifactRelPath(sp, StageRequirements))))) {
 			t.Fatalf("reviewer prompt omitted governed input path: %s", req.Prompt)
@@ -346,11 +352,21 @@ func TestReviewVerdictAndCitationValidation(t *testing.T) {
 	for _, coverage := range m.Coverage {
 		results = append(results, ReviewCoverageResult{SchemaVersion: 1, CoverageID: coverage.ID, Applicability: "direct", Summary: "checked"})
 	}
-	results[0].Findings = []ReviewFinding{{ID: "F-1", Severity: "medium", Applicability: "direct", Title: "Follow-up", Detail: "Small issue", Citations: []ReviewCitation{{Path: ArtifactRelPath(Sprint{Project: "proj", Slug: "01-alpha"}, StageRequirements), StartLine: 1, EndLine: 1}}}}
+	results[0].Findings = []ReviewFinding{{ID: "F-1", Severity: "medium", Applicability: "direct", Title: "Follow-up", Detail: "Small issue", Action: "Apply the focused correction.", Citations: []ReviewCitation{{Path: ArtifactRelPath(Sprint{Project: "proj", Slug: "01-alpha"}, StageRequirements), StartLine: 1, EndLine: 1}}}}
 	fs, ds, verdict := validateReviewCoverage(root, m, results)
 	if len(fs) != 1 || len(ds) != 0 || verdict != ReviewPassWithFindings {
 		t.Fatalf("warning verdict=%s findings=%+v diagnostics=%+v", verdict, fs, ds)
 	}
+	rendered := RenderReviewMarkdown(m, ReviewResult{Status: ReviewCompleted, Verdict: verdict, Findings: fs})
+	if !strings.Contains(rendered, "action: Apply the focused correction.") || !strings.Contains(rendered, "citation:") {
+		t.Fatalf("rendered review omitted action or citation:\n%s", rendered)
+	}
+	results[0].Findings[0].Action = ""
+	_, ds, verdict = validateReviewCoverage(root, m, results)
+	if verdict != ReviewVerdictBlocked || len(ds) == 0 {
+		t.Fatalf("missing action verdict=%s diagnostics=%+v", verdict, ds)
+	}
+	results[0].Findings[0].Action = "Apply the focused correction."
 	results[0].Findings[0].Severity = "blocker"
 	_, _, verdict = validateReviewCoverage(root, m, results)
 	if verdict != ReviewFail {
@@ -388,7 +404,7 @@ func TestReviewResultSchemaCanonicalizesLegacyDeferredAndRejectsDuplicateFinding
 		t.Fatalf("legacy result not canonicalized: %+v problems=%+v", legacy, reviewResultProblems(root, manifest, coverage.ID, legacy))
 	}
 	citation := ReviewCitation{Path: coverage.Path, StartLine: 1, EndLine: 1}
-	duplicate := ReviewFinding{ID: "DUP-1", Severity: "low", Applicability: "direct", Title: "Issue", Detail: "Actionable deviation.", Citations: []ReviewCitation{citation}}
+	duplicate := ReviewFinding{ID: "DUP-1", Severity: "low", Applicability: "direct", Title: "Issue", Detail: "Actionable deviation.", Action: "Correct the deviation.", Citations: []ReviewCitation{citation}}
 	results := make([]ReviewCoverageResult, len(manifest.Coverage))
 	for i, item := range manifest.Coverage {
 		results[i] = ReviewCoverageResult{SchemaVersion: 1, CoverageID: item.ID, Applicability: "direct", Summary: "Checked."}
@@ -416,7 +432,7 @@ func TestReviewResultCanonicalizesFrozenReadPathCitation(t *testing.T) {
 		Applicability: "direct",
 		Summary:       "Checked.",
 		Findings: []ReviewFinding{{
-			ID: "READ-PATH-1", Severity: "low", Applicability: "direct", Title: "Issue", Detail: "Actionable deviation.",
+			ID: "READ-PATH-1", Severity: "low", Applicability: "direct", Title: "Issue", Detail: "Actionable deviation.", Action: "Correct the deviation.",
 			Citations: []ReviewCitation{{Path: reviewInputReadPath(manifest, input), StartLine: 1, EndLine: 1}},
 		}},
 	}
@@ -652,6 +668,7 @@ func reviewFixture(t *testing.T) (string, Sprint) {
 	writeFileContent(t, root, "# Architecture Template\n", "system", "reasoning", "architecture_reasoning_template.md")
 	writeFileContent(t, root, "# Evidence\n", "studies", "go-cli-study", "reports", "final", "01-project-structure.md")
 	writeFileContent(t, sp.Path, "# Requirements\n\nReview this sprint.\n", "requirements.md")
+	writeCompletedCodeContext(t, root, sp)
 	writeFileContent(t, sp.Path, validSprintIndex(), "sprint-index.md")
 	writeFileContent(t, sp.Path, validReasoningTechnicalHandbook(), "technical-handbook.md")
 	writeFileContent(t, sp.Path, validAreaReasoning(), "reasoning", "architecture.md")

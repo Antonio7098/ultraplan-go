@@ -220,8 +220,8 @@ func reviewResultProblems(root string, manifest ReviewManifest, expectedCoverage
 		if !validReviewApplicability(finding.Applicability) {
 			problems = append(problems, prefix+" applicability is invalid")
 		}
-		if strings.TrimSpace(finding.Title) == "" || strings.TrimSpace(finding.Detail) == "" || len(finding.Title) > maxReviewFindingTextBytes || len(finding.Detail) > maxReviewFindingTextBytes || len(finding.Action) > maxReviewFindingTextBytes {
-			problems = append(problems, prefix+" title/detail/action fields are empty or oversized")
+		if strings.TrimSpace(finding.Title) == "" || strings.TrimSpace(finding.Detail) == "" || strings.TrimSpace(finding.Action) == "" || len(finding.Title) > maxReviewFindingTextBytes || len(finding.Detail) > maxReviewFindingTextBytes || len(finding.Action) > maxReviewFindingTextBytes {
+			problems = append(problems, prefix+" title, detail, and action must be non-empty and within their size limits")
 		}
 		if reviewApplicable(finding.Applicability) && len(finding.Citations) == 0 {
 			problems = append(problems, prefix+" direct or partial finding requires a citation")

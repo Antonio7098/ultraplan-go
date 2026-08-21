@@ -21,6 +21,14 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 	if s.runtime == nil {
 		return smokeError("smoke_author_runtime", "runtime", "runtime is required to author deep-smoke coverage", "Configure the smoke model/runtime and rerun smoke.", nil)
 	}
+	inputs, err := s.store.ReadPlanningInputs(prepared.Sprint)
+	if err != nil {
+		return smokeError("smoke_author_context", "authoring", "shared sprint context could not be loaded", "Restore the governed planning inputs and rerun smoke.", err)
+	}
+	sharedPrefix, err := s.prepareSharedPromptContext(ctx, prepared.Sprint, inputs)
+	if err != nil {
+		return smokeError("smoke_author_context", "authoring", "shared sprint context could not be prepared", "Repair the selected source reference or prompt budget failure and rerun smoke.", err)
+	}
 	harnessBefore, err := smokeHarnessSnapshot(prepared)
 	if err != nil {
 		return smokeError("smoke_author_snapshot", "authoring", "harness could not be snapshotted before authoring", "Restore a readable bounded smoke harness.", err)
@@ -41,11 +49,14 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 		projectFilesBefore = smokeDiagnosticTargetSnapshot(projectRoot)
 	}
 
-	prompt := s.renderSmokeAuthorPrompt(prepared)
+	prompt, err := composeStagePromptChecked(sharedPrefix, s.renderSmokeAuthorPrompt(prepared))
+	if err != nil {
+		return smokeError("smoke_author_context", "authoring", "smoke author instructions exceed the shared stage-suffix reserve", "Reduce the stage-specific authoring manifest without truncating shared evidence.", err)
+	}
 	req := s.runtimeRequest(prompt, map[string]string{"project": prepared.Sprint.Project, "sprint": prepared.Sprint.Slug, "stage": string(StageSmoke), "operation": "author"})
 	req.WorkDir = prepared.HarnessRoot
 	req.Permissions = "restricted"
-	req.Policy.UnsupportedBehavior = "best_effort"
+	req.RequireCaps = appendUnique(req.RequireCaps, "permissions")
 	for _, rel := range prepared.Manifest.Authoring.Paths {
 		req.Policy.PathRules = append(req.Policy.PathRules, pruntime.PermissionPathRule{Path: filepath.Join(prepared.HarnessRoot, filepath.FromSlash(rel)), Action: "allow"})
 	}
@@ -95,6 +106,9 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 	}
 	if runErr != nil {
 		return smokeError("smoke_author_runtime", "runtime", "smoke authoring runtime failed", "Inspect the bounded runtime diagnostics and rerun authoring.", runErr)
+	}
+	if run.Permissions.UnsupportedCount > 0 {
+		return smokeError("smoke_author_permissions", "permissions", "smoke authoring permission enforcement was unsupported", "Use a runtime that can enforce the restricted harness authoring boundary.", nil)
 	}
 	if strings.TrimSpace(run.RunID) == "" {
 		return smokeError("smoke_author_identity", "runtime", "smoke authoring returned no run identity", "Require traceable author runtime evidence and rerun smoke.", nil)
@@ -217,6 +231,22 @@ The writable-path list above is exhaustive, not illustrative:
 - Use the existing-coverage fast path before doing broad analysis or making any
   edit: run only the harness discovery command and inspect the requested
   sprint's existing suite, test identities, coverage IDs, and mapping. Also
+  inspect the implementation of every selected test and compare the behavior
+  it actually exercises with the governed acceptance criterion it declares.
+  Coverage IDs and a complete mapping are routing metadata, not evidence. A
+  test may claim a coverage ID only when its command crosses the real boundary
+  that deterministic product tests cannot prove. Invoking or wrapping unit,
+  package, integration, fake-runtime, or other normal product tests is not a
+  deep-smoke probe, even when it executes against the real source tree. A
+  broad test-name regex is insufficient unless the harness also proves that
+  the intended tests matched and ran. If a governed input records a real
+  runtime, provider, browser, process, recovery, or filesystem probe as
+  blocked, a local regression command cannot convert that criterion to passed;
+  preserve the exact blocker or author the missing real-boundary probe.
+  Build a concise criterion-to-probe audit for the existing suite before using
+  the fast path. The union of declared coverage IDs alone must never justify a
+  no-change success.
+  Also
   inspect the run adapter statically: every failed or errored result must be
   associated with an open issue returned in the protocol response, including
   ID, status, path, test ID, severity, title, observed summary, falsifiable
@@ -228,8 +258,8 @@ The writable-path list above is exhaustive, not illustrative:
   as testId, observedSummary, falsifiableTheory, supportingEvidence, or
   nextAction. Every displayed value must be a non-empty string; in particular,
   evidence is one string, not an array. Only when discovery and this
-  failure-to-issue wiring are complete,
-  internally consistent, and aligned with the current governed sprint inputs
+  failure-to-issue wiring and the criterion-to-probe audit are complete,
+  semantically consistent, and aligned with the current governed sprint inputs
   may you make no changes and return success promptly.
   Do not add opportunistic tests or rebuild the acceptance matrix merely
   because authoring was invoked again.
