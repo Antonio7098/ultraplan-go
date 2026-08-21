@@ -193,6 +193,11 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			firstErr = err
 		}
 	}
+	loadFirstErr := func() error {
+		errMu.Lock()
+		defer errMu.Unlock()
+		return firstErr
+	}
 	attempted := map[string]bool{}
 	runTask := func(id string) {
 		if ctx.Err() != nil {
@@ -262,38 +267,49 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		recordErr(recordHistory(id))
 		emitTask(progressEventForExecution(res), id)
 	}
-	for ctx.Err() == nil {
+	done := make(chan struct{}, req.Parallelism)
+	active := 0
+	stopScheduling := false
+	for active > 0 || (!stopScheduling && ctx.Err() == nil) {
+		if loadFirstErr() != nil {
+			stopScheduling = true
+		}
+		available := req.Parallelism - active
+		var ids []string
+		var nextRetry *time.Time
 		mu.Lock()
 		now := time.Now().UTC()
-		ids := runnableTaskIDs(state, scope, attempted, req.Parallelism, now, listing.DimensionOrder)
-		nextRetry := nextRetryAfter(state, scope, now)
-		mu.Unlock()
-		if len(ids) == 0 {
-			if nextRetry == nil {
-				break
-			}
-			waitUntilRetry(ctx, *nextRetry, func() {
-				mu.Lock()
-				defer mu.Unlock()
-				emitRetryWait(state, scope, result.StatePath, req.Progress)
-			})
-			continue
+		if !stopScheduling && available > 0 {
+			ids = runnableTaskIDs(state, scope, attempted, available, now, listing.DimensionOrder)
+			nextRetry = nextRetryAfter(state, scope, now)
 		}
+		mu.Unlock()
 		for _, id := range ids {
 			attempted[id] = true
-		}
-		var wg sync.WaitGroup
-		for _, id := range ids {
-			wg.Add(1)
+			active++
 			go func(id string) {
-				defer wg.Done()
 				runTask(id)
+				done <- struct{}{}
 			}(id)
 		}
-		wg.Wait()
-		if firstErr != nil {
-			return result, firstErr
+		if active > 0 {
+			// Refill a slot as soon as any task finishes instead of waiting for
+			// every task in the launch wave to finish.
+			<-done
+			active--
+			continue
 		}
+		if stopScheduling || (len(ids) == 0 && nextRetry == nil) {
+			break
+		}
+		waitUntilRetry(ctx, *nextRetry, func() {
+			mu.Lock()
+			defer mu.Unlock()
+			emitRetryWait(state, scope, result.StatePath, req.Progress)
+		})
+	}
+	if err := loadFirstErr(); err != nil {
+		return result, err
 	}
 
 	state.Complete = allTasksComplete(state)
@@ -440,53 +456,26 @@ func runnableTaskIDs(state RunState, scope map[string]bool, attempted map[string
 	}
 	ranks := dimensionPriorityRanks(dimensionOrder)
 	remainingRank := len(dimensionOrder)
-	activeRank := -1
-	for _, task := range state.Tasks {
-		if !scope[task.ID] || taskAttemptBlocked(task, attempted) {
-			continue
+	// Dimension order remains a priority, but not a barrier: lower-priority
+	// dimensions backfill any workers the earlier tiers cannot occupy.
+	for rank := 0; rank <= remainingRank; rank++ {
+		for _, kind := range []TaskKind{TaskKindSynthesis, TaskKindAnalysis} {
+			for _, task := range state.Tasks {
+				if len(ids) >= limit {
+					return ids
+				}
+				if !scope[task.ID] || taskAttemptBlocked(task, attempted) || task.Kind != kind || !taskRunnable(task, now) {
+					continue
+				}
+				if dimensionTaskRank(task, ranks, remainingRank) != rank {
+					continue
+				}
+				if kind == TaskKindSynthesis && !dependenciesCompleteFrom(byID, task) && !dependenciesTerminalFrom(byID, task) {
+					continue
+				}
+				ids = append(ids, task.ID)
+			}
 		}
-		if task.Status == TaskStatusCompleted || task.Status == TaskStatusSkipped {
-			continue
-		}
-		rank := dimensionTaskRank(task, ranks, remainingRank)
-		if activeRank == -1 || rank < activeRank {
-			activeRank = rank
-		}
-	}
-	if activeRank == -1 {
-		return nil
-	}
-	for _, task := range state.Tasks {
-		if len(ids) >= limit {
-			return ids
-		}
-		if !scope[task.ID] {
-			continue
-		}
-		if taskAttemptBlocked(task, attempted) || task.Kind != TaskKindSynthesis || !taskRunnable(task, now) {
-			continue
-		}
-		if dimensionTaskRank(task, ranks, remainingRank) != activeRank {
-			continue
-		}
-		if dependenciesCompleteFrom(byID, task) || dependenciesTerminalFrom(byID, task) {
-			ids = append(ids, task.ID)
-		}
-	}
-	for _, task := range state.Tasks {
-		if len(ids) >= limit {
-			return ids
-		}
-		if !scope[task.ID] {
-			continue
-		}
-		if taskAttemptBlocked(task, attempted) || task.Kind != TaskKindAnalysis || !taskRunnable(task, now) {
-			continue
-		}
-		if dimensionTaskRank(task, ranks, remainingRank) != activeRank {
-			continue
-		}
-		ids = append(ids, task.ID)
 	}
 	return ids
 }

@@ -192,7 +192,7 @@ func TestRunLoopSynthesizesDimensionAsSoonAsItsAnalysisCompletes(t *testing.T) {
 	}
 }
 
-func TestRunLoopDoesNotFillParallelSlotsFromLaterPriorityTiers(t *testing.T) {
+func TestRunLoopFillsParallelSlotsFromLaterPriorityTiers(t *testing.T) {
 	root, st := executionFixture(t)
 	writeReport(t, filepath.Join(st.Path, "dimensions", "02-runtime.md"), "# Runtime\n")
 	writeReport(t, StudyConfigPath(st), `{"version":1,"dimension_order":["02"]}`)
@@ -206,18 +206,15 @@ func TestRunLoopDoesNotFillParallelSlotsFromLaterPriorityTiers(t *testing.T) {
 	if result.Status != RunAllStatusCompleted {
 		t.Fatalf("Status = %q counts = %+v", result.Status, result.Counts)
 	}
-	wantPrefix := []string{
-		"analysis:02-runtime",
-		"analysis:02-runtime",
-		"synthesis:02-runtime",
-	}
-	if len(rt.order) < len(wantPrefix) {
+	if len(rt.order) < 3 {
 		t.Fatalf("order = %#v", rt.order)
 	}
-	for i := range wantPrefix {
-		if rt.order[i] != wantPrefix[i] {
-			t.Fatalf("order[%d] = %q, want %q; full order %#v", i, rt.order[i], wantPrefix[i], rt.order)
-		}
+	started := map[string]int{}
+	for _, task := range rt.order[:3] {
+		started[task]++
+	}
+	if started["analysis:02-runtime"] != 2 || started["analysis:01-structure"] != 1 {
+		t.Fatalf("first three starts = %#v, want two priority tasks plus one backfill; full order %#v", rt.order[:3], rt.order)
 	}
 }
 
