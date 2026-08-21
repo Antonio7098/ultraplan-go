@@ -149,3 +149,43 @@ After code-context validation, UltraPlan may persist a bounded, content-addresse
 `internal/platform/runtime` receives the final ordinary prompt plus content-free cache metadata: the stable-prefix digest, byte breakpoint, and a provider/model/work-directory cohort key. The current agentwrap/OpenCode boundary transports these values as metadata only; it cannot yet place a native cache-control breakpoint inside the single provider message, so no cache hit is guaranteed. Planning, execute, independent review requests, and agent-backed smoke authoring call the sprint-owned composition boundary explicitly. Review fan-out shares one immutable prefix. Runtime results append bounded, content-free prompt, token, cache-read/cache-write, cost, and timing measurements to the sprint's `.runtime-metrics.json`; `sprint ... metrics` exposes them. Prepared handoff packets and per-stage input contracts minimize downstream artifact reads without becoming dependency fingerprints; when present, the technical handbook's `Examples Worth Investigating` (or legacy `Examples Worth Inspecting`) section is copied directly into plan and execute prompts.
 
 Execute owns one reusable runtime session for the ordered pending-task queue rather than one independent agent per task. Its initial turn carries the shared sprint prefix, queue primer, current task, safety instructions, and optional handbook examples. After each task UltraPlan persists task-specific evidence and status, then submits only the next task delta with `SessionAction=continue`. A missing runtime session ID degrades safely to another complete prompt; failure or cancellation stops queue advancement, while explicit deferral may advance to the next task. Cross-command session reuse is based on model and target compatibility, not exact artifact fingerprints.
+
+## Durable run control
+
+UltraPlan records runtime-backed and asynchronous work in the workspace-local
+`.ultraplan/run-control.db`. `internal/runcontrol` owns operational identity,
+lifecycle, owner leases, fencing, cancellation commands, sanitized event
+ordering, retention, and terminal arbitration. Sprint, study, smoke, runtime,
+lock, artifact, and Git modules remain authoritative for their own product
+state; run control only projects their safe correlations and status.
+
+Each start is accepted and claimed in SQLite before a goroutine, runtime child,
+or external harness starts. A failed required write fails closed. Direct CLI
+commands, TUI actions, web operations, and individual runtime children share
+that boundary. IDs are opaque 128-bit `run_*` and `att_*` values. Writers use
+short transactions, WAL, `synchronous=FULL`, foreign keys, a five-second busy
+timeout, and repository-allocated fencing generations.
+
+Owners tick every second, persist heartbeats every five seconds with a
+15-second lease, and reconcile every ten seconds. Reconciliation waits 45
+seconds beyond lease expiry and uses exact process-birth identity where the
+platform can provide it. An accepted run that never acquired its first claim
+is interrupted after the same grace window, with no fabricated attempt or
+process evidence. Reconciliation never adopts a worker, signals a PID based on
+PID alone, or infers success from artifacts, locks, or product state. One
+immutable terminal proposal wins; a cancellation request may therefore coexist
+with a later successful completion.
+
+Events are sanitized and committed before delivery. Payloads are allowlisted,
+bounded to 16 KiB, and omit prompts, provider-native payloads, credentials,
+absolute paths, and unrestricted output. Consumers resume by `(run_id,
+sequence)` from SQLite; in-process notifications are only an optimization.
+Safe structured repository diagnostics are also written to the private bounded
+`.ultraplan/run-control.log` JSONL file. The log is capped at 1 MiB and uses the
+same run, attempt, owner/fence, sequence, cancellation, reconciliation, and
+terminal correlation vocabulary exposed by diagnostics and support export.
+
+This design supports direct writers and observers on one host and a trustworthy
+local filesystem. Multi-host access, network filesystems without reliable
+SQLite WAL/locking semantics, worker adoption, brokers, and remote signalling
+are outside the supported topology.

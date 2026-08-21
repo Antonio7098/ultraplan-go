@@ -120,7 +120,16 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 			t.Fatalf("previous artefact browser JavaScript missing %q", want)
 		}
 	}
-	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select", "data-stage-operation-status", "setInterval(refreshReviewers, 2000)", "durableStatusPath", "durableProcesses", `item.kind === "sprint-flow"`, "activeFlows.has(sprintScope)", "operation.href", `processes.addEventListener("pointerenter"`, `querySelectorAll(".detail-sidebar details")`, `addEventListener("pointerenter"`, `addEventListener("pointerleave"`, "pinnedOpen", "sidebar-hover-preview"} {
+	studyOperations := request(h, http.MethodGet, "/studies/research/operations", nil).Body.String()
+	for _, want := range []string{`name="parallelism"`, `<option value="1" selected>1</option>`, `<option value="8">8</option>`} {
+		if !strings.Contains(studyOperations, want) {
+			t.Fatalf("study operations missing parallelism choice %q", want)
+		}
+	}
+	if !strings.Contains(js, "form.elements?.parallelism?.value") {
+		t.Fatal("operation JavaScript ignores the chosen parallelism")
+	}
+	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select", "data-stage-operation-status", "setInterval(refreshReviewers, 2000)", "durableStatusPath", "durableProcesses", `item.kind === "sprint-flow"`, "activeFlows.has(sprintScope)", "operation.href", `processes.addEventListener("pointerenter"`, `querySelectorAll(".detail-sidebar details")`, `addEventListener("pointerenter"`, `addEventListener("pointerleave"`, "pinnedOpen", "sidebar-hover-preview", "groupActiveRuns", `kind === "study-loop"`, "parallel agent"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("JavaScript missing %q", want)
 		}
@@ -165,13 +174,16 @@ func TestPrimaryNavigationUsesTopBarDestinations(t *testing.T) {
 		t.Fatal(err)
 	}
 	shell := string(body)
-	for _, want := range []string{`class="brand" href="/"`, `<a href="/projects">Projects</a>`, `<a href="/studies">Studies</a>`} {
+	for _, want := range []string{`class="brand" href="/"`, `<a href="/projects">Projects</a>`, `<a href="/studies">Studies</a>`, `class="run-history-link" href="/runs" aria-label="Run history"`} {
 		if !strings.Contains(shell, want) {
 			t.Errorf("primary navigation missing %q", want)
 		}
 	}
 	if strings.Contains(shell, `<a href="/">Dashboard</a>`) {
 		t.Error("primary navigation still contains a dashboard item")
+	}
+	if strings.Contains(shell, `<a href="/runs">Runs</a>`) {
+		t.Error("primary navigation still contains a top-bar runs item")
 	}
 	for _, want := range []string{`data-nav-flyout`, `aria-label="Show projects"`, `aria-label="Show studies"`, `data-endpoint="/api/v1/projects"`, `data-endpoint="/api/v1/studies"`} {
 		if !strings.Contains(shell, want) {

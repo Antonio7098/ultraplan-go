@@ -123,3 +123,17 @@ decision in a later governed change.
 | Static assets inherited `no-store` despite the planned revalidation policy. | Implementation defect | Preserve non-content-addressed URLs and require revalidation. |
 | Retrying a successfully consumed start token returned `confirmation_replayed`. | Implementation defect | Hash the session/token into a bounded deduplication record and return the original operation/Location atomically. Invalid or mismatched replay remains rejected. |
 | External names for every web resource limit were absent. | Explicit compatibility decision | Preserve and validate fixed safe defaults; do not invent an override surface during hardening. |
+## Durable operation compatibility
+
+The frozen operation routes and JSON field order remain unchanged. Newly
+accepted operations use their durable `run_*` identity as `operation.id` and
+add a canonical run `Link` header. Active operation list/detail/event/cancel
+reads can be projected from the workspace repository when the observing server
+does not hold the originating in-memory record; transient `op_*` records remain
+recognized for the lifetime of their pre-durable server record.
+
+Compatibility SSE keeps the stable names `snapshot`, `progress`, `warning`,
+`finding`, `artifact`, `cancel_requested`, `recovery_required`, and `terminal`.
+Durable event sequence is the event ID. Missing compacted history produces an
+explicit recovery response rather than fabricated events. Canonical run APIs
+are additive and are the recovery authority after server/session restart.

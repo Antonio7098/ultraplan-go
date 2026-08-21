@@ -253,6 +253,36 @@ func renderRunTask(b *strings.Builder, task app.RunTaskSummary) {
 
 func renderRouteSummary(b *strings.Builder, m Model) {
 	route := m.currentRoute()
+	if route.Kind == RouteRun {
+		for _, run := range m.Runs {
+			if string(run.RunID) != route.RunID {
+				continue
+			}
+			productStatus := run.ProductStatus
+			if productStatus == "" {
+				productStatus = "unknown"
+			}
+			fmt.Fprintf(b, "Durable run: %s\nLifecycle: %s\nLiveness: %s\nProduct status: %s\nCancellation: %s\nHistory: %s complete=%t oldest=%d last=%d\n",
+				run.RunID, run.Lifecycle, run.Liveness, productStatus, run.Cancellation.State, run.RecordState, run.HistoryComplete, run.OldestRetainedSequence, run.LastSequence)
+			if run.Terminal != nil {
+				fmt.Fprintf(b, "Terminal: %s (%s)\n", run.Terminal.Outcome, run.Terminal.Reason)
+			}
+			fmt.Fprintln(b, "\nRetained events")
+			for _, event := range m.DurableEvents {
+				fmt.Fprintf(b, "- %d %s stage=%s task=%s", event.Sequence, event.Type, event.Stage, event.Task)
+				if event.Omission != nil {
+					fmt.Fprintf(b, " omitted=%d reason=%s", event.Omission.Count, event.Omission.Reason)
+				}
+				fmt.Fprintln(b)
+			}
+			if run.Lifecycle.IsActive() {
+				fmt.Fprintln(b, "\nc requests durable cancellation; q leaves the run unchanged.")
+			}
+			return
+		}
+		fmt.Fprintln(b, "Durable run is no longer retained.")
+		return
+	}
 	if route.Kind == RouteSprint {
 		sprint, ok := findSprint(m.Data.Sprints, route.Project, route.Sprint)
 		if !ok {
@@ -313,6 +343,9 @@ func renderConfirmation(b *strings.Builder, c app.Confirmation) {
 }
 func renderOperation(b *strings.Builder, r app.OperationResult, events []app.OperationEvent) {
 	fmt.Fprintf(b, "Operation result: %s\nSubject: %s\n%s\n", r.State, r.Subject, r.Message)
+	if r.RunID != "" {
+		fmt.Fprintf(b, "Durable run: %s\n", r.RunID)
+	}
 	if r.Truncated {
 		fmt.Fprintln(b, "Truncated: true")
 	}
@@ -390,18 +423,25 @@ func renderValidation(b *strings.Builder, result app.ValidationOperationResult) 
 func renderTabs(m Model, width int) string {
 	project := "Projects"
 	study := "Studies"
+	runs := "Runs"
 	if m.ActiveTab == TabProjects {
 		project = "[Projects]"
 	}
 	if m.ActiveTab == TabStudies {
 		study = "[Studies]"
 	}
-	projectStyle, studyStyle := tuiStyles.tab, tuiStyles.tab
+	if m.ActiveTab == TabRuns {
+		runs = "[Runs]"
+	}
+	projectStyle, studyStyle, runStyle := tuiStyles.tab, tuiStyles.tab, tuiStyles.tab
 	if m.ActiveTab == TabProjects {
 		projectStyle = tuiStyles.activeTab
 	}
 	if m.ActiveTab == TabStudies {
 		studyStyle = tuiStyles.activeTab
+	}
+	if m.ActiveTab == TabRuns {
+		runStyle = tuiStyles.activeTab
 	}
 	if m.Focus == FocusTabs && m.ActiveTab == TabProjects {
 		projectStyle = tuiStyles.focusedTab
@@ -409,7 +449,10 @@ func renderTabs(m Model, width int) string {
 	if m.Focus == FocusTabs && m.ActiveTab == TabStudies {
 		studyStyle = tuiStyles.focusedTab
 	}
-	row := " " + projectStyle.Render(project) + "  " + studyStyle.Render(study)
+	if m.Focus == FocusTabs && m.ActiveTab == TabRuns {
+		runStyle = tuiStyles.focusedTab
+	}
+	row := " " + projectStyle.Render(project) + "  " + studyStyle.Render(study) + "  " + runStyle.Render(runs)
 	return fullWidth(tuiStyles.body, row, width)
 }
 

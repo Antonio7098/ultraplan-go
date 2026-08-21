@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -13,6 +14,7 @@ type Tab string
 const (
 	TabProjects Tab = "projects"
 	TabStudies  Tab = "studies"
+	TabRuns     Tab = "runs"
 )
 
 type FocusArea string
@@ -34,6 +36,8 @@ const (
 	RouteStudy          RouteKind = "study"
 	RouteStudyDims      RouteKind = "study-dimensions"
 	RouteStudySources   RouteKind = "study-sources"
+	RouteRuns           RouteKind = "runs"
+	RouteRun            RouteKind = "run"
 )
 
 type Route struct {
@@ -41,6 +45,7 @@ type Route struct {
 	Project string
 	Sprint  string
 	Study   string
+	RunID   string
 }
 
 type Model struct {
@@ -69,16 +74,23 @@ type Model struct {
 	ParallelForm          *app.OperationRequest
 	ParallelValue         string
 	ParallelError         string
+	ActiveRunID           string
+	Runs                  []app.RunSnapshot
+	DurableEvents         []app.RunEvent
 }
 
 type Message interface{}
 
 type LoadMsg struct {
 	Result app.DashboardResult
+	Runs   []app.RunSnapshot
+	Events []app.RunEvent
 	Err    error
 }
 type RefreshMsg struct {
 	Result app.DashboardResult
+	Runs   []app.RunSnapshot
+	Events []app.RunEvent
 	Err    error
 }
 type PreviewMsg struct {
@@ -153,6 +165,8 @@ func (m Model) Update(msg Message) Model {
 			return m
 		}
 		m.Data = v.Result
+		m.Runs = v.Runs
+		m.DurableEvents = dedupeDurableEvents(v.Events)
 		m.Error = ""
 		m.clampSelection()
 	case RefreshMsg:
@@ -164,6 +178,8 @@ func (m Model) Update(msg Message) Model {
 			return m
 		}
 		m.Data = v.Result
+		m.Runs = v.Runs
+		m.DurableEvents = dedupeDurableEvents(v.Events)
 		m.Error = ""
 		m.clampSelection()
 	case PreviewMsg:
@@ -279,7 +295,11 @@ func (m Model) Update(msg Message) Model {
 			}
 		case ActionLeft:
 			if m.Focus == FocusTabs {
-				m.setTab(TabProjects)
+				if m.ActiveTab == TabRuns {
+					m.setTab(TabStudies)
+				} else {
+					m.setTab(TabProjects)
+				}
 				m.Focus = FocusTabs
 			}
 		case ActionRight:
@@ -295,6 +315,8 @@ func (m Model) Update(msg Message) Model {
 			m.setTab(TabProjects)
 		case ActionStudies:
 			m.setTab(TabStudies)
+		case ActionRuns:
+			m.setTab(TabRuns)
 		case ActionOpen:
 			if m.Preview != nil {
 				return m
@@ -312,6 +334,23 @@ func (m Model) Update(msg Message) Model {
 	return m
 }
 
+func dedupeDurableEvents(events []app.RunEvent) []app.RunEvent {
+	seen := make(map[string]bool, len(events))
+	result := make([]app.RunEvent, 0, min(len(events), 200))
+	for _, event := range events {
+		key := string(event.RunID) + ":" + fmt.Sprint(event.Sequence)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, event)
+	}
+	if len(result) > 200 {
+		result = result[len(result)-200:]
+	}
+	return result
+}
+
 func (m *Model) setTab(tab Tab) {
 	m.ActiveTab = tab
 	m.Focus = FocusContent
@@ -320,6 +359,10 @@ func (m *Model) setTab(tab Tab) {
 	m.PreviewOffset = 0
 	if tab == TabStudies {
 		m.Routes = []Route{{Kind: RouteStudies}}
+		return
+	}
+	if tab == TabRuns {
+		m.Routes = []Route{{Kind: RouteRuns}}
 		return
 	}
 	m.Routes = []Route{{Kind: RouteProjects}}
@@ -340,6 +383,9 @@ func (m Model) currentRoute() Route {
 	if len(m.Routes) == 0 {
 		if m.ActiveTab == TabStudies {
 			return Route{Kind: RouteStudies}
+		}
+		if m.ActiveTab == TabRuns {
+			return Route{Kind: RouteRuns}
 		}
 		return Route{Kind: RouteProjects}
 	}
@@ -468,6 +514,13 @@ func (m Model) navItems() []navItem {
 		if s, ok := findStudy(m.Data.Studies, route.Study); ok {
 			return artifactItemsByLabel(s.Artifacts, "source")
 		}
+	case RouteRuns:
+		items := make([]navItem, 0, len(m.Runs))
+		for _, run := range m.Runs {
+			label := string(run.RunID) + "  " + string(run.Lifecycle) + "  " + run.Target.Kind + "/" + run.Target.Operation
+			items = append(items, navItem{Label: label, Route: &Route{Kind: RouteRun, RunID: string(run.RunID)}})
+		}
+		return items
 	}
 	return nil
 }
@@ -491,6 +544,10 @@ func (m Model) breadcrumb() string {
 		return "Studies > " + route.Study + " > Sources"
 	case RouteStudies:
 		return "Studies"
+	case RouteRuns:
+		return "Runs"
+	case RouteRun:
+		return "Runs > " + route.RunID
 	default:
 		return "Projects"
 	}

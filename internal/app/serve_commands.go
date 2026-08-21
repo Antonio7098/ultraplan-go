@@ -49,11 +49,20 @@ func runServe(deps dependencies, args []string) error {
 		reviewConcurrency: effective.Config.Execution.DefaultParallel,
 		smokeSettings:     smokeSettings(effective, envLookup(deps.env)), readOnly: true,
 	}
+	if errors.Is(deps.ctx.Err(), context.Canceled) {
+		return nil
+	}
+	repository, _, err := runRepository(deps)
+	if err != nil {
+		return err
+	}
 	useCases := NewWebUseCases(root.Path, WebUseCaseOptions{
 		StageRuntime:      planningStageRuntime(effective.Config),
 		ReviewConcurrency: effective.Config.Execution.DefaultParallel,
 		SmokeSettings:     smokeSettings(effective, envLookup(deps.env)),
 		Runner:            sharedOperationRunner(deps, root, effective, dashboard),
+		RunControl:        repositoryRunUseCases{repository: repository},
+		DurableOperations: newDurableOperationManager(repository, deps.runControl.owner),
 	})
 	err = deps.webRunner(deps.ctx, ServeRunOptions{
 		Listen:      *listen,

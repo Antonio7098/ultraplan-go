@@ -275,3 +275,32 @@ hard failures.
 The browser projects the same `code-context` readiness, running state, bounded artifact preview, validation findings, explicit rerun, cancellation, terminal outcome, and restart recovery as CLI/TUI through shared app operations and durable sprint state. It does not parse context references, inspect the implementation repository, compose prompts, or persist alternate workflow truth. `flow --to plan` shows code-context once after requirements, and browser refresh/reconnect reads the resulting artifact/state rather than relying on an SSE session.
 
 Every later agent-backed planning, execute, review, or smoke-authoring request receives the sprint-owned byte-stable prefix. The web adapter contributes no route, request, confirmation, operation ID, timestamp, or browser state to those bytes. A source containment/range/budget failure is surfaced as the shared product-operation failure with actionable findings; the browser cannot bypass it or weaken repository permissions.
+## Durable run observation
+
+The server-rendered run index and detail pages are available at `/runs` and
+`/runs/{run_id}`. They work without JavaScript and show lifecycle separately
+from liveness, product status, cancellation, retention/gap facts, and a bounded
+retained timeline. Cancellation is an explicit same-origin, session-bound,
+CSRF-protected form action.
+
+Canonical JSON/SSE resources are:
+
+```text
+GET  /api/v1/runs
+GET  /api/v1/runs/{run_id}
+GET  /api/v1/runs/{run_id}/events?after=<decimal-sequence>
+DELETE /api/v1/runs/{run_id}
+```
+
+The event endpoint accepts either `after` or `Last-Event-ID`, never both. It
+returns `cursor_ahead` for a cursor newer than the snapshot and `replay_gap`
+with the requested/oldest/last boundaries when compacted history cannot be
+replayed. SSE contains only committed events; heartbeat comments have no
+sequence. Another local server can resume the same run from SQLite.
+
+Confirmed `POST /api/v1/operations` starts remain compatible: success is sent
+only after durable acceptance and claim, the operation ID is the `run_*` ID,
+and `Link: </api/v1/runs/{id}>; rel=canonical` identifies the canonical
+resource. Durable operation reads are workspace-visible across browser
+sessions. Mutation routes still enforce loopback Host/Origin, current session,
+and CSRF authority.

@@ -177,6 +177,13 @@ type runAllFlags struct {
 	yes         bool
 }
 
+func operationParallelism(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
 func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, args []string) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		_, err := deps.stdout.Write([]byte(studyRunLoopHelp()))
@@ -191,12 +198,16 @@ func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, ar
 			return err
 		}
 	}
-	service, parallelism, summary, err := runLoopService(deps, root, flags)
+	durable, err := beginDurableCLICommand(deps, OperationRequest{Kind: OperationStudyResume, Study: studyRef, Parallelism: operationParallelism(flags.parallelism)})
 	if err != nil {
 		return err
 	}
+	service, parallelism, summary, err := runLoopService(deps, root, flags)
+	if err != nil {
+		return finishDurableCLICommand(durable, err)
+	}
 	command := append([]string{"ultraplan", "study", studyRef, "run-loop"}, args...)
-	result, err := service.RunLoop(deps.ctx, study.RunLoopRequest{
+	result, err := service.RunLoop(durable.Context(), study.RunLoopRequest{
 		StudyRef:      studyRef,
 		DimensionRefs: flags.dimensions,
 		SourceRefs:    flags.sources,
@@ -208,6 +219,7 @@ func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, ar
 		Reset:         flags.reset,
 		Progress:      renderRunLoopProgress(deps, root.Path),
 	})
+	err = finishDurableCLICommand(durable, err)
 	if err != nil {
 		return mapStudyRunLoopError(err)
 	}
@@ -312,6 +324,10 @@ func runLoopService(deps dependencies, root workspace.Root, flags runAllFlags) (
 	if err != nil {
 		return study.Service{}, 0, study.ConfigSummary{}, classified(ExitRuntime, "runtime.init: %w", err)
 	}
+	controlled, err := controlledRuntimeFor(deps, root.Path, effective.Config, rt)
+	if err != nil {
+		return study.Service{}, 0, study.ConfigSummary{}, classified(ExitRuntime, "run-control.init: %w", err)
+	}
 	summary := study.ConfigSummary{
 		Runtime:          effective.Config.Runtime.Default,
 		Model:            effective.Config.Models.Default,
@@ -321,7 +337,7 @@ func runLoopService(deps dependencies, root workspace.Root, flags runAllFlags) (
 		DefaultRetries:   effective.Config.Execution.DefaultRetries,
 		WorkspaceVersion: strconv.Itoa(effective.Config.Version),
 	}
-	return study.NewService(root.Path, study.WithRuntime(rt, req)), parallelism, summary, nil
+	return study.NewService(root.Path, study.WithRuntime(controlled, req)), parallelism, summary, nil
 }
 
 func mapStudyRunLoopError(err error) error {
@@ -369,6 +385,10 @@ func renderRunLoopResult(deps dependencies, root string, result study.RunLoopRes
 
 func renderRunLoopProgress(deps dependencies, root string) func(study.RunLoopProgress) {
 	return func(progress study.RunLoopProgress) {
+		if progress.Event == study.RunLoopProgressThrottled || progress.Event == study.RunLoopProgressRestored {
+			fmt.Fprintf(deps.stdout, "[run-loop] %-9s parallelism %d/%d | available memory %.1f GiB | %s\n", progress.Event, progress.EffectiveParallelism, progress.RequestedParallelism, float64(progress.MemoryAvailableBytes)/(1024*1024*1024), progress.Message)
+			return
+		}
 		task := progress.Task
 		counts := progress.Counts
 		scope := progress.ScopeCounts
@@ -521,17 +541,22 @@ func runStudyRunAll(deps dependencies, root workspace.Root, studyRef string, arg
 	if err != nil {
 		return classified(ExitUsage, "study run-all: %w", err)
 	}
-	service, parallelism, err := runAllService(deps, root, flags)
+	durable, err := beginDurableCLICommand(deps, OperationRequest{Kind: OperationStudyStart, Study: studyRef, Parallelism: operationParallelism(flags.parallelism)})
 	if err != nil {
 		return err
 	}
-	result, err := service.RunAll(deps.ctx, study.RunAllRequest{
+	service, parallelism, err := runAllService(deps, root, flags)
+	if err != nil {
+		return finishDurableCLICommand(durable, err)
+	}
+	result, err := service.RunAll(durable.Context(), study.RunAllRequest{
 		StudyRef:      studyRef,
 		DimensionRefs: flags.dimensions,
 		SourceRefs:    flags.sources,
 		Parallelism:   parallelism,
 		Progress:      renderRunAllRuntimeProgress(deps),
 	})
+	err = finishDurableCLICommand(durable, err)
 	if err != nil {
 		return mapStudyExecutionError("study.run-all", err)
 	}
@@ -640,7 +665,11 @@ func runAllService(deps dependencies, root workspace.Root, flags runAllFlags) (s
 	if err != nil {
 		return study.Service{}, 0, classified(ExitRuntime, "runtime.init: %w", err)
 	}
-	return study.NewService(root.Path, study.WithRuntime(rt, req)), parallelism, nil
+	controlled, err := controlledRuntimeFor(deps, root.Path, effective.Config, rt)
+	if err != nil {
+		return study.Service{}, 0, classified(ExitRuntime, "run-control.init: %w", err)
+	}
+	return study.NewService(root.Path, study.WithRuntime(controlled, req)), parallelism, nil
 }
 
 func renderRunAllResult(deps dependencies, result study.RunAllResult) {
@@ -750,11 +779,16 @@ func runStudyRun(deps dependencies, root workspace.Root, studyRef string, args [
 	if len(args) != 2 {
 		return classified(ExitUsage, "study run: requires <dimension> <source>")
 	}
-	service, err := executionService(deps, root)
+	durable, err := beginDurableCLICommand(deps, OperationRequest{Kind: OperationStudyStart, Study: studyRef, Stage: "analysis", Task: args[0] + "/" + args[1], Parallelism: 1})
 	if err != nil {
 		return err
 	}
-	result, err := service.RunAnalysis(deps.ctx, study.ExecutionRequest{StudyRef: studyRef, DimensionRef: args[0], SourceRef: args[1], OnEvent: renderStudyRuntimeProgress(deps, "analysis", args[0], args[1])})
+	service, err := executionService(deps, root)
+	if err != nil {
+		return finishDurableCLICommand(durable, err)
+	}
+	result, err := service.RunAnalysis(durable.Context(), study.ExecutionRequest{StudyRef: studyRef, DimensionRef: args[0], SourceRef: args[1], OnEvent: renderStudyRuntimeProgress(deps, "analysis", args[0], args[1])})
+	err = finishDurableCLICommand(durable, err)
 	if err != nil {
 		return mapStudyExecutionError("study.run", err)
 	}
@@ -770,11 +804,16 @@ func runStudySynthesize(deps dependencies, root workspace.Root, studyRef string,
 	if len(args) != 1 {
 		return classified(ExitUsage, "study synthesize: requires <dimension>")
 	}
-	service, err := executionService(deps, root)
+	durable, err := beginDurableCLICommand(deps, OperationRequest{Kind: OperationStudyStart, Study: studyRef, Stage: "synthesis", Task: args[0], Parallelism: 1})
 	if err != nil {
 		return err
 	}
-	result, err := service.Synthesize(deps.ctx, study.SynthesisRequest{StudyRef: studyRef, DimensionRef: args[0], OnEvent: renderStudyRuntimeProgress(deps, "synthesis", args[0], "")})
+	service, err := executionService(deps, root)
+	if err != nil {
+		return finishDurableCLICommand(durable, err)
+	}
+	result, err := service.Synthesize(durable.Context(), study.SynthesisRequest{StudyRef: studyRef, DimensionRef: args[0], OnEvent: renderStudyRuntimeProgress(deps, "synthesis", args[0], "")})
+	err = finishDurableCLICommand(durable, err)
 	if err != nil {
 		return mapStudyExecutionError("study.synthesize", err)
 	}
@@ -795,7 +834,11 @@ func executionService(deps dependencies, root workspace.Root) (study.Service, er
 	if err != nil {
 		return study.Service{}, classified(ExitRuntime, "runtime.init: %w", err)
 	}
-	return study.NewService(root.Path, study.WithRuntime(rt, req)), nil
+	controlled, err := controlledRuntimeFor(deps, root.Path, effective.Config, rt)
+	if err != nil {
+		return study.Service{}, classified(ExitRuntime, "run-control.init: %w", err)
+	}
+	return study.NewService(root.Path, study.WithRuntime(controlled, req)), nil
 }
 
 func renderExecutionResult(deps dependencies, result study.ExecutionResult) {

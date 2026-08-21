@@ -149,6 +149,7 @@ func (h *handler) handleOperationStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Location", "/api/v1/operations/"+doc.ID)
+	w.Header().Set("Link", "</api/v1/runs/"+doc.ID+">; rel=canonical")
 	h.logOperation(r, "operation_started", doc.ID, string(doc.Kind), doc.State, "")
 	h.writeSuccess(w, r, http.StatusAccepted, doc, nil)
 }
@@ -156,6 +157,13 @@ func (h *handler) handleOperationStart(w http.ResponseWriter, r *http.Request) {
 func (h *handler) handleOperationStatus(w http.ResponseWriter, r *http.Request, id string) {
 	doc, err := h.hub.status(sessionID(r.Context()), id)
 	if err != nil {
+		doc, err = h.durableOperationStatus(r.Context(), id)
+	}
+	if err != nil {
+		if legacyOperationID(id) {
+			h.writeError(w, r, http.StatusGone, "legacy_operation_not_retained", "This pre-durable operation is no longer retained. Refresh the owning product or inspect canonical workspace runs.")
+			return
+		}
 		h.writeOperationError(w, r, err)
 		return
 	}
@@ -164,13 +172,38 @@ func (h *handler) handleOperationStatus(w http.ResponseWriter, r *http.Request, 
 
 func (h *handler) handleActiveOperations(w http.ResponseWriter, r *http.Request) {
 	operations := h.hub.activeOperations(sessionID(r.Context()))
+	if h.runs != nil {
+		page, err := h.runs.Runs(r.Context(), app.RunQuery{Lifecycle: []app.RunLifecycle{"accepted", "queued", "running", "cancelling"}, TargetKind: "operation", Limit: 200})
+		if err == nil {
+			seen := make(map[string]bool, len(operations))
+			for _, operation := range operations {
+				seen[operation.ID] = true
+			}
+			for _, snapshot := range page.Runs {
+				if seen[string(snapshot.RunID)] || !snapshot.Lifecycle.IsActive() || snapshot.Target.Kind != "operation" {
+					continue
+				}
+				operations = append(operations, durableActiveOperation(snapshot))
+			}
+		}
+	}
 	count := len(operations)
 	h.writeSuccess(w, r, http.StatusOK, operations, &app.CollectionInfo{ReturnedCount: count, TotalCount: count})
 }
 
 func (h *handler) handleOperationCancel(w http.ResponseWriter, r *http.Request, id string) {
 	doc, requested, err := h.hub.cancelOperation(sessionID(r.Context()), id, "user_request")
+	if err != nil && h.runs != nil {
+		snapshot, changed, cancelErr := h.runs.CancelRun(r.Context(), app.RunID(id), "user_requested")
+		if cancelErr == nil && string(snapshot.RunID) == id {
+			doc, requested, err = durableOperationDocument(snapshot), changed, nil
+		}
+	}
 	if err != nil {
+		if legacyOperationID(id) {
+			h.writeError(w, r, http.StatusGone, "legacy_operation_not_retained", "This pre-durable operation is no longer retained. Refresh the owning product or inspect canonical workspace runs.")
+			return
+		}
 		h.writeOperationError(w, r, err)
 		return
 	}
@@ -190,6 +223,13 @@ func (h *handler) handleOperationEvents(w http.ResponseWriter, r *http.Request, 
 	}
 	replay, events, unsubscribe, err := h.hub.subscribe(sessionID(r.Context()), id, lastID)
 	if err != nil {
+		if h.followDurableOperationEvents(w, r, id, lastID) {
+			return
+		}
+		if legacyOperationID(id) {
+			h.writeError(w, r, http.StatusGone, "legacy_operation_not_retained", "This pre-durable operation is no longer retained. Refresh the owning product or inspect canonical workspace runs.")
+			return
+		}
 		h.writeOperationError(w, r, err)
 		return
 	}
@@ -305,8 +345,18 @@ func (h *handler) handleHTMLOperationStart(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *handler) handleHTMLOperationStatus(w http.ResponseWriter, r *http.Request, id string) {
+	if h.runs != nil {
+		if snapshot, runErr := h.runs.Run(r.Context(), app.RunID(id)); runErr == nil && string(snapshot.RunID) == id && snapshot.Target.Kind == "operation" {
+			http.Redirect(w, r, "/runs/"+id, http.StatusSeeOther)
+			return
+		}
+	}
 	doc, err := h.hub.status(sessionID(r.Context()), id)
 	if err != nil {
+		if legacyOperationID(id) {
+			h.renderError(w, r, http.StatusGone, "Legacy operation not retained", "This pre-durable operation expired. Refresh the owning product or open the workspace run list.")
+			return
+		}
 		h.renderError(w, r, http.StatusNotFound, "Operation not retained", "Refresh the owning project, sprint, or study page for durable status.")
 		return
 	}
@@ -323,7 +373,17 @@ func (h *handler) handleHTMLOperationCancel(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	doc, requested, err := h.hub.cancelOperation(sessionID(r.Context()), id, "user_request")
+	if err != nil && h.runs != nil {
+		snapshot, changed, cancelErr := h.runs.CancelRun(r.Context(), app.RunID(id), "user_requested")
+		if cancelErr == nil && string(snapshot.RunID) == id {
+			doc, requested, err = durableOperationDocument(snapshot), changed, nil
+		}
+	}
 	if err != nil {
+		if legacyOperationID(id) {
+			h.renderError(w, r, http.StatusGone, "Legacy operation not retained", "This pre-durable operation expired. Refresh the owning product or open the workspace run list.")
+			return
+		}
 		h.renderError(w, r, http.StatusNotFound, "Operation not retained", "Refresh the owning project, sprint, or study page for durable status.")
 		return
 	}
@@ -331,6 +391,131 @@ func (h *handler) handleHTMLOperationCancel(w http.ResponseWriter, r *http.Reque
 		h.logOperation(r, "operation_cancel_requested", doc.ID, string(doc.Kind), doc.State, doc.Reason)
 	}
 	http.Redirect(w, r, "/operations/"+doc.ID, http.StatusSeeOther)
+}
+
+func (h *handler) durableOperationStatus(ctx context.Context, id string) (operationDocument, error) {
+	if h.runs == nil {
+		return operationDocument{}, errOperationNotFound
+	}
+	snapshot, err := h.runs.Run(ctx, app.RunID(id))
+	if err != nil || string(snapshot.RunID) != id || snapshot.Target.Kind != "operation" {
+		return operationDocument{}, errOperationNotFound
+	}
+	return durableOperationDocument(snapshot), nil
+}
+
+func legacyOperationID(id string) bool { return strings.HasPrefix(id, "op_") }
+
+func durableOperationDocument(snapshot app.RunSnapshot) operationDocument {
+	reason := snapshot.Cancellation.Reason
+	if snapshot.Terminal != nil && snapshot.Terminal.Reason != "" {
+		reason = snapshot.Terminal.Reason
+	}
+	return operationDocument{
+		ID: string(snapshot.RunID), Kind: app.OperationKind(snapshot.Target.Operation), State: string(snapshot.Lifecycle), Reason: reason,
+		CreatedAt: snapshot.AcceptedAt, StartedAt: snapshot.StartedAt, FinishedAt: snapshot.FinishedAt,
+		LastEventID:   strconv.FormatUint(snapshot.LastSequence, 10),
+		DurableStatus: durableStatusDTO{Available: true, RefreshPath: "/runs/" + string(snapshot.RunID)},
+	}
+}
+
+func durableActiveOperation(snapshot app.RunSnapshot) activeOperationDTO {
+	return activeOperationDTO{
+		ID: string(snapshot.RunID), Kind: app.OperationKind(snapshot.Target.Operation), State: string(snapshot.Lifecycle),
+		Project: snapshot.Target.Project, Sprint: snapshot.Target.Sprint, Study: snapshot.Target.Study, StartedAt: snapshot.StartedAt,
+	}
+}
+
+// followDurableOperationEvents is the compatibility projection for a run that
+// was accepted by this or another local server but is absent from this
+// process's transient operation hub.
+func (h *handler) followDurableOperationEvents(w http.ResponseWriter, r *http.Request, id string, after uint64) bool {
+	if h.runs == nil {
+		return false
+	}
+	snapshot, err := h.runs.Run(r.Context(), app.RunID(id))
+	if err != nil || string(snapshot.RunID) != id || snapshot.Target.Kind != "operation" {
+		return false
+	}
+	if after > snapshot.LastSequence {
+		h.writeError(w, r, http.StatusConflict, "cursor_ahead", "The event cursor is ahead of the durable operation.")
+		return true
+	}
+	if after+1 < snapshot.OldestRetainedSequence {
+		h.writeError(w, r, http.StatusConflict, "replay_gap", "The requested operation history is no longer retained; refresh its canonical run.")
+		return true
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		h.writeOperationError(w, r, errors.New("streaming unavailable"))
+		return true
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+	heartbeat := time.NewTicker(SSEHeartbeat)
+	defer heartbeat.Stop()
+	lifetime := time.NewTimer(MaxStreamLifetime)
+	defer lifetime.Stop()
+	poll := time.NewTimer(0)
+	defer poll.Stop()
+	for {
+		select {
+		case <-poll.C:
+			events, eventErr := h.runs.RunEvents(r.Context(), snapshot.RunID, after, 512)
+			if eventErr != nil {
+				return true
+			}
+			for _, event := range events {
+				projected := durableOperationEvent(event)
+				if err := writeSSEEvent(w, projected); err != nil {
+					return true
+				}
+				after = event.Sequence
+			}
+			flusher.Flush()
+			snapshot, eventErr = h.runs.Run(r.Context(), snapshot.RunID)
+			if eventErr != nil || snapshot.Lifecycle.IsTerminal() && after >= snapshot.LastSequence {
+				return true
+			}
+			wait := time.Second
+			if len(events) == 512 || after < snapshot.LastSequence {
+				wait = 250 * time.Millisecond
+			}
+			poll.Reset(wait)
+		case <-heartbeat.C:
+			if _, err := io.WriteString(w, ": heartbeat\n\n"); err != nil {
+				return true
+			}
+			flusher.Flush()
+		case <-lifetime.C:
+			return true
+		case <-r.Context().Done():
+			return true
+		}
+	}
+}
+
+func durableOperationEvent(event app.RunEvent) operationEvent {
+	name := "progress"
+	switch string(event.Type) {
+	case "accepted", "claimed", "lifecycle":
+		name = "snapshot"
+	case "warning", "finding", "artifact", "terminal":
+		name = string(event.Type)
+	case "cancellation":
+		name = "cancel_requested"
+	case "recovery", "omission":
+		name = "recovery_required"
+	}
+	payload := map[string]any{"stage": event.Stage, "task": event.Task, "payload": event.Payload, "omission": event.Omission}
+	body, _ := json.Marshal(map[string]any{
+		"operation_id": string(event.RunID), "time": event.CommittedAt.UTC().Format(time.RFC3339Nano),
+		"sequence": event.Sequence, "payload": payload,
+	})
+	return operationEvent{ID: event.Sequence, Name: name, Data: body}
 }
 
 func operationSpecFromForm(r *http.Request) operationSpecRequest {

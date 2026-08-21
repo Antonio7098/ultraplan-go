@@ -2,6 +2,9 @@ package tui
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -102,9 +105,29 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case ActionCancel:
+			if m.model.Running && m.model.ActiveRunID != "" {
+				if runs, ok := m.model.UseCases.(app.RunUseCases); ok {
+					if _, _, err := runs.CancelRun(m.ctx, app.RunID(m.model.ActiveRunID), "user_requested"); err != nil {
+						m.model.Error = err.Error()
+					} else if m.model.Operation != nil {
+						m.model.Operation.Message = "durable cancellation requested; waiting for owner acknowledgement"
+					}
+					return m, nil
+				}
+			}
 			if m.model.Running && m.cancel != nil {
 				m.cancel()
 				return m, nil
+			}
+			if route := m.model.currentRoute(); route.Kind == RouteRun && route.RunID != "" {
+				if runs, ok := m.model.UseCases.(app.RunUseCases); ok {
+					if _, _, err := runs.CancelRun(m.ctx, app.RunID(route.RunID), "user_requested"); err != nil {
+						m.model.Error = err.Error()
+					} else {
+						m.model.Error = "durable cancellation requested"
+					}
+					return m, m.refreshCmd()
+				}
 			}
 			study := m.model.RunViewStudy
 			if study == "" {
@@ -117,8 +140,9 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case ActionQuit:
-			if m.model.Running && m.cancel != nil {
-				m.cancel()
+			if m.model.Running {
+				m.model.OperationHidden = true
+				m.model.Error = "active durable work was not cancelled; press c to request cancellation or reopen its run"
 				return m, nil
 			}
 			m.model = m.model.Update(KeyMsg(v.String()))
@@ -162,6 +186,9 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.previewCmd()
 			}
 			m.model = m.model.Update(KeyMsg(v.String()))
+			if m.model.currentRoute().Kind == RouteRun {
+				return m, tea.Batch(m.refreshCmd(), runViewTickCmd())
+			}
 			return m, nil
 		case ActionBack, ActionFocusNext, ActionLeft, ActionRight:
 			if action == ActionBack && m.model.Running && !m.model.OperationHidden && (m.model.ActiveOperation.Kind == app.OperationStudyStart || m.model.ActiveOperation.Kind == app.OperationStudyResume) {
@@ -193,7 +220,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.model = m.model.Update(v)
 		return m, nil
 	case runViewTickMsg:
-		if m.model.RunViewStudy != "" {
+		if m.model.RunViewStudy != "" || m.model.currentRoute().Kind == RouteRun {
 			return m, tea.Batch(m.refreshCmd(), runViewTickCmd())
 		}
 		return m, nil
@@ -204,6 +231,28 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m teaModel) beginOperation(req app.OperationRequest) (tea.Model, tea.Cmd) {
 	opctx, cancel := context.WithCancel(m.ctx)
+	acceptedRunID := ""
+	if manager, ok := m.model.UseCases.(app.DurableOperationManager); ok && m.model.Confirmation != nil {
+		basis := m.model.Confirmation.CanonicalRequest + "\x00" + m.model.Confirmation.InputFingerprint
+		digest := sha256.Sum256([]byte(basis))
+		accepted, err := manager.AcceptOperation(opctx, *m.model.Confirmation, hex.EncodeToString(digest[:]))
+		if err != nil {
+			cancel()
+			m.model.Error = err.Error()
+			m.model.Loading = false
+			return m, nil
+		}
+		if accepted.Existing {
+			cancel()
+			m.model.Operation = &app.OperationResult{State: app.OperationState(accepted.Lifecycle), RunID: accepted.RunID, Message: "matching durable operation already exists"}
+			m.model.Confirmation = nil
+			return m, nil
+		}
+		acceptedRunID = accepted.RunID
+		if accepted.Context != nil {
+			opctx = accepted.Context
+		}
+	}
 	m.cancel = cancel
 	m.model.Running = true
 	m.model.Events = nil
@@ -212,10 +261,11 @@ func (m teaModel) beginOperation(req app.OperationRequest) (tea.Model, tea.Cmd) 
 	m.model.ActiveOperation = req
 	m.model.OperationShowPrevious = false
 	m.model.OperationHidden = false
-	m.model.Operation = &app.OperationResult{State: app.OperationRunning, Subject: operationSubject(req), Message: "operation running; press q or ctrl+c to cancel"}
+	m.model.ActiveRunID = acceptedRunID
+	m.model.Operation = &app.OperationResult{State: app.OperationRunning, RunID: acceptedRunID, Subject: operationSubject(req), Message: "operation running; c requests durable cancellation; q keeps the run active"}
 	stream := make(chan app.OperationEvent, 128)
 	m.eventStream = stream
-	return m, tea.Batch(m.operationCmd(opctx, req, stream), waitOperationEvent(stream))
+	return m, tea.Batch(m.operationCmd(opctx, req, acceptedRunID, stream), waitOperationEvent(stream))
 }
 
 func runViewTickCmd() tea.Cmd {
@@ -229,16 +279,34 @@ func (m teaModel) confirmationCmd(req app.OperationRequest) tea.Cmd {
 		return ConfirmationMsg{Result: r, Err: e, Route: route}
 	}
 }
-func (m teaModel) operationCmd(ctx context.Context, req app.OperationRequest, stream chan app.OperationEvent) tea.Cmd {
+func (m teaModel) operationCmd(ctx context.Context, req app.OperationRequest, runID string, stream chan app.OperationEvent) tea.Cmd {
 	route := m.model.currentRoute()
 	return func() tea.Msg {
 		defer close(stream)
 		r, e := m.model.UseCases.RunOperation(ctx, req, func(event app.OperationEvent) {
+			if manager, ok := m.model.UseCases.(app.DurableOperationManager); ok && runID != "" {
+				committed, err := manager.RecordOperationEvent(context.Background(), runID, event)
+				if err != nil && !errors.Is(err, app.ErrWebUnavailable) {
+					return
+				}
+				if err == nil && !committed {
+					return
+				}
+			}
 			select {
 			case stream <- event:
 			default:
 			}
 		})
+		r.RunID = runID
+		if manager, ok := m.model.UseCases.(app.DurableOperationManager); ok && runID != "" {
+			finishCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			finishErr := manager.FinishOperation(finishCtx, runID, r.State, e)
+			cancel()
+			if finishErr != nil {
+				e = errors.Join(e, finishErr)
+			}
+		}
 		return OperationMsg{Result: r, Err: e, Route: route}
 	}
 }
@@ -274,16 +342,50 @@ func (m teaModel) View() string {
 
 func (m teaModel) loadCmd() tea.Cmd {
 	return func() tea.Msg {
-		result, err := m.model.UseCases.Dashboard(m.ctx)
-		return LoadMsg{Result: result, Err: err}
+		result, runs, events, err := m.dashboardAndRuns()
+		return LoadMsg{Result: result, Runs: runs, Events: events, Err: err}
 	}
 }
 
 func (m teaModel) refreshCmd() tea.Cmd {
 	return func() tea.Msg {
-		result, err := m.model.UseCases.Dashboard(m.ctx)
-		return RefreshMsg{Result: result, Err: err}
+		result, runs, events, err := m.dashboardAndRuns()
+		return RefreshMsg{Result: result, Runs: runs, Events: events, Err: err}
 	}
+}
+
+func (m teaModel) dashboardAndRuns() (app.DashboardResult, []app.RunSnapshot, []app.RunEvent, error) {
+	result, err := m.model.UseCases.Dashboard(m.ctx)
+	if err != nil {
+		return result, nil, nil, err
+	}
+	runsCapability, ok := m.model.UseCases.(app.RunUseCases)
+	if !ok {
+		return result, nil, nil, nil
+	}
+	page, err := runsCapability.Runs(m.ctx, app.RunQuery{Limit: 200})
+	if err != nil && !errors.Is(err, app.ErrWebUnavailable) {
+		return result, nil, nil, err
+	}
+	var events []app.RunEvent
+	route := m.model.currentRoute()
+	if route.Kind == RouteRun && route.RunID != "" {
+		for _, snapshot := range page.Runs {
+			if string(snapshot.RunID) != route.RunID {
+				continue
+			}
+			after := uint64(0)
+			if snapshot.OldestRetainedSequence > 1 {
+				after = snapshot.OldestRetainedSequence - 1
+			}
+			events, err = runsCapability.RunEvents(m.ctx, snapshot.RunID, after, 200)
+			if err != nil {
+				return result, page.Runs, nil, err
+			}
+			break
+		}
+	}
+	return result, page.Runs, events, nil
 }
 
 func (m teaModel) previewCmd() tea.Cmd {

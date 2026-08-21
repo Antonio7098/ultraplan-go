@@ -34,6 +34,22 @@ type WebOperations interface {
 	RunOperation(context.Context, OperationRequest, func(OperationEvent)) (OperationResult, error)
 }
 
+// DurableOperationManager is an optional capability used by interactive
+// adapters to persist acceptance and the first owner claim before they create
+// an execution goroutine. The confirmation digest is already non-reversible.
+type DurableOperationManager interface {
+	AcceptOperation(context.Context, Confirmation, string) (AcceptedOperation, error)
+	RecordOperationEvent(context.Context, string, OperationEvent) (bool, error)
+	FinishOperation(context.Context, string, OperationState, error) error
+}
+
+type AcceptedOperation struct {
+	RunID     string
+	Context   context.Context
+	Existing  bool
+	Lifecycle string
+}
+
 // OperationCleanupRecorder is an optional durability capability used by a
 // server that can no longer prove cleanup before its shutdown deadline.
 // Transport adapters supply identity and reason; product modules own storage.
@@ -134,6 +150,7 @@ type OperationEvent struct {
 }
 type OperationResult struct {
 	State                     OperationState
+	RunID                     string
 	Subject, Message, Content string
 	Truncated                 bool
 	Findings                  []DisplayFinding

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoadPrecedenceAndValidation(t *testing.T) {
@@ -160,6 +161,52 @@ func TestValidateRejectsRuntimeMappingValues(t *testing.T) {
 			mutate(&c)
 			if err := Validate(c); err == nil {
 				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+func TestRunControlConfigDefaultsPrecedenceAndBounds(t *testing.T) {
+	defaults := Defaults().RunControl
+	if defaults.FullHistory != "168h" || defaults.TombstoneHistory != "720h" || defaults.WorkspaceQuota != 512<<20 {
+		t.Fatalf("run-control defaults = %+v", defaults)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ultraplan.yml"), []byte(`version: 1
+run_control:
+  full_history: 48h
+  tombstone_history: 240h
+  workspace_quota_bytes: 268435456
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	effective, err := Load(LoadOptions{WorkspaceRoot: root, Env: func(key string) string {
+		if key == "ULTRAPLAN_RUN_CONTROL_FULL_HISTORY" {
+			return "72h"
+		}
+		return ""
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.Config.RunControl.FullHistory != "72h" || effective.Config.RunControl.TombstoneHistory != "240h" || effective.Config.RunControl.WorkspaceQuota != 256<<20 {
+		t.Fatalf("run-control effective config = %+v", effective.Config.RunControl)
+	}
+	if effective.Sources["run_control.full_history"] != "env" || effective.Sources["run_control.tombstone_history"] != "workspace" {
+		t.Fatalf("run-control sources = %+v", effective.Sources)
+	}
+
+	for name, mutate := range map[string]func(*Config){
+		"short full history": func(c *Config) { c.RunControl.FullHistory = (time.Minute * 59).String() },
+		"short tombstone":    func(c *Config) { c.RunControl.TombstoneHistory = "23h" },
+		"reversed retention": func(c *Config) { c.RunControl.FullHistory, c.RunControl.TombstoneHistory = "48h", "24h" },
+		"small quota":        func(c *Config) { c.RunControl.WorkspaceQuota = (64 << 20) - 1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := Defaults()
+			mutate(&config)
+			if err := Validate(config); err == nil {
+				t.Fatal("expected run-control validation error")
 			}
 		})
 	}

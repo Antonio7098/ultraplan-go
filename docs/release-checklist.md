@@ -137,3 +137,30 @@ Before publishing, confirm:
 - prompt/template changes are intentional.
 - runtime metadata redaction remains active in status, health, logs, and smoke evidence.
 - run-state and JSON schema versions are documented where stable.
+- Durable run-control schema, migration backup/restore, WAL/FULL-sync, private
+  permissions, unsupported-schema, and corruption checks pass.
+- Every asynchronous CLI, TUI, web, runtime-child, and external-harness entry
+  has acceptance/claim-before-start and no-child-on-persistence-failure evidence.
+- Canonical run CLI/JSON/HTML/SSE and operation compatibility fixtures agree on
+  identity, lifecycle, liveness, cancellation, product status, cursor gaps, and
+  terminal outcomes across process/session restart.
+- Retention, quota/headroom, owner lease/fencing/process-birth, reconciliation,
+  terminal races, sanitization, diagnostics, and private bounded support export
+  tests pass under normal and race suites.
+- Release evidence records `modernc.org/sqlite` version, binary-size impact,
+  Linux/macOS amd64/arm64 build results, local-filesystem topology limits, and
+  polling/write measurements.
+- Architecture Review and Sprint Review are current before Deep Smoke Sprint.
+  Missing runtime/browser/platform prerequisites are recorded as blocked, never
+  promoted to passing evidence.
+
+Sprint 35 local release evidence (2026-08-21):
+
+- `modernc.org/sqlite v1.57.0` is pinned; the Linux amd64 CLI is 33,635,397
+  bytes, 6,923,097 bytes above the 26,712,300-byte pre-app-wiring checkpoint.
+- Linux arm64 and Darwin amd64/arm64 CLI cross-builds pass; Darwin amd64/arm64
+  run-control test binaries also cross-compile.
+- On the recorded Linux amd64 developer machine, `synchronous=FULL` committed
+  append benchmarks measured 0.99–1.40 ms/op and 512-event indexed replay
+  measured 2.05–2.18 ms/page over three one-second samples. These figures are
+  release evidence, not latency guarantees.

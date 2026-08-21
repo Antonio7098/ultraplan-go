@@ -216,3 +216,25 @@ Smoke configuration is resolved after manifest defaults and before command/TUI o
 ## Redaction
 
 UltraPlan redacts sensitive-looking values in config, logs, diagnostics, status output, and health output. Do not place provider tokens in `ultraplan.yml`; prefer runtime-native environment or credential stores. Release evidence must not include provider tokens, full sensitive environment dumps, full prompts, full report bodies, or raw unsafe runtime payloads.
+## Run-control retention and quota
+
+The following settings participate in the normal default/YAML/environment/CLI
+effective-configuration reporting and are safe to expose through redacted
+diagnostics:
+
+| Setting | Default | Constraint |
+| --- | ---: | --- |
+| `run_control.full_history` | `168h` | at least `1h` |
+| `run_control.tombstone_history` | `720h` | at least `24h` |
+| `run_control.workspace_quota_bytes` | `536870912` | at least 64 MiB |
+
+Environment names use the existing UltraPlan convention:
+`ULTRAPLAN_RUN_CONTROL_FULL_HISTORY`,
+`ULTRAPLAN_RUN_CONTROL_TOMBSTONE_HISTORY`, and
+`ULTRAPLAN_RUN_CONTROL_WORKSPACE_QUOTA_BYTES`.
+
+The 16 MiB reserved headroom, 496 MiB default soft threshold, lease/heartbeat
+timings, 16 KiB event limit, 4,096-event and 16 MiB per-run limits, replay page
+size, and polling intervals are fixed safety invariants rather than settings.
+Invalid combinations fail configuration loading before the repository accepts
+new work.

@@ -27,6 +27,7 @@ type Options struct {
 	OpenBrowser   bool
 	Queries       app.WebQueries
 	Operations    app.WebOperations
+	Runs          app.RunUseCases
 	Stdout        io.Writer
 	Diagnostics   io.Writer
 	ListenFunc    func(string, string) (net.Listener, error)
@@ -85,6 +86,7 @@ func Run(ctx context.Context, opts Options) error {
 	handler, err := NewHandler(HandlerOptions{
 		Queries:     opts.Queries,
 		Operations:  opts.Operations,
+		Runs:        opts.Runs,
 		Authority:   authority,
 		Diagnostics: diagnostics,
 		Now:         opts.Now,

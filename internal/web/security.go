@@ -130,14 +130,16 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		apiOperationMutation := (r.Method == http.MethodPost || r.Method == http.MethodDelete) && strings.HasPrefix(r.URL.Path, "/api/v1/operations")
-		htmlOperationMutation := r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/operations/")
-		operationMutation := apiOperationMutation || htmlOperationMutation
 		matchedRoute := matchRoute(r.URL.Path)
+		apiOperationMutation := (r.Method == http.MethodPost || r.Method == http.MethodDelete) && strings.HasPrefix(r.URL.Path, "/api/v1/operations")
+		apiRunMutation := r.Method == http.MethodDelete && matchedRoute.name == "api_run"
+		htmlOperationMutation := r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/operations/")
+		htmlRunMutation := r.Method == http.MethodPost && matchedRoute.name == "run_cancel"
+		operationMutation := apiOperationMutation || apiRunMutation || htmlOperationMutation || htmlRunMutation
 		operationRead := (r.Method == http.MethodGet || r.Method == http.MethodHead) && (matchedRoute.name == "api_operation" || matchedRoute.name == "api_operation_events")
 		staticAsset := (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.HasPrefix(r.URL.Path, "/static/")
 		hasBody := r.ContentLength > 0 || len(r.TransferEncoding) > 0
-		operationBody := r.Method == http.MethodPost && (matchedRoute.name == "api_operation_prepare" || matchedRoute.name == "api_operations" || matchedRoute.name == "operation_prepare" || matchedRoute.name == "operation_start" || matchedRoute.name == "operation_cancel")
+		operationBody := r.Method == http.MethodPost && (matchedRoute.name == "api_operation_prepare" || matchedRoute.name == "api_operations" || matchedRoute.name == "operation_prepare" || matchedRoute.name == "operation_start" || matchedRoute.name == "operation_cancel" || matchedRoute.name == "run_cancel")
 		switch {
 		case len(r.RequestURI) > MaxRequestTarget:
 			m.reject(tracked, r, http.StatusBadRequest, "invalid_request", "The request target is too long.")
@@ -149,10 +151,8 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 			m.reject(tracked, r, http.StatusForbidden, "session_required", "Establish a browser session before submitting commands.")
 		case operationMutation && !validCommandRequestOrigin(r, m.origin):
 			m.reject(tracked, r, http.StatusForbidden, "origin_rejected", originRejectionMessage(m.origin, r.Header.Get("Origin")))
-		case apiOperationMutation && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(csrf)) != 1:
+		case (apiOperationMutation || apiRunMutation) && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(csrf)) != 1:
 			m.reject(tracked, r, http.StatusForbidden, "csrf_failed", "The CSRF proof did not match this browser session. Refresh the UltraPlan page and prepare the operation again.")
-		case operationRead && !validSession:
-			m.reject(tracked, r, http.StatusForbidden, "session_required", "The operation stream belongs to a browser session that is no longer available. Refresh the owning UltraPlan page.")
 		case operationRead && !validOperationReadRequestOrigin(r, m.origin):
 			m.reject(tracked, r, http.StatusForbidden, "origin_rejected", originRejectionMessage(m.origin, r.Header.Get("Origin")))
 		case !operationMutation && !operationRead && !staticAsset && !validReadRequestOrigin(r, m.origin):

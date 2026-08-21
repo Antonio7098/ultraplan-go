@@ -65,6 +65,57 @@ type dashboardUseCases struct {
 	reviewConcurrency int
 	smokeSettings     sprint.SmokeSettings
 	readOnly          bool
+	runs              RunUseCases
+	durable           DurableOperationManager
+}
+
+func (u dashboardUseCases) Runs(ctx context.Context, query RunQuery) (RunPage, error) {
+	if u.runs == nil {
+		return RunPage{}, ErrWebUnavailable
+	}
+	return u.runs.Runs(ctx, query)
+}
+func (u dashboardUseCases) Run(ctx context.Context, id RunID) (RunSnapshot, error) {
+	if u.runs == nil {
+		return RunSnapshot{}, ErrWebUnavailable
+	}
+	return u.runs.Run(ctx, id)
+}
+func (u dashboardUseCases) RunEvents(ctx context.Context, id RunID, after uint64, limit int) ([]RunEvent, error) {
+	if u.runs == nil {
+		return nil, ErrWebUnavailable
+	}
+	return u.runs.RunEvents(ctx, id, after, limit)
+}
+func (u dashboardUseCases) CancelRun(ctx context.Context, id RunID, reason string) (RunSnapshot, bool, error) {
+	if u.runs == nil {
+		return RunSnapshot{}, false, ErrWebUnavailable
+	}
+	return u.runs.CancelRun(ctx, id, reason)
+}
+func (u dashboardUseCases) RunHealth(ctx context.Context) (RunHealthResult, error) {
+	if u.runs == nil {
+		return RunHealthResult{}, ErrWebUnavailable
+	}
+	return u.runs.RunHealth(ctx)
+}
+func (u dashboardUseCases) AcceptOperation(ctx context.Context, confirmation Confirmation, digest string) (AcceptedOperation, error) {
+	if u.durable == nil {
+		return AcceptedOperation{}, ErrWebUnavailable
+	}
+	return u.durable.AcceptOperation(ctx, confirmation, digest)
+}
+func (u dashboardUseCases) RecordOperationEvent(ctx context.Context, id string, event OperationEvent) (bool, error) {
+	if u.durable == nil {
+		return false, ErrWebUnavailable
+	}
+	return u.durable.RecordOperationEvent(ctx, id, event)
+}
+func (u dashboardUseCases) FinishOperation(ctx context.Context, id string, state OperationState, err error) error {
+	if u.durable == nil {
+		return ErrWebUnavailable
+	}
+	return u.durable.FinishOperation(ctx, id, state, err)
 }
 
 func (u dashboardUseCases) sprintService() sprint.Service {

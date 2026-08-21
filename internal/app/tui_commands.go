@@ -39,6 +39,12 @@ func runTUI(deps dependencies, args []string) error {
 		reviewConcurrency: effective.Config.Execution.DefaultParallel,
 		smokeSettings:     smokeSettings(effective, envLookup(deps.env)),
 	}
+	repository, _, err := runRepository(deps)
+	if err != nil {
+		return err
+	}
+	useCases.runs = repositoryRunUseCases{repository: repository}
+	useCases.durable = newDurableOperationManager(repository, deps.runControl.owner)
 	useCases.runner = sharedOperationRunner(deps, root, effective, useCases)
 	if deps.tuiRunner == nil {
 		return classified(ExitError, "tui.start: tui runner is not configured")
