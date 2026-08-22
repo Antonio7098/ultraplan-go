@@ -564,3 +564,30 @@ func operationFormRequest(h http.Handler, target string, values url.Values, cook
 	h.ServeHTTP(res, req)
 	return res
 }
+
+type runtimeEchoWebOperations struct {
+	*fakeWebOperations
+}
+
+func (f *runtimeEchoWebOperations) PrepareOperation(ctx context.Context, req app.OperationRequest) (app.Confirmation, error) {
+	confirmation, err := f.fakeWebOperations.PrepareOperation(ctx, req)
+	confirmation.Runtime = true
+	return confirmation, err
+}
+
+func TestOperationHTTPPrepareIncludesRequestedModel(t *testing.T) {
+	ops := &runtimeEchoWebOperations{fakeWebOperations: newFakeWebOperations()}
+	h := operationTestHandler(t, ops)
+	cookie, csrf := establishOperationSession(t, h)
+	prepareBody := `{"operation":{"kind":"sprint_flow","scope":{"project":"alpha","sprint":"31-web"},"options":{"to_stage":"plan","model":"vendor/requested"}}}`
+	prepared := operationMutationRequest(h, http.MethodPost, "/api/v1/operations/prepare", prepareBody, cookie, csrf)
+	if prepared.Code != http.StatusOK {
+		t.Fatalf("prepare status=%d body=%s", prepared.Code, prepared.Body.String())
+	}
+	body := prepared.Body.String()
+	for _, want := range []string{`"model":"vendor/requested"`, `"options":{`, `"kind":"configured_runtime"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %s: %s", want, body)
+		}
+	}
+}

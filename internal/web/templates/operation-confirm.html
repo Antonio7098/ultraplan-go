@@ -6,6 +6,8 @@
   <dl class="metadata">
     <div><dt>Kind</dt><dd>{{index .Preparation.Operation "kind"}}</dd></div>
     <div><dt>Mutation class</dt><dd>{{.Preparation.MutationClass}}</dd></div>
+    {{if .Preparation.Runtime}}{{with index .Preparation.Runtime "model"}}<div><dt>Model</dt><dd><code>{{.}}</code></dd></div>{{end}}{{end}}
+    {{if .Preparation.Runtime}}{{with index .Preparation.Runtime "model_source"}}<div><dt>Model source</dt><dd>{{.}}</dd></div>{{end}}{{end}}
     <div><dt>Expires</dt><dd>{{.Preparation.ExpiresAt}}</dd></div>
   </dl>
   <h3>Affected paths</h3><ul>{{range .Preparation.AffectedPaths}}<li><code>{{.}}</code></li>{{end}}</ul>

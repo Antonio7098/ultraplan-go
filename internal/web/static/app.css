@@ -195,6 +195,10 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .operation-timeline li { padding: .4rem 0; border-bottom: 1px solid var(--border-soft); overflow-wrap: anywhere; }
 .flow-action { display: flex; align-items: end; flex-wrap: wrap; gap: .65rem; }
 .parallelism-choice { display: inline-flex; align-items: center; gap: .5rem; color: var(--muted); font-size: .78rem; }
+.model-choice { display: inline-flex; flex-direction: column; gap: .3rem; color: var(--muted); font-size: .78rem; }
+.model-choice input { min-height: 2.25rem; box-sizing: border-box; min-width: 14rem; max-width: 24rem; padding: .45rem .7rem; border: 1px solid var(--input); border-radius: .5rem; background: var(--control); color: var(--text); font: inherit; }
+.model-choice input:hover, .model-choice input:focus { border-color: var(--accent); }
+.model-choice input::placeholder { color: var(--muted); }
 .flow-action label { display: flex; flex-direction: column; gap: .3rem; color: var(--muted); font-size: .78rem; }
 .sprint-goal { max-width: 58rem; color: var(--text); font-size: clamp(1.05rem, 2vw, 1.35rem); line-height: 1.55; }
 .sprint-overview-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(18rem, .85fr); gap: 1rem; align-items: stretch; }

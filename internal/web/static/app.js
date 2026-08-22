@@ -663,24 +663,29 @@
   }
 
   async function loadModelChoices() {
-    const selects = [...document.querySelectorAll("select[data-model-select]")];
-    if (selects.length === 0 || !window.UltraPlanOperations) return;
+    const inputs = [...document.querySelectorAll("input[data-model-input]")];
+    if (inputs.length === 0 || !window.UltraPlanOperations) return;
     let data;
     try {
       data = await command("/api/v1/models", null, "GET");
     } catch {
       return;
     }
-    const models = Array.isArray(data?.models) ? data.models : [];
-    for (const select of selects) {
+    const list = document.getElementById("ultraplan-model-options");
+    if (list) {
+      const models = Array.isArray(data?.models) ? data.models : [];
       for (const model of models) {
         const reference = [model.provider, model.id].filter(Boolean).join("/");
-        if (!reference || select.querySelector(`option[value="${CSS.escape(reference)}"]`)) continue;
+        if (!reference || list.querySelector(`option[value="${CSS.escape(reference)}"]`)) continue;
         const option = document.createElement("option");
         option.value = reference;
-        option.textContent = reference;
-        if (reference === data.default) option.textContent += " (workspace default)";
-        select.appendChild(option);
+        if (reference === data.default) option.label = `${reference} (workspace default)`;
+        list.appendChild(option);
+      }
+    }
+    if (data?.default) {
+      for (const input of inputs) {
+        input.placeholder = `Workspace default (${data.default})`;
       }
     }
   }

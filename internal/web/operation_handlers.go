@@ -110,12 +110,22 @@ func (h *handler) handleOperationPrepare(w http.ResponseWriter, r *http.Request)
 		InputFingerprint: confirmation.InputFingerprint, ExpiresAt: record.ExpiresAt, ConfirmationToken: record.Token,
 	}
 	if confirmation.Runtime {
-		dto.Runtime = map[string]any{"kind": "configured_runtime", "model_source": confirmation.ModelSource}
+		dto.Runtime = runtimeConfirmationDTO(confirmation)
 	}
 	if confirmation.Request.Kind == app.OperationSmokeStart || confirmation.Request.Kind == app.OperationSmokeDryRun {
 		dto.Harness = map[string]any{"kind": "configured_smoke_harness"}
 	}
 	h.writeSuccess(w, r, http.StatusOK, dto, nil)
+}
+
+// runtimeConfirmationDTO projects the runtime identity confirmed for an
+// operation, including any caller-requested model override.
+func runtimeConfirmationDTO(confirmation app.Confirmation) map[string]any {
+	runtime := map[string]any{"kind": "configured_runtime", "model_source": confirmation.ModelSource}
+	if model := strings.TrimSpace(confirmation.Request.Model); model != "" {
+		runtime["model"] = model
+	}
+	return runtime
 }
 
 func (h *handler) handleOperationStart(w http.ResponseWriter, r *http.Request) {
@@ -308,6 +318,9 @@ func (h *handler) handleHTMLOperationPrepare(w http.ResponseWriter, r *http.Requ
 		PreparationID: record.ID, Operation: mapOperationSpec(prepared.Request), AffectedPaths: append([]string(nil), prepared.Paths...),
 		MutationClass: prepared.MutationClass, Prerequisites: append([]string(nil), prepared.Prerequisites...),
 		InputFingerprint: prepared.InputFingerprint, ExpiresAt: record.ExpiresAt, ConfirmationToken: record.Token,
+	}
+	if prepared.Runtime {
+		dto.Runtime = runtimeConfirmationDTO(prepared)
 	}
 	view := &operationPreparationView{Preparation: dto, Spec: spec}
 	h.render(w, r, http.StatusOK, "operation-confirm", pageModel{Title: "Confirm operation", Heading: "Confirm current operation scope", Preparation: view})
