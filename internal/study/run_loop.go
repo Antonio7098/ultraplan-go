@@ -275,7 +275,6 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			t.RetryAfter = nil
 			t.Agent = AgentMetadata{}
 		}))
-		emitTask(RunLoopProgressStarted, id)
 		diagnostics.sample("runtime.start", id, 0, nil)
 		runtimeStarted := time.Now()
 		var res ExecutionResult
@@ -357,6 +356,10 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		for _, id := range ids {
 			attempted[id] = true
 			active++
+			// Emit Started at claim time so progress ordering matches the
+			// scheduler's deterministic tier order rather than racing worker
+			// goroutines.
+			emitTask(RunLoopProgressStarted, id)
 			go func(id string) {
 				runTask(id)
 				done <- struct{}{}
