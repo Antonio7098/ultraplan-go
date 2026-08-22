@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -182,7 +183,7 @@ func TestSprintValidatePromptAndDryRunCommands(t *testing.T) {
 	writeCommandCompletedCodeContext(t, dir, "proj", "01-alpha")
 	writeFixtureFileContent(t, base, commandValidSprintIndex(), "sprint-index.md")
 	writeFixtureFileContent(t, base, commandValidTechnicalHandbook(), "technical-handbook.md")
-	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(), "project-index.md")
+	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(t), "project-index.md")
 	writeFixtureFileContent(t, dir, "# Evidence\n", "studies", "go-cli-study", "reports", "final", "01-project-structure.md")
 	writeFixtureFileContent(t, dir, "# Architecture Template\n", "system", "reasoning", "architecture_reasoning_template.md")
 
@@ -420,7 +421,7 @@ agentwrap:
 	base := filepath.Join(dir, "projects", "proj", "sprints", "01-alpha")
 	writeFixtureFileContent(t, base, "# Requirements\n\nSelect stage.\n", "requirements.md")
 	writeFixtureFileContent(t, base, commandValidSprintIndex(), "sprint-index.md")
-	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(), "project-index.md")
+	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(t), "project-index.md")
 	writeFixtureFileContent(t, dir, "# Evidence\n", "studies", "go-cli-study", "reports", "final", "01-project-structure.md")
 	writeFixtureFileContent(t, dir, "# Architecture Template\n", "system", "reasoning", "architecture_reasoning_template.md")
 
@@ -522,7 +523,7 @@ func TestSprintValidateFailuresAndUnsupportedStages(t *testing.T) {
 	base := filepath.Join(dir, "projects", "proj", "sprints", "01-alpha")
 	writeFixtureFileContent(t, base, "# Requirements\n\nSelect stage.\n", "requirements.md")
 	writeFixtureFileContent(t, base, "# Sprint Index\n\nTODO\n", "sprint-index.md")
-	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(), "project-index.md")
+	writeFixtureFileContent(t, filepath.Join(dir, "projects", "proj"), commandProjectIndex(t), "project-index.md")
 
 	stdout, stderr, status := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "validate", "sprint-index"})
 	if status != ExitValidation {
@@ -610,12 +611,39 @@ func writeCommandSprintProject(t *testing.T, root, projectName, sprintSlug strin
 	writeFixtureFileContent(t, base, "# Project Index\n", "project-index.md")
 }
 
-func commandProjectIndex() string {
+func commandProjectIndex(t *testing.T) string {
+	t.Helper()
+	target := filepath.Join(t.TempDir(), "target")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-b", "main"}, {"config", "user.name", "UltraPlan Test"}, {"config", "user.email", "test@ultraplan.invalid"}} {
+		cmd := exec.Command("git", append([]string{"-C", target}, args...)...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git fixture: %s: %v", output, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(target, "README.md"), []byte("test target\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(target, "internal", "sprint"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	serviceFixture := strings.Repeat("package sprint\n", 24)
+	if err := os.WriteFile(filepath.Join(target, "internal", "sprint", "service.go"), []byte(serviceFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "README.md", "internal/sprint/service.go"}, {"commit", "-m", "baseline"}} {
+		cmd := exec.Command("git", append([]string{"-C", target}, args...)...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git fixture: %s: %v", output, err)
+		}
+	}
 	return `# Project Index
 
 ## Project Scope
 
-- **Target Implementation Directory:** /home/antonioborgerees/coding/ultraplan/ultraplan-go
+- **Target Implementation Directory:** ` + target + `
 
 ## Active Contract Pool
 

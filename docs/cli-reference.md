@@ -1,6 +1,6 @@
 # CLI Reference
 
-This release includes study commands and governed sprint planning, execute, resumable automated review, integrated `verify`, focused review reruns, review-gated deep smoke, the terminal dashboard, and a loopback-only browser dashboard with guarded operations and SSE progress. Issue management, Git mutation, and hosted services remain deferred.
+This release includes study commands and governed sprint planning, execute, resumable automated review, integrated `verify`, focused review reruns, review-gated deep smoke, the terminal dashboard, and a loopback-only browser dashboard with guarded operations and SSE progress. Issue management, Git mutation beyond sprint worktree creation, and hosted services remain deferred.
 
 ## Global Usage
 

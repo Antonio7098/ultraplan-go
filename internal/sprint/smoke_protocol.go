@@ -123,7 +123,7 @@ func (s Service) prepareSmokeStatic(projectRef, sprintRef string, req SmokeReque
 		return smokePrepared{}, smokeError("smoke_catalog", "catalog", "exactly one smoke harness is required", "Add one current Smoke Harnesses row to project-index.md.", nil)
 	}
 	entry := entries[0]
-	target, targetFindings := ResolveExecuteTarget(inputs.ProjectIndex)
+	target, targetFindings := s.resolveSprintTarget(sp, inputs.ProjectIndex, false)
 	if len(targetFindings) > 0 || target.Path == "" {
 		return smokePrepared{}, smokeError("smoke_target", "catalog", "target implementation directory is missing or invalid", "Set one absolute Target Implementation Directory in project-index.md.", nil)
 	}

@@ -118,6 +118,14 @@ type codeContextRuntime struct {
 	calls    int
 }
 
+func directCodeContextService(root string) Service {
+	service := NewService(root)
+	service.codeContextTarget = func(string) (ExecuteTargetRef, []ValidationFinding) {
+		return ExecuteTargetRef{Path: ApprovedExecuteTargetPath, Source: "project-index.md"}, nil
+	}
+	return service
+}
+
 type gatedCodeContextRuntime struct {
 	started chan struct{}
 	release chan struct{}
@@ -158,7 +166,7 @@ func TestCodeContextArtifactWithoutSuccessfulOutcomeIsNotSkipped(t *testing.T) {
 	writeFileContent(t, sp.Path, validRequirements("proj", "01-alpha"), "requirements.md")
 	writeFileContent(t, sp.Path, validCodeContext(), "code-context.md")
 	rt := &codeContextRuntime{output: validCodeContext()}
-	result, err := NewService(root).WithRuntime(rt).Flow(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext})
+	result, err := directCodeContextService(root).WithRuntime(rt).Flow(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext})
 	if err != nil || rt.calls != 1 || result.Message != "code-context complete" {
 		t.Fatalf("result=%+v calls=%d err=%v", result, rt.calls, err)
 	}
@@ -197,7 +205,7 @@ func TestCodeContextPromptDryRunExecutionAndRerunPreservation(t *testing.T) {
 	writeFileContent(t, sp.Path, validRequirements("proj", "01-alpha"), "requirements.md")
 
 	rt := &codeContextRuntime{output: validCodeContext()}
-	service := NewService(root).WithRuntime(rt)
+	service := directCodeContextService(root).WithRuntime(rt)
 	preview, err := service.PromptCodeContext("proj", "01")
 	if err != nil || !strings.Contains(preview.Prompt, "Return only the complete `code-context.md`") || !strings.Contains(preview.Prompt, "at or below 65536 bytes") || !strings.Contains(preview.Prompt, "Store references only") || !strings.Contains(preview.Prompt, "Do not copy source text") || !strings.Contains(preview.Prompt, "ID: requirements") || !strings.Contains(preview.Prompt, "Mode: full") {
 		t.Fatalf("preview err=%v prompt=%s", err, preview.Prompt)
@@ -245,7 +253,7 @@ func TestCodeContextRepairsInvalidTerminalOutputWithinRuntimeBoundary(t *testing
 		{RunID: "initial", SessionID: "session-1", Status: "completed", TerminalOutput: "I will provide the document next."},
 		{RunID: "repair", SessionID: "session-1", Status: "completed", TerminalOutput: validCodeContext()},
 	}}
-	result, err := NewService(root).WithRuntime(runtime).FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext})
+	result, err := directCodeContextService(root).WithRuntime(runtime).FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext})
 	if err != nil || result.Message != "code-context complete" || len(runtime.requests) != 2 {
 		t.Fatalf("result=%+v requests=%d err=%v", result, len(runtime.requests), err)
 	}
@@ -272,7 +280,7 @@ func TestCodeContextUsesRetainedRuntimeEventOutput(t *testing.T) {
 	writeFixtureProjectIndex(t, root, "proj")
 	writeFileContent(t, sp.Path, validRequirements("proj", "01-alpha"), "requirements.md")
 	rt := &codeContextRuntime{result: pruntime.Result{Status: "completed", Events: []pruntime.Event{{Payload: map[string]any{"content": validCodeContext()}}}}}
-	result, err := NewService(root).WithRuntime(rt).FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext})
+	result, err := directCodeContextService(root).WithRuntime(rt).FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext})
 	if err != nil || result.Stages[1].Status != StatusComplete {
 		t.Fatalf("event-backed result=%+v err=%v", result, err)
 	}
@@ -293,7 +301,7 @@ func TestCodeContextExecutionLeavesResolvedRepositoryAndUnrelatedArtifactsUnchan
 	requirementsBefore, _ := os.ReadFile(filepath.Join(sp.Path, "requirements.md"))
 	unrelatedBefore, _ := os.ReadFile(filepath.Join(sp.Path, "unrelated.md"))
 	rt := &codeContextRuntime{output: validCodeContext()}
-	service := NewService(root).WithRuntime(rt)
+	service := directCodeContextService(root).WithRuntime(rt)
 	service.codeContextTarget = func(string) (ExecuteTargetRef, []ValidationFinding) {
 		return ExecuteTargetRef{Path: target, Source: "test project index"}, nil
 	}
@@ -320,7 +328,7 @@ func TestCodeContextFlowUsesSprintMutationConflictBoundary(t *testing.T) {
 	writeFixtureProjectIndex(t, root, "proj")
 	writeFileContent(t, sp.Path, validRequirements("proj", "01-alpha"), "requirements.md")
 	rt := &gatedCodeContextRuntime{started: make(chan struct{}, 1), release: make(chan struct{})}
-	service := NewService(root).WithRuntime(rt)
+	service := directCodeContextService(root).WithRuntime(rt)
 	done := make(chan error, 1)
 	go func() {
 		_, err := service.FlowStage(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext})
@@ -417,7 +425,7 @@ func TestCodeContextRuntimeFailureDoesNotCreateArtifact(t *testing.T) {
 	writeFixtureProjectIndex(t, root, "proj")
 	writeFileContent(t, sp.Path, validRequirements("proj", "01-alpha"), "requirements.md")
 	rt := &codeContextRuntime{err: errors.New("provider failed")}
-	_, err := NewService(root).WithRuntime(rt).FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext})
+	_, err := directCodeContextService(root).WithRuntime(rt).FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext})
 	if err == nil {
 		t.Fatal("expected runtime failure")
 	}
@@ -467,7 +475,7 @@ func TestCodeContextMissingOutputUnsupportedPermissionsAndCancellationFailClosed
 			writeFileContent(t, sp.Path, validRequirements("proj", "01-alpha"), "requirements.md")
 			rt := &codeContextRuntime{}
 			ctx := test.configure(rt)
-			result, err := NewService(root).WithRuntime(rt).FlowCodeContext(ctx, "proj", "01", FlowRequest{To: StageCodeContext})
+			result, err := directCodeContextService(root).WithRuntime(rt).FlowCodeContext(ctx, "proj", "01", FlowRequest{To: StageCodeContext})
 			if err == nil {
 				t.Fatal("expected failure")
 			}
@@ -495,7 +503,7 @@ func TestCodeContextStatePersistenceFailureRestoresPriorArtifact(t *testing.T) {
 	statePath, _ := FlowStatePath(root, sp)
 	writeFileContent(t, sp.Path, `{"schemaVersion":2,"unexpected":true}`, "flow-state.json")
 	rt := &codeContextRuntime{output: validCodeContext()}
-	if _, err := NewService(root).WithRuntime(rt).FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext}); err == nil {
+	if _, err := directCodeContextService(root).WithRuntime(rt).FlowCodeContext(context.Background(), "proj", "01", FlowRequest{To: StageCodeContext}); err == nil {
 		t.Fatal("expected state persistence failure")
 	}
 	got, err := os.ReadFile(filepath.Join(sp.Path, "code-context.md"))

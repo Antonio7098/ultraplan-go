@@ -207,7 +207,7 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 	}
 	idx, indexFindings := ValidateSprintIndexContent(inputs.SprintIndex, catalog)
 	findings = append(findings, indexFindings...)
-	target, targetFindings := ResolveExecuteTarget(inputs.ProjectIndex)
+	target, targetFindings := s.resolveSprintTarget(sp, inputs.ProjectIndex, false)
 	findings = append(findings, targetFindings...)
 	manifest.Target = target.Path
 	base := []struct {
