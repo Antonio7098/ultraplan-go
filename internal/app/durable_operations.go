@@ -112,7 +112,7 @@ func (m *durableOperationManager) AcceptOperation(ctx context.Context, confirmat
 		cancel()
 		return AcceptedOperation{}, fmt.Errorf("persist confirmed operation start: %w", err)
 	}
-	operationCtx, cancel := context.WithCancel(ctx)
+	operationCtx, cancel := context.WithCancel(runcontrol.WithParentRun(ctx, snapshot.RunID))
 	owned := &ownedDurableOperation{fence: fence, cancel: cancel, stop: make(chan struct{}), done: make(chan struct{})}
 	m.mu.Lock()
 	m.owned[string(snapshot.RunID)] = owned
@@ -146,8 +146,7 @@ func (m *durableOperationManager) RecordOperationEvent(ctx context.Context, runI
 		return false, nil
 	}
 	payload := map[string]string{
-		"state": string(event.State), "type": event.EventType, "kind": event.EventKind,
-		"tool": event.Tool, "action": event.Action, "reason": event.Reason, "detail": event.Detail,
+		"state": string(event.State), "type": event.EventType,
 		"count": fmt.Sprintf("%d/%d", event.Completed, event.Total),
 	}
 	var omission *runcontrol.Omission
@@ -163,7 +162,9 @@ func (m *durableOperationManager) RecordOperationEvent(ctx context.Context, runI
 		owned.omitted = 0
 	}
 	_, _, err := appendRunEventWithRetry(ctx, m.repository, owned.fence, runcontrol.EventDraft{
-		Type: eventType, Stage: event.Stage, Task: event.Task, Payload: payload, Omission: omission,
+		Type: eventType, Scope: runcontrol.EventScopeOperation, Stage: event.Stage, Task: event.Task,
+		Kind: event.EventKind, Tool: event.Tool, Action: event.Action, Reason: event.Reason,
+		Detail: event.Detail, Payload: payload, Omission: omission,
 	})
 	if err != nil {
 		owned.cancel()

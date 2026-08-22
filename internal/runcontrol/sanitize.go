@@ -13,7 +13,7 @@ var allowedEventPayloadFields = map[string]struct{}{
 	"outcome": {}, "reason": {}, "category": {}, "code": {}, "count": {}, "known": {},
 	"input_tokens": {}, "output_tokens": {}, "total_tokens": {}, "turns": {},
 	"artifact_kind": {}, "artifact_id": {}, "lifecycle": {}, "liveness": {},
-	"message": {}, "index": {}, "tool": {}, "action": {},
+	"message": {}, "index": {}, "scope": {}, "tool": {}, "action": {}, "detail": {},
 }
 
 // sanitizeEventDraft is the final storage gate. Producers may only submit
@@ -21,8 +21,10 @@ var allowedEventPayloadFields = map[string]struct{}{
 // credentials, and unrestricted paths are replaced with explicit omission.
 func sanitizeEventDraft(input EventDraft) EventDraft {
 	out := EventDraft{
-		Type: input.Type, Stage: safeEventValue(input.Stage, MaxTargetFieldBytes),
-		Task: safeEventValue(input.Task, MaxTargetFieldBytes), Lifecycle: input.Lifecycle,
+		Type: input.Type, Scope: input.Scope, Stage: safeEventValue(input.Stage, MaxTargetFieldBytes),
+		Task: safeEventValue(input.Task, MaxTargetFieldBytes), Kind: safeEventValue(input.Kind, MaxSafeValueBytes),
+		Tool: safeEventValue(input.Tool, MaxSafeValueBytes), Action: safeEventValue(input.Action, MaxSafeValueBytes),
+		Reason: safeEventValue(input.Reason, MaxSafeValueBytes), Detail: safeEventValue(input.Detail, MaxSafeValueBytes), Lifecycle: input.Lifecycle,
 		Payload: make(map[string]string), Omission: cloneOmission(input.Omission),
 	}
 	omitted := uint64(0)

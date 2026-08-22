@@ -30,7 +30,11 @@ func (s *controlledRuntimeSpy) StartRun(_ context.Context, request runtimepkg.Re
 }
 
 func TestControlledRuntimeAcceptsClaimsAndCommitsBeforeDelivery(t *testing.T) {
-	ctx := context.Background()
+	parentRunID, err := (runcontrol.RandomIDSource{}).NewRunID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := runcontrol.WithParentRun(context.Background(), parentRunID)
 	repository, err := runcontrol.OpenSQLite(ctx, t.TempDir(), runcontrol.SQLiteOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -75,11 +79,14 @@ func TestControlledRuntimeAcceptsClaimsAndCommitsBeforeDelivery(t *testing.T) {
 	if snapshot.Lifecycle != runcontrol.LifecycleSucceeded || snapshot.Target.Project != "ultraplan-go" || snapshot.Target.Sprint != "35" {
 		t.Fatalf("snapshot = %+v", snapshot)
 	}
+	if snapshot.Correlation.ProductRunID != string(parentRunID) {
+		t.Fatalf("parent correlation = %q, want %q", snapshot.Correlation.ProductRunID, parentRunID)
+	}
 	events, err := repository.Events(ctx, runID, 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 || events[0].Payload["secret"] != "" || events[0].Omission == nil || events[1].Type != runcontrol.EventTerminal {
+	if len(events) != 2 || events[0].Payload["secret"] != "" || events[0].Payload["scope"] != "runtime" || events[0].Omission == nil || events[1].Type != runcontrol.EventTerminal {
 		t.Fatalf("sanitized terminal journal = %+v", events)
 	}
 }

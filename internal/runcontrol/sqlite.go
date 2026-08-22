@@ -614,7 +614,7 @@ func (r *SQLiteRepository) Append(ctx context.Context, fence Fence, draft EventD
 	if err := fence.Validate(); err != nil {
 		return Event{}, Snapshot{}, err
 	}
-	draft = sanitizeEventDraft(draft)
+	draft = sanitizeEventDraft(NormalizeEventDraft(draft))
 	if usage, err := r.storageBytes(); err != nil {
 		return Event{}, Snapshot{}, err
 	} else if usage >= r.retention.HardQuotaBytes && !reservedEventType(draft.Type) {
@@ -1005,6 +1005,9 @@ WHERE attempts.run_id = ? AND attempts.attempt_id = ?`, string(fence.RunID), str
 func validateEventDraft(draft EventDraft) error {
 	if !draft.Type.IsValid() {
 		return invalidField("event.type", "is unknown")
+	}
+	if !draft.Scope.IsValid() {
+		return invalidField("event.scope", "is unknown")
 	}
 	if draft.Lifecycle != "" && (!draft.Lifecycle.IsValid() || draft.Lifecycle.IsTerminal()) {
 		return invalidField("event.lifecycle", "must be an active lifecycle; terminal state uses terminal arbitration")

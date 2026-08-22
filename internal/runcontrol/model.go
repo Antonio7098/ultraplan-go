@@ -460,11 +460,48 @@ type Claim struct {
 
 type EventDraft struct {
 	Type      EventType
+	Scope     EventScope
 	Stage     string
 	Task      string
+	Kind      string
+	Tool      string
+	Action    string
+	Reason    string
+	Detail    string
 	Payload   map[string]string
 	Omission  *Omission
 	Lifecycle Lifecycle
+}
+
+type EventScope string
+
+const (
+	EventScopeOperation EventScope = "operation"
+	EventScopeRuntime   EventScope = "runtime"
+)
+
+func (s EventScope) IsValid() bool {
+	return s == "" || s == EventScopeOperation || s == EventScopeRuntime
+}
+
+// NormalizeEventDraft copies the typed observable fields into the persisted
+// payload. Writers can retain additional safe payload fields without defining
+// competing names for the fields used by timelines and transports.
+func NormalizeEventDraft(draft EventDraft) EventDraft {
+	payload := make(map[string]string, len(draft.Payload)+6)
+	for key, value := range draft.Payload {
+		payload[key] = value
+	}
+	for key, value := range map[string]string{
+		"scope": string(draft.Scope), "kind": draft.Kind, "tool": draft.Tool,
+		"action": draft.Action, "reason": draft.Reason, "detail": draft.Detail,
+	} {
+		if value != "" {
+			payload[key] = value
+		}
+	}
+	draft.Payload = payload
+	return draft
 }
 
 type TerminalProposal struct {

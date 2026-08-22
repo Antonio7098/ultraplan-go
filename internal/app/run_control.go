@@ -121,7 +121,10 @@ func runControlRetentionPolicy(c config.Config) runcontrol.RetentionPolicy {
 
 func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
 	target := targetFromRuntimeRequest(req)
-	correlation := runcontrol.Correlation{ProductTaskID: boundedSafe(req.TraceID)}
+	correlation := runcontrol.Correlation{
+		ProductRunID:  boundedSafe(string(runcontrol.ParentRun(ctx))),
+		ProductTaskID: boundedSafe(req.TraceID),
+	}
 	snapshot, err := r.repository.Accept(ctx, runcontrol.Acceptance{
 		Target:        target,
 		Correlation:   correlation,
@@ -493,7 +496,10 @@ func runtimeEventDraft(req runtimepkg.Request, event runtimepkg.Event) runcontro
 		omission = &runcontrol.Omission{Reason: boundedSafe("runtime payload truncated to safe observable fields"), Count: 1}
 	}
 	return runcontrol.EventDraft{
-		Type: eventType, Stage: boundedSafe(req.Metadata["stage"]), Task: boundedSafe(firstSafeValue(req.Metadata["task"], req.Metadata["task.kind"])),
+		Type: eventType, Scope: runcontrol.EventScopeRuntime,
+		Stage: boundedSafe(req.Metadata["stage"]), Task: boundedSafe(firstSafeValue(req.Metadata["task"], req.Metadata["task.kind"])),
+		Kind: payload["kind"], Tool: payload["tool"], Action: payload["action"],
+		Reason: payload["reason"], Detail: firstSafeValue(payload["detail"], payload["title"]),
 		Payload: payload, Omission: omission,
 	}
 }

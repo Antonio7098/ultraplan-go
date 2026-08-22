@@ -29,6 +29,9 @@ func TestDurableOperationAcceptsBeforeExecutionRecordsEventsAndFinishes(t *testi
 	if err := runID.Validate(); err != nil || accepted.Existing || accepted.Context == nil {
 		t.Fatalf("accepted=%+v err=%v", accepted, err)
 	}
+	if got := runcontrol.ParentRun(accepted.Context); got != runID {
+		t.Fatalf("operation context parent = %q, want %q", got, runID)
+	}
 	snapshot, err := repository.Snapshot(ctx, runID)
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +60,7 @@ func TestDurableOperationAcceptsBeforeExecutionRecordsEventsAndFinishes(t *testi
 	if len(events) != 3 || events[1].Payload["message"] != "" || events[1].Omission == nil {
 		t.Fatalf("durable events=%+v", events)
 	}
-	if events[1].Payload["kind"] != "tool" || events[1].Payload["tool"] != "bash" {
+	if events[1].Payload["scope"] != "operation" || events[1].Payload["kind"] != "tool" || events[1].Payload["tool"] != "bash" {
 		t.Fatalf("tool call details were not retained: %+v", events[1].Payload)
 	}
 }
