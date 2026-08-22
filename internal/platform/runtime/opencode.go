@@ -2,6 +2,9 @@ package runtime
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -59,7 +62,16 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 		},
 		Policy: agentwrap.PersistencePolicy{PersistUnsafeRawPayloads: false},
 	}
-	return Adapter{runtime: stack, health: primary}, nil
+	adapter := Adapter{runtime: stack, health: primary}
+	adapter.deleteSession = func(ctx context.Context, sessionID string) error {
+		cmd := exec.CommandContext(ctx, c.Agentwrap.Executable, "session", "delete", sessionID)
+		cmd.Env = append(os.Environ(), c.Agentwrap.Env...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("delete OpenCode session %s: %w: %s", sessionID, err, strings.TrimSpace(string(output)))
+		}
+		return nil
+	}
+	return adapter, nil
 }
 
 // requestVariantRuntime translates UltraPlan's stage-specific variant metadata

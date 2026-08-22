@@ -14,10 +14,16 @@ import (
 
 type fakeRuntime struct {
 	requests []runtimepkg.Request
+	deleted  []string
 	result   runtimepkg.Result
 	err      error
 	write    string
 	mutate   map[string]string
+}
+
+func (f *fakeRuntime) DeleteSession(_ context.Context, sessionID string) error {
+	f.deleted = append(f.deleted, sessionID)
+	return nil
 }
 
 func (f *fakeRuntime) StartRun(ctx context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
@@ -128,9 +134,9 @@ func TestRunAnalysisFallsBackOnceWhenContinuationFails(t *testing.T) {
 	}
 }
 
-func TestRunAnalysisSuccessMapsRuntimeRequestAndValidates(t *testing.T) {
+func TestRunAnalysisSuccessMapsRuntimeRequestValidatesAndDeletesSession(t *testing.T) {
 	root, st := executionFixture(t)
-	rt := &fakeRuntime{result: runtimepkg.Result{RunID: "run-1", Status: "completed"}, write: validSourceReport}
+	rt := &fakeRuntime{result: runtimepkg.Result{RunID: "run-1", SessionID: "completed-session", Status: "completed"}, write: validSourceReport}
 	service := NewService(root, WithRuntime(rt, runtimeRequest()))
 
 	result, err := service.RunAnalysis(context.Background(), ExecutionRequest{StudyRef: "demo", DimensionRef: "01", SourceRef: "repo"})
@@ -142,6 +148,9 @@ func TestRunAnalysisSuccessMapsRuntimeRequestAndValidates(t *testing.T) {
 	}
 	if len(rt.requests) != 1 {
 		t.Fatalf("runtime calls = %d", len(rt.requests))
+	}
+	if len(rt.deleted) != 1 || rt.deleted[0] != "completed-session" {
+		t.Fatalf("deleted sessions = %v", rt.deleted)
 	}
 	req := rt.requests[0]
 	if req.WorkDir != st.Path {

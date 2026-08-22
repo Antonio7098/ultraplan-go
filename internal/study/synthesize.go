@@ -70,6 +70,9 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 		result.Validation = ValidateFinalReport(listing.Study, dimension)
 		if result.Validation.Status == ValidationStatusPassed {
 			result.Status = ExecutionStatusCompleted
+			if err := s.deleteCompletedSession(ctx, runtimeResult.SessionID); err != nil {
+				result.Warnings = append(result.Warnings, err.Error())
+			}
 			return result, nil
 		}
 		if recoverableRuntimeOutputFailure(runtimeResult) {
@@ -82,6 +85,8 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 	result.Validation = ValidateFinalReport(listing.Study, dimension)
 	if result.Validation.Status != ValidationStatusPassed {
 		result.Status = ExecutionStatusValidationFailed
+	} else if err := s.deleteCompletedSession(ctx, runtimeResult.SessionID); err != nil {
+		result.Warnings = append(result.Warnings, err.Error())
 	}
 	return result, nil
 }

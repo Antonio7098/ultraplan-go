@@ -157,3 +157,10 @@ func clearPlanningStageSession(sp Sprint, stage PlanningStage) error {
 	}
 	return saveStageSessions(sp, state)
 }
+
+func (s Service) cleanupPlanningStageSession(ctx context.Context, sp Sprint, stage PlanningStage, sessionID string) error {
+	if err := s.deleteCompletedSession(ctx, sessionID); err != nil {
+		return err
+	}
+	return clearPlanningStageSession(sp, stage)
+}

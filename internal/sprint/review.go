@@ -537,6 +537,7 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 		close(done)
 	}()
 	var progressSaveErr error
+	completedSessionIDs := map[string]bool{}
 	for done != nil || sessions != nil {
 		select {
 		case session, ok := <-sessions:
@@ -564,6 +565,9 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 				}
 			}
 			completed++
+			if got.sessionID != "" {
+				completedSessionIDs[got.sessionID] = true
+			}
 			if req.Progress != nil {
 				req.Progress(ReviewProgress{Completed: completed, Total: len(coverage), CoverageID: got.value.CoverageID, Message: "reviewer complete"})
 			}
@@ -626,6 +630,9 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 	_ = now
 	if result.Verdict == ReviewFail {
 		return result, fmt.Errorf("review completed with failing verdict")
+	}
+	for sessionID := range completedSessionIDs {
+		_ = s.deleteCompletedSession(ctx, sessionID)
 	}
 	return result, nil
 }

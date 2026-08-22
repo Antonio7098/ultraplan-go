@@ -116,7 +116,7 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 	if ctx.Err() != nil {
 		return smokeError("smoke_author_cancelled", "cancellation", "smoke authoring was cancelled", "Rerun smoke when authoring can complete.", ctx.Err())
 	}
-	_ = clearPlanningStageSession(prepared.Sprint, StageSmoke)
+	_ = s.cleanupPlanningStageSession(ctx, prepared.Sprint, StageSmoke, run.SessionID)
 	return nil
 }
 

@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	stdruntime "runtime"
 	"sort"
 	"strings"
-	stdruntime "runtime"
 	"time"
 
 	"github.com/Antonio7098/agentwrap"
@@ -249,8 +249,18 @@ type Runtime interface {
 }
 
 type Adapter struct {
-	runtime agentwrap.Runtime
-	health  agentwrap.HealthChecker
+	runtime       agentwrap.Runtime
+	health        agentwrap.HealthChecker
+	deleteSession func(context.Context, string) error
+}
+
+// DeleteSession removes a completed retained session and its runtime-owned
+// messages, parts, and related records when the configured adapter supports it.
+func (a Adapter) DeleteSession(ctx context.Context, sessionID string) error {
+	if strings.TrimSpace(sessionID) == "" || a.deleteSession == nil {
+		return nil
+	}
+	return a.deleteSession(ctx, sessionID)
 }
 
 func NewAdapter(aw agentwrap.Runtime) Adapter {

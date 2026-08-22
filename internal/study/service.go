@@ -26,6 +26,21 @@ type Runtime interface {
 	StartRun(ctx context.Context, req runtimepkg.Request) (runtimepkg.Result, error)
 }
 
+type sessionDeleter interface {
+	DeleteSession(context.Context, string) error
+}
+
+func (s Service) deleteCompletedSession(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	deleter, ok := s.runtime.(sessionDeleter)
+	if !ok {
+		return nil
+	}
+	return deleter.DeleteSession(ctx, sessionID)
+}
+
 func WithRuntime(rt Runtime, req runtimepkg.Request) Option {
 	return func(s *Service) {
 		s.runtime = rt

@@ -73,6 +73,9 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 		result.Validation = ValidateSourceReport(listing.Study, source, dimension)
 		if result.Validation.Status == ValidationStatusPassed {
 			result.Status = ExecutionStatusCompleted
+			if err := s.deleteCompletedSession(ctx, runtimeResult.SessionID); err != nil {
+				result.Warnings = append(result.Warnings, err.Error())
+			}
 			return result, nil
 		}
 		if recoverableRuntimeOutputFailure(runtimeResult) {
@@ -85,6 +88,8 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 	result.Validation = ValidateSourceReport(listing.Study, source, dimension)
 	if result.Validation.Status != ValidationStatusPassed {
 		result.Status = ExecutionStatusValidationFailed
+	} else if err := s.deleteCompletedSession(ctx, runtimeResult.SessionID); err != nil {
+		result.Warnings = append(result.Warnings, err.Error())
 	}
 	return result, nil
 }

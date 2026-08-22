@@ -14,6 +14,21 @@ type Runtime interface {
 	StartRun(context.Context, runtime.Request) (runtime.Result, error)
 }
 
+type sessionDeleter interface {
+	DeleteSession(context.Context, string) error
+}
+
+func (s Service) deleteCompletedSession(ctx context.Context, sessionID string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
+	deleter, ok := s.runtime.(sessionDeleter)
+	if !ok {
+		return nil
+	}
+	return deleter.DeleteSession(ctx, sessionID)
+}
+
 type FlowRequest struct {
 	To              PlanningStage
 	DryRun          bool

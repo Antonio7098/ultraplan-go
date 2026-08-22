@@ -10,7 +10,8 @@ import (
 )
 
 type checkpointRuntime struct {
-	calls []pruntime.Request
+	calls   []pruntime.Request
+	deleted []string
 }
 
 func (r *checkpointRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
@@ -22,6 +23,11 @@ func (r *checkpointRuntime) StartRun(_ context.Context, req pruntime.Request) (p
 		return pruntime.Result{}, context.Canceled
 	}
 	return pruntime.Result{SessionID: "retained-session", Status: "success"}, nil
+}
+
+func (r *checkpointRuntime) DeleteSession(_ context.Context, sessionID string) error {
+	r.deleted = append(r.deleted, sessionID)
+	return nil
 }
 
 func TestPlanningStageRunContinuesCheckpointedSession(t *testing.T) {
@@ -49,6 +55,28 @@ func TestPlanningStageRunContinuesCheckpointedSession(t *testing.T) {
 	}
 	if err := clearPlanningStageSession(sp, StageRequirements); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(stageSessionPath(sp)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("session checkpoint was not cleared: %v", err)
+	}
+}
+
+func TestCompletedPlanningStageDeletesRuntimeSessionAndCheckpoint(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-cleanup")
+	runtime := &checkpointRuntime{}
+	service := NewService(root).WithRuntime(runtime)
+	state := stageSessionState{SchemaVersion: stageSessionSchemaVersion, Sessions: map[string]stageSessionRecord{
+		string(StageRequirements): {SessionID: "retained-session"},
+	}}
+	if err := saveStageSessions(sp, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.cleanupPlanningStageSession(context.Background(), sp, StageRequirements, "retained-session"); err != nil {
+		t.Fatal(err)
+	}
+	if len(runtime.deleted) != 1 || runtime.deleted[0] != "retained-session" {
+		t.Fatalf("deleted sessions=%v", runtime.deleted)
 	}
 	if _, err := os.Stat(stageSessionPath(sp)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("session checkpoint was not cleared: %v", err)
