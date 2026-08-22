@@ -104,6 +104,7 @@ type runEventView struct {
 	DetailKind string
 	DetailType string
 	DetailTool string
+	DetailText string
 	Omission   string
 }
 
@@ -283,8 +284,22 @@ func newRunEventView(event app.RunEvent) runEventView {
 	if event.Omission != nil {
 		omission = fmt.Sprintf("Omitted %d detail item(s): %s", event.Omission.Count, event.Omission.Reason)
 	}
+	// Prefer richest observable text: text/delta/detail/message/content
+	text := firstNonEmptyPayload(event.Payload, "text", "delta", "detail", "message", "content", "title", "output")
+	if len(text) > 160 {
+		text = text[:160] + "…"
+	}
 	return runEventView{Sequence: event.Sequence, Type: string(event.Type), Stage: event.Stage, Task: event.Task,
-		Time: committedRunEventTime(event), DetailKind: event.Payload["kind"], DetailType: event.Payload["type"], DetailTool: event.Payload["tool"], Omission: omission}
+		Time: committedRunEventTime(event), DetailKind: event.Payload["kind"], DetailType: event.Payload["type"], DetailTool: event.Payload["tool"], DetailText: text, Omission: omission}
+}
+
+func firstNonEmptyPayload(payload map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(payload[k]); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func committedRunEventTime(event app.RunEvent) string {
