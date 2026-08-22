@@ -116,7 +116,7 @@ func (s Service) PromptExecute(projectRef, sprintRef string, req ExecuteRequest)
 		return PromptPreview{}, err
 	}
 	queue := filterExecuteQueue(tasks, req.TaskID)
-	prompt, err := composeStagePromptChecked(prefix, s.renderExecuteSessionPrompt(sp, task, queue, target, selection))
+	prompt, err := composeStagePromptChecked(prefix, s.renderExecuteSessionPrompt(sp, task, queue, target, executeSelectionForTask(selection, task)))
 	if err != nil {
 		return PromptPreview{}, err
 	}
@@ -159,7 +159,7 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 				}
 			}
 		}
-		result.Prompt, err = composeStagePromptChecked(sharedPrefix, s.renderExecuteSessionPrompt(sp, promptTask, filterExecuteQueue(tasks, req.TaskID), target, selection))
+		result.Prompt, err = composeStagePromptChecked(sharedPrefix, s.renderExecuteSessionPrompt(sp, promptTask, filterExecuteQueue(tasks, req.TaskID), target, executeSelectionForTask(selection, promptTask)))
 		if err != nil {
 			return result, err
 		}
@@ -180,8 +180,14 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 	}
 	executionQueue := executeQueueFromState(state.Tasks, tasks, req.TaskID)
 	batchSessionID := ""
+	batchSessionModel := selection.Model
 	if req.Resume && filepath.Clean(state.Target.Path) == filepath.Clean(target.Path) {
-		batchSessionID = reusableExecuteSession(state.Tasks, req.TaskID, selection.Model)
+		if len(executionQueue) > 0 {
+			if first := taskByID(tasks, executionQueue[0].ID); first.ID != "" {
+				batchSessionModel = executeSelectionForTask(selection, first).Model
+			}
+		}
+		batchSessionID = reusableExecuteSession(state.Tasks, req.TaskID, batchSessionModel)
 	}
 	executionTurn := 0
 	for i := range state.Tasks {
@@ -209,15 +215,16 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 			return result, fmt.Errorf("persist running execute task %q: %w", task.ID, err)
 		}
 		planTask := taskByID(tasks, task.ID)
+		taskSelection := executeSelectionForTask(selection, planTask)
 		executionTurn++
-		continueSession := batchSessionID != ""
+		continueSession := batchSessionID != "" && batchSessionModel == taskSelection.Model
 		stagePrompt := ""
 		promptPrefix := sharedPrefix
 		if continueSession {
 			stagePrompt = RenderExecuteContinuationPrompt(sp, planTask)
 			promptPrefix = ""
 		} else {
-			stagePrompt = s.renderExecuteSessionPrompt(sp, planTask, executionQueue, target, selection)
+			stagePrompt = s.renderExecuteSessionPrompt(sp, planTask, executionQueue, target, taskSelection)
 		}
 		composedPrompt, composeErr := composeStagePromptChecked(promptPrefix, stagePrompt)
 		if composeErr != nil {
@@ -230,7 +237,7 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 			sessionMode = "fresh-fallback"
 		}
 		runtimeReq := s.runtimeRequest(composedPrompt, map[string]string{
-			"project": sp.Project, "sprint": sp.Slug, "stage": string(StageExecute), "task": task.ID, "model_source": selection.Source,
+			"project": sp.Project, "sprint": sp.Slug, "stage": string(StageExecute), "task": task.ID, "model_source": taskSelection.Source,
 			"execution_session_mode": sessionMode, "execution_turn": fmt.Sprintf("%d", executionTurn), "execution_queue_size": fmt.Sprintf("%d", len(executionQueue)),
 		})
 		runtimeReq.WorkDir = target.Path
@@ -250,7 +257,7 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 			if event.SessionID == "" || (task.Runtime != nil && task.Runtime.SessionID == event.SessionID) {
 				return
 			}
-			task.Runtime = &ExecuteRuntimeSummary{SessionID: event.SessionID, Model: selection.Model, ModelSource: selection.Source, OmissionReason: "raw runtime payloads omitted"}
+			task.Runtime = &ExecuteRuntimeSummary{SessionID: event.SessionID, Model: taskSelection.Model, ModelSource: taskSelection.Source, OmissionReason: "raw runtime payloads omitted"}
 			task.UpdatedAt = s.now().UTC()
 			state.UpdatedAt = task.UpdatedAt
 			if err := SaveExecuteRunState(s.root, sp, state); err != nil && sessionSaveErr == nil {
@@ -263,9 +270,10 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 		sessionMu.Unlock()
 		result.Runtime = append(result.Runtime, run)
 		finish := s.now().UTC()
-		task.Runtime = mergeRuntimeSummary(task.Runtime, runtimeSummary(run, selection))
+		task.Runtime = mergeRuntimeSummary(task.Runtime, runtimeSummary(run, taskSelection))
 		if runErr == nil {
 			batchSessionID = run.SessionID
+			batchSessionModel = taskSelection.Model
 			if batchSessionID == "" && task.Runtime != nil {
 				batchSessionID = task.Runtime.SessionID
 			}
@@ -711,6 +719,16 @@ func joinProviderModel(provider, model string) string {
 		return model
 	}
 	return provider + "/" + model
+}
+
+// executeSelectionForTask resolves one task's effective model selection. An
+// inline plan annotation wins over the batch selection; defaults stay
+// unchanged when no annotation is present.
+func executeSelectionForTask(selection ExecuteModelSelection, task ExecutePlanTask) ExecuteModelSelection {
+	if model := strings.TrimSpace(task.Model); model != "" {
+		return ExecuteModelSelection{Model: model, Source: "plan.md task annotation"}
+	}
+	return selection
 }
 
 func safeExecuteText(key, value string) string {

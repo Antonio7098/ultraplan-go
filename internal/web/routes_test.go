@@ -55,6 +55,7 @@ func TestRouteInventoryHTMLAndAPI(t *testing.T) {
 		{"/api/v1/validations?scope=project&ref=project_ref", "application/json"},
 		{"/api/v1/artifacts/artifact_ref", "application/json"},
 		{"/api/v1/health", "application/json"},
+		{"/api/v1/models", "application/json"},
 		{"/static/app.css", "text/css"},
 		{"/static/app.js", "text/javascript"},
 		{"/static/css/tokens.css", "text/css"},
@@ -261,4 +262,33 @@ func request(handler http.Handler, method, target string, body *bytes.Reader) *h
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	return res
+}
+
+func TestAPIModelsReturnsListingAndDefault(t *testing.T) {
+	queries := sampleQueries()
+	queries.models = app.WebModelsResult{
+		Default: "openrouter/stealth/ox-alpha",
+		Models:  []app.WebModel{{Provider: "openrouter", ID: "stealth/ox-alpha"}, {ID: "bare-model"}},
+	}
+	h := testHandler(t, queries, nil)
+	res := request(h, http.MethodGet, "/api/v1/models", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	for _, want := range []string{`"default":"openrouter/stealth/ox-alpha"`, `"reference":"openrouter/stealth/ox-alpha"`, `"reference":"bare-model"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %s: %s", want, body)
+		}
+	}
+}
+
+func TestAPIModelsUnavailableWithoutCapability(t *testing.T) {
+	queries := sampleQueries()
+	queries.modelsErr = app.ErrWebUnavailable
+	h := testHandler(t, queries, nil)
+	res := request(h, http.MethodGet, "/api/v1/models", nil)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
 }

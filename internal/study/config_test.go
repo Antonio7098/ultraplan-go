@@ -72,3 +72,21 @@ func TestLoadStudyConfigRejectsMalformedUnsupportedUnknownAndDuplicateValues(t *
 		})
 	}
 }
+
+func TestLoadStudyConfigParsesModelOverride(t *testing.T) {
+	_, study := executionFixture(t)
+	dimensions, err := DiscoverDimensions(study)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(StudyConfigPath(study), []byte("{\n  \"version\": 1,\n  \"dimension_order\": [],\n  \"model\": \"vendor/study-model\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := LoadStudyConfig(study, dimensions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Model != "vendor/study-model" {
+		t.Fatalf("model = %q", config.Model)
+	}
+}

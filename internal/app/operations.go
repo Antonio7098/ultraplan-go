@@ -109,14 +109,17 @@ const (
 type OperationRequest struct {
 	Kind                                OperationKind
 	Project, Sprint, Study, Stage, Task string
-	Level, Suite, Test                  string
-	Timeout                             string
-	ForceReview                         bool
-	RestartReview                       bool
-	OverrideRationale                   string
-	ReviewFocus                         []string
-	Sources, Dimensions                 []string
-	Parallelism                         int
+	// Model optionally overrides the runtime model (provider/model) for this
+	// operation. Empty keeps the workspace-configured default unchanged.
+	Model               string
+	Level, Suite, Test  string
+	Timeout             string
+	ForceReview         bool
+	RestartReview       bool
+	OverrideRationale   string
+	ReviewFocus         []string
+	Sources, Dimensions []string
+	Parallelism         int
 	// ExpectedFingerprint is server-issued authority. Transport decoders must
 	// never accept it from a caller; it is populated by PrepareOperation and
 	// checked again immediately before execution.
@@ -412,6 +415,7 @@ func normalizeOperationRequest(req OperationRequest) OperationRequest {
 	req.Study = strings.TrimSpace(req.Study)
 	req.Stage = strings.TrimSpace(req.Stage)
 	req.Task = strings.TrimSpace(req.Task)
+	req.Model = strings.TrimSpace(req.Model)
 	req.Level = strings.TrimSpace(req.Level)
 	req.Suite = strings.TrimSpace(req.Suite)
 	req.Test = strings.TrimSpace(req.Test)
@@ -483,6 +487,9 @@ func operationPrerequisites(req OperationRequest) []string {
 }
 
 func operationRuntimeIdentity(req OperationRequest, stages map[sprint.PlanningStage]sprint.StageRuntime) string {
+	if req.Model != "" {
+		return "requested model " + req.Model
+	}
 	stage := sprint.PlanningStage(req.Stage)
 	switch req.Kind {
 	case OperationExecuteStart, OperationExecuteResume:

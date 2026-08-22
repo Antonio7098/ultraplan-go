@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -22,8 +23,11 @@ var (
 
 type StudyConfig struct {
 	Version        int      `json:"version"`
-	DimensionOrder []string `json:"dimension_order"`
-	Present        bool     `json:"-"`
+	DimensionOrder []string `json:"dimension_order,omitempty"`
+	// Model optionally overrides the runtime model (provider/model) for this
+	// study's tasks. When empty, workspace configuration defaults apply.
+	Model   string `json:"model,omitempty"`
+	Present bool   `json:"-"`
 }
 
 func StudyConfigPath(study Study) string {
@@ -58,6 +62,7 @@ func LoadStudyConfig(study Study, dimensions []Dimension) (StudyConfig, []Dimens
 		return StudyConfig{}, nil, fmt.Errorf("%w: %s has version %d; expected %d", ErrStudyConfigUnsupported, path, config.Version, StudyConfigVersion)
 	}
 	config.Present = true
+	config.Model = strings.TrimSpace(config.Model)
 
 	order := make([]Dimension, 0, len(config.DimensionOrder))
 	seen := make(map[string]bool, len(config.DimensionOrder))

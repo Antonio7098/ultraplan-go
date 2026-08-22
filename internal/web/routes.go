@@ -298,6 +298,9 @@ func matchRoute(path string) routeMatch {
 	if path == "/api/v1/validations" {
 		return routeMatch{name: "api_validations", known: true, api: true}
 	}
+	if path == "/api/v1/models" {
+		return routeMatch{name: "api_models", known: true, api: true}
+	}
 	if path == "/api/v1/health" {
 		return routeMatch{name: "api_health", known: true, api: true}
 	}

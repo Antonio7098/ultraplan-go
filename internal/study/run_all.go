@@ -71,7 +71,7 @@ func (s Service) runAllDimensionGroup(ctx context.Context, req RunAllRequest, st
 						req.Progress(RunAllProgress{TaskKind: TaskKindAnalysis, DimensionRef: task.dimension.Ref(), SourceRef: task.source.Name, Event: event})
 					}
 				}
-				res, err := s.RunAnalysis(ctx, ExecutionRequest{StudyRef: study.Name, DimensionRef: task.dimension.Ref(), SourceRef: task.source.Name, OnEvent: onEvent})
+				res, err := s.RunAnalysis(ctx, ExecutionRequest{StudyRef: study.Name, DimensionRef: task.dimension.Ref(), SourceRef: task.source.Name, Model: req.Model, OnEvent: onEvent})
 				if err != nil {
 					res = failedAnalysisResult(study, task, err)
 				}
@@ -106,7 +106,7 @@ func (s Service) runAllDimensionGroup(ctx context.Context, req RunAllRequest, st
 				req.Progress(RunAllProgress{TaskKind: TaskKindSynthesis, DimensionRef: dimension.Ref(), Event: event})
 			}
 		}
-		res, err := s.Synthesize(ctx, SynthesisRequest{StudyRef: study.Name, DimensionRef: dimension.Ref(), SourceRefs: selectedSourceNames(sources), OnEvent: onEvent})
+		res, err := s.Synthesize(ctx, SynthesisRequest{StudyRef: study.Name, DimensionRef: dimension.Ref(), SourceRefs: selectedSourceNames(sources), Model: req.Model, OnEvent: onEvent})
 		if err != nil {
 			res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindSynthesis, Study: study, Dimension: dimension, OutputPath: FinalReportPath(study, dimension), RuntimeError: safeError(err), RuntimeErr: err}
 		}

@@ -964,3 +964,33 @@ func commandValidPlan() string {
 - [ ] Tests pass.
 `
 }
+
+func TestParseSprintFlowArgsStageOverrides(t *testing.T) {
+	req, err := parseSprintFlowArgs([]string{
+		"--to", "plan",
+		"--stage-model", "requirements=openrouter/cheap",
+		"--stage-variant=plan=max",
+		"--stage-model", "execute=vendor/exec",
+	})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if req.StageOverrides[sprint.StageRequirements].Model != "openrouter/cheap" {
+		t.Fatalf("requirements override = %+v", req.StageOverrides)
+	}
+	if req.StageOverrides[sprint.StagePlan].Variant != "max" {
+		t.Fatalf("plan override = %+v", req.StageOverrides)
+	}
+	if req.StageOverrides[sprint.StageExecute].Model != "vendor/exec" {
+		t.Fatalf("execute override = %+v", req.StageOverrides)
+	}
+}
+
+func TestParseSprintFlowArgsRejectsInvalidStageOverride(t *testing.T) {
+	if _, err := parseSprintFlowArgs([]string{"--to", "plan", "--stage-model", "bogus"}); err == nil {
+		t.Fatal("expected error for stage override without value")
+	}
+	if _, err := parseSprintFlowArgs([]string{"--to", "plan", "--stage-model", "smoke=x"}); err == nil {
+		t.Fatal("expected error for unsupported override stage")
+	}
+}

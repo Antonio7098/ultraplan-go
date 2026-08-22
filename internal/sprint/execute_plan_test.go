@@ -166,3 +166,40 @@ func executePlanManifest() PlanManifest {
 		DecisionNames: []string{"Keep Plan Behavior In Sprint"},
 	}
 }
+
+func TestExtractExecutePlanTasksParsesModelAnnotation(t *testing.T) {
+	original, findings := extractExecutePlanTasks(validPlan(), executePlanManifest(), true)
+	if len(findings) != 0 || len(original) != 1 {
+		t.Fatalf("baseline tasks=%+v findings=%+v", original, findings)
+	}
+	content := strings.Replace(
+		validPlan(),
+		"- [ ] Task 1: Add plan behavior for Decision 1 / AC-01",
+		"- [ ] Task 1: Add plan behavior for Decision 1 / AC-01 <!-- model: vendor/task-model -->",
+		1,
+	)
+	tasks, findings := extractExecutePlanTasks(content, executePlanManifest(), true)
+	if len(findings) != 0 {
+		t.Fatalf("findings = %+v", findings)
+	}
+	if len(tasks) != 1 || tasks[0].Model != "vendor/task-model" {
+		t.Fatalf("tasks = %+v", tasks)
+	}
+	if !strings.Contains(tasks[0].Name, "Add plan behavior") || strings.Contains(tasks[0].Name, "<!--") {
+		t.Fatalf("annotation leaked into task name: %q", tasks[0].Name)
+	}
+	if tasks[0].ID != original[0].ID {
+		t.Fatalf("model annotation changed stable id: %s != %s", tasks[0].ID, original[0].ID)
+	}
+}
+
+func TestExecuteSelectionForTaskPrefersAnnotation(t *testing.T) {
+	base := ExecuteModelSelection{Model: "default/model", Source: "models.primary"}
+	if got := executeSelectionForTask(base, ExecutePlanTask{}); got.Model != "default/model" {
+		t.Fatalf("selection = %+v", got)
+	}
+	got := executeSelectionForTask(base, ExecutePlanTask{Model: "vendor/annotated"})
+	if got.Model != "vendor/annotated" || got.Source != "plan.md task annotation" {
+		t.Fatalf("selection = %+v", got)
+	}
+}

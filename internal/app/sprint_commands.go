@@ -674,9 +674,58 @@ func mapSprintError(prefix string, err error) error {
 	}
 }
 
+// sprintStageOverrideTargets maps CLI stage names accepted by
+// --stage-model/--stage-variant to planning stages. Verification stages are
+// excluded; review and smoke carry their own request-scoped model flags.
+var sprintStageOverrideTargets = map[string]sprint.PlanningStage{
+	"requirements":       sprint.StageRequirements,
+	"code-context":       sprint.StageCodeContext,
+	"sprint-index":       sprint.StageSprintIndex,
+	"technical-handbook": sprint.StageTechnicalHandbook,
+	"area-reasoning":     sprint.StageAreaReasoning,
+	"reasoning":          sprint.StageReasoning,
+	"plan":               sprint.StagePlan,
+	"execute":            sprint.StageExecute,
+}
+
+func addSprintStageOverride(overrides map[sprint.PlanningStage]sprint.StageRuntime, flag, spec string) (map[sprint.PlanningStage]sprint.StageRuntime, error) {
+	stageName, value, found := strings.Cut(spec, "=")
+	stageName = strings.TrimSpace(stageName)
+	value = strings.TrimSpace(value)
+	if !found || stageName == "" || value == "" {
+		return overrides, fmt.Errorf("%s requires <stage>=<value> (for example %sexecute=provider/model)", flag, flag)
+	}
+	stage, ok := sprintStageOverrideTargets[stageName]
+	if !ok {
+		return overrides, fmt.Errorf("%s: unsupported stage %q", flag, stageName)
+	}
+	if overrides == nil {
+		overrides = map[sprint.PlanningStage]sprint.StageRuntime{}
+	}
+	override := overrides[stage]
+	if flag == "--stage-model" {
+		override.Model = value
+	} else {
+		override.Variant = value
+	}
+	overrides[stage] = override
+	return overrides, nil
+}
+
 func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 	req := sprint.FlowRequest{}
 	for i := 0; i < len(args); i++ {
+		if flag, value, found := strings.Cut(args[i], "="); found && (flag == "--stage-model" || flag == "--stage-variant") {
+			if strings.TrimSpace(value) == "" {
+				return req, fmt.Errorf("%s requires <stage>=<value>", flag)
+			}
+			var err error
+			req.StageOverrides, err = addSprintStageOverride(req.StageOverrides, flag, value)
+			if err != nil {
+				return req, err
+			}
+			continue
+		}
 		switch args[i] {
 		case "--to":
 			if i+1 >= len(args) {
@@ -698,6 +747,16 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 			}
 			i++
 			req.VariantOverride = args[i]
+		case "--stage-model", "--stage-variant":
+			if i+1 >= len(args) {
+				return req, fmt.Errorf("%s requires <stage>=<value>", args[i])
+			}
+			i++
+			var err error
+			req.StageOverrides, err = addSprintStageOverride(req.StageOverrides, args[i-1], args[i])
+			if err != nil {
+				return req, err
+			}
 		case "--restart-review":
 			req.Review.Restart = true
 		case "--yes", "--non-interactive":
@@ -1149,7 +1208,7 @@ Usage:
   ultraplan sprint <project> <sprint> prompt review
   ultraplan sprint <project> <sprint> prompt <stage> --explain
   ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
-  ultraplan sprint <project> <sprint> flow --to code-context [--dry-run] [--model <provider/model>] [--variant <name>]
+  ultraplan sprint <project> <sprint> flow --to code-context [--dry-run] [--model <provider/model>] [--variant <name>] [--stage-model <stage>=<provider/model>]... [--stage-variant <stage>=<name>]...
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
   ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
   ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]
@@ -1303,7 +1362,7 @@ func sprintFlowHelp() string {
 
 Usage:
   ultraplan sprint <project> <sprint> flow --to requirements [--dry-run]
-  ultraplan sprint <project> <sprint> flow --to code-context [--dry-run] [--model <provider/model>] [--variant <name>]
+  ultraplan sprint <project> <sprint> flow --to code-context [--dry-run] [--model <provider/model>] [--variant <name>] [--stage-model <stage>=<provider/model>]... [--stage-variant <stage>=<name>]...
   ultraplan sprint <project> <sprint> flow --to sprint-index [--dry-run]
   ultraplan sprint <project> <sprint> flow --to technical-handbook [--dry-run]
   ultraplan sprint <project> <sprint> flow --to area-reasoning [--dry-run]

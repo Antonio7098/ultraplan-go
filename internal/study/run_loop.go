@@ -288,14 +288,14 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 		switch task.Kind {
 		case TaskKindAnalysis:
-			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
+			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {
 				res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
 			}
 		case TaskKindSynthesis:
-			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
+			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {

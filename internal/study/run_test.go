@@ -412,3 +412,36 @@ const validFinalReport = `# Final Report
 
 ## Open Questions
 `
+
+func TestRunAnalysisAppliesModelOverridePrecedence(t *testing.T) {
+	root, _ := executionFixture(t)
+	rt := &fakeRuntime{result: runtimepkg.Result{RunID: "run", SessionID: "session", Status: "completed"}, write: validSourceReport}
+	service := NewService(root, WithRuntime(rt, runtimeRequest()))
+	if _, err := service.RunAnalysis(context.Background(), ExecutionRequest{StudyRef: "demo", DimensionRef: "01", SourceRef: "repo", Model: "vendor/requested"}); err != nil {
+		t.Fatal(err)
+	}
+	last := rt.requests[len(rt.requests)-1]
+	if last.Provider != "vendor" || last.Model != "requested" {
+		t.Fatalf("provider/model = %q/%q, want request override applied", last.Provider, last.Model)
+	}
+}
+
+func TestResolveStudyModelOverrideAndSplit(t *testing.T) {
+	if got := resolveStudyModelOverride("", "vendor/study"); got != "vendor/study" {
+		t.Fatalf("override = %q, want study config value", got)
+	}
+	if got := resolveStudyModelOverride("cli/model", "vendor/study"); got != "cli/model" {
+		t.Fatalf("override = %q, want explicit request override", got)
+	}
+	if got := resolveStudyModelOverride("  ", ""); got != "" {
+		t.Fatalf("override = %q, want empty for defaults", got)
+	}
+	provider, model := splitModelReference("openrouter/nested/id")
+	if provider != "openrouter" || model != "nested/id" {
+		t.Fatalf("split = %q/%q, want nested id preserved", provider, model)
+	}
+	provider, model = splitModelReference("bare-model")
+	if provider != "" || model != "bare-model" {
+		t.Fatalf("split = %q/%q, want bare model with empty provider", provider, model)
+	}
+}

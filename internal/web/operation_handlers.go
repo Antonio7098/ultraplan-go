@@ -24,6 +24,7 @@ type operationOptionsRequest struct {
 	Stage             string   `json:"stage,omitempty"`
 	ToStage           string   `json:"to_stage,omitempty"`
 	Task              string   `json:"task,omitempty"`
+	Model             string   `json:"model,omitempty"`
 	Action            string   `json:"action,omitempty"`
 	DryRun            bool     `json:"dry_run,omitempty"`
 	Resume            bool     `json:"resume,omitempty"`
@@ -525,9 +526,14 @@ func operationSpecFromForm(r *http.Request) operationSpecRequest {
 		sprintRef = newSprintRef(r.FormValue("sprint_number"), r.FormValue("sprint_name"))
 	}
 	return operationSpecRequest{
-		Kind:    r.FormValue("kind"),
-		Scope:   operationScopeRequest{Project: r.FormValue("project"), Sprint: sprintRef, Study: r.FormValue("study")},
-		Options: operationOptionsRequest{ToStage: r.FormValue("stage"), Parallelism: parallelism},
+		Kind:  r.FormValue("kind"),
+		Scope: operationScopeRequest{Project: r.FormValue("project"), Sprint: sprintRef, Study: r.FormValue("study")},
+		Options: operationOptionsRequest{
+			ToStage:     r.FormValue("stage"),
+			Task:        r.FormValue("task"),
+			Model:       strings.TrimSpace(r.FormValue("model")),
+			Parallelism: parallelism,
+		},
 	}
 }
 
@@ -593,7 +599,7 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 	options := spec.Options
 	req := app.OperationRequest{
 		Project: spec.Scope.Project, Sprint: spec.Scope.Sprint, Study: spec.Scope.Study,
-		Stage: firstString(options.ToStage, options.Stage), Task: options.Task,
+		Stage: firstString(options.ToStage, options.Stage), Task: options.Task, Model: options.Model,
 		Level: options.Level, Suite: options.Suite, Test: options.Test, Timeout: options.Timeout,
 		ForceReview: options.ForceReview, RestartReview: options.RestartReview, OverrideRationale: options.OverrideRationale,
 		ReviewFocus: options.ReviewFocus, Sources: options.Sources, Dimensions: options.Dimensions, Parallelism: options.Parallelism,
@@ -717,6 +723,9 @@ func mapOperationSpec(req app.OperationRequest) map[string]any {
 	}
 	if req.Task != "" {
 		options["task"] = req.Task
+	}
+	if req.Model != "" {
+		options["model"] = req.Model
 	}
 	if req.Parallelism > 0 {
 		options["parallelism"] = req.Parallelism

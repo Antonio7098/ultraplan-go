@@ -19,6 +19,8 @@ type fakeQueries struct {
 	artifact    app.WebArtifactPreview
 	health      app.WebHealthResult
 	prompt      app.WebPromptBundleResult
+	models      app.WebModelsResult
+	modelsErr   error
 	err         error
 	healthCalls int
 	promptCalls int
@@ -119,6 +121,10 @@ func (f *fakeQueries) Validations(context.Context, string, string) (app.WebValid
 func (f *fakeQueries) Artifact(context.Context, string) (app.WebArtifactPreview, error) {
 	return f.artifact, f.err
 }
+func (f *fakeQueries) Models(context.Context) (app.WebModelsResult, error) {
+	return f.models, f.modelsErr
+}
+
 func (f *fakeQueries) Health(context.Context) (app.WebHealthResult, error) {
 	f.healthCalls++
 	return f.health, f.err

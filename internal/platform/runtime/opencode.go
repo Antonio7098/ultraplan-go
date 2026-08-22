@@ -81,3 +81,13 @@ func (r requestVariantRuntime) StartRun(ctx context.Context, req agentwrap.RunRe
 func (r requestVariantRuntime) Capabilities(ctx context.Context) (agentwrap.Capabilities, error) {
 	return r.base.Capabilities(ctx)
 }
+
+// ListModels forwards model enumeration to the primary runtime when it
+// supports the optional listing capability.
+func (r requestVariantRuntime) ListModels(ctx context.Context, req agentwrap.ModelsRequest) ([]agentwrap.ModelInfo, error) {
+	lister, ok := r.base.(agentwrap.ModelLister)
+	if !ok {
+		return nil, nil
+	}
+	return lister.ListModels(ctx, req)
+}

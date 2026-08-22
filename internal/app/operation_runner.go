@@ -24,9 +24,9 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 			if e != nil {
 				return failedOperation(result, e)
 			}
-			r, e := service.FlowStage(ctx, req.Project, req.Sprint, sprint.FlowRequest{To: sprint.PlanningStage(req.Stage), Progress: func(progress sprint.FlowProgress) {
+			r, e := service.FlowStage(ctx, req.Project, req.Sprint, stageFlowRequest(req, func(progress sprint.FlowProgress) {
 				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Message: progress.State + ": " + displaySafe(progress.Message)})
-			}})
+			}))
 			result.Message = r.Message
 			result = operationWithSprintFindings(result, r.Findings)
 			if e != nil {
@@ -37,9 +37,12 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 			if e != nil {
 				return failedOperation(result, e)
 			}
-			r, e := runSprintFlow(ctx, service, req.Project, req.Sprint, sprint.FlowRequest{To: sprint.PlanningStage(req.Stage), Review: sprint.ReviewRequest{Restart: req.RestartReview}, Smoke: sprint.SmokeRequest{NonInteractive: true, OverrideConfirmed: req.ForceReview, ForceReview: req.ForceReview, OverrideRationale: req.OverrideRationale}, Progress: func(progress sprint.FlowProgress) {
+			flow := stageFlowRequest(req, func(progress sprint.FlowProgress) {
 				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Message: progress.State + ": " + displaySafe(progress.Message)})
-			}})
+			})
+			flow.Review = sprint.ReviewRequest{Restart: req.RestartReview}
+			flow.Smoke = sprint.SmokeRequest{NonInteractive: true, OverrideConfirmed: req.ForceReview, ForceReview: req.ForceReview, OverrideRationale: req.OverrideRationale}
+			r, e := runSprintFlow(ctx, service, req.Project, req.Sprint, flow)
 			result.Message = r.Message
 			result = operationWithSprintFindings(result, r.Findings)
 			if e != nil {
@@ -50,7 +53,7 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 			if e != nil {
 				return failedOperation(result, e)
 			}
-			r, e := service.Execute(ctx, req.Project, req.Sprint, sprint.ExecuteRequest{TaskID: req.Task, Resume: req.Kind == OperationExecuteResume})
+			r, e := service.Execute(ctx, req.Project, req.Sprint, sprint.ExecuteRequest{TaskID: req.Task, ModelOverride: req.Model, Resume: req.Kind == OperationExecuteResume})
 			result.Message = r.Message
 			result = operationWithSprintFindings(result, r.Findings)
 			if e != nil {
@@ -61,7 +64,7 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 			if e != nil {
 				return failedOperation(result, e)
 			}
-			r, e := service.Review(ctx, req.Project, req.Sprint, sprint.ReviewRequest{Concurrency: req.Parallelism, Focus: req.ReviewFocus, Restart: req.RestartReview, Progress: func(p sprint.ReviewProgress) {
+			r, e := service.Review(ctx, req.Project, req.Sprint, sprint.ReviewRequest{Concurrency: req.Parallelism, Focus: req.ReviewFocus, Restart: req.RestartReview, ModelOverride: req.Model, Progress: func(p sprint.ReviewProgress) {
 				emit(OperationEvent{State: OperationRunning, Stage: "review", Task: p.CoverageID, Message: p.Message, Completed: p.Completed, Total: p.Total})
 			}})
 			result.Message = fmt.Sprintf("%s verdict=%s", r.Status, r.Verdict)
@@ -108,11 +111,12 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 		case OperationStudyStart, OperationStudyResume:
 			flags := runAllFlags{}
 			flags.parallelism = &req.Parallelism
+			flags.model = req.Model
 			service, parallel, summary, e := runLoopService(deps, root, flags)
 			if e != nil {
 				return failedOperation(result, e)
 			}
-			r, e := service.RunLoop(ctx, study.RunLoopRequest{StudyRef: req.Study, DimensionRefs: req.Dimensions, SourceRefs: req.Sources, Parallelism: parallel, Config: summary, Continue: req.Kind == OperationStudyResume, Command: []string{"ultraplan", "operation"}, Progress: func(p study.RunLoopProgress) {
+			r, e := service.RunLoop(ctx, study.RunLoopRequest{StudyRef: req.Study, DimensionRefs: req.Dimensions, SourceRefs: req.Sources, Parallelism: parallel, Model: studyModelOverride(deps, flags.model), Config: summary, Continue: req.Kind == OperationStudyResume, Command: []string{"ultraplan", "operation"}, Progress: func(p study.RunLoopProgress) {
 				stats := operationTaskStats(p.Task, time.Now().UTC())
 				event := OperationEvent{State: OperationRunning, Task: p.Task.ID, Stage: string(p.Event), Message: strings.TrimSpace(p.Task.DimensionRef + " " + p.Task.Source), Completed: p.ScopeCounts.Completed, Total: p.ScopeCounts.Total, Attempt: p.Task.Attempts, RuntimeAttempts: stats.RuntimeAttempts, Turns: stats.Turns, TurnsKnown: stats.TurnsKnown, Tokens: stats.Tokens, TokensKnown: stats.TokensKnown, InputTokens: stats.InputTokens, OutputTokens: stats.OutputTokens, ReasoningTokens: stats.ReasoningTokens, CacheReadTokens: stats.CacheReadTokens, CacheWriteTokens: stats.CacheWriteTokens, Duration: stats.Duration, Provider: stats.Provider, Model: stats.Model, Cost: stats.Cost, RuntimeEvents: stats.Events}
 				if p.RuntimeEvent != nil {
@@ -147,4 +151,23 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 		emit(OperationEvent{State: OperationComplete, Message: "operation complete"})
 		return result, nil
 	}
+}
+
+// stageFlowRequest builds the sprint flow request for a stage or flow
+// operation. A requested model applies to the selected target stage and, as a
+// fallback for stages without dedicated per-stage handling (code-context), as
+// the generic model override. Empty models keep configured defaults.
+func stageFlowRequest(req OperationRequest, progress func(sprint.FlowProgress)) sprint.FlowRequest {
+	flow := sprint.FlowRequest{To: sprint.PlanningStage(req.Stage), ModelOverride: req.Model}
+	if req.Model != "" && req.Stage != "" {
+		stage := sprint.PlanningStage(req.Stage)
+		if _, ok := flow.StageOverrides[stage]; !ok {
+			flow.StageOverrides = map[sprint.PlanningStage]sprint.StageRuntime{}
+		}
+		override := flow.StageOverrides[stage]
+		override.Model = req.Model
+		flow.StageOverrides[stage] = override
+	}
+	flow.Progress = progress
+	return flow
 }

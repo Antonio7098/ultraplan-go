@@ -436,6 +436,22 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		h.writeSuccess(w, r, http.StatusOK, mapSprint(result), nil)
+	case "api_models":
+		queries, ok := h.queries.(app.WebModelQueries)
+		if !ok {
+			h.handleQueryError(w, r, true, app.ErrWebUnavailable)
+			return
+		}
+		result, err := queries.Models(r.Context())
+		if err != nil {
+			h.handleQueryError(w, r, true, err)
+			return
+		}
+		models := make([]map[string]any, 0, len(result.Models))
+		for _, model := range result.Models {
+			models = append(models, map[string]any{"provider": model.Provider, "id": model.ID, "reference": strings.TrimPrefix(model.Provider+"/"+model.ID, "/")})
+		}
+		h.writeSuccess(w, r, http.StatusOK, map[string]any{"models": models, "default": result.Default}, nil)
 	case "api_prompt_bundle":
 		queries, ok := h.queries.(app.WebPromptQueries)
 		if !ok {

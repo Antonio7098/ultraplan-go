@@ -21,9 +21,12 @@ const (
 )
 
 type ExecutionRequest struct {
-	StudyRef      string
-	DimensionRef  string
-	SourceRef     string
+	StudyRef     string
+	DimensionRef string
+	SourceRef    string
+	// Model optionally overrides the runtime model (provider/model) for this
+	// task. When empty, study config and workspace defaults apply.
+	Model         string
 	OnEvent       func(runtimepkg.Event)
 	ResumeSession *TaskSession
 	OnSession     func(TaskSession)
@@ -51,9 +54,12 @@ type ExecutionResult struct {
 }
 
 type SynthesisRequest struct {
-	StudyRef      string
-	DimensionRef  string
-	SourceRefs    []string
+	StudyRef     string
+	DimensionRef string
+	SourceRefs   []string
+	// Model optionally overrides the runtime model (provider/model) for this
+	// task. When empty, study config and workspace defaults apply.
+	Model         string
 	OnEvent       func(runtimepkg.Event)
 	ResumeSession *TaskSession
 	OnSession     func(TaskSession)
@@ -64,7 +70,10 @@ type RunAllRequest struct {
 	DimensionRefs []string
 	SourceRefs    []string
 	Parallelism   int
-	Progress      func(RunAllProgress)
+	// Model optionally overrides the runtime model (provider/model) for every
+	// executed task.
+	Model    string
+	Progress func(RunAllProgress)
 }
 
 type RunAllProgress struct {
@@ -118,7 +127,10 @@ type RunLoopRequest struct {
 	ForceUnlock   bool
 	Continue      bool
 	Reset         bool
-	Progress      func(RunLoopProgress)
+	// Model optionally overrides the runtime model (provider/model) for every
+	// advanced task.
+	Model    string
+	Progress func(RunLoopProgress)
 }
 
 type RunLoopResult struct {

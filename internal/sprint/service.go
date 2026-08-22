@@ -127,6 +127,34 @@ func (s Service) WithStageRuntime(overrides map[PlanningStage]StageRuntime) Serv
 	return s
 }
 
+// withStageOverrides returns a service copy whose stage runtime map is merged
+// with request-scoped stage model/variant overrides. Configured defaults stay
+// unchanged for stages without an entry.
+func (s Service) withStageOverrides(overrides map[PlanningStage]StageRuntime) Service {
+	if len(overrides) == 0 {
+		return s
+	}
+	merged := make(map[PlanningStage]StageRuntime, len(s.stageRuntime)+len(overrides))
+	for stage, override := range s.stageRuntime {
+		merged[stage] = override
+	}
+	for stage, override := range overrides {
+		if override.Model == "" && override.Variant == "" {
+			continue
+		}
+		current := merged[stage]
+		if override.Model != "" {
+			current.Model = override.Model
+		}
+		if override.Variant != "" {
+			current.Variant = override.Variant
+		}
+		merged[stage] = current
+	}
+	s.stageRuntime = merged
+	return s
+}
+
 func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 	projects, err := project.DiscoverProjects(s.root)
 	if err != nil {

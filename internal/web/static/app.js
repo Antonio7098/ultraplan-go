@@ -655,10 +655,37 @@
     const options = {};
     const selectedStage = form.elements?.stage?.value || form.dataset.stage;
     if (selectedStage) options.to_stage = selectedStage;
+    const selectedModel = form.elements?.model?.value;
+    if (selectedModel) options.model = selectedModel;
     const selectedParallelism = form.elements?.parallelism?.value || form.dataset.parallelism;
     if (selectedParallelism) options.parallelism = Number(selectedParallelism);
     return {kind: submitter?.dataset.operationKind || form.dataset.operationKind, scope, options};
   }
+
+  async function loadModelChoices() {
+    const selects = [...document.querySelectorAll("select[data-model-select]")];
+    if (selects.length === 0 || !window.UltraPlanOperations) return;
+    let data;
+    try {
+      data = await command("/api/v1/models", null, "GET");
+    } catch {
+      return;
+    }
+    const models = Array.isArray(data?.models) ? data.models : [];
+    for (const select of selects) {
+      for (const model of models) {
+        const reference = [model.provider, model.id].filter(Boolean).join("/");
+        if (!reference || select.querySelector(`option[value="${CSS.escape(reference)}"]`)) continue;
+        const option = document.createElement("option");
+        option.value = reference;
+        option.textContent = reference;
+        if (reference === data.default) option.textContent += " (workspace default)";
+        select.appendChild(option);
+      }
+    }
+  }
+
+  void loadModelChoices();
 
   async function command(path, payload, method = "POST") {
     if (window.UltraPlanOperations) return window.UltraPlanOperations.command(path, payload, method);

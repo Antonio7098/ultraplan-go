@@ -21,6 +21,9 @@ type ExecutePlanTask struct {
 	Decisions    []string
 	Requirements []string
 	Evidence     []string
+	// Model optionally overrides the runtime model (provider/model) for this
+	// task via an inline `<!-- model: provider/model -->` plan annotation.
+	Model string
 }
 
 func ExtractExecutePlanTasks(content string, manifest PlanManifest) ([]ExecutePlanTask, []ValidationFinding) {
@@ -59,7 +62,7 @@ func extractExecutePlanTasks(content string, manifest PlanManifest, allowChecked
 		}
 		if isTopLevelTaskCheckbox(line) {
 			flush()
-			title, checked, ok := parseTopLevelTaskLine(line)
+			title, checked, ok, taskModel := parseTopLevelTaskLine(line)
 			deferred := isDeferredTaskLine(line)
 			deferReason := deferredTaskReason(line)
 			if !ok {
@@ -79,7 +82,7 @@ func extractExecutePlanTasks(content string, manifest PlanManifest, allowChecked
 					findings = append(findings, finding("Tasks", title, manifest.OutputPath, "deferred task cannot start a new execution", "top-level task is already marked deferred", "Start with [ ] and let execute record the agent's deferral, or resume the matching run state."))
 				}
 			}
-			current = &ExecutePlanTask{Name: title, PlanLine: baseLine + i + 1, Checked: checked, Deferred: deferred, DeferReason: deferReason}
+			current = &ExecutePlanTask{Name: title, PlanLine: baseLine + i + 1, Checked: checked, Deferred: deferred, DeferReason: deferReason, Model: taskModel}
 			current.Decisions = append(current.Decisions, extractRefs(title, `Decision\s+\d+`)...)
 			current.Requirements = append(current.Requirements, extractRefs(title, `(?:REQ-\d+-\d+|AC-\d+)`)...)
 			continue
@@ -160,17 +163,26 @@ func deterministicExecuteTaskID(task ExecutePlanTask) string {
 	return "task-" + hex.EncodeToString(sum[:])[:12]
 }
 
-func parseTopLevelTaskLine(line string) (string, bool, bool) {
+// taskModelAnnotationPattern matches an inline per-task runtime model
+// annotation, e.g. `- [ ] Task 1: Name <!-- model: provider/model -->`.
+var taskModelAnnotationPattern = regexp.MustCompile(`(?i)<!--\s*model:\s*([A-Za-z0-9._~/-]+)\s*-->`)
+
+func parseTopLevelTaskLine(line string) (string, bool, bool, string) {
 	trimmed := strings.TrimSpace(line)
 	checked := strings.HasPrefix(strings.ToLower(trimmed), "- [x]")
 	body := strings.TrimSpace(trimmed[5:])
 	body, _ = splitDeferredTaskReason(body)
+	model := ""
+	if match := taskModelAnnotationPattern.FindStringSubmatchIndex(body); match != nil {
+		model = strings.TrimSpace(body[match[2]:match[3]])
+		body = strings.TrimSpace(body[:match[0]] + body[match[1]:])
+	}
 	body = strings.Trim(body, "* ")
 	if !regexp.MustCompile(`(?i)^Task\s+\d+\s*:`).MatchString(body) {
-		return "", checked, false
+		return "", checked, false, model
 	}
 	body = strings.TrimSpace(strings.Trim(body, "* "))
-	return body, checked, true
+	return body, checked, true, model
 }
 
 func isDeferredTaskLine(line string) bool {

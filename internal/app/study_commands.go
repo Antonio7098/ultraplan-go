@@ -144,10 +144,10 @@ Usage:
   ultraplan study <study> validate [--json]
   ultraplan study <study> status [--json]
   ultraplan study <study> runs summary
-  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock]
-  ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>]
-  ultraplan study <study> run <dimension> <source>
-  ultraplan study <study> synthesize <dimension>
+  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--model <provider/model>] [--force-unlock]
+  ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>] [--model <provider/model>]
+  ultraplan study <study> run <dimension> <source> [--model <provider/model>]
+  ultraplan study <study> synthesize <dimension> [--model <provider/model>]
   ultraplan study <study> prompt analysis <dimension> <source> [--output <file>]
   ultraplan study <study> prompt synthesis <dimension> [--output <file>]
 
@@ -171,10 +171,20 @@ type runAllFlags struct {
 	dimensions  []string
 	sources     []string
 	parallelism *int
+	model       string
 	forceUnlock bool
 	continueRun bool
 	reset       bool
 	yes         bool
+}
+
+// studyModelOverride resolves the effective study model: explicit --model
+// first, then ULTRAPLAN_STUDY_MODEL, then empty (workspace defaults).
+func studyModelOverride(deps dependencies, explicit string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return strings.TrimSpace(explicit)
+	}
+	return strings.TrimSpace(envLookup(deps.env)("ULTRAPLAN_STUDY_MODEL"))
 }
 
 func operationParallelism(value *int) int {
@@ -212,6 +222,7 @@ func runStudyRunLoop(deps dependencies, root workspace.Root, studyRef string, ar
 		DimensionRefs: flags.dimensions,
 		SourceRefs:    flags.sources,
 		Parallelism:   parallelism,
+		Model:         studyModelOverride(deps, flags.model),
 		Config:        summary,
 		Command:       command,
 		ForceUnlock:   flags.forceUnlock,
@@ -554,6 +565,7 @@ func runStudyRunAll(deps dependencies, root workspace.Root, studyRef string, arg
 		DimensionRefs: flags.dimensions,
 		SourceRefs:    flags.sources,
 		Parallelism:   parallelism,
+		Model:         studyModelOverride(deps, flags.model),
 		Progress:      renderRunAllRuntimeProgress(deps),
 	})
 	err = finishDurableCLICommand(durable, err)
@@ -592,6 +604,20 @@ func parseRunAllArgs(args []string) (runAllFlags, error) {
 			flags.sources = append(flags.sources, value)
 		case strings.HasPrefix(arg, "--source="):
 			flags.sources = append(flags.sources, strings.TrimPrefix(arg, "--source="))
+		case arg == "--model":
+			value, err := next(arg)
+			if err != nil {
+				return flags, err
+			}
+			if strings.TrimSpace(value) == "" {
+				return flags, fmt.Errorf("--model requires a provider/model value")
+			}
+			flags.model = value
+		case strings.HasPrefix(arg, "--model="):
+			flags.model = strings.TrimPrefix(arg, "--model=")
+			if strings.TrimSpace(flags.model) == "" {
+				return flags, fmt.Errorf("--model requires a provider/model value")
+			}
 		case arg == "--parallel":
 			value, err := next(arg)
 			if err != nil {
@@ -619,12 +645,13 @@ func studyRunLoopHelp() string {
 	return `ultraplan study <study> run-loop
 
 Usage:
-  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--force-unlock] [--reset] [--yes]
+  ultraplan study <study> run-loop [--dimension <ref>] [--source <ref>] [--parallel <n>] [--model <provider/model>] [--force-unlock] [--reset] [--yes]
 
 Flags:
   --dimension <ref>   Advance only this dimension in the shared study progress. Repeatable.
   --source <ref>      Advance only this source in the shared study progress. Repeatable.
   --parallel <n>      Override configured default parallelism. Must be at least 1.
+  --model <provider/model>   Override the runtime model for every advanced task.
   --force-unlock      Remove this study's existing run-loop lock before starting.
   --continue          Deprecated compatibility no-op; continuing is the default.
   --reset             Archive existing study progress and rebuild it from the current study graph.
@@ -721,12 +748,13 @@ func studyRunAllHelp() string {
 	return `ultraplan study <study> run-all
 
 Usage:
-  ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>]
+  ultraplan study <study> run-all [--dimension <ref>] [--source <ref>] [--parallel <n>] [--model <provider/model>]
 
 Flags:
   --dimension <ref>   Limit execution to one dimension. Repeatable.
   --source <ref>      Limit execution to one source. Repeatable.
   --parallel <n>      Override configured default parallelism. Must be at least 1.
+  --model <provider/model>   Override the runtime model for every executed task.
 `
 }
 
@@ -776,10 +804,14 @@ func runStudyRun(deps dependencies, root workspace.Root, studyRef string, args [
 		_, err := deps.stdout.Write([]byte(studyRunHelp()))
 		return err
 	}
-	if len(args) != 2 {
+	positional, model, err := parseStudyModelArgs(args)
+	if err != nil {
+		return classified(ExitUsage, "study run: %w", err)
+	}
+	if len(positional) != 2 {
 		return classified(ExitUsage, "study run: requires <dimension> <source>")
 	}
-	durable, err := beginDurableCLICommand(deps, OperationRequest{Kind: OperationStudyStart, Study: studyRef, Stage: "analysis", Task: args[0] + "/" + args[1], Parallelism: 1})
+	durable, err := beginDurableCLICommand(deps, OperationRequest{Kind: OperationStudyStart, Study: studyRef, Stage: "analysis", Task: positional[0] + "/" + positional[1], Parallelism: 1})
 	if err != nil {
 		return err
 	}
@@ -787,7 +819,7 @@ func runStudyRun(deps dependencies, root workspace.Root, studyRef string, args [
 	if err != nil {
 		return finishDurableCLICommand(durable, err)
 	}
-	result, err := service.RunAnalysis(durable.Context(), study.ExecutionRequest{StudyRef: studyRef, DimensionRef: args[0], SourceRef: args[1], OnEvent: renderStudyRuntimeProgress(deps, "analysis", args[0], args[1])})
+	result, err := service.RunAnalysis(durable.Context(), study.ExecutionRequest{StudyRef: studyRef, DimensionRef: positional[0], SourceRef: positional[1], Model: model, OnEvent: renderStudyRuntimeProgress(deps, "analysis", positional[0], positional[1])})
 	err = finishDurableCLICommand(durable, err)
 	if err != nil {
 		return mapStudyExecutionError("study.run", err)
@@ -801,10 +833,14 @@ func runStudySynthesize(deps dependencies, root workspace.Root, studyRef string,
 		_, err := deps.stdout.Write([]byte(studySynthesizeHelp()))
 		return err
 	}
-	if len(args) != 1 {
+	positional, model, err := parseStudyModelArgs(args)
+	if err != nil {
+		return classified(ExitUsage, "study synthesize: %w", err)
+	}
+	if len(positional) != 1 {
 		return classified(ExitUsage, "study synthesize: requires <dimension>")
 	}
-	durable, err := beginDurableCLICommand(deps, OperationRequest{Kind: OperationStudyStart, Study: studyRef, Stage: "synthesis", Task: args[0], Parallelism: 1})
+	durable, err := beginDurableCLICommand(deps, OperationRequest{Kind: OperationStudyStart, Study: studyRef, Stage: "synthesis", Task: positional[0], Parallelism: 1})
 	if err != nil {
 		return err
 	}
@@ -812,7 +848,7 @@ func runStudySynthesize(deps dependencies, root workspace.Root, studyRef string,
 	if err != nil {
 		return finishDurableCLICommand(durable, err)
 	}
-	result, err := service.Synthesize(durable.Context(), study.SynthesisRequest{StudyRef: studyRef, DimensionRef: args[0], OnEvent: renderStudyRuntimeProgress(deps, "synthesis", args[0], "")})
+	result, err := service.Synthesize(durable.Context(), study.SynthesisRequest{StudyRef: studyRef, DimensionRef: positional[0], Model: model, OnEvent: renderStudyRuntimeProgress(deps, "synthesis", positional[0], "")})
 	err = finishDurableCLICommand(durable, err)
 	if err != nil {
 		return mapStudyExecutionError("study.synthesize", err)
@@ -922,11 +958,43 @@ func mapStudyExecutionError(prefix string, err error) error {
 	return classified(ExitWorkspace, "%s: %w", prefix, err)
 }
 
+func parseStudyModelArgs(args []string) ([]string, string, error) {
+	var positional []string
+	model := ""
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--model":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return nil, "", fmt.Errorf("--model requires a provider/model value")
+			}
+			i++
+			if strings.TrimSpace(args[i]) == "" {
+				return nil, "", fmt.Errorf("--model requires a provider/model value")
+			}
+			model = args[i]
+		case strings.HasPrefix(arg, "--model="):
+			model = strings.TrimPrefix(arg, "--model=")
+			if strings.TrimSpace(model) == "" {
+				return nil, "", fmt.Errorf("--model requires a provider/model value")
+			}
+		case strings.HasPrefix(arg, "-"):
+			return nil, "", fmt.Errorf("unknown argument %q", arg)
+		default:
+			positional = append(positional, arg)
+		}
+	}
+	return positional, model, nil
+}
+
 func studyRunHelp() string {
 	return `ultraplan study <study> run
 
 Usage:
-  ultraplan study <study> run <dimension> <source>
+  ultraplan study <study> run <dimension> <source> [--model <provider/model>]
+
+Flags:
+  --model <provider/model>   Override the runtime model for this task.
 `
 }
 
@@ -934,7 +1002,10 @@ func studySynthesizeHelp() string {
 	return `ultraplan study <study> synthesize
 
 Usage:
-  ultraplan study <study> synthesize <dimension>
+  ultraplan study <study> synthesize <dimension> [--model <provider/model>]
+
+Flags:
+  --model <provider/model>   Override the runtime model for this task.
 `
 }
 

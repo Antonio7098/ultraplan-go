@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/runcontrol"
 	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 	"github.com/Antonio7098/ultraplan-go/internal/study"
@@ -55,10 +56,34 @@ type WebResourceQueries interface {
 	StudyResources(context.Context, string) (study.RunLoopResourceHistory, error)
 }
 
+// WebModelQueries is an additive read-only capability that exposes the models
+// available to the configured runtime for model selection surfaces.
+type WebModelQueries interface {
+	Models(context.Context) (WebModelsResult, error)
+}
+
+// RuntimeModelLister enumerates models through the configured runtime adapter.
+type RuntimeModelLister interface {
+	ListModels(ctx context.Context, provider string) ([]runtime.Model, error)
+}
+
+// WebModel describes one model selectable for runtime-backed operations.
+type WebModel struct {
+	Provider string
+	ID       string
+}
+
+// WebModelsResult is the bounded model listing shown by selection surfaces.
+type WebModelsResult struct {
+	Models  []WebModel
+	Default string
+}
+
 type WebUseCases interface {
 	WebQueries
 	WebPromptQueries
 	WebResourceQueries
+	WebModelQueries
 	WebOperations
 	RunUseCases
 }
@@ -70,6 +95,11 @@ type WebUseCaseOptions struct {
 	Runner            func(context.Context, OperationRequest, func(OperationEvent)) (OperationResult, error)
 	RunControl        RunUseCases
 	DurableOperations DurableOperationManager
+	// DefaultModel is the workspace-configured model shown as the selection
+	// default; it stays unchanged when empty.
+	DefaultModel string
+	// Models optionally supplies the runtime-backed model listing.
+	Models RuntimeModelLister
 }
 
 type CollectionInfo struct {
@@ -219,13 +249,39 @@ type webRefTarget struct {
 }
 
 type webUseCases struct {
-	root      string
-	dashboard dashboardUseCases
-	secret    [32]byte
-	mu        sync.RWMutex
-	refs      map[string]webRefTarget
-	runs      RunUseCases
-	durable   DurableOperationManager
+	root         string
+	dashboard    dashboardUseCases
+	secret       [32]byte
+	mu           sync.RWMutex
+	refs         map[string]webRefTarget
+	runs         RunUseCases
+	durable      DurableOperationManager
+	defaultModel string
+	models       RuntimeModelLister
+}
+
+// Models enumerates the models available to the configured runtime. The
+// listing is bounded and read-only; unavailable runtimes surface a typed
+// error instead of blocking dashboards that do not use the capability.
+func (u *webUseCases) Models(ctx context.Context) (WebModelsResult, error) {
+	if err := ctx.Err(); err != nil {
+		return WebModelsResult{}, err
+	}
+	if u.models == nil {
+		return WebModelsResult{}, ErrWebUnavailable
+	}
+	items, err := u.models.ListModels(ctx, "")
+	if err != nil {
+		return WebModelsResult{}, fmt.Errorf("%w: model listing", ErrWebUnavailable)
+	}
+	if len(items) > runtime.MaxModelListing {
+		items = items[:runtime.MaxModelListing]
+	}
+	models := make([]WebModel, 0, len(items))
+	for _, item := range items {
+		models = append(models, WebModel{Provider: item.Provider, ID: item.ID})
+	}
+	return WebModelsResult{Models: nonNil(models), Default: u.defaultModel}, nil
 }
 
 func (u *webUseCases) StudyResources(ctx context.Context, name string) (study.RunLoopResourceHistory, error) {
@@ -250,9 +306,11 @@ func NewWebUseCases(root string, opts WebUseCaseOptions) WebUseCases {
 			readOnly:          true,
 			runner:            opts.Runner,
 		},
-		refs:    make(map[string]webRefTarget),
-		runs:    opts.RunControl,
-		durable: opts.DurableOperations,
+		refs:         make(map[string]webRefTarget),
+		runs:         opts.RunControl,
+		durable:      opts.DurableOperations,
+		defaultModel: strings.TrimSpace(opts.DefaultModel),
+		models:       opts.Models,
 	}
 	if _, err := rand.Read(u.secret[:]); err != nil {
 		u.secret = sha256.Sum256([]byte(filepath.Clean(root)))

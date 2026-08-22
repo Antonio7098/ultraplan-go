@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 const DefaultServeListen = "127.0.0.1:8080"
@@ -41,6 +42,10 @@ func runServe(deps dependencies, args []string) error {
 	if err != nil {
 		return err
 	}
+	rt, err := studyRuntimeFactory(effective.Config)
+	if err != nil {
+		return classified(ExitRuntime, "runtime.init: %w", err)
+	}
 	if deps.webRunner == nil {
 		return classified(ExitError, "serve.start: web runner is not configured")
 	}
@@ -56,6 +61,11 @@ func runServe(deps dependencies, args []string) error {
 	if err != nil {
 		return err
 	}
+	defaultModel := firstNonEmptyWorkspaceModel(effective.Config)
+	var modelsLister RuntimeModelLister
+	if adapter, ok := any(rt).(runtimepkg.Adapter); ok {
+		modelsLister = adapter
+	}
 	useCases := NewWebUseCases(root.Path, WebUseCaseOptions{
 		StageRuntime:      planningStageRuntime(effective.Config),
 		ReviewConcurrency: effective.Config.Execution.DefaultParallel,
@@ -63,6 +73,8 @@ func runServe(deps dependencies, args []string) error {
 		Runner:            sharedOperationRunner(deps, root, effective, dashboard),
 		RunControl:        repositoryRunUseCases{repository: repository},
 		DurableOperations: newDurableOperationManager(repository, deps.runControl.owner),
+		DefaultModel:      defaultModel,
+		Models:            modelsLister,
 	})
 	err = deps.webRunner(deps.ctx, ServeRunOptions{
 		Listen:      *listen,
@@ -78,6 +90,15 @@ func runServe(deps dependencies, args []string) error {
 		return nil
 	}
 	return classifiedCause(ExitError, err, "serve.start")
+}
+
+// firstNonEmptyWorkspaceModel returns the workspace-configured default model
+// reference shown as the selection default on model surfaces.
+func firstNonEmptyWorkspaceModel(c config.Config) string {
+	if strings.TrimSpace(c.Models.Primary) != "" {
+		return strings.TrimSpace(c.Models.Primary)
+	}
+	return strings.TrimSpace(c.Models.Default)
 }
 
 // configOverridesForServe exists to make it explicit that serve uses the

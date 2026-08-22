@@ -19,9 +19,13 @@ type FlowRequest struct {
 	DryRun          bool
 	ModelOverride   string
 	VariantOverride string
-	Review          ReviewRequest
-	Smoke           SmokeRequest
-	Progress        func(FlowProgress)
+	// StageOverrides optionally sets a per-stage runtime model and/or variant
+	// for this flow invocation. Stages without an entry keep their configured
+	// defaults unchanged.
+	StageOverrides map[PlanningStage]StageRuntime
+	Review         ReviewRequest
+	Smoke          SmokeRequest
+	Progress       func(FlowProgress)
 }
 
 type FlowProgress struct {
@@ -96,7 +100,7 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 			emitFlow(req.Progress, FlowProgress{Stage: stage, State: "running", Message: "starting runtime-backed stage"})
 		}
 		var stageErr error
-		result, stageErr = s.runFlowStage(ctx, projectRef, sprintRef, stageReq)
+		result, stageErr = s.withStageOverrides(req.StageOverrides).runFlowStage(ctx, projectRef, sprintRef, stageReq)
 		if stageErr != nil {
 			emitFlow(req.Progress, FlowProgress{Stage: stage, State: "failed", Message: "stage failed; inspect validation findings and durable state"})
 			return result, stageErr
@@ -133,7 +137,7 @@ func (s Service) FlowStage(ctx context.Context, projectRef, sprintRef string, re
 		defer release()
 	}
 	emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "running", Message: "running selected stage only"})
-	result, err := s.runFlowStage(ctx, projectRef, sprintRef, req)
+	result, err := s.withStageOverrides(req.StageOverrides).runFlowStage(ctx, projectRef, sprintRef, req)
 	if err != nil {
 		emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "failed", Message: "stage failed; inspect validation findings and durable state"})
 		return result, err

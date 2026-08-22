@@ -48,7 +48,8 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 	}
 	workDir := listing.Study.Path
 	beforeFiles, snapshotErr := snapshotFiles(listing.Study.Path)
-	runtimeResult, runErr := s.startRuntime(ctx, prompt, TaskKindAnalysis, listing.Study, dimension, source, workDir, result.OutputPath, beforeFiles, snapshotErr, req.ResumeSession, req.OnSession, req.OnEvent)
+	modelOverride := resolveStudyModelOverride(req.Model, listing.Config.Model)
+	runtimeResult, runErr := s.startRuntime(ctx, prompt, TaskKindAnalysis, listing.Study, dimension, source, workDir, result.OutputPath, beforeFiles, snapshotErr, modelOverride, req.ResumeSession, req.OnSession, req.OnEvent)
 	if snapshotErr != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("edit monitoring skipped before runtime: %v", snapshotErr))
 	} else if afterFiles, err := snapshotFilesSettled(listing.Study.Path); err != nil {
@@ -88,7 +89,7 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 	return result, nil
 }
 
-func (s Service) startRuntime(ctx context.Context, prompt PromptResult, kind TaskKind, study Study, dimension Dimension, source Source, workDir, outputPath string, inputs fileSnapshot, inputsErr error, resume *TaskSession, onSession func(TaskSession), onEvent func(runtimepkg.Event)) (runtimepkg.Result, error) {
+func (s Service) startRuntime(ctx context.Context, prompt PromptResult, kind TaskKind, study Study, dimension Dimension, source Source, workDir, outputPath string, inputs fileSnapshot, inputsErr error, modelOverride string, resume *TaskSession, onSession func(TaskSession), onEvent func(runtimepkg.Event)) (runtimepkg.Result, error) {
 	if s.runtime == nil {
 		return runtimepkg.Result{}, fmt.Errorf("runtime is required")
 	}
@@ -97,6 +98,9 @@ func (s Service) startRuntime(ctx context.Context, prompt PromptResult, kind Tas
 	}
 	req := s.runtimeConfig
 	req.WorkDir = workDir
+	if strings.TrimSpace(modelOverride) != "" {
+		req.Provider, req.Model = splitModelReference(modelOverride)
+	}
 	req = withStudyRuntimeIsolation(req)
 	req.Metadata = executionMetadata(req, kind, study, dimension, source, outputPath)
 	req.Validation = studyReportValidationSpec(kind, study, source, dimension, outputPath)
@@ -236,6 +240,28 @@ func withStudyRuntimeIsolation(req runtimepkg.Request) runtimepkg.Request {
 	}
 	req.Policy.Tools["external_directory"] = "deny"
 	return req
+}
+
+// resolveStudyModelOverride applies the study model precedence: explicit task
+// request override first, then the per-study config value. Empty means the
+// workspace runtime configuration default applies unchanged.
+func resolveStudyModelOverride(overrides ...string) string {
+	for _, candidate := range overrides {
+		if strings.TrimSpace(candidate) != "" {
+			return strings.TrimSpace(candidate)
+		}
+	}
+	return ""
+}
+
+// splitModelReference splits a provider/model reference on its first slash.
+// A bare model id keeps an empty provider.
+func splitModelReference(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	if index := strings.Index(value, "/"); index >= 0 {
+		return value[:index], strings.TrimSpace(value[index+1:])
+	}
+	return "", value
 }
 
 func executionMetadata(req runtimepkg.Request, kind TaskKind, study Study, dimension Dimension, source Source, outputPath string) map[string]string {
