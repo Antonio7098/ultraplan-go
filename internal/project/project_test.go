@@ -245,7 +245,6 @@ func writeValidProject(t *testing.T, root, name string) {
 	for _, rel := range []string{
 		"docs/PRD.md",
 		"docs/ARCHITECTURE.md",
-		"roadmap.md",
 		"contracts/architecture.md",
 		"studies/report.md",
 		"templates/architecture.md",
@@ -253,6 +252,7 @@ func writeValidProject(t *testing.T, root, name string) {
 	} {
 		writeFileContent(t, base, "# ok\n", strings.Split(rel, "/")...)
 	}
+	writeFileContent(t, base, structuredRoadmapFixture(name, "16-project-domain-and-index"), "roadmap.md")
 	writeFileContent(t, base, indexWithRows(
 		"| Document | Path | Summary |",
 		"| Product Requirements | projects/"+name+"/docs/PRD.md | Product goals |",
@@ -273,6 +273,33 @@ func writeValidProject(t *testing.T, root, name string) {
 		"| Protocol | Path | Required When |",
 		"| Sprint Review | projects/"+name+"/protocols/sprint.md | Every sprint |",
 	), "project-index.md")
+}
+
+func structuredRoadmapFixture(projectName, slug string) string {
+	return "# " + projectName + " Roadmap\n" + `
+> Project: ` + "`" + projectName + "`" + `
+
+## Phase 1: Delivery
+
+### Sprint 16: Project Domain
+
+> Slug: ` + slug + `
+> Status: delivered
+> Depends On:
+
+#### Goal
+
+Model the project planning root.
+
+#### Build
+
+- project discovery
+- catalog parsing
+
+#### Acceptance
+
+- [ ] tests pass
+`
 }
 
 func indexWithRows(lines ...string) string {

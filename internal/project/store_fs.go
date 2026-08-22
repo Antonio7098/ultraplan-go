@@ -18,6 +18,7 @@ type ProjectFiles struct {
 	DocsDirExists      bool
 	MarkdownDocs       []string
 	RoadmapExists      bool
+	RoadmapContent     string
 	ProjectIndexExists bool
 	SprintsDirExists   bool
 	SprintDirs         []string
@@ -56,6 +57,13 @@ func (s FSStore) ReadProjectFiles(p Project) (ProjectFiles, error) {
 	sort.Strings(files.MarkdownDocs)
 
 	files.RoadmapExists = fileExists(filepath.Join(projectRoot, "roadmap.md"))
+	if files.RoadmapExists {
+		content, err := os.ReadFile(filepath.Join(projectRoot, "roadmap.md"))
+		if err != nil {
+			return ProjectFiles{}, fmt.Errorf("read roadmap.md: %w", err)
+		}
+		files.RoadmapContent = string(content)
+	}
 	indexPath := filepath.Join(projectRoot, "project-index.md")
 	files.ProjectIndexExists = fileExists(indexPath)
 	if files.ProjectIndexExists {

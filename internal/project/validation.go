@@ -32,6 +32,8 @@ func ValidateProject(root string, p Project, files ProjectFiles) ValidationResul
 	}
 	if !files.RoadmapExists {
 		add(projectRel(p.Name, "roadmap.md"), "missing roadmap", "roadmap.md was not found", "Create roadmap.md for project sequencing.", nil)
+	} else {
+		findings = append(findings, validateRoadmap(p, files)...)
 	}
 	if !files.ProjectIndexExists {
 		add(projectRel(p.Name, "project-index.md"), "missing project index", "project-index.md was not found", "Create project-index.md with catalog tables.", nil)
@@ -94,10 +96,73 @@ func ValidateProject(root string, p Project, files ProjectFiles) ValidationResul
 	}
 	sortFindings(findings)
 	status := StatusOK
-	if len(findings) > 0 {
-		status = StatusInvalid
+	for _, finding := range findings {
+		if finding.Severity == SeverityError {
+			status = StatusInvalid
+			break
+		}
 	}
 	return ValidationResult{Project: p, Status: status, Findings: findings}
+}
+
+func validateRoadmap(p Project, files ProjectFiles) []ValidationFinding {
+	path := projectRel(p.Name, "roadmap.md")
+	var findings []ValidationFinding
+	roadmap, issues := ParseRoadmap(files.RoadmapContent)
+	for _, issue := range issues {
+		findings = append(findings, ValidationFinding{
+			Severity:   SeverityError,
+			Path:       path,
+			Problem:    issue.Problem,
+			Cause:      fmt.Sprintf("line %d: %s", issue.Line, issue.Cause),
+			Suggestion: issue.Suggestion,
+		})
+	}
+	sprintDirs := make(map[string]bool, len(files.SprintDirs))
+	for _, dir := range files.SprintDirs {
+		sprintDirs[dir] = true
+	}
+	claimed := make(map[string]bool, len(roadmap.Sprints))
+	for _, sprint := range roadmap.Sprints {
+		if sprint.Slug == "" {
+			continue
+		}
+		if !sprintDirs[sprint.Slug] {
+			if sprint.Status == RoadmapActive || sprint.Status == RoadmapDelivered {
+				severity := SeverityWarn
+				problem := "roadmap sprint directory absent"
+				cause := fmt.Sprintf("Sprint %d slug '%s' has no matching sprints/%s directory", sprint.Number, sprint.Slug, sprint.Slug)
+				suggestion := "Create the sprint workspace or correct the '> Slug:' and '> Status:' lines."
+				if sprint.Status == RoadmapActive {
+					severity = SeverityError
+					problem = "active roadmap sprint directory missing"
+					suggestion = "Create sprints/" + sprint.Slug + " by running the governed flow, or set Status back to planned."
+				}
+				findings = append(findings, ValidationFinding{
+					Severity:   severity,
+					Path:       path,
+					Problem:    problem,
+					Cause:      cause,
+					Suggestion: suggestion,
+				})
+			}
+			continue
+		}
+		claimed[sprint.Slug] = true
+	}
+	for _, dir := range files.SprintDirs {
+		if claimed[dir] {
+			continue
+		}
+		findings = append(findings, ValidationFinding{
+			Severity:   SeverityError,
+			Path:       path,
+			Problem:    "sprint directory missing from roadmap",
+			Cause:      fmt.Sprintf("sprints/%s is not referenced by any roadmap '> Slug:' entry", dir),
+			Suggestion: fmt.Sprintf("Add a '### Sprint' section with '> Slug: %s' to roadmap.md.", dir),
+		})
+	}
+	return findings
 }
 
 func validateSmokeHarnessEntry(entry CatalogEntry) error {

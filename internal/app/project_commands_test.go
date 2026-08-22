@@ -107,7 +107,52 @@ func writeCommandProject(t *testing.T, root, name string) {
 	mkdirAll(t, base, "docs")
 	mkdirAll(t, base, "sprints", "01-test")
 	writeFixtureFileContent(t, base, "# PRD\n", "docs", "PRD.md")
-	writeFixtureFileContent(t, base, "# Roadmap\n", "roadmap.md")
+	writeFixtureFileContent(t, base, structuredRoadmapFixture(name), "roadmap.md")
 	writeFixtureFileContent(t, base, "# Contract\n", "contracts", "architecture.md")
-	writeFixtureFileContent(t, base, "# Project Index\n\n## Source Documents\n| Document | Path | Summary |\n|---|---|---|\n| Product Requirements | projects/"+name+"/docs/PRD.md | Product goals |\n\n## Active Contract Pool\n| Contract | Path | Applies To | Selection Notes |\n|---|---|---|---|\n| Architecture | projects/"+name+"/contracts/architecture.md | All | Notes |\n", "project-index.md")
+	writeFixtureFileContent(t, base, indexWithRows(
+		"| Document | Path | Summary |",
+		"| Product Requirements | projects/"+name+"/docs/PRD.md | Product goals |",
+		"",
+		"## Active Contract Pool",
+		"| Contract | Path | Applies To | Selection Notes |",
+		"| Architecture | projects/"+name+"/contracts/architecture.md | All | Notes |",
+	), "project-index.md")
+}
+
+func structuredRoadmapFixture(projectName string) string {
+	return "# " + projectName + " Roadmap\n" + `
+> Project: ` + "`" + projectName + "`" + `
+
+## Phase 1: Delivery
+
+### Sprint 1: Test Sprint
+
+> Slug: 01-test
+> Status: planned
+> Depends On:
+
+#### Goal
+
+Prove the fixture project.
+
+#### Build
+
+- one deliverable
+
+#### Acceptance
+
+- [ ] fixture validates
+`
+}
+
+func indexWithRows(lines ...string) string {
+	out := "# Project Index\n\n## Source Documents\n"
+	for _, line := range lines {
+		if line == "" {
+			out += "\n"
+			continue
+		}
+		out += line + "\n"
+	}
+	return out
 }
