@@ -1,0 +1,27 @@
+.run-history-timeline { display: grid; gap: .75rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklch, var(--panel) 82%, transparent); }
+.run-history-timeline > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.run-history-timeline h2, .run-history-timeline .eyebrow, .run-history-timeline p { margin: 0; }
+.run-history-timeline header p { max-width: 46rem; margin-top: .25rem; color: var(--muted); font-size: .8rem; }
+.run-timeline-controls { display: flex; align-items: center; gap: .75rem; }
+.run-timeline-controls label { display: grid; gap: .2rem; color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+.run-timeline-controls select { min-width: 6.5rem; font-size: .8rem; }
+.run-timeline-state { justify-self: end; padding: .25rem .55rem; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: .72rem; }
+.run-timeline-chart-wrap { overflow-x: auto; padding: .5rem; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, color-mix(in oklch, var(--panel) 70%, transparent), var(--panel)); }
+.run-timeline-chart-wrap svg { display: block; width: 100%; min-width: 34rem; height: auto; font-family: var(--sans); font-size: 11px; }
+.run-timeline-grid { stroke: var(--border-soft); stroke-dasharray: 3 4; }
+.run-timeline-chart-wrap text { fill: var(--subtle); }
+.run-timeline-row text:first-child { fill: var(--text); font-family: var(--mono); font-size: 10px; }
+.run-timeline-status { fill: var(--subtle); font-size: 10px; }
+.run-timeline-base { stroke-width: 2; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .85; }
+.run-timeline-activity { fill: none; stroke-width: 1.6; stroke-linejoin: round; vector-effect: non-scaling-stroke; opacity: .95; }
+.run-lifecycle-ok .run-timeline-base { stroke: var(--success); }
+.run-lifecycle-ok .run-timeline-activity { stroke: var(--success); }
+.run-lifecycle-info .run-timeline-base { stroke: var(--accent-strong); }
+.run-lifecycle-info .run-timeline-activity { stroke: var(--accent-strong); }
+.run-lifecycle-error .run-timeline-base { stroke: var(--danger); }
+.run-lifecycle-error .run-timeline-activity { stroke: var(--danger); }
+.run-lifecycle-warn .run-timeline-base { stroke: var(--warning); }
+.run-lifecycle-warn .run-timeline-activity { stroke: var(--warning); }
+.run-timeline-live { fill: var(--accent-strong); }
+.run-timeline-row a:focus-visible { outline: none; }
+.run-timeline-row a:focus-visible polyline:last-of-type { filter: drop-shadow(0 0 3px var(--focus)); }

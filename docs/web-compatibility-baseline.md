@@ -34,6 +34,8 @@ The JSON/SSE matrix is fixed as follows:
 | `/api/v1/operations` | `POST` | `202` JSON and `Location` |
 | `/api/v1/operations/{id}` | `GET`, `DELETE` | `200`; cancellation request may be `202` |
 | `/api/v1/operations/{id}/events` | `GET` | `200` `text/event-stream` |
+| `/api/v1/runs` | `GET`, `HEAD` | `200` JSON collection |
+| `/api/v1/timeline?sprint=...` or `?study=...` plus `window=6h\|24h\|7d\|30d&limit=1..50` | `GET`, `HEAD` | `200` JSON |
 
 Success envelopes are `{data, meta}` and errors are `{error, meta}`. The exact
 transport DTO tags and Go types are frozen in the compatibility test. Unknown
@@ -137,3 +139,12 @@ Compatibility SSE keeps the stable names `snapshot`, `progress`, `warning`,
 Durable event sequence is the event ID. Missing compacted history produces an
 explicit recovery response rather than fabricated events. Canonical run APIs
 are additive and are the recovery authority after server/session restart.
+
+## Run-history timeline
+
+`/api/v1/timeline` is a later additive, read-only observability surface in the
+same spirit as the canonical run APIs. It projects durable runs for exactly one
+sprint or study scope onto a shared time axis with committed tool-event
+timestamps, carries no raw payloads, and never mutates state. It backs the
+browser run-history chart on the sprint Run page and the study Progress page;
+those pages remain complete without JavaScript.

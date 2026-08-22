@@ -264,7 +264,7 @@ type pageModel struct {
 }
 
 func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMatch) {
-	allowsQuery := match.name == "api_validations" || match.name == "api_runs" || match.name == "api_run_events" || match.name == "runs"
+	allowsQuery := match.name == "api_validations" || match.name == "api_runs" || match.name == "api_run_events" || match.name == "runs" || match.name == "api_timeline"
 	if !allowsQuery && r.URL.RawQuery != "" {
 		h.writeRouteError(w, r, match.api, http.StatusBadRequest, "invalid_request", "Unknown query parameters are not accepted.")
 		return
@@ -525,6 +525,8 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		h.writeSuccess(w, r, status, data, nil)
 	case "api_runs":
 		h.handleRuns(w, r)
+	case "api_timeline":
+		h.handleTimeline(w, r)
 	case "api_run":
 		if r.Method == http.MethodDelete {
 			h.handleRunCancel(w, r, match.params[0])

@@ -31,6 +31,7 @@ func TestAPICompatibilityRouteMethodMatrix(t *testing.T) {
 		{"api_operation", "/api/v1/operations/op_example", []string{"GET", "DELETE"}},
 		{"api_operation_events", "/api/v1/operations/op_example/events", []string{"GET"}},
 		{"api_runs", "/api/v1/runs", []string{"GET", "HEAD"}},
+		{"api_timeline", "/api/v1/timeline", []string{"GET", "HEAD"}},
 		{"api_run", "/api/v1/runs/run_aaaaaaaaaaaaaaaaaaaaaaaaaa", []string{"GET", "HEAD", "DELETE"}},
 		{"api_run_events", "/api/v1/runs/run_aaaaaaaaaaaaaaaaaaaaaaaaaa/events", []string{"GET", "HEAD"}},
 	}

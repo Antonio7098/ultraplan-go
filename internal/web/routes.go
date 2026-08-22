@@ -22,6 +22,7 @@ var assets embed.FS
 
 var staticAssetNames = map[string]struct{}{
 	"app.css": {}, "app.js": {}, "resource-monitor.css": {}, "resource-monitor.js": {},
+	"run-timeline.css": {}, "run-timeline.js": {},
 	"css/tokens.css": {}, "css/base.css": {}, "css/primitives.css": {}, "css/components.css": {}, "css/layouts.css": {}, "css/utilities.css": {},
 	"js/app.js": {}, "js/operations.js": {}, "js/sse.js": {},
 }
@@ -312,6 +313,9 @@ func matchRoute(path string) routeMatch {
 	}
 	if path == "/api/v1/runs" {
 		return routeMatch{name: "api_runs", known: true, api: true}
+	}
+	if path == "/api/v1/timeline" {
+		return routeMatch{name: "api_timeline", known: true, api: true}
 	}
 	if path == "/operations/prepare" {
 		return routeMatch{name: "operation_prepare", known: true}

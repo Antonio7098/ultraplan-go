@@ -62,6 +62,15 @@
 {{end}}
 {{else}}
 <div class="run-heading"><div><p class="eyebrow">Governed lifecycle</p><h2>Run</h2></div><p><strong>{{.Sprint.CompletedStages}} of {{.Sprint.TotalStages}}</strong> stages complete</p></div>
+<link rel="stylesheet" href="/static/run-timeline.css">
+<section class="run-history-timeline" data-run-timeline data-timeline-scope="sprint" data-timeline-project="{{.Sprint.Project}}" data-timeline-sprint="{{.Sprint.Slug}}" aria-labelledby="run-timeline-heading">
+<header><div><p class="eyebrow">Run history</p><h2 id="run-timeline-heading">Run timeline</h2><p>Each line is one durable run for this sprint across the selected window; spikes show tool activity.</p></div>
+<div class="run-timeline-controls"><label>Back <select data-timeline-window><option value="6h">6 hours</option><option value="24h" selected>24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option></select></label><label>Max runs <select data-timeline-limit><option value="10">10</option><option value="20" selected>20</option><option value="50">50</option></select></label></div></header>
+<span class="run-timeline-state" data-timeline-state>Loading</span>
+<p class="empty" data-timeline-empty hidden>No durable runs were retained for this sprint in the selected window.</p>
+<div class="run-timeline-chart-wrap" data-timeline-chart hidden></div>
+</section>
+<script src="/static/run-timeline.js" defer></script>
 <div class="run-layout" data-stage-workspace>
 <ol class="stage-timeline" aria-label="Sprint stages">{{range .Sprint.RunStages}}<li class="stage-{{.Status}}"><a href="#stage-{{.Name}}" data-stage-select="stage-{{.Name}}" data-stage-has-artifact="{{if or (eq .Status "complete") (eq .Status "completed") .ArtifactAvailable}}true{{else}}false{{end}}" aria-controls="stage-{{.Name}}"><span class="stage-marker" aria-hidden="true"></span><strong>{{.Name}}</strong><span class="status status-{{if or (eq .Status "complete") (eq .Status "completed") (eq .Status "skipped")}}ok{{else if eq .Status "running"}}info{{else if or (eq .Status "failed") (eq .Status "blocked")}}error{{else}}warn{{end}}">{{.Status}}</span></a></li>{{end}}</ol>
 <div class="run-workspace-columns">
