@@ -34,6 +34,8 @@ type RoadmapSprint struct {
 	HasGoal   bool
 	HasBuild  bool
 	HasGate   bool
+	Goal      string
+	GateItems []string
 }
 
 type RoadmapPhase struct {
@@ -96,6 +98,8 @@ func ParseRoadmap(content string) (Roadmap, []RoadmapIssue) {
 	lines := strings.Split(content, "\n")
 	var currentSprint *RoadmapSprint
 	sprintStarted := false
+	subsection := ""
+	goalClosed := false
 	inFence := false
 
 	add := func(line int, problem, cause, suggestion string) {
@@ -111,11 +115,21 @@ func ParseRoadmap(content string) (Roadmap, []RoadmapIssue) {
 			continue
 		}
 		if inFence || trimmed == "" {
+			if !inFence && trimmed == "" && subsection == "goal" && currentSprint != nil && currentSprint.Goal != "" {
+				goalClosed = true
+			}
 			continue
 		}
 		level := headingLevel(line)
 		if level == 0 {
-			if currentSprint != nil && strings.HasPrefix(trimmed, ">") && !sprintStarted {
+			if currentSprint == nil {
+				continue
+			}
+			if sprintStarted {
+				collectSprintContent(currentSprint, subsection, goalClosed, trimmed)
+				continue
+			}
+			if strings.HasPrefix(trimmed, ">") {
 				parseSprintMetadata(currentSprint, trimmed[1:], number, add)
 			}
 			continue
@@ -140,6 +154,8 @@ func ParseRoadmap(content string) (Roadmap, []RoadmapIssue) {
 			phase.Sprints = append(phase.Sprints, RoadmapSprint{Number: sprintNumber, Title: title, Line: number})
 			currentSprint = &phase.Sprints[len(phase.Sprints)-1]
 			sprintStarted = false
+			subsection = ""
+			goalClosed = false
 		default:
 			if currentSprint == nil {
 				break
@@ -155,18 +171,18 @@ func ParseRoadmap(content string) (Roadmap, []RoadmapIssue) {
 			}
 			label := strings.ToLower(text)
 			sprintStarted = true
+			subsection = label
+			if label == "goal" {
+				currentSprint.HasGoal = true
+			}
+			if label == "build" {
+				currentSprint.HasBuild = true
+			}
 			if roadmapGateSubsections[label] {
 				currentSprint.HasGate = true
 			}
-			switch label {
-			case "goal":
-				currentSprint.HasGoal = true
-			case "build":
-				currentSprint.HasBuild = true
-			default:
-				if !roadmapAllowedSubsections[label] {
-					add(number, "unexpected sprint subsection", fmt.Sprintf("'%s' is not a supported sprint subsection", text), "Use Goal, Build, Acceptance, Release Gate, Exit Gate, Evidence, Uncertainty, Deferred, Deliverables, Commands, or Notes.")
-				}
+			if !roadmapAllowedSubsections[label] {
+				add(number, "unexpected sprint subsection", fmt.Sprintf("'%s' is not a supported sprint subsection", text), "Use Goal, Build, Acceptance, Release Gate, Exit Gate, Evidence, Uncertainty, Deferred, Deliverables, Commands, or Notes.")
 			}
 		}
 	}
@@ -246,6 +262,29 @@ func parseSprintMetadata(sprint *RoadmapSprint, text string, line int, add func(
 			}
 			sprint.DependsOn = append(sprint.DependsOn, dependency)
 		}
+	}
+}
+
+// collectSprintContent captures displayable sprint content: the first Goal
+// paragraph and acceptance-gate checklist items.
+func collectSprintContent(sprint *RoadmapSprint, subsection string, goalClosed bool, text string) {
+	switch {
+	case subsection == "goal" && !goalClosed:
+		if sprint.Goal == "" {
+			sprint.Goal = text
+			return
+		}
+		sprint.Goal += " " + text
+	case roadmapGateSubsections[subsection] && strings.HasPrefix(text, "-"):
+		item := strings.TrimSpace(strings.TrimPrefix(text, "-"))
+		item = strings.TrimSpace(item)
+		for _, checkbox := range []string{"[ ] ", "[x] ", "[X] "} {
+			if strings.HasPrefix(item, checkbox) {
+				item = strings.TrimSpace(strings.TrimPrefix(item, checkbox))
+				break
+			}
+		}
+		sprint.GateItems = append(sprint.GateItems, item)
 	}
 }
 

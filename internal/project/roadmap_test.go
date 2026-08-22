@@ -82,9 +82,21 @@ func TestParseRoadmapAcceptsStructuredRoadmap(t *testing.T) {
 	if first.Number != 1 || first.Title != "First" || first.Slug != "01-first" || first.Status != RoadmapDelivered {
 		t.Fatalf("first = %+v", first)
 	}
+	if first.Goal != "Establish the foundation." {
+		t.Fatalf("first goal = %q", first.Goal)
+	}
+	if len(first.GateItems) != 1 || first.GateItems[0] != "tests pass" {
+		t.Fatalf("first gate items = %#v", first.GateItems)
+	}
 	second := roadmap.Sprints[1]
 	if second.Number != 2 || second.Slug != "02-second" || second.Status != RoadmapActive || len(second.DependsOn) != 1 || second.DependsOn[0] != 1 {
 		t.Fatalf("second = %+v", second)
+	}
+	if second.Goal != "Extend the foundation." {
+		t.Fatalf("second goal = %q", second.Goal)
+	}
+	if len(second.GateItems) != 1 || second.GateItems[0] != "races pass" {
+		t.Fatalf("second gate items = %#v", second.GateItems)
 	}
 }
 

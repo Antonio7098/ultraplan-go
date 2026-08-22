@@ -106,12 +106,33 @@ type promptBundleDTO struct {
 }
 
 type projectDTO struct {
-	Ref       string        `json:"ref"`
-	Name      string        `json:"name"`
-	Docs      []string      `json:"docs"`
-	Findings  []findingDTO  `json:"findings"`
-	Artifacts []artifactDTO `json:"artifacts"`
-	Sprints   []sprintDTO   `json:"sprints"`
+	Ref       string             `json:"ref"`
+	Name      string             `json:"name"`
+	Docs      []string           `json:"docs"`
+	Findings  []findingDTO       `json:"findings"`
+	Artifacts []artifactDTO      `json:"artifacts"`
+	Sprints   []sprintDTO        `json:"sprints"`
+	Roadmap   []roadmapPhaseDTO  `json:"roadmap"`
+}
+
+type roadmapPhaseDTO struct {
+	Title   string            `json:"title"`
+	Sprints []roadmapSprintDTO `json:"sprints"`
+}
+
+type roadmapSprintDTO struct {
+	Number          int    `json:"number"`
+	Title           string `json:"title"`
+	Slug            string `json:"slug,omitempty"`
+	Status          string `json:"status"`
+	Goal            string `json:"goal,omitempty"`
+	GateItems       []string `json:"acceptance,omitempty"`
+	DependsOn       []int  `json:"depends_on,omitempty"`
+	Exists          bool   `json:"exists"`
+	Assessment      string `json:"assessment,omitempty"`
+	CompletedStages int    `json:"completed_stages,omitempty"`
+	TotalStages     int    `json:"total_stages,omitempty"`
+	CurrentStage    string `json:"current_stage,omitempty"`
 }
 
 type collectionDTO struct {
@@ -312,7 +333,8 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		if page == "artifacts" || page == "validation" {
 			page = "documentation"
 		}
-		if page == "sprints" {
+		if page == "sprints" || page == "roadmap" {
+			page = "roadmap"
 			result.Sprints = newestSprintsFirst(result.Sprints)
 		}
 		h.render(w, r, http.StatusOK, "project", pageModel{Title: projectPageTitle(page) + " · " + result.Name, Heading: result.Name, Project: &result, Page: page})
@@ -566,8 +588,8 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 
 func projectPageTitle(page string) string {
 	switch page {
-	case "sprints":
-		return "Sprints"
+	case "roadmap", "sprints":
+		return "Roadmap"
 	default:
 		return "Docs"
 	}
@@ -719,9 +741,21 @@ func (h *handler) renderError(w http.ResponseWriter, r *http.Request, status int
 }
 
 func mapProject(item app.WebProjectResult, includeSprints bool) projectDTO {
-	out := projectDTO{Ref: item.Ref, Name: item.Name, Docs: nonNilSlice(item.Docs), Findings: mapFindings(item.Findings), Artifacts: mapArtifacts(item.Artifacts), Sprints: []sprintDTO{}}
+	out := projectDTO{Ref: item.Ref, Name: item.Name, Docs: nonNilSlice(item.Docs), Findings: mapFindings(item.Findings), Artifacts: mapArtifacts(item.Artifacts), Sprints: []sprintDTO{}, Roadmap: []roadmapPhaseDTO{}}
 	if includeSprints {
 		out.Sprints = mapSprints(item.Sprints)
+	}
+	for _, phase := range item.Roadmap {
+		sprints := make([]roadmapSprintDTO, 0, len(phase.Sprints))
+		for _, entry := range phase.Sprints {
+			sprints = append(sprints, roadmapSprintDTO{
+				Number: entry.Number, Title: entry.Title, Slug: entry.Slug, Status: entry.Status,
+				Goal: entry.Goal, GateItems: nonNilSlice(entry.GateItems), DependsOn: nonNilSlice(entry.DependsOn),
+				Exists: entry.Exists, Assessment: entry.Assessment,
+				CompletedStages: entry.CompletedStages, TotalStages: entry.TotalStages, CurrentStage: entry.CurrentStage,
+			})
+		}
+		out.Roadmap = append(out.Roadmap, roadmapPhaseDTO{Title: phase.Title, Sprints: sprints})
 	}
 	return out
 }

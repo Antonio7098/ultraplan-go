@@ -382,7 +382,7 @@ func matchRoute(path string) routeMatch {
 
 func validProjectPage(page string) bool {
 	switch page {
-	case "sprints", "documentation", "artifacts", "operations", "validation":
+	case "roadmap", "sprints", "documentation", "artifacts", "operations", "validation":
 		return true
 	default:
 		return false

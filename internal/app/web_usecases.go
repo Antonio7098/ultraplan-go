@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
 	"github.com/Antonio7098/ultraplan-go/internal/runcontrol"
 	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 	"github.com/Antonio7098/ultraplan-go/internal/study"
@@ -122,7 +123,30 @@ type WebProjectResult struct {
 	Findings     []DisplayFinding
 	Artifacts    []WebArtifactLink
 	Sprints      []WebSprintResult
+	Roadmap      []WebRoadmapPhase
 	SprintCounts CollectionInfo
+}
+
+// WebRoadmapSprint is one roadmap entry joined with live sprint state when the
+// sprint workspace has been materialized.
+type WebRoadmapSprint struct {
+	Number          int
+	Title           string
+	Slug            string
+	Status          string
+	Goal            string
+	GateItems       []string
+	DependsOn       []int
+	Exists          bool
+	Assessment      string
+	CompletedStages int
+	TotalStages     int
+	CurrentStage    string
+}
+
+type WebRoadmapPhase struct {
+	Title   string
+	Sprints []WebRoadmapSprint
 }
 
 type WebSprintResult struct {
@@ -511,14 +535,61 @@ func (u *webUseCases) Project(ctx context.Context, name string) (WebProjectResul
 		}
 	}
 	total := len(projectSprints)
+	liveBySlug := make(map[string]SprintSummary, len(projectSprints))
+	for _, item := range projectSprints {
+		liveBySlug[item.Slug] = item
+	}
 	projectSprints = bounded(projectSprints)
 	out := make([]WebSprintResult, 0, len(projectSprints))
 	for _, item := range projectSprints {
 		out = append(out, u.webSprint(item))
 	}
 	result := u.webProject(*selected, out)
+	result.Roadmap = u.projectRoadmap(name, liveBySlug)
 	result.SprintCounts = collectionInfo(len(out), total)
 	return result, nil
+}
+
+// projectRoadmap parses the project's governed roadmap and joins each entry
+// with live sprint state when the sprint workspace exists.
+func (u *webUseCases) projectRoadmap(projectName string, live map[string]SprintSummary) []WebRoadmapPhase {
+	content, err := os.ReadFile(filepath.Join(u.root, "projects", projectName, "roadmap.md"))
+	if err != nil {
+		return nil
+	}
+	parsed, _ := project.ParseRoadmap(string(content))
+	phases := make([]WebRoadmapPhase, 0, len(parsed.Phases))
+	for _, phase := range parsed.Phases {
+		sprints := make([]WebRoadmapSprint, 0, len(phase.Sprints))
+		for _, item := range phase.Sprints {
+			entry := WebRoadmapSprint{
+				Number:    item.Number,
+				Title:     item.Title,
+				Slug:      item.Slug,
+				Status:    string(item.Status),
+				Goal:      item.Goal,
+				GateItems: append([]string(nil), item.GateItems...),
+				DependsOn: append([]int(nil), item.DependsOn...),
+			}
+			if state, ok := live[item.Slug]; ok {
+				entry.Exists = true
+				entry.Assessment = state.Assessment
+				entry.TotalStages = len(state.Stages)
+				for _, stage := range state.Stages {
+					if stage.Status == "complete" || stage.Status == "completed" || stage.Status == "skipped" {
+						entry.CompletedStages++
+						continue
+					}
+					if entry.CurrentStage == "" {
+						entry.CurrentStage = stage.Name
+					}
+				}
+			}
+			sprints = append(sprints, entry)
+		}
+		phases = append(phases, WebRoadmapPhase{Title: phase.Title, Sprints: sprints})
+	}
+	return phases
 }
 
 func (u *webUseCases) Sprint(ctx context.Context, project, slug string) (WebSprintResult, error) {

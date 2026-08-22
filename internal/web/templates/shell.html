@@ -12,6 +12,7 @@
   <script defer src="/static/app.js"></script>
 </head>
 <body>
+  <datalist id="ultraplan-model-options"></datalist>
   <a class="skip-link" href="#main">Skip to main content</a>
   <header class="site-header">
     <a class="brand" href="/">UltraPlan <span class="visually-hidden">home</span></a>
@@ -83,7 +84,7 @@
 <aside id="project-sidebar" class="detail-sidebar" data-sidebar-panel{{if or .Sprint (and .Project (eq .Page "documentation"))}} hidden{{end}}><nav aria-label="Project navigation"><a class="sidebar-back" href="/projects">← Project</a><h2>Project</h2><ul>
   <li><a href="/projects/{{$name}}"{{if and .Project (eq .Page "overview")}} aria-current="page"{{end}}>Overview</a></li>
   <li><a href="/projects/{{$name}}/documentation"{{if and .Project (eq .Page "documentation")}} aria-current="page"{{end}}{{if and .Project (eq .Page "documentation")}} data-sidebar-open="docs-sidebar"{{end}}>Docs</a></li>
-  <li><a href="/projects/{{$name}}/sprints"{{if or .Sprint (eq .Page "sprints")}} aria-current="page"{{end}}{{if .Sprint}} data-sidebar-open="sprint-sidebar"{{end}}>Sprints</a></li>
+  <li><a href="/projects/{{$name}}/roadmap"{{if or .Sprint (eq .Page "roadmap") (eq .Page "sprints")}} aria-current="page"{{end}}{{if .Sprint}} data-sidebar-open="sprint-sidebar"{{end}}>Roadmap</a></li>
 </ul></nav></aside>
 {{end}}
 

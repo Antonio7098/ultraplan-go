@@ -63,6 +63,14 @@ func sampleQueries() *fakeQueries {
 		Findings: []app.DisplayFinding{finding}, Artifacts: []app.WebArtifactLink{artifact},
 		Sprints:      []app.WebSprintResult{sprint},
 		SprintCounts: app.CollectionInfo{ReturnedCount: 1, TotalCount: 1},
+		Roadmap: []app.WebRoadmapPhase{{
+			Title: "Product Phase 4 Wave — Local Web",
+			Sprints: []app.WebRoadmapSprint{
+				{Number: 29, Title: "Phase 3 Documentation And Release", Slug: "29-phase-3-documentation-hardening-release", Status: "delivered", Goal: "Stabilize review and smoke as supported workflows.", GateItems: []string{"Release gate passes"}, Exists: true, Assessment: "pass", CompletedStages: 10, TotalStages: 10},
+				{Number: 30, Title: "Local Web Foundation", Slug: "30-web", Status: "active", Goal: "Serve a loopback-only read-only browser dashboard.", Exists: true, Assessment: "incomplete", CompletedStages: 3, TotalStages: 5, CurrentStage: "review"},
+				{Number: 31, Title: "Guarded Web Operations And SSE Progress", Slug: "31-web-operations", Status: "planned", Goal: "Stream truthful live progress to the browser."},
+			},
+		}},
 	}
 	study := app.WebStudyResult{
 		Ref: "study_ref", Name: "research", Sources: []string{"source"}, Dimensions: []string{"01-structure"},

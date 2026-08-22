@@ -261,3 +261,52 @@ func TestWebEmptyCollectionsAreKnownAndNonNil(t *testing.T) {
 		t.Fatalf("projects=%+v studies=%+v", projects, studies)
 	}
 }
+
+func TestWebProjectRoadmapJoinsLiveSprintState(t *testing.T) {
+	root := initializedWorkspace(t)
+	base := filepath.Join(root, "projects", "alpha")
+	writeFixtureFile(t, base, "docs", "PRD.md")
+	writeFixtureFileContent(t, base, "# Project Index\n", "project-index.md")
+	roadmap := structuredRoadmapFixture("alpha") + `
+### Sprint 2: Planned Sprint
+
+> Slug: 02-planned
+> Status: planned
+> Depends On: 1
+
+#### Goal
+
+Not yet materialized.
+
+#### Build
+
+- future work
+
+#### Acceptance
+
+- [ ] later
+`
+	writeFixtureFileContent(t, base, roadmap, "roadmap.md")
+	sprintRoot := filepath.Join(base, "sprints", "01-test")
+	writeFixtureFileContent(t, sprintRoot, `{"schemaVersion":1}`, "flow-state.json")
+
+	queries := NewWebUseCases(root, WebUseCaseOptions{})
+	result, err := queries.Project(context.Background(), "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Roadmap) != 1 || len(result.Roadmap[0].Sprints) != 2 {
+		t.Fatalf("roadmap = %+v", result.Roadmap)
+	}
+	first := result.Roadmap[0].Sprints[0]
+	if first.Number != 1 || first.Slug != "01-test" || !first.Exists {
+		t.Fatalf("materialized entry = %+v", first)
+	}
+	if first.Goal != "Prove the fixture project." || len(first.GateItems) != 1 || first.GateItems[0] != "fixture validates" {
+		t.Fatalf("entry content = %+v", first)
+	}
+	second := result.Roadmap[0].Sprints[1]
+	if second.Exists || second.Status != "planned" || second.DependsOn[0] != 1 {
+		t.Fatalf("planned entry = %+v", second)
+	}
+}

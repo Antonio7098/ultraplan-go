@@ -13,8 +13,8 @@
 <div class="detail-content">
 {{if eq .Page "overview"}}
 <section><p class="eyebrow">Project overview</p><h2>Overview</h2><p>Understand the project, read its documentation, and move delivery forward through its sprints.</p><dl class="metadata"><div><dt>Sprints</dt><dd>{{len .Project.Sprints}}</dd></div><div><dt>Documentation files</dt><dd>{{len .Project.Docs}}</dd></div><div><dt>Validation findings</dt><dd>{{len .Project.Findings}}</dd></div></dl></section>
-<nav class="destination-grid" aria-label="Project overview destinations"><a href="/projects/{{.Project.Name}}/documentation"><strong>Docs</strong><span>Read project definitions, documentation, and reasoning.</span></a><a href="/projects/{{.Project.Name}}/sprints"><strong>Sprints</strong><span>Open planned and active sprint work.</span></a></nav>
-{{else if eq .Page "sprints"}}
+<nav class="destination-grid" aria-label="Project overview destinations"><a href="/projects/{{.Project.Name}}/documentation"><strong>Docs</strong><span>Read project definitions, documentation, and reasoning.</span></a><a href="/projects/{{.Project.Name}}/roadmap"><strong>Roadmap</strong><span>Follow phases and sprints committed in the governed roadmap.</span></a></nav>
+{{else if eq .Page "roadmap"}}
 <div class="add-sprint-control" data-add-sprint>
   <button type="button" data-add-sprint-open aria-haspopup="dialog">Add sprint</button>
   <dialog class="add-sprint-dialog" data-add-sprint-dialog aria-labelledby="add-sprint-heading">
@@ -28,7 +28,24 @@
     </form>
   </dialog>
 </div>
-{{if .Project.Sprints}}
+{{if .Project.Roadmap}}
+<section class="roadmap-intro"><p class="eyebrow">Delivery plan</p><h2>Roadmap</h2><p>Phases and sprints committed in the governed roadmap, joined with live delivery state.</p></section>
+{{range $index, $phase := .Project.Roadmap}}
+<section class="sprint-roadmap roadmap-phase" aria-labelledby="phase-heading-{{$index}}">
+  <div class="sprint-roadmap-heading"><div><p class="eyebrow">Phase</p><h2 id="phase-heading-{{$index}}">{{$phase.Title}}</h2></div>{{if eq $index 0}}{{range $.Project.Artifacts}}{{if eq .Label "roadmap"}}<a class="roadmap-link" href="/projects/{{$.Project.Name}}/documentation/{{.Ref}}">Open source document</a>{{end}}{{end}}{{end}}</div>
+  <ol class="sprint-timeline">
+  {{range $entry := $phase.Sprints}}
+    <li class="sprint-milestone{{if eq $entry.Status "delivered"}} milestone-complete{{else if eq $entry.Status "active"}} milestone-current{{else}} milestone-planned{{end}}">
+    {{if $entry.Exists}}<a href="/projects/{{$.Project.Name}}/sprints/{{$entry.Slug}}">
+    {{else}}<span class="milestone-entry">
+    {{end}}<span class="milestone-node" aria-hidden="true"></span><span class="milestone-content"><span class="milestone-title">Sprint {{$entry.Number}}: {{$entry.Title}}{{with $entry.Slug}} <code>{{.}}</code>{{end}}</span>
+    {{if $entry.Goal}}<span class="milestone-goal">{{$entry.Goal}}</span>{{end}}
+    <span class="milestone-meta"><span class="status status-{{if eq $entry.Status "delivered"}}ok{{else if eq $entry.Status "active"}}info{{else}}warn{{end}}">{{$entry.Status}}</span>{{if $entry.Exists}} · {{$entry.CompletedStages}} of {{$entry.TotalStages}} stages complete{{if $entry.Assessment}} · assessment {{$entry.Assessment}}{{end}}{{end}}{{if $entry.GateItems}} · {{len $entry.GateItems}} acceptance criteria{{end}}</span></span>{{if $entry.Exists}}<span class="milestone-arrow" aria-hidden="true">→</span></a>{{else}}</span>{{end}}</li>
+  {{end}}
+  </ol>
+</section>
+{{end}}
+{{else if .Project.Sprints}}
 {{range $index, $sprint := .Project.Sprints}}{{if eq $index 0}}
 <section class="latest-sprint">
   <div class="latest-sprint-heading"><div><p class="eyebrow">Latest sprint</p><h2><a href="/projects/{{$sprint.Project}}/sprints/{{$sprint.Slug}}">{{$sprint.Slug}}</a></h2></div><span class="status status-info">{{$sprint.Status}}</span></div>
@@ -48,7 +65,7 @@
   </ol>
 </section>
 {{else}}
-<section><p class="eyebrow">Project delivery</p><h2>Sprint journey</h2><p class="empty">No sprints found.</p></section>
+<section><p class="eyebrow">Roadmap delivery</p><h2>Roadmap</h2><p class="empty">No structured roadmap found.</p></section>
 {{end}}
 {{else if eq .Page "operations"}}
 <section><h2>Project validation</h2><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="validation" data-project="{{.Project.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="validation"><input type="hidden" name="project" value="{{.Project.Name}}"><p>Validate the current project index and catalogue.</p><button type="submit">Prepare project validation</button></form></section>{{template "component/operation-console" .}}

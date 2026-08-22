@@ -299,7 +299,7 @@ func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
 		path, label, active string
 		links               []string
 	}{
-		{path: "/projects/alpha/documentation", label: "Project navigation", active: "/projects/alpha/documentation", links: []string{"/projects/alpha", "/projects/alpha/documentation", "/projects/alpha/sprints"}},
+		{path: "/projects/alpha/documentation", label: "Project navigation", active: "/projects/alpha/documentation", links: []string{"/projects/alpha", "/projects/alpha/documentation", "/projects/alpha/roadmap"}},
 		{path: "/projects/alpha/sprints/30-web/run", label: "Sprint navigation", active: "/projects/alpha/sprints/30-web/run", links: []string{"/projects/alpha/sprints/30-web", "/projects/alpha/sprints/30-web/run", "/projects/alpha/sprints/30-web/artifacts"}},
 		{path: "/studies/research/progress", label: "Study navigation", active: "/studies/research/progress", links: []string{"/studies/research", "/studies/research/inputs", "/studies/research/operations", "/studies/research/validation", "/studies/research/artifacts"}},
 	}
@@ -318,7 +318,7 @@ func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
 		}
 	}
 	sprintBody := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	if !strings.Contains(sprintBody, `class="detail-layout sprint-detail-layout"`) || !strings.Contains(sprintBody, `aria-label="Project navigation"`) || !strings.Contains(sprintBody, `/projects/alpha/sprints" aria-current="page"`) {
+	if !strings.Contains(sprintBody, `class="detail-layout sprint-detail-layout"`) || !strings.Contains(sprintBody, `aria-label="Project navigation"`) || !strings.Contains(sprintBody, `/projects/alpha/roadmap" aria-current="page"`) {
 		t.Errorf("sprint page is missing persistent project navigation: %s", sprintBody)
 	}
 }
@@ -327,7 +327,7 @@ func TestProjectNavigationIsSharedWithSprintPages(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	for _, path := range []string{"/projects/alpha", "/projects/alpha/sprints/30-web"} {
 		body := request(h, http.MethodGet, path, nil).Body.String()
-		for _, want := range []string{">Overview</a>", ">Docs</a>", ">Sprints</a>"} {
+		for _, want := range []string{">Overview</a>", ">Docs</a>", ">Roadmap</a>"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s missing shared project item %q", path, want)
 			}
@@ -384,31 +384,50 @@ func TestDetailOverviewPagesStayFocused(t *testing.T) {
 	}
 }
 
-func TestProjectSprintsRenderAsNewestFirstRoadmap(t *testing.T) {
+func TestProjectRoadmapRendersPhasesAndSprintEntries(t *testing.T) {
 	queries := sampleQueries()
-	older := queries.project.Sprints[0]
-	older.Slug = "29-older"
-	older.Assessment = "pass"
-	latest := queries.project.Sprints[0]
-	latest.Slug = "30-latest"
-	latest.Assessment = "incomplete"
-	queries.project.Sprints = []app.WebSprintResult{older, latest}
 	queries.project.Artifacts = append(queries.project.Artifacts, app.WebArtifactLink{Ref: "roadmap_ref", Label: "roadmap", DisplayPath: "projects/alpha/roadmap.md", MediaType: "text/markdown"})
+	h := testHandler(t, queries, nil)
 
-	body := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints", nil).Body.String()
-	for _, want := range []string{`data-add-sprint`, `data-add-sprint-open aria-haspopup="dialog"`, `class="add-sprint-dialog"`, `data-add-sprint-close`, `name="sprint_number"`, `name="sprint_name"`, `name="kind" value="sprint-flow"`, `name="stage" value="plan"`, `>Prepare sprint flow</button>`, `class="latest-sprint"`, `class="sprint-timeline"`, `milestone-current`, `milestone-complete`, `>Open roadmap</a>`, `30-latest`} {
-		if !strings.Contains(body, want) {
-			t.Errorf("sprint roadmap missing %q in %s", want, body)
+	for _, path := range []string{"/projects/alpha/roadmap", "/projects/alpha/sprints"} {
+		body := request(h, http.MethodGet, path, nil).Body.String()
+		for _, want := range []string{
+			`>Roadmap</h2>`,
+			"Product Phase 4 Wave — Local Web",
+			"Sprint 29: Phase 3 Documentation And Release",
+			"Stabilize review and smoke as supported workflows.",
+			"Sprint 30: Local Web Foundation",
+			"Serve a loopback-only read-only browser dashboard.",
+			"Sprint 31: Guarded Web Operations And SSE Progress",
+			"Stream truthful live progress to the browser.",
+			`status-ok">delivered</span>`,
+			`status-info">active</span>`,
+			`status-warn">planned</span>`,
+			`href="/projects/alpha/sprints/30-web"`,
+			`href="/projects/alpha/documentation/roadmap_ref">Open source document</a>`,
+			"1 acceptance criteria",
+			"3 of 5 stages complete",
+			`data-add-sprint`, `name="sprint_number"`, `name="kind" value="sprint-flow"`, `>Prepare sprint flow</button>`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("roadmap page %s missing %q", path, want)
+			}
 		}
 	}
+
+	planned := request(h, http.MethodGet, "/projects/alpha/roadmap", nil).Body.String()
+	if strings.Contains(planned, `href="/projects/alpha/sprints/31-web-operations"`) {
+		t.Errorf("unmaterialized planned sprint is rendered as a link: %s", planned)
+	}
+	if !strings.Contains(planned, `class="milestone-entry"`) {
+		t.Errorf("unmaterialized planned sprint lacks static entry markup: %s", planned)
+	}
+
 	js := request(testHandler(t, queries, nil), http.MethodGet, "/static/app.js", nil).Body.String()
 	for _, want := range []string{`[data-add-sprint]`, `dialog?.showModal()`, `dialog?.close()`} {
 		if !strings.Contains(js, want) {
 			t.Errorf("add sprint dialog behavior missing %q", want)
 		}
-	}
-	if strings.Index(body, "30-latest") > strings.Index(body, "29-older") {
-		t.Errorf("latest sprint does not appear before older sprint: %s", body)
 	}
 }
 
