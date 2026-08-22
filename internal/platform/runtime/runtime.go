@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	stdruntime "runtime"
 	"time"
 
@@ -563,6 +565,8 @@ func mapResult(result agentwrap.RunResult) Result {
 func mapEvent(event agentwrap.Event) Event {
 	rawPresent := event.Raw != nil
 	rawSafe := rawPresent && event.Raw.Safe
+	payload := cloneAnyMap(event.Payload)
+	promoteObservablePayloadFields(payload)
 	return Event{
 		ID:                string(event.ID),
 		RunID:             string(event.RunID),
@@ -570,7 +574,7 @@ func mapEvent(event agentwrap.Event) Event {
 		Time:              event.Time,
 		Type:              event.Type,
 		Kind:              string(event.Kind()),
-		Payload:           cloneAnyMap(event.Payload),
+		Payload:           payload,
 		RawPresent:        rawPresent,
 		RawSafe:           rawSafe,
 		RawOmitted:        rawPresent,
@@ -578,6 +582,55 @@ func mapEvent(event agentwrap.Event) Event {
 		RawSource:         rawSource(event.Raw),
 		RawEncoding:       rawEncoding(event.Raw),
 	}
+}
+
+// promoteObservablePayloadFields lifts nested runtime facts (tool names, titles,
+// text deltas, statuses) to the payload top level so downstream consumers —
+// run-loop progress summaries, durable run journals, and the web timeline — can
+// read them without depending on adapter-specific nesting. Existing top-level
+// values always win.
+func promoteObservablePayloadFields(payload map[string]any) {
+	if len(payload) == 0 {
+		return
+	}
+	for _, key := range []string{"tool", "name", "title", "detail", "text", "delta", "output", "message", "state", "status", "action", "phase"} {
+		if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
+			continue
+		}
+		if found := findNestedPayloadString(payload, key, 0); found != "" {
+			payload[key] = found
+		}
+	}
+}
+
+func findNestedPayloadString(value any, want string, depth int) string {
+	if depth > 4 {
+		return ""
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		if s, ok := typed[want].(string); ok && strings.TrimSpace(s) != "" {
+			return s
+		}
+		// Deterministic traversal for stable results across map orders.
+		keys := make([]string, 0, len(typed))
+		for k := range typed {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if found := findNestedPayloadString(typed[k], want, depth+1); found != "" {
+				return found
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if found := findNestedPayloadString(item, want, depth+1); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
 }
 
 func mapUsage(usage agentwrap.Usage) Usage {
