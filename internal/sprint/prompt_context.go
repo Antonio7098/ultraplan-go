@@ -106,7 +106,7 @@ func (s Service) prepareSharedPromptContext(ctx context.Context, sp Sprint, inpu
 		}
 		return "", fmt.Errorf("shared prompt code-context prerequisite failed: %w", err)
 	}
-	target, findings := s.resolveCodeContextTarget(inputs.ProjectIndex)
+	target, findings := s.resolveSprintTarget(sp, inputs.ProjectIndex, false)
 	if len(findings) > 0 {
 		return "", fmt.Errorf("resolve shared prompt implementation target: %s", formatValidationFindings(findings))
 	}

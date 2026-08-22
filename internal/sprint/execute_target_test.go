@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+const ApprovedExecuteTargetPath = "/home/antonioborgerees/coding/ultraplan/ultraplan-go"
+
 func TestResolveExecuteTarget(t *testing.T) {
 	target, findings := ResolveExecuteTarget(testProjectIndex())
 	if len(findings) != 0 {

@@ -337,7 +337,7 @@ func (s Service) prepareExecute(projectRef, sprintRef string, req ExecuteRequest
 	var target ExecuteTargetRef
 	if len(findings) == 0 {
 		var targetFindings []ValidationFinding
-		target, targetFindings = ResolveExecuteTarget(inputs.ProjectIndex)
+		target, targetFindings = s.resolveSprintTarget(sp, inputs.ProjectIndex, false)
 		findings = append(findings, targetFindings...)
 	}
 	var tasks []ExecutePlanTask

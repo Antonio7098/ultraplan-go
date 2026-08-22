@@ -52,7 +52,7 @@ func TestTUICommandInvalidWorkspace(t *testing.T) {
 func TestTUISprintFlowRunsAndStreamsProgress(t *testing.T) {
 	dir := initializedWorkspace(t)
 	writeCommandSprintProject(t, dir, "proj", "01-alpha")
-	writeFixtureFileContent(t, dir, commandProjectIndex(), "projects", "proj", "project-index.md")
+	writeFixtureFileContent(t, dir, commandProjectIndex(t), "projects", "proj", "project-index.md")
 	fake := &sprintCommandRuntime{}
 	restoreRuntime := stubSprintRuntimeFactory(fake)
 	defer restoreRuntime()

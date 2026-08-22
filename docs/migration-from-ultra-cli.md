@@ -1,7 +1,7 @@
 # Migration From `.ultra/cli`
 
 UltraPlan Go supports the governed sprint chain through `execute`, automated
-`review`, and review-gated `smoke`. Issue tracking, automatic Git mutation,
+`review`, and review-gated `smoke`. Issue tracking, Git mutation beyond sprint worktree creation,
 hosted UI behavior, and multi-user collaboration remain outside the product.
 
 ## Artifact Mapping

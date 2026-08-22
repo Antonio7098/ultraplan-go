@@ -406,7 +406,7 @@ func (s Service) ValidateExecute(projectRef, sprintRef string) (ValidationResult
 	manifest, findings := s.planManifest(sp, inputs, catalog)
 	path := mustArtifactPath(s.root, sp, StagePlan)
 	if len(findings) == 0 {
-		if _, targetFindings := ResolveExecuteTarget(inputs.ProjectIndex); len(targetFindings) > 0 {
+		if _, targetFindings := s.resolveSprintTarget(sp, inputs.ProjectIndex, false); len(targetFindings) > 0 {
 			findings = append(findings, targetFindings...)
 		}
 	}
