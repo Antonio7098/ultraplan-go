@@ -97,6 +97,19 @@ func TestDiscoverSourcesIsSortedShallowAndIncludesMarkdown(t *testing.T) {
 	}
 }
 
+func TestDiscoverSourcesIgnoresGeneratedReportsDirectory(t *testing.T) {
+	root := t.TempDir()
+	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}
+	mkdir(t, study.Path, "sources", "repo")
+	mkdir(t, study.Path, "sources", "reports", "repo")
+
+	sources, err := DiscoverSources(study)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStrings(t, sourceNames(sources), []string{"repo"})
+}
+
 func TestDiscoverSourcesAppliesSourceMetadataToDirectorySources(t *testing.T) {
 	root := t.TempDir()
 	study := Study{Name: "demo", Path: filepath.Join(root, "studies", "demo")}

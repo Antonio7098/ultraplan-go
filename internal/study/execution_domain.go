@@ -26,31 +26,33 @@ type ExecutionRequest struct {
 	SourceRef    string
 	// Model optionally overrides the runtime model (provider/model) for this
 	// task. When empty, study config and workspace defaults apply.
-	Model         string
-	OnEvent       func(runtimepkg.Event)
-	ResumeSession *TaskSession
-	OnSession     func(TaskSession)
+	Model               string
+	OnEvent             func(runtimepkg.Event)
+	ResumeSession       *TaskSession
+	OnSession           func(TaskSession)
+	DeferSessionCleanup bool
 }
 
 type ExecutionResult struct {
-	Status           ExecutionStatus
-	TaskKind         TaskKind
-	Study            Study
-	Dimension        Dimension
-	Source           Source
-	OutputPath       string
-	SkippedReason    string
-	RuntimeRunID     string
-	RuntimeStatus    string
-	RuntimeError     string
-	RuntimeDetail    string
-	RuntimeErr       error
-	RuntimeCategory  string
-	Agent            AgentMetadata
-	Warnings         []string
-	Validation       ValidationResult
-	PreflightResults []ValidationResult
-	Blockers         []string
+	Status            ExecutionStatus
+	TaskKind          TaskKind
+	Study             Study
+	Dimension         Dimension
+	Source            Source
+	OutputPath        string
+	SkippedReason     string
+	RuntimeRunID      string
+	RuntimeStatus     string
+	RuntimeError      string
+	RuntimeDetail     string
+	RuntimeErr        error
+	RuntimeCategory   string
+	Agent             AgentMetadata
+	Warnings          []string
+	Validation        ValidationResult
+	PreflightResults  []ValidationResult
+	Blockers          []string
+	CleanupSessionIDs []string
 }
 
 type SynthesisRequest struct {
@@ -59,10 +61,11 @@ type SynthesisRequest struct {
 	SourceRefs   []string
 	// Model optionally overrides the runtime model (provider/model) for this
 	// task. When empty, study config and workspace defaults apply.
-	Model         string
-	OnEvent       func(runtimepkg.Event)
-	ResumeSession *TaskSession
-	OnSession     func(TaskSession)
+	Model               string
+	OnEvent             func(runtimepkg.Event)
+	ResumeSession       *TaskSession
+	OnSession           func(TaskSession)
+	DeferSessionCleanup bool
 }
 
 type RunAllRequest struct {

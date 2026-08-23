@@ -274,6 +274,28 @@ func TestResumeValidateRunStateKeepsValidCompletedOutputs(t *testing.T) {
 	}
 }
 
+func TestRestoreCompletedRunHistoryRequiresValidArtifactAndCompletedRecord(t *testing.T) {
+	root, sample := testStudyRoot(t)
+	source := Source{Name: "repo", Kind: SourceKindDirectory, Path: filepath.Join(sample.Path, "sources", "repo")}
+	dimension := Dimension{Number: "01", Slug: "structure"}
+	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
+	state, err := NewRunState(NewRunStateRequest{WorkspaceRoot: root, Study: sample, Sources: []Source{source}, Dimensions: []Dimension{dimension}, RunID: "fixed", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeStateTestReport(t, SourceReportPath(sample, source, dimension), true)
+	record := RunHistoryRecord{TaskID: state.Tasks[0].ID, Status: TaskStatusCompleted, ValidationStatus: ValidationStatusPassed, CompletedAt: &now}
+
+	RestoreCompletedRunHistory(&state, sample, []Source{source}, []Dimension{dimension}, []RunHistoryRecord{record}, now.Add(time.Hour))
+
+	if state.Tasks[0].Status != TaskStatusCompleted || state.Tasks[0].Validation == nil {
+		t.Fatalf("recorded valid analysis was not restored: %#v", state.Tasks[0])
+	}
+	if state.Tasks[1].Status != TaskStatusPending {
+		t.Fatalf("unrecorded synthesis status = %q, want pending", state.Tasks[1].Status)
+	}
+}
+
 func TestStatusSummaryCountsStatusesAndRetry(t *testing.T) {
 	retry := time.Date(2026, 5, 31, 13, 0, 0, 0, time.UTC)
 	state := RunState{RunID: "fixed", Tasks: []TaskState{

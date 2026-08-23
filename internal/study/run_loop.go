@@ -59,8 +59,16 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	diagnostics.configureParallelism(req.Parallelism)
 	stopDiagnostics := diagnostics.start(ctx)
 	defer stopDiagnostics()
-	ReconcileRunState(&state, s.workspaceRoot, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
-	ResumeValidateRunState(&state, listing.Study, listing.Sources, listing.Dimensions, time.Now().UTC())
+	history, err := LoadRunHistory(listing.Study)
+	if err != nil {
+		return RunLoopResult{}, err
+	}
+	now := time.Now().UTC()
+	ReconcileRunState(&state, s.workspaceRoot, listing.Study, listing.Sources, listing.Dimensions, now)
+	ResumeValidateRunState(&state, listing.Study, listing.Sources, listing.Dimensions, now)
+	if !req.Reset {
+		RestoreCompletedRunHistory(&state, listing.Study, listing.Sources, listing.Dimensions, history, now)
+	}
 	initialSaveStarted := time.Now()
 	err = SaveRunState(listing.Study, state)
 	diagnostics.sample("state.save.end", "", time.Since(initialSaveStarted), err)
@@ -235,6 +243,34 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		return firstErr
 	}
 	attempted := map[string]bool{}
+	var cleanupMu sync.Mutex
+	pendingCleanup := map[string]bool{}
+	queueCleanup := func(ids []string) {
+		cleanupMu.Lock()
+		defer cleanupMu.Unlock()
+		for _, id := range ids {
+			if id != "" {
+				pendingCleanup[id] = true
+			}
+		}
+	}
+	flushCleanup := func() error {
+		cleanupMu.Lock()
+		ids := make([]string, 0, len(pendingCleanup))
+		for id := range pendingCleanup {
+			ids = append(ids, id)
+		}
+		cleanupMu.Unlock()
+		if err := s.deleteSessionIDs(ctx, ids); err != nil {
+			return fmt.Errorf("clean up completed runtime sessions: %w", err)
+		}
+		cleanupMu.Lock()
+		for _, id := range ids {
+			delete(pendingCleanup, id)
+		}
+		cleanupMu.Unlock()
+		return nil
+	}
 	runTask := func(id string) {
 		if ctx.Err() != nil {
 			recordErr(markTaskCancelled(update, id, ctx.Err()))
@@ -287,14 +323,14 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 		switch task.Kind {
 		case TaskKindAnalysis:
-			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
+			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, DeferSessionCleanup: true, OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {
 				res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
 			}
 		case TaskKindSynthesis:
-			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
+			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, DeferSessionCleanup: true, OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {
@@ -305,6 +341,9 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			return
 		}
 		diagnostics.sample("runtime.end", id, time.Since(runtimeStarted), err)
+		if res.Status == ExecutionStatusCompleted {
+			queueCleanup(res.CleanupSessionIDs)
+		}
 		recordErr(applyExecutionResult(update, id, res))
 		recordErr(recordHistory(id))
 		emitTask(progressEventForExecution(res), id)
@@ -313,6 +352,16 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	active := 0
 	stopScheduling := false
 	for active > 0 || (!stopScheduling && ctx.Err() == nil) {
+		if active > 0 {
+			// Keep workers in fixed waves. Cleanup runs only after every runtime in
+			// the wave has stopped writing to OpenCode's shared SQLite database.
+			<-done
+			active--
+			if active == 0 {
+				recordErr(flushCleanup())
+			}
+			continue
+		}
 		if loadFirstErr() != nil {
 			stopScheduling = true
 		}
@@ -366,10 +415,6 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			}(id)
 		}
 		if active > 0 {
-			// Refill a slot as soon as any task finishes instead of waiting for
-			// every task in the launch wave to finish.
-			<-done
-			active--
 			continue
 		}
 		if stopScheduling || (len(ids) == 0 && nextRetry == nil) {

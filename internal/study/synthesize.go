@@ -56,6 +56,7 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 	}
 	result.RuntimeRunID = runtimeResult.RunID
 	result.RuntimeStatus = runtimeResult.Status
+	result.CleanupSessionIDs = runtimeSessionIDs(runtimeResult)
 	result.Agent = agentMetadata(runtimeResult, s.runtimeConfig)
 	if runErr != nil {
 		result.RuntimeError = runErr.Error()
@@ -70,8 +71,10 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 		result.Validation = ValidateFinalReport(listing.Study, dimension)
 		if result.Validation.Status == ValidationStatusPassed {
 			result.Status = ExecutionStatusCompleted
-			if err := s.deleteCompletedSessions(ctx, runtimeResult); err != nil {
-				result.Warnings = append(result.Warnings, err.Error())
+			if !req.DeferSessionCleanup {
+				if err := s.deleteCompletedSessions(ctx, runtimeResult); err != nil {
+					result.Warnings = append(result.Warnings, err.Error())
+				}
 			}
 			return result, nil
 		}
@@ -85,8 +88,10 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 	result.Validation = ValidateFinalReport(listing.Study, dimension)
 	if result.Validation.Status != ValidationStatusPassed {
 		result.Status = ExecutionStatusValidationFailed
-	} else if err := s.deleteCompletedSessions(ctx, runtimeResult); err != nil {
-		result.Warnings = append(result.Warnings, err.Error())
+	} else if !req.DeferSessionCleanup {
+		if err := s.deleteCompletedSessions(ctx, runtimeResult); err != nil {
+			result.Warnings = append(result.Warnings, err.Error())
+		}
 	}
 	return result, nil
 }

@@ -42,14 +42,26 @@ func (s Service) deleteCompletedSession(ctx context.Context, sessionID string) e
 }
 
 func (s Service) deleteCompletedSessions(ctx context.Context, result runtimepkg.Result) error {
+	return s.deleteSessionIDs(ctx, runtimeSessionIDs(result))
+}
+
+func runtimeSessionIDs(result runtimepkg.Result) []string {
 	ids := append([]string(nil), result.SessionIDs...)
 	ids = append(ids, result.SessionID)
 	seen := map[string]bool{}
+	unique := make([]string, 0, len(ids))
 	for _, id := range ids {
 		if id == "" || seen[id] {
 			continue
 		}
 		seen[id] = true
+		unique = append(unique, id)
+	}
+	return unique
+}
+
+func (s Service) deleteSessionIDs(ctx context.Context, ids []string) error {
+	for _, id := range ids {
 		if err := s.deleteCompletedSession(ctx, id); err != nil {
 			return err
 		}

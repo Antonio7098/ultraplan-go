@@ -360,6 +360,74 @@ func ResumeValidateRunState(state *RunState, study Study, sources []Source, dime
 	state.UpdatedAt = now
 }
 
+// RestoreCompletedRunHistory recovers tasks that reconciliation reopened after
+// a transient graph change when their last completed artifact is still valid.
+// A history record is required, so arbitrary stale files are never adopted.
+func RestoreCompletedRunHistory(state *RunState, study Study, sources []Source, dimensions []Dimension, records []RunHistoryRecord, now time.Time) {
+	completed := map[string]RunHistoryRecord{}
+	for _, record := range records {
+		if record.Status == TaskStatusCompleted && record.ValidationStatus == ValidationStatusPassed {
+			completed[record.TaskID] = record
+		}
+	}
+	sourceByKey := map[string]Source{}
+	for _, source := range sources {
+		sourceByKey[sourceKey(source.Name, source.Kind)] = source
+	}
+	dimensionByRef := map[string]Dimension{}
+	for _, dimension := range dimensions {
+		dimensionByRef[dimension.Ref()] = dimension
+		dimensionByRef[dimension.Number] = dimension
+	}
+	restoreKind := func(kind TaskKind) {
+		for i := range state.Tasks {
+			task := &state.Tasks[i]
+			record, ok := completed[task.ID]
+			if !ok || task.Status != TaskStatusPending || task.Kind != kind {
+				continue
+			}
+			if kind == TaskKindSynthesis && !dependenciesComplete(*state, *task) {
+				continue
+			}
+			var validation ValidationResult
+			dimension, dimensionOK := dimensionByRef[task.DimensionRef]
+			if !dimensionOK {
+				dimension, dimensionOK = dimensionByRef[task.Dimension]
+			}
+			if !dimensionOK {
+				continue
+			}
+			if kind == TaskKindAnalysis {
+				source, sourceOK := sourceByKey[sourceKey(task.Source, task.SourceKind)]
+				if !sourceOK {
+					continue
+				}
+				validation = ValidateSourceReport(study, source, dimension)
+			} else {
+				validation = ValidateFinalReport(study, dimension)
+			}
+			if validation.Status != ValidationStatusPassed {
+				continue
+			}
+			task.Status = TaskStatusCompleted
+			summary := validationSummary(validation, now)
+			task.Validation = &summary
+			task.LastError = nil
+			task.RetryAfter = nil
+			task.UpdatedAt = now
+			if record.CompletedAt != nil {
+				completedAt := *record.CompletedAt
+				task.CompletedAt = &completedAt
+			} else {
+				completedAt := now
+				task.CompletedAt = &completedAt
+			}
+		}
+	}
+	restoreKind(TaskKindAnalysis)
+	restoreKind(TaskKindSynthesis)
+}
+
 func validationSummary(result ValidationResult, now time.Time) ValidationSummary {
 	summary := ValidationSummary{Status: result.Status, CheckedAt: now, Path: result.Path}
 	for _, check := range result.Checks {

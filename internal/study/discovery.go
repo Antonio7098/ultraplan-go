@@ -48,7 +48,7 @@ func DiscoverSources(study Study) ([]Source, error) {
 	}
 	var sources []Source
 	for _, entry := range entries {
-		if isHidden(entry.Name()) {
+		if isHidden(entry.Name()) || entry.Name() == "reports" {
 			continue
 		}
 		if strings.HasSuffix(entry.Name(), ".ultraplan-source.yml") || strings.HasSuffix(entry.Name(), ".ultraplan-source.yaml") {

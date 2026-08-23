@@ -7,9 +7,72 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
+
+type cleanupBarrierRuntime struct {
+	mu                 sync.Mutex
+	active             int
+	deleted            int
+	cleanupWhileActive bool
+}
+
+func (r *cleanupBarrierRuntime) StartRun(_ context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
+	r.mu.Lock()
+	r.active++
+	r.mu.Unlock()
+	time.Sleep(30 * time.Millisecond)
+	path := req.Validation.Expectations[0].Path
+	content := validSourceReport
+	if req.Metadata["task.kind"] == string(TaskKindSynthesis) {
+		content = validFinalReport
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return runtimepkg.Result{}, err
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return runtimepkg.Result{}, err
+	}
+	r.mu.Lock()
+	r.active--
+	r.mu.Unlock()
+	return runtimepkg.Result{SessionID: req.Metadata["task.kind"] + ":" + req.Metadata["source.name"], Status: "completed"}, nil
+}
+
+func (r *cleanupBarrierRuntime) DeleteSession(_ context.Context, _ string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.deleted++
+	if r.active > 0 {
+		r.cleanupWhileActive = true
+	}
+	return nil
+}
+
+func TestRunLoopCleansSessionsOnlyBetweenParallelWaves(t *testing.T) {
+	root, _ := executionFixture(t)
+	mkdir(t, root, "studies", "demo", "sources", "second")
+	runtime := &cleanupBarrierRuntime{}
+	service := NewService(root, WithRuntime(runtime, runtimeRequest()))
+
+	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, Parallelism: 2, Command: []string{"ultraplan", "study", "demo", "run-loop"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunAllStatusCompleted {
+		t.Fatalf("status = %q, want completed", result.Status)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.cleanupWhileActive {
+		t.Fatal("session cleanup ran while another runtime was active")
+	}
+	if runtime.deleted != 4 {
+		t.Fatalf("deleted sessions = %d, want 4", runtime.deleted)
+	}
+}
 
 type resumableStudyRuntime struct {
 	mu       sync.Mutex
