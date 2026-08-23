@@ -11,9 +11,26 @@ import (
 
 type controlledRuntimeSpy struct {
 	started int
+	deleted []string
 	request runtimepkg.Request
 	result  runtimepkg.Result
 	err     error
+}
+
+func (s *controlledRuntimeSpy) DeleteSession(_ context.Context, sessionID string) error {
+	s.deleted = append(s.deleted, sessionID)
+	return nil
+}
+
+func TestControlledRuntimeForwardsSessionDeletion(t *testing.T) {
+	spy := &controlledRuntimeSpy{}
+	controlled := controlledRuntime{base: spy}
+	if err := controlled.DeleteSession(context.Background(), "session-complete"); err != nil {
+		t.Fatal(err)
+	}
+	if len(spy.deleted) != 1 || spy.deleted[0] != "session-complete" {
+		t.Fatalf("deleted sessions=%v", spy.deleted)
+	}
 }
 
 func (s *controlledRuntimeSpy) StartRun(_ context.Context, request runtimepkg.Request) (runtimepkg.Result, error) {

@@ -55,3 +55,9 @@ func TestRequestVariantRuntimeUsesBaseCapabilities(t *testing.T) {
 		t.Fatalf("capabilities=%+v err=%v", capabilities, err)
 	}
 }
+
+func TestSQLiteStringEscapesSessionID(t *testing.T) {
+	if got, want := sqliteString("ses_'quoted"), "'ses_''quoted'"; got != want {
+		t.Fatalf("sqliteString() = %q, want %q", got, want)
+	}
+}

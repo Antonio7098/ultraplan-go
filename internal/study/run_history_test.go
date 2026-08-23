@@ -2,11 +2,41 @@ package study
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestReadRunHistoryIgnoresOnlyMalformedTrailingRecord(t *testing.T) {
+	valid := `{"schema_version":1,"key":"first"}`
+	records, err := readRunHistory(strings.NewReader(valid + "\n" + `{"schema_version":1,"key":"partial`))
+	if err != nil || len(records) != 1 || records[0].Key != "first" {
+		t.Fatalf("records=%+v err=%v", records, err)
+	}
+
+	_, err = readRunHistory(strings.NewReader(`{"key":"broken` + "\n" + valid + "\n"))
+	if err == nil {
+		t.Fatal("malformed non-trailing record was accepted")
+	}
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("error=%T %v, want JSON syntax error", err, err)
+	}
+}
+
+func TestTrimInvalidTrailingRunHistory(t *testing.T) {
+	valid := []byte("{\"key\":\"first\"}\n")
+	damaged := append(append([]byte(nil), valid...), []byte("{\"key\":\"partial")...)
+	if got := trimInvalidTrailingRunHistory(damaged); string(got) != string(valid) {
+		t.Fatalf("trimmed=%q, want %q", got, valid)
+	}
+	if got := trimInvalidTrailingRunHistory(valid); string(got) != string(valid) {
+		t.Fatalf("valid history changed: %q", got)
+	}
+}
 
 func TestAppendRunHistoryRecordsTerminalTaskAndDedupes(t *testing.T) {
 	_, st := executionFixture(t)

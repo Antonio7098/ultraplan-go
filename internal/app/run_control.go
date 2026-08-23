@@ -100,6 +100,16 @@ type controlledRuntime struct {
 	owner      runcontrol.Owner
 }
 
+func (r controlledRuntime) DeleteSession(ctx context.Context, sessionID string) error {
+	deleter, ok := r.base.(interface {
+		DeleteSession(context.Context, string) error
+	})
+	if !ok {
+		return nil
+	}
+	return deleter.DeleteSession(ctx, sessionID)
+}
+
 func controlledRuntimeFor(deps dependencies, workspaceRoot string, effectiveConfig config.Config, base interface {
 	StartRun(context.Context, runtimepkg.Request) (runtimepkg.Result, error)
 }) (controlledRuntime, error) {

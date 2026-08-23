@@ -2,6 +2,7 @@ package study
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,20 +92,58 @@ func appendRunHistoryWithKeys(study Study, state RunState, task TaskState, exist
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
 	}
-	if _, err := file.Write(append(data, '\n')); err != nil {
+	previous, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	previous = trimInvalidTrailingRunHistory(previous)
+	if len(previous) > 0 && previous[len(previous)-1] != '\n' {
+		previous = append(previous, '\n')
+	}
+	contents := append(previous, append(data, '\n')...)
+	if err := atomicWriteRunHistory(path, contents); err != nil {
 		return err
 	}
 	existing[record.Key] = true
 	return nil
+}
+
+func trimInvalidTrailingRunHistory(data []byte) []byte {
+	trimmed := bytes.TrimRight(data, "\r\n")
+	if len(trimmed) == 0 {
+		return nil
+	}
+	lineStart := bytes.LastIndexByte(trimmed, '\n') + 1
+	if json.Valid(bytes.TrimSpace(trimmed[lineStart:])) {
+		return data
+	}
+	return append([]byte(nil), trimmed[:lineStart]...)
+}
+
+func atomicWriteRunHistory(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tasks.*.jsonl.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err = tmp.Write(data); err == nil {
+		err = tmp.Sync()
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func SyncRunHistory(study Study, state RunState) error {
@@ -199,21 +238,43 @@ func readRunHistory(r io.Reader) ([]RunHistoryRecord, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var records []RunHistoryRecord
+	var pending []byte
 	for scanner.Scan() {
-		line := scanner.Bytes()
+		line := append([]byte(nil), scanner.Bytes()...)
+		if len(pending) > 0 {
+			record, err := decodeRunHistoryRecord(pending)
+			if err != nil {
+				return nil, err
+			}
+			records = append(records, record)
+		}
 		if len(line) == 0 {
+			pending = nil
 			continue
 		}
-		var record RunHistoryRecord
-		if err := json.Unmarshal(line, &record); err != nil {
-			return nil, err
-		}
-		records = append(records, record)
+		pending = line
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
+	if len(pending) > 0 {
+		record, err := decodeRunHistoryRecord(pending)
+		if err == nil {
+			records = append(records, record)
+		}
+		// A crash or full disk can leave only the final JSONL record partial.
+		// Earlier malformed records still fail above because ignoring them would
+		// hide ledger corruption rather than recover an interrupted append.
+	}
 	return records, nil
+}
+
+func decodeRunHistoryRecord(line []byte) (RunHistoryRecord, error) {
+	var record RunHistoryRecord
+	if err := json.Unmarshal(line, &record); err != nil {
+		return RunHistoryRecord{}, err
+	}
+	return record, nil
 }
 
 func readRunHistoryKeys(path string) (map[string]bool, error) {
