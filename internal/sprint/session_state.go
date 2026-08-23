@@ -164,3 +164,10 @@ func (s Service) cleanupPlanningStageSession(ctx context.Context, sp Sprint, sta
 	}
 	return clearPlanningStageSession(sp, stage)
 }
+
+func (s Service) cleanupPlanningStageSessions(ctx context.Context, sp Sprint, stage PlanningStage, result pruntime.Result) error {
+	if err := s.deleteCompletedSessions(ctx, result); err != nil {
+		return err
+	}
+	return clearPlanningStageSession(sp, stage)
+}

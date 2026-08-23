@@ -333,13 +333,8 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 	if hasFailedExecuteTask(state.Tasks) {
 		return result, fmt.Errorf("execute completed with failed tasks")
 	}
-	deleted := map[string]bool{}
-	for _, task := range state.Tasks {
-		if task.Runtime == nil || task.Runtime.SessionID == "" || deleted[task.Runtime.SessionID] {
-			continue
-		}
-		_ = s.deleteCompletedSession(ctx, task.Runtime.SessionID)
-		deleted[task.Runtime.SessionID] = true
+	for _, run := range result.Runtime {
+		_ = s.deleteCompletedSessions(ctx, run)
 	}
 	return result, nil
 }

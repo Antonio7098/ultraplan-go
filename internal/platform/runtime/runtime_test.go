@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -254,10 +256,11 @@ func TestAdapterRetainsOnlyRecentRuntimeEvents(t *testing.T) {
 	events := make([]agentwrap.Event, retainedRuntimeEventLimit+5)
 	for i := range events {
 		events[i] = agentwrap.Event{
-			ID:      agentwrap.EventID("event-" + string(rune('a'+i%26))),
-			RunID:   "run-1",
-			Type:    "native.message",
-			Payload: agentwrap.EventPayloadWithKind(agentwrap.EventMessage, agentwrap.EventPayload{"index": i}),
+			ID:        agentwrap.EventID("event-" + string(rune('a'+i%26))),
+			RunID:     "run-1",
+			SessionID: agentwrap.SessionID(fmt.Sprintf("session-%d", i%3)),
+			Type:      "native.message",
+			Payload:   agentwrap.EventPayloadWithKind(agentwrap.EventMessage, agentwrap.EventPayload{"index": i}),
 		}
 	}
 	adapter := NewAdapter(fakeRuntime{run: &fakeRun{
@@ -284,6 +287,9 @@ func TestAdapterRetainsOnlyRecentRuntimeEvents(t *testing.T) {
 	}
 	if len(result.Warnings) != 1 {
 		t.Fatalf("expected truncation warning: %+v", result.Warnings)
+	}
+	if got, want := result.SessionIDs, []string{"session-0", "session-1", "session-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("session IDs = %v, want %v", got, want)
 	}
 }
 

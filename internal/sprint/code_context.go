@@ -384,7 +384,7 @@ func (s Service) FlowCodeContext(ctx context.Context, projectRef, sprintRef stri
 	if err := s.promoteCodeContext(ctx, sp, candidatePath, NewFlowState(sp, stages, now)); err != nil {
 		return s.failCodeContext(sp, req, now, result, nil, err)
 	}
-	_ = s.cleanupPlanningStageSession(ctx, sp, StageCodeContext, result.SessionID)
+	_ = s.cleanupPlanningStageSessions(ctx, sp, StageCodeContext, result)
 	return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: result, Stages: stages, Message: "code-context complete"}, nil
 }
 

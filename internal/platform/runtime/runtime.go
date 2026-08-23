@@ -77,6 +77,7 @@ type PermissionPathRule struct {
 type Result struct {
 	RunID          string
 	SessionID      string
+	SessionIDs     []string
 	TurnID         string
 	Status         string
 	TerminalOutput string
@@ -343,6 +344,10 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 		}
 		mapped.EventStats = events.stats()
 		mapped.Memory = events.memory
+		mapped.SessionIDs = append([]string(nil), events.sessionIDs...)
+		if mapped.SessionID != "" && !events.seenSessions[mapped.SessionID] {
+			mapped.SessionIDs = append(mapped.SessionIDs, mapped.SessionID)
+		}
 		if events.dropped > 0 {
 			mapped.Warnings = append(mapped.Warnings, fmt.Sprintf("runtime retained last %d events and dropped %d earlier events from in-memory result", events.limit, events.dropped))
 		}
@@ -371,6 +376,8 @@ type eventCollection struct {
 	dropped        int64
 	limit          int
 	memory         MemoryStats
+	sessionIDs     []string
+	seenSessions   map[string]bool
 }
 
 func newEventCollection(limit int) eventCollection {
@@ -380,8 +387,9 @@ func newEventCollection(limit int) eventCollection {
 	var mem stdruntime.MemStats
 	stdruntime.ReadMemStats(&mem)
 	return eventCollection{
-		events: make([]Event, 0, limit),
-		limit:  limit,
+		events:       make([]Event, 0, limit),
+		limit:        limit,
+		seenSessions: map[string]bool{},
 		memory: MemoryStats{
 			StartAllocBytes: mem.Alloc,
 			PeakAllocBytes:  mem.Alloc,
@@ -392,6 +400,10 @@ func newEventCollection(limit int) eventCollection {
 
 func (c *eventCollection) add(event Event) {
 	c.total++
+	if event.SessionID != "" && !c.seenSessions[event.SessionID] {
+		c.seenSessions[event.SessionID] = true
+		c.sessionIDs = append(c.sessionIDs, event.SessionID)
+	}
 	if c.total == 1 || c.total%64 == 0 {
 		c.sampleMemory()
 	}

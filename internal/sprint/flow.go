@@ -29,6 +29,22 @@ func (s Service) deleteCompletedSession(ctx context.Context, sessionID string) e
 	return deleter.DeleteSession(ctx, sessionID)
 }
 
+func (s Service) deleteCompletedSessions(ctx context.Context, result runtime.Result) error {
+	ids := append([]string(nil), result.SessionIDs...)
+	ids = append(ids, result.SessionID)
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if err := s.deleteCompletedSession(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type FlowRequest struct {
 	To              PlanningStage
 	DryRun          bool
