@@ -92,6 +92,11 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 		if output, err := openCodeDBCommand(ctx, c, "VACUUM").CombinedOutput(); err != nil {
 			return fmt.Errorf("vacuum OpenCode database: %w: %s", err, strings.TrimSpace(string(output)))
 		}
+		// In WAL mode VACUUM writes the compacted image to the WAL. Checkpoint it
+		// before the next worker wave starts so the temporary copy is removed.
+		if output, err := openCodeDBCommand(ctx, c, "PRAGMA wal_checkpoint(TRUNCATE)").CombinedOutput(); err != nil {
+			return fmt.Errorf("checkpoint vacuumed OpenCode database: %w: %s", err, strings.TrimSpace(string(output)))
+		}
 		return nil
 	}
 	return adapter, nil
