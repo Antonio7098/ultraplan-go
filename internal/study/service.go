@@ -30,6 +30,10 @@ type sessionDeleter interface {
 	DeleteSession(context.Context, string) error
 }
 
+type sessionBatchDeleter interface {
+	DeleteSessions(context.Context, []string) error
+}
+
 func (s Service) deleteCompletedSession(ctx context.Context, sessionID string) error {
 	if sessionID == "" {
 		return nil
@@ -61,6 +65,12 @@ func runtimeSessionIDs(result runtimepkg.Result) []string {
 }
 
 func (s Service) deleteSessionIDs(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if deleter, ok := s.runtime.(sessionBatchDeleter); ok {
+		return deleter.DeleteSessions(ctx, ids)
+	}
 	for _, id := range ids {
 		if err := s.deleteCompletedSession(ctx, id); err != nil {
 			return err

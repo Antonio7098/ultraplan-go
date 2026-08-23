@@ -66,27 +66,32 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 		Policy: agentwrap.PersistencePolicy{PersistUnsafeRawPayloads: false},
 	}
 	adapter := Adapter{runtime: stack, health: primary}
-	adapter.deleteSession = func(ctx context.Context, sessionID string) error {
+	adapter.deleteSessions = func(ctx context.Context, sessionIDs []string) error {
 		openCodeSessionCleanupMu.Lock()
 		defer openCodeSessionCleanupMu.Unlock()
 
-		// OpenCode stores its event stream under an aggregate whose ID is the
-		// session ID, but event_sequence has no foreign key back to session.
-		// The session CLI therefore cannot cascade into this often much larger
-		// payload. Delete it explicitly; event rows cascade from event_sequence.
-		query := "DELETE FROM event_sequence WHERE aggregate_id = " + sqliteString(sessionID)
-		if output, err := openCodeDBCommand(ctx, c, query).CombinedOutput(); err != nil {
-			return fmt.Errorf("delete OpenCode session events %s: %w: %s", sessionID, err, strings.TrimSpace(string(output)))
+		for _, sessionID := range sessionIDs {
+			if strings.TrimSpace(sessionID) == "" {
+				continue
+			}
+			// OpenCode stores its event stream under an aggregate whose ID is the
+			// session ID, but event_sequence has no foreign key back to session.
+			query := "DELETE FROM event_sequence WHERE aggregate_id = " + sqliteString(sessionID)
+			if output, err := openCodeDBCommand(ctx, c, query).CombinedOutput(); err != nil {
+				return fmt.Errorf("delete OpenCode session events %s: %w: %s", sessionID, err, strings.TrimSpace(string(output)))
+			}
+			cmd := exec.CommandContext(ctx, c.Agentwrap.Executable, "session", "delete", sessionID)
+			cmd.Env = append(os.Environ(), c.Agentwrap.Env...)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("delete OpenCode session %s: %w: %s", sessionID, err, strings.TrimSpace(string(output)))
+			}
 		}
-		cmd := exec.CommandContext(ctx, c.Agentwrap.Executable, "session", "delete", sessionID)
-		cmd.Env = append(os.Environ(), c.Agentwrap.Env...)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("delete OpenCode session %s: %w: %s", sessionID, err, strings.TrimSpace(string(output)))
+		if output, err := openCodeDBCommand(ctx, c, "PRAGMA wal_checkpoint(TRUNCATE)").CombinedOutput(); err != nil {
+			return fmt.Errorf("checkpoint OpenCode database: %w: %s", err, strings.TrimSpace(string(output)))
 		}
-		// Deleted pages can now be reused by sibling runs. A passive checkpoint
-		// bounds WAL growth without waiting for active writers or running VACUUM,
-		// which needs substantial temporary disk space and an exclusive lock.
-		_, _ = openCodeDBCommand(ctx, c, "PRAGMA wal_checkpoint(PASSIVE)").CombinedOutput()
+		if output, err := openCodeDBCommand(ctx, c, "VACUUM").CombinedOutput(); err != nil {
+			return fmt.Errorf("vacuum OpenCode database: %w: %s", err, strings.TrimSpace(string(output)))
+		}
 		return nil
 	}
 	return adapter, nil

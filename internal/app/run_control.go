@@ -110,6 +110,21 @@ func (r controlledRuntime) DeleteSession(ctx context.Context, sessionID string) 
 	return deleter.DeleteSession(ctx, sessionID)
 }
 
+func (r controlledRuntime) DeleteSessions(ctx context.Context, sessionIDs []string) error {
+	deleter, ok := r.base.(interface {
+		DeleteSessions(context.Context, []string) error
+	})
+	if !ok {
+		for _, sessionID := range sessionIDs {
+			if err := r.DeleteSession(ctx, sessionID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return deleter.DeleteSessions(ctx, sessionIDs)
+}
+
 func controlledRuntimeFor(deps dependencies, workspaceRoot string, effectiveConfig config.Config, base interface {
 	StartRun(context.Context, runtimepkg.Request) (runtimepkg.Result, error)
 }) (controlledRuntime, error) {

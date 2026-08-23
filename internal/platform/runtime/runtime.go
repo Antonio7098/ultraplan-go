@@ -250,18 +250,38 @@ type Runtime interface {
 }
 
 type Adapter struct {
-	runtime       agentwrap.Runtime
-	health        agentwrap.HealthChecker
-	deleteSession func(context.Context, string) error
+	runtime        agentwrap.Runtime
+	health         agentwrap.HealthChecker
+	deleteSession  func(context.Context, string) error
+	deleteSessions func(context.Context, []string) error
 }
 
 // DeleteSession removes a completed retained session and its runtime-owned
 // messages, parts, and related records when the configured adapter supports it.
 func (a Adapter) DeleteSession(ctx context.Context, sessionID string) error {
-	if strings.TrimSpace(sessionID) == "" || a.deleteSession == nil {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
+	if a.deleteSessions != nil {
+		return a.deleteSessions(ctx, []string{sessionID})
+	}
+	if a.deleteSession == nil {
 		return nil
 	}
 	return a.deleteSession(ctx, sessionID)
+}
+
+// DeleteSessions removes a completed batch and reclaims adapter-owned storage.
+func (a Adapter) DeleteSessions(ctx context.Context, sessionIDs []string) error {
+	if a.deleteSessions != nil {
+		return a.deleteSessions(ctx, sessionIDs)
+	}
+	for _, sessionID := range sessionIDs {
+		if err := a.DeleteSession(ctx, sessionID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func NewAdapter(aw agentwrap.Runtime) Adapter {
