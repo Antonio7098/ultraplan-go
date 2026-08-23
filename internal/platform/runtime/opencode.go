@@ -86,20 +86,49 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 				return fmt.Errorf("delete OpenCode session %s: %w: %s", sessionID, err, strings.TrimSpace(string(output)))
 			}
 		}
-		if output, err := openCodeDBCommand(ctx, c, "PRAGMA wal_checkpoint(TRUNCATE)").CombinedOutput(); err != nil {
-			return fmt.Errorf("checkpoint OpenCode database: %w: %s", err, strings.TrimSpace(string(output)))
+		if err := checkpointOpenCode(ctx, c); err != nil {
+			return fmt.Errorf("checkpoint OpenCode database: %w", err)
 		}
 		if output, err := openCodeDBCommand(ctx, c, "VACUUM").CombinedOutput(); err != nil {
 			return fmt.Errorf("vacuum OpenCode database: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 		// In WAL mode VACUUM writes the compacted image to the WAL. Checkpoint it
 		// before the next worker wave starts so the temporary copy is removed.
-		if output, err := openCodeDBCommand(ctx, c, "PRAGMA wal_checkpoint(TRUNCATE)").CombinedOutput(); err != nil {
-			return fmt.Errorf("checkpoint vacuumed OpenCode database: %w: %s", err, strings.TrimSpace(string(output)))
+		if err := checkpointOpenCode(ctx, c); err != nil {
+			return fmt.Errorf("checkpoint vacuumed OpenCode database: %w", err)
 		}
 		return nil
 	}
 	return adapter, nil
+}
+
+func checkpointOpenCode(ctx context.Context, c config.Config) error {
+	var detail string
+	for attempt := 0; attempt < 20; attempt++ {
+		output, err := openCodeDBCommand(ctx, c, "PRAGMA wal_checkpoint(TRUNCATE)").CombinedOutput()
+		detail = strings.TrimSpace(string(output))
+		if err == nil {
+			fields := strings.Fields(detail)
+			if len(fields) >= 3 && fields[len(fields)-3] == "0" {
+				return nil
+			}
+		}
+		if err := sleepContext(ctx, 250*time.Millisecond); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("database remained busy: %s", detail)
+}
+
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func openCodeDBCommand(ctx context.Context, c config.Config, query string) *exec.Cmd {
