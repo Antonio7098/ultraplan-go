@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +18,18 @@ import (
 
 var openCodeSessionCleanupMu sync.Mutex
 
+// rateSnapshotDir returns the cache directory holding the model-rate snapshot
+// shared across runs. An empty result disables persistence (memory-only).
+func rateSnapshotDir() string {
+	cache, err := os.UserCacheDir()
+	if err != nil || cache == "" {
+		return ""
+	}
+	return filepath.Join(cache, "ultraplan")
+}
+
 func NewOpenCode(c config.Config) (Adapter, error) {
+	rateStore := agentwrap.NewRateTableStore(rateSnapshotDir())
 	newRuntime := func(extraArgs ...string) *opencode.Runtime {
 		args := append([]string(nil), c.Agentwrap.ExtraArgs...)
 		args = append(args, extraArgs...)
@@ -26,6 +38,7 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 			opencode.WithExtraArgs(args...),
 			opencode.WithEnv(c.Agentwrap.Env...),
 			opencode.WithStderrLimit(c.Agentwrap.StderrLimit),
+			opencode.WithRateTableStore(rateStore),
 		)
 	}
 	primary := newRuntime()

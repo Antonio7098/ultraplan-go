@@ -62,6 +62,7 @@ type runStudyInsightsView struct {
 	Tasks       []studyTaskPerfDTO
 	Failures    []studyTaskFailureDTO
 	SeedTasks   []studyTaskSeedDTO
+	Usage       runUsageView
 }
 
 type studyTaskFailureDTO struct {
@@ -90,9 +91,94 @@ type studyTaskPerfDTO struct {
 	Duration     string `json:"duration,omitempty"`
 	Turns        int64  `json:"turns,omitempty"`
 	Tokens       int64  `json:"tokens,omitempty"`
+	Input        int64  `json:"input,omitempty"`
+	Output       int64  `json:"output,omitempty"`
+	Reasoning    int64  `json:"reasoning,omitempty"`
+	CacheRead    int64  `json:"cache_read,omitempty"`
+	CacheWrite   int64  `json:"cache_write,omitempty"`
 	Cost         string `json:"cost,omitempty"`
+	CostSource   string `json:"cost_source,omitempty"`
 	Retries      int    `json:"retries,omitempty"`
 	SessionReuse string `json:"session_reuse,omitempty"`
+}
+
+// runUsageView aggregates token and cost facts for a run. Cost figures are
+// API-equivalent estimates: provider-reported values are exact, model-priced
+// values are computed from public rate tables, and unpriced tasks contribute
+// tokens but no cost.
+type runUsageView struct {
+	Scope            string
+	HasUsage         bool
+	TasksWithUsage   int
+	TasksPriced      int
+	TasksUnpriced    int
+	Input            int64
+	Output           int64
+	Reasoning        int64
+	CacheRead        int64
+	CacheWrite       int64
+	Total            int64
+	TotalKnown       bool
+	cacheDenominator int64
+	cacheHitComplete bool
+	CacheHit         string
+	cost             float64
+	costKnown        bool
+	CostLabel        string
+	ProviderReported int
+	ModelPriced      int
+}
+
+func (v *runUsageView) addTokens(inputKnown bool, input int64, outputKnown bool, output int64, reasoningKnown bool, reasoning int64,
+	cacheReadKnown bool, cacheRead int64, cacheWriteKnown bool, cacheWrite int64, totalKnown bool, total int64) {
+	v.HasUsage = true
+	v.TasksWithUsage++
+	if !inputKnown || !cacheReadKnown || !cacheWriteKnown {
+		v.cacheHitComplete = false
+	}
+	if inputKnown {
+		v.Input += input
+	}
+	if outputKnown {
+		v.Output += output
+	}
+	if reasoningKnown {
+		v.Reasoning += reasoning
+	}
+	if cacheReadKnown && cacheWriteKnown && v.cacheHitComplete {
+		v.cacheDenominator += input + cacheRead + cacheWrite
+	}
+	if totalKnown {
+		v.Total += total
+		v.TotalKnown = true
+	}
+}
+
+func (v *runUsageView) addCost(known bool, amount float64, source string) {
+	switch source {
+	case "provider_reported", "model_priced":
+	case "":
+		source = "provider_reported"
+	default:
+		source = ""
+	}
+	if !known {
+		if v.HasUsage {
+			v.TasksUnpriced++
+		}
+		return
+	}
+	v.cost += amount
+	v.costKnown = true
+	v.TasksPriced++
+	switch source {
+	case "model_priced":
+		v.ModelPriced++
+	case "provider_reported":
+		v.ProviderReported++
+	default:
+		v.TasksUnpriced++
+	}
 }
 
 type runEventView struct {
@@ -218,11 +304,20 @@ func (h *handler) handleRunPage(w http.ResponseWriter, r *http.Request, value st
 			insights = newRunStudyInsightsView(snapshot.Target.Study, study)
 		}
 	}
+	var sprintUsage *runSprintUsageView
+	if snapshot.Target.Sprint != "" && snapshot.Target.Project != "" && h.queries != nil {
+		if usageQueries, ok := h.queries.(app.WebSprintUsageQueries); ok {
+			if metrics, err := usageQueries.SprintRuntimeUsage(r.Context(), snapshot.Target.Project, snapshot.Target.Sprint); err == nil {
+				summary := newRunSprintUsageView(snapshot.Target.Sprint, metrics)
+				sprintUsage = &summary
+			}
+		}
+	}
 	eventViews := make([]runEventView, 0, len(events))
 	for _, event := range events {
 		eventViews = append(eventViews, newRunEventView(event))
 	}
-	h.render(w, r, http.StatusOK, "run", pageModel{Title: "Run " + value, Heading: "Run detail", Run: &detail, StudyInsights: insights, RunEvents: eventViews, NextEventsURL: nextEventsURL})
+	h.render(w, r, http.StatusOK, "run", pageModel{Title: "Run " + value, Heading: "Run detail", Run: &detail, StudyInsights: insights, SprintUsage: sprintUsage, RunEvents: eventViews, NextEventsURL: nextEventsURL})
 }
 
 func newRunStudyInsightsView(study string, result app.WebStudyResult) *runStudyInsightsView {
@@ -235,7 +330,9 @@ func newRunStudyInsightsView(study string, result app.WebStudyResult) *runStudyI
 	failures := make([]studyTaskFailureDTO, 0)
 	seeds := make([]studyTaskSeedDTO, 0, len(result.Tasks))
 	for _, task := range result.Tasks {
-		tasks = append(tasks, studyTaskPerfDTO{ID: task.ID, Kind: task.Kind, Status: task.Status, Duration: task.Duration, Turns: task.Turns, Tokens: task.Tokens, Cost: task.Cost, Retries: task.Retries, SessionReuse: task.SessionReuse})
+		tasks = append(tasks, studyTaskPerfDTO{ID: task.ID, Kind: task.Kind, Status: task.Status, Duration: task.Duration, Turns: task.Turns, Tokens: task.Tokens,
+			Input: task.InputTokens, Output: task.OutputTokens, Reasoning: task.ReasoningTokens, CacheRead: task.CacheReadTokens, CacheWrite: task.CacheWriteTokens,
+			Cost: task.Cost, CostSource: task.CostSource, Retries: task.Retries, SessionReuse: task.SessionReuse})
 		if task.Error != "" {
 			failures = append(failures, studyTaskFailureDTO{Task: task.ID, Code: task.ErrorCode, Message: task.Error})
 		}
@@ -249,7 +346,82 @@ func newRunStudyInsightsView(study string, result app.WebStudyResult) *runStudyI
 	}
 	return &runStudyInsightsView{Study: study, Status: result.Status, RunID: result.RunID, Total: result.Total, Completed: result.Completed,
 		Pending: result.Pending, ActiveTasks: result.ActiveTasks, Failed: result.Failed, Cancelled: result.Cancelled,
-		Retries: retries, Parallelism: mapStudyParallelism(result.Parallelism), Tasks: tasks, Failures: failures, SeedTasks: seeds}
+		Retries: retries, Parallelism: mapStudyParallelism(result.Parallelism), Tasks: tasks, Failures: failures, SeedTasks: seeds, Usage: newRunUsageView("study tasks", result.Tasks)}
+}
+
+// finalizeRunUsageView derives display labels from accumulated totals.
+func finalizeRunUsageView(view *runUsageView) {
+	if view.cacheHitComplete && view.cacheDenominator > 0 {
+		view.CacheHit = fmt.Sprintf("%.1f%%", float64(view.CacheRead)/float64(view.cacheDenominator)*100)
+	} else {
+		view.CacheHit = "-"
+	}
+	if view.costKnown {
+		suffix := ""
+		if view.ModelPriced > 0 {
+			suffix = "*"
+		}
+		view.CostLabel = formatRunUSD(view.cost) + suffix
+	} else {
+		view.CostLabel = "-"
+	}
+}
+
+// formatRunUSD renders a USD amount compactly for dashboards.
+func formatRunUSD(amount float64) string {
+	return "$" + strconv.FormatFloat(amount, 'f', -1, 64)
+}
+
+func newRunUsageView(scope string, tasks []app.RunTaskSummary) runUsageView {
+	view := runUsageView{Scope: scope, cacheHitComplete: true}
+	for _, task := range tasks {
+		view.addTokens(task.InputKnown, task.InputTokens, task.OutputKnown, task.OutputTokens, task.ReasoningKnown, task.ReasoningTokens,
+			task.CacheReadKnown, task.CacheReadTokens, task.CacheWriteKnown, task.CacheWriteTokens, task.TokensKnown, task.Tokens)
+		view.addCost(task.CostKnown, task.CostAmount, task.CostSource)
+	}
+	finalizeRunUsageView(&view)
+	return view
+}
+
+// runSprintUsageRow is one recent sprint stage run in the usage panel.
+type runSprintUsageRow struct {
+	Stage      string
+	Task       string
+	Model      string
+	Status     string
+	Tokens     int64
+	CacheRead  int64
+	CacheWrite int64
+	Cost       string
+}
+
+// runSprintUsageView summarizes sprint runtime metrics for a durable run page.
+type runSprintUsageView struct {
+	runUsageView
+	Rows       []runSprintUsageRow
+	UpdatedAt  time.Time
+	HasMetrics bool
+}
+
+func newRunSprintUsageView(slug string, metrics app.SprintMetricsSummary) runSprintUsageView {
+	view := runSprintUsageView{runUsageView: runUsageView{Scope: slug, cacheHitComplete: true}}
+	for _, run := range metrics.RecentRuns {
+		view.addTokens(run.InputKnown, run.Input, run.OutputKnown, run.Output, run.ReasoningKnown, run.Reasoning,
+			run.CacheReadKnown, run.CacheRead, run.CacheWriteKnown, run.CacheWrite, run.TotalKnown, run.Total)
+		view.addCost(run.CostKnown, run.CostAmount, run.CostSource)
+		cost := "-"
+		if run.CostKnown {
+			cost = formatRunUSD(run.CostAmount)
+			if run.CostSource == "model_priced" {
+				cost += "*"
+			}
+		}
+		view.Rows = append(view.Rows, runSprintUsageRow{Stage: run.Stage, Task: run.Task, Model: run.Model, Status: run.Status,
+			Tokens: run.Total, CacheRead: run.CacheRead, CacheWrite: run.CacheWrite, Cost: cost})
+	}
+	finalizeRunUsageView(&view.runUsageView)
+	view.HasMetrics = len(metrics.RecentRuns) > 0
+	return view
 }
 
 func newRunRowView(snapshot app.RunSnapshot) runRowView {

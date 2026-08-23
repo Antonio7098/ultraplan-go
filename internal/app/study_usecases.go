@@ -47,8 +47,12 @@ type RunTaskSummary struct {
 	Tokens                                                                        int64
 	TokensKnown                                                                   bool
 	InputTokens, OutputTokens, ReasoningTokens, CacheReadTokens, CacheWriteTokens int64
+	InputKnown, OutputKnown, ReasoningKnown, CacheReadKnown, CacheWriteKnown      bool
 	Events                                                                        int64
 	Cost                                                                          string
+	CostKnown                                                                     bool
+	CostAmount                                                                    float64
+	CostSource                                                                    string
 	DurationMS                                                                    int64
 	UpdatedAt                                                                     time.Time
 	Stale                                                                         bool
@@ -153,7 +157,7 @@ func (u dashboardUseCases) StudySummaries(ctx context.Context) ([]StudySummary, 
 }
 
 func runTaskSummary(task study.TaskState, now time.Time) RunTaskSummary {
-	r := RunTaskSummary{ID: task.ID, Kind: string(task.Kind), Dimension: task.DimensionRef, Source: task.Source, Status: string(task.Status), Provider: task.Agent.Provider, Model: task.Agent.Model, Attempts: task.Attempts, RuntimeAttempts: len(task.Agent.Attempts), Turns: task.Agent.Usage.Turns, TurnsKnown: task.Agent.Usage.TurnsKnown, Tokens: task.Agent.Usage.TotalTokens, TokensKnown: task.Agent.Usage.TotalTokensKnown, InputTokens: task.Agent.Usage.InputTokens, OutputTokens: task.Agent.Usage.OutputTokens, ReasoningTokens: task.Agent.Usage.ReasoningTokens, CacheReadTokens: task.Agent.Usage.CacheReadTokens, CacheWriteTokens: task.Agent.Usage.CacheWriteTokens, Cost: "n/a", UpdatedAt: task.UpdatedAt}
+	r := RunTaskSummary{ID: task.ID, Kind: string(task.Kind), Dimension: task.DimensionRef, Source: task.Source, Status: string(task.Status), Provider: task.Agent.Provider, Model: task.Agent.Model, Attempts: task.Attempts, RuntimeAttempts: len(task.Agent.Attempts), Turns: task.Agent.Usage.Turns, TurnsKnown: task.Agent.Usage.TurnsKnown, Tokens: task.Agent.Usage.TotalTokens, TokensKnown: task.Agent.Usage.TotalTokensKnown, InputTokens: task.Agent.Usage.InputTokens, OutputTokens: task.Agent.Usage.OutputTokens, ReasoningTokens: task.Agent.Usage.ReasoningTokens, CacheReadTokens: task.Agent.Usage.CacheReadTokens, CacheWriteTokens: task.Agent.Usage.CacheWriteTokens, InputKnown: task.Agent.Usage.InputTokensKnown, OutputKnown: task.Agent.Usage.OutputTokensKnown, ReasoningKnown: task.Agent.Usage.ReasoningTokensKnown, CacheReadKnown: task.Agent.Usage.CacheReadTokensKnown, CacheWriteKnown: task.Agent.Usage.CacheWriteTokensKnown, Cost: "n/a", UpdatedAt: task.UpdatedAt}
 	if retries := task.Attempts - 1; retries > 0 {
 		r.Retries = retries
 		if study.TaskSessionContinued(task) {
@@ -200,6 +204,12 @@ func runTaskSummary(task study.TaskState, now time.Time) RunTaskSummary {
 			currency = "cost"
 		}
 		r.Cost = fmt.Sprintf("%.4g %s", task.Agent.Cost.Amount, currency)
+		if task.Agent.Cost.Estimate {
+			r.Cost += "*"
+		}
+		r.CostKnown = true
+		r.CostAmount = task.Agent.Cost.Amount
+		r.CostSource = task.Agent.Cost.Source
 	}
 	// staleness: running tasks with no update >2m are likely stuck on
 	// retry/fallback (the original bug showed 20m of fake "running")

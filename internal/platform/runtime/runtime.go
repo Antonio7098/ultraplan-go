@@ -161,6 +161,9 @@ type CostEstimate struct {
 	Amount   float64
 	Currency string
 	Estimate bool
+	// Source records cost provenance: provider_reported, model_priced, or
+	// unpriced. Empty when no cost was determined.
+	Source string
 }
 
 type AttemptSummary struct {
@@ -592,7 +595,7 @@ func mapResult(result agentwrap.RunResult) Result {
 		Warnings:       warnings,
 		Attempts:       mapAttempts(result.Metadata.Attempts),
 		Usage:          mapUsage(result.Usage),
-		EstimatedCost:  mapCost(result.Metadata.EstimatedCost),
+		EstimatedCost:  mapCost(result.Metadata.EstimatedCost, result.Metadata.CostSource),
 		Policy:         mapPolicy(result.Metadata.Policy),
 		Permissions:    mapPermissions(result.Metadata.Permissions),
 		Cleanup:        mapCleanup(result.Metadata.Cleanup),

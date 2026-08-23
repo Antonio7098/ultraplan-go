@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
@@ -53,8 +54,47 @@ type WebPromptQueries interface {
 	PromptBundle(context.Context, string, string, string) (WebPromptBundleResult, error)
 }
 
+// WebResourceQueries is an additive read-only capability used by resource
+// monitoring surfaces.
 type WebResourceQueries interface {
 	StudyResources(context.Context, string) (study.RunLoopResourceHistory, error)
+}
+
+// WebSprintUsageQueries is an additive read-only capability exposing sprint
+// runtime token/cost metrics without widening the compatibility-critical
+// WebQueries interface implemented by existing embedders.
+type WebSprintUsageQueries interface {
+	SprintRuntimeUsage(ctx context.Context, project, slug string) (SprintMetricsSummary, error)
+}
+
+// SprintMetricsSummary projects sprint runtime metrics for usage surfaces.
+type SprintMetricsSummary struct {
+	RecentRuns []SprintMetricRow
+	UpdatedAt  time.Time
+}
+
+type SprintMetricRow struct {
+	Stage           string
+	Task            string
+	Model           string
+	Status          string
+	InputKnown      bool
+	Input           int64
+	OutputKnown     bool
+	Output          int64
+	ReasoningKnown  bool
+	Reasoning       int64
+	CacheReadKnown  bool
+	CacheRead       int64
+	CacheWriteKnown bool
+	CacheWrite      int64
+	TotalKnown      bool
+	Total           int64
+	TurnsKnown      bool
+	Turns           int64
+	CostKnown       bool
+	CostAmount      float64
+	CostSource      string
 }
 
 // WebModelQueries is an additive read-only capability that exposes the models
@@ -84,6 +124,7 @@ type WebUseCases interface {
 	WebQueries
 	WebPromptQueries
 	WebResourceQueries
+	WebSprintUsageQueries
 	WebModelQueries
 	WebOperations
 	RunUseCases
@@ -590,6 +631,37 @@ func (u *webUseCases) projectRoadmap(projectName string, live map[string]SprintS
 		phases = append(phases, WebRoadmapPhase{Title: phase.Title, Sprints: sprints})
 	}
 	return phases
+}
+
+func (u *webUseCases) SprintRuntimeUsage(ctx context.Context, projectRef, slug string) (SprintMetricsSummary, error) {
+	if err := ctx.Err(); err != nil {
+		return SprintMetricsSummary{}, err
+	}
+	metrics, err := sprint.NewService(u.root).RuntimeMetrics(projectRef, slug)
+	if err != nil {
+		return SprintMetricsSummary{}, fmt.Errorf("%w: sprint runtime metrics", ErrWebNotFound)
+	}
+	summary := SprintMetricsSummary{UpdatedAt: metrics.UpdatedAt}
+	const maxRecentRuns = 12
+	start := 0
+	if len(metrics.Runs) > maxRecentRuns {
+		start = len(metrics.Runs) - maxRecentRuns
+	}
+	for _, run := range metrics.Runs[start:] {
+		row := SprintMetricRow{
+			Stage: string(run.Stage), Task: run.Task, Model: run.Model, Status: run.Status,
+			InputKnown: run.InputTokens.Known, Input: run.InputTokens.Value,
+			OutputKnown: run.OutputTokens.Known, Output: run.OutputTokens.Value,
+			ReasoningKnown: run.ReasoningTokens.Known, Reasoning: run.ReasoningTokens.Value,
+			CacheReadKnown: run.CacheReadTokens.Known, CacheRead: run.CacheReadTokens.Value,
+			CacheWriteKnown: run.CacheWriteTokens.Known, CacheWrite: run.CacheWriteTokens.Value,
+			TotalKnown: run.TotalTokens.Known, Total: run.TotalTokens.Value,
+			TurnsKnown: run.Turns.Known, Turns: run.Turns.Value,
+			CostKnown: run.CostCurrency != "" || run.CostAmount != 0, CostAmount: run.CostAmount, CostSource: run.CostSource,
+		}
+		summary.RecentRuns = append(summary.RecentRuns, row)
+	}
+	return summary, nil
 }
 
 func (u *webUseCases) Sprint(ctx context.Context, project, slug string) (WebSprintResult, error) {

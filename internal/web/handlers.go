@@ -106,33 +106,33 @@ type promptBundleDTO struct {
 }
 
 type projectDTO struct {
-	Ref       string             `json:"ref"`
-	Name      string             `json:"name"`
-	Docs      []string           `json:"docs"`
-	Findings  []findingDTO       `json:"findings"`
-	Artifacts []artifactDTO      `json:"artifacts"`
-	Sprints   []sprintDTO        `json:"sprints"`
-	Roadmap   []roadmapPhaseDTO  `json:"roadmap"`
+	Ref       string            `json:"ref"`
+	Name      string            `json:"name"`
+	Docs      []string          `json:"docs"`
+	Findings  []findingDTO      `json:"findings"`
+	Artifacts []artifactDTO     `json:"artifacts"`
+	Sprints   []sprintDTO       `json:"sprints"`
+	Roadmap   []roadmapPhaseDTO `json:"roadmap"`
 }
 
 type roadmapPhaseDTO struct {
-	Title   string            `json:"title"`
+	Title   string             `json:"title"`
 	Sprints []roadmapSprintDTO `json:"sprints"`
 }
 
 type roadmapSprintDTO struct {
-	Number          int    `json:"number"`
-	Title           string `json:"title"`
-	Slug            string `json:"slug,omitempty"`
-	Status          string `json:"status"`
-	Goal            string `json:"goal,omitempty"`
+	Number          int      `json:"number"`
+	Title           string   `json:"title"`
+	Slug            string   `json:"slug,omitempty"`
+	Status          string   `json:"status"`
+	Goal            string   `json:"goal,omitempty"`
 	GateItems       []string `json:"acceptance,omitempty"`
-	DependsOn       []int  `json:"depends_on,omitempty"`
-	Exists          bool   `json:"exists"`
-	Assessment      string `json:"assessment,omitempty"`
-	CompletedStages int    `json:"completed_stages,omitempty"`
-	TotalStages     int    `json:"total_stages,omitempty"`
-	CurrentStage    string `json:"current_stage,omitempty"`
+	DependsOn       []int    `json:"depends_on,omitempty"`
+	Exists          bool     `json:"exists"`
+	Assessment      string   `json:"assessment,omitempty"`
+	CompletedStages int      `json:"completed_stages,omitempty"`
+	TotalStages     int      `json:"total_stages,omitempty"`
+	CurrentStage    string   `json:"current_stage,omitempty"`
 }
 
 type collectionDTO struct {
@@ -277,6 +277,7 @@ type pageModel struct {
 	Runs          []runRowView
 	Run           *runDetailView
 	StudyInsights *runStudyInsightsView
+	SprintUsage   *runSprintUsageView
 	RunEvents     []runEventView
 	NextRunsURL   string
 	NextEventsURL string

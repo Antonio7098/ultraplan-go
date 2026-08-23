@@ -28,6 +28,13 @@
     </section>
   </div>
   <aside class="run-rail">
+    {{with .SprintUsage}}{{if .HasMetrics}}<section aria-labelledby="run-sprint-usage-heading">
+      <header class="run-section-header"><div><h2 id="run-sprint-usage-heading">Sprint usage · {{.Scope}}</h2><p class="group-description">Tokens and estimated API cost across recent stage runs.</p></div></header>
+      {{template "component/run-usage" .}}
+      <details class="run-insight"><summary>Recent stage runs · {{len .Rows}}</summary>
+        <div class="table-wrap"><table><thead><tr><th>Stage</th><th>Task</th><th>Status</th><th>Tokens</th><th>Cache R/W</th><th>Cost</th></tr></thead><tbody>{{range .Rows}}<tr><td>{{.Stage}}</td><td>{{.Task}}</td><td>{{.Status}}</td><td>{{.Tokens}}</td><td>{{.CacheRead}} / {{.CacheWrite}}</td><td>{{.Cost}}</td></tr>{{end}}</tbody></table></div>
+      </details>
+    </section>{{end}}{{end}}
     {{with .StudyInsights}}<section aria-labelledby="run-insights-heading">
       <header class="run-section-header"><div><h2 id="run-insights-heading">Study insights · {{.Study}}</h2><p class="group-description">{{.Study}}</p></div></header>
       <dl class="metadata run-insights-summary"><div><dt>Status</dt><dd>{{.Status}}</dd></div><div><dt>Completed</dt><dd>{{.Completed}}</dd></div><div><dt>Pending</dt><dd>{{.Pending}}</dd></div><div><dt>Active tasks</dt><dd>{{.ActiveTasks}}</dd></div><div><dt>Failed</dt><dd>{{.Failed}}</dd></div><div><dt>Cancelled</dt><dd>{{.Cancelled}}</dd></div>{{if .RunID}}<div><dt>Run ID</dt><dd>{{.RunID}}</dd></div>{{end}}</dl>
@@ -36,8 +43,11 @@
         {{if .Failures}}<h3>Failure reasons</h3><ul class="run-agent-failures">{{range .Failures}}<li><code>{{.Task}}</code>{{if .Code}} <span class="failure-code">{{.Code}}</span>{{end}}<p>{{.Message}}</p></li>{{end}}</ul>{{end}}
       </details>
       <details class="run-insight">{{if .Parallelism}}<summary>Parallelism · {{if .Parallelism.Decreased}}decreased to {{.Parallelism.EffectiveParallelism}} of {{.Parallelism.RequestedParallelism}}{{else if .Parallelism.Events}}recovered after {{.Parallelism.Events}} throttle event(s){{else}}not decreased{{end}}</summary>{{if .Parallelism.Decreased}}<p>Memory pressure reduced parallelism from {{.Parallelism.RequestedParallelism}} to {{.Parallelism.EffectiveParallelism}} agent(s).</p>{{else if .Parallelism.Events}}<p>Parallelism was throttled by memory pressure {{.Parallelism.Events}} time(s), but is back at the requested level.</p>{{else}}<p>Parallelism has not been decreased because of memory.</p>{{end}}{{else}}<summary>Parallelism · unknown</summary><p>No run-loop diagnostics recorded for this study.</p>{{end}}</details>
+      {{with .Usage}}{{if .HasUsage}}<details class="run-insight" open><summary>Token usage &amp; cost{{if .TotalKnown}} · {{.Total}} tokens{{end}}</summary>
+        {{template "component/run-usage" .}}
+      </details>{{end}}{{end}}
       <details class="run-insight"><summary>Performance · {{len .Tasks}} task(s)</summary>
-        {{if .Tasks}}<div class="table-wrap"><table><thead><tr><th>Task</th><th>Status</th><th>Duration</th><th>Turns</th><th>Tokens</th><th>Cost</th><th>Retries</th><th>Session</th></tr></thead><tbody>{{range .Tasks}}<tr><td>{{.ID}}</td><td>{{.Status}}</td><td>{{.Duration}}</td><td>{{.Turns}}</td><td>{{.Tokens}}</td><td>{{.Cost}}</td><td>{{.Retries}}</td><td>{{if eq .SessionReuse "same"}}same{{else if eq .SessionReuse "fresh"}}fresh{{else}}-{{end}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="empty">No task performance recorded.</p>{{end}}
+        {{if .Tasks}}<div class="table-wrap"><table><thead><tr><th>Task</th><th>Status</th><th>Duration</th><th>Turns</th><th>Tokens</th><th>In/Out</th><th>Cache R/W</th><th>Cost</th><th>Retries</th><th>Session</th></tr></thead><tbody>{{range .Tasks}}<tr><td>{{.ID}}</td><td>{{.Status}}</td><td>{{.Duration}}</td><td>{{.Turns}}</td><td>{{.Tokens}}</td><td>{{.Input}}/{{.Output}}</td><td>{{.CacheRead}}/{{.CacheWrite}}</td><td>{{.Cost}}</td><td>{{.Retries}}</td><td>{{if eq .SessionReuse "same"}}same{{else if eq .SessionReuse "fresh"}}fresh{{else}}-{{end}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="empty">No task performance recorded.</p>{{end}}
       </details>
       {{if .Failures}}<script type="application/json" data-run-agent-failures data-study="{{.Study}}">{{.Failures}}</script>{{end}}
     </section>{{end}}

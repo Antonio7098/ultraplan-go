@@ -49,6 +49,7 @@ type SprintRuntimeMetric struct {
 	CostAmount         float64            `json:"cost_amount,omitempty"`
 	CostCurrency       string             `json:"cost_currency,omitempty"`
 	CostEstimated      bool               `json:"cost_estimated,omitempty"`
+	CostSource         string             `json:"cost_source,omitempty"`
 	StartedAt          time.Time          `json:"started_at,omitempty"`
 	FinishedAt         time.Time          `json:"finished_at,omitempty"`
 	ErrorCategory      string             `json:"error_category,omitempty"`
@@ -144,6 +145,7 @@ func (s Service) recordRuntimeMetric(sp Sprint, stage PlanningStage, req pruntim
 	}
 	if result.EstimatedCost != nil {
 		record.CostAmount, record.CostCurrency, record.CostEstimated = result.EstimatedCost.Amount, result.EstimatedCost.Currency, result.EstimatedCost.Estimate
+		record.CostSource = result.EstimatedCost.Source
 	}
 	if result.Error != nil {
 		record.ErrorCategory = result.Error.Category

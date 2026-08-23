@@ -40,11 +40,11 @@ func mapArtifacts(values []agentwrap.ArtifactRef) []Artifact {
 	return out
 }
 
-func mapCost(value *agentwrap.CostEstimate) *CostEstimate {
+func mapCost(value *agentwrap.CostEstimate, source agentwrap.CostSource) *CostEstimate {
 	if value == nil {
 		return nil
 	}
-	return &CostEstimate{Amount: value.Amount, Currency: value.Currency, Estimate: value.Estimate}
+	return &CostEstimate{Amount: value.Amount, Currency: value.Currency, Estimate: value.Estimate, Source: string(source)}
 }
 
 func mapAttempts(values []agentwrap.AttemptSummary) []AttemptSummary {

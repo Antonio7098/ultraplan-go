@@ -119,6 +119,8 @@ type CostMetadata struct {
 	Amount   float64 `json:"amount"`
 	Currency string  `json:"currency,omitempty"`
 	Estimate bool    `json:"estimate,omitempty"`
+	// Source records provenance: provider_reported, model_priced, unpriced.
+	Source string `json:"source,omitempty"`
 }
 
 type ArtifactMetadata struct {

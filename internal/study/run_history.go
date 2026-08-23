@@ -55,6 +55,7 @@ type RunHistoryRecord struct {
 	CostAmount   float64 `json:"cost_amount,omitempty"`
 	CostCurrency string  `json:"cost_currency,omitempty"`
 	CostEstimate bool    `json:"cost_estimate,omitempty"`
+	CostSource   string  `json:"cost_source,omitempty"`
 
 	ValidationStatus       ValidationStatus `json:"validation_status,omitempty"`
 	ValidationPassedChecks int              `json:"validation_passed_checks,omitempty"`
@@ -201,6 +202,7 @@ func NewRunHistoryRecord(study Study, state RunState, task TaskState, recordedAt
 		record.CostAmount = task.Agent.Cost.Amount
 		record.CostCurrency = task.Agent.Cost.Currency
 		record.CostEstimate = task.Agent.Cost.Estimate
+		record.CostSource = task.Agent.Cost.Source
 	}
 	if task.Validation != nil {
 		record.ValidationStatus = task.Validation.Status

@@ -92,7 +92,7 @@ func agentMetadata(result runtimepkg.Result, req runtimepkg.Request) AgentMetada
 		meta.Cleanup.Error = result.Cleanup.Error.UserDetail
 	}
 	if result.EstimatedCost != nil {
-		meta.Cost = &CostMetadata{Amount: result.EstimatedCost.Amount, Currency: result.EstimatedCost.Currency, Estimate: result.EstimatedCost.Estimate}
+		meta.Cost = &CostMetadata{Amount: result.EstimatedCost.Amount, Currency: result.EstimatedCost.Currency, Estimate: result.EstimatedCost.Estimate, Source: result.EstimatedCost.Source}
 	}
 	for _, attempt := range result.Attempts {
 		item := AttemptMetadata{

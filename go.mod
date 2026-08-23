@@ -5,7 +5,7 @@ go 1.26
 require gopkg.in/yaml.v3 v3.0.1
 
 require (
-	github.com/Antonio7098/agentwrap v0.0.0-20260822125309-004e30d47ac0
+	github.com/Antonio7098/agentwrap v0.0.0-20260823194117-7610226fc449
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834

@@ -126,7 +126,10 @@ func runSprint(deps dependencies, args []string) error {
 		}
 		fmt.Fprintf(deps.stdout, "Sprint runtime metrics: %s/%s\nRuns: %d\n", metrics.Project, metrics.Sprint, len(metrics.Runs))
 		for _, run := range metrics.Runs {
-			fmt.Fprintf(deps.stdout, "- stage=%s operation=%s task=%s coverage=%s provider=%s model=%s prompt=%d prefix=%d suffix=%d input=%s output=%s reasoning=%s cache_read=%s cache_write=%s\n", run.Stage, run.Operation, run.Task, run.Coverage, run.Provider, run.Model, run.PromptBytes, run.SharedPrefixBytes, run.StageSuffixBytes, formatRuntimeTokenMetric(run.InputTokens), formatRuntimeTokenMetric(run.OutputTokens), formatRuntimeTokenMetric(run.ReasoningTokens), formatRuntimeTokenMetric(run.CacheReadTokens), formatRuntimeTokenMetric(run.CacheWriteTokens))
+			fmt.Fprintf(deps.stdout, "- stage=%s operation=%s task=%s coverage=%s provider=%s model=%s prompt=%d prefix=%d suffix=%d input=%s output=%s reasoning=%s cache_read=%s cache_write=%s cost=%s\n",
+				run.Stage, run.Operation, run.Task, run.Coverage, run.Provider, run.Model, run.PromptBytes, run.SharedPrefixBytes, run.StageSuffixBytes,
+				formatRuntimeTokenMetric(run.InputTokens), formatRuntimeTokenMetric(run.OutputTokens), formatRuntimeTokenMetric(run.ReasoningTokens),
+				formatRuntimeTokenMetric(run.CacheReadTokens), formatRuntimeTokenMetric(run.CacheWriteTokens), formatSprintMetricCost(run))
 		}
 		return nil
 	case "validate":
@@ -1355,6 +1358,26 @@ func formatRuntimeTokenMetric(metric sprint.RuntimeTokenMetric) string {
 		return "n/a"
 	}
 	return strconv.FormatInt(metric.Value, 10)
+}
+
+// formatSprintMetricCost renders persisted cost with provenance. An asterisk
+// marks rate-table estimates (model_priced), matching the web surfaces.
+func formatSprintMetricCost(run sprint.SprintRuntimeMetric) string {
+	if run.CostCurrency == "" && run.CostAmount == 0 {
+		if run.CostSource == "unpriced" {
+			return "unpriced"
+		}
+		return "n/a"
+	}
+	currency := run.CostCurrency
+	if currency == "" {
+		currency = "cost"
+	}
+	suffix := ""
+	if run.CostEstimated || run.CostSource == "model_priced" {
+		suffix = "*"
+	}
+	return fmt.Sprintf("%.6g %s%s", run.CostAmount, currency, suffix)
 }
 
 func sprintFlowHelp() string {
