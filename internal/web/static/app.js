@@ -447,6 +447,14 @@
     const artifactCache = new Map();
     const unavailableArtifacts = new Set();
     let artifactRequest = 0;
+    const promptDialog = workspace.querySelector("[data-prompt-block-dialog]");
+    const promptDialogTitle = promptDialog?.querySelector("[data-prompt-block-title]");
+    const promptDialogMeta = promptDialog?.querySelector("[data-prompt-block-meta]");
+    const promptDialogContent = promptDialog?.querySelector("[data-prompt-block-content]");
+    promptDialog?.querySelector("[data-prompt-block-close]")?.addEventListener("click", () => promptDialog.close());
+    promptDialog?.addEventListener("click", (event) => {
+      if (event.target === promptDialog) promptDialog.close();
+    });
 
     const byteLabel = (value) => `${Number(value || 0).toLocaleString()} bytes`;
     for (const disclosure of workspace.querySelectorAll("[data-prompt-observability]")) {
@@ -458,7 +466,7 @@
         const pending = disclosure.querySelector("[data-prompt-loading]");
         const result = disclosure.querySelector("[data-prompt-result]");
         const unavailable = disclosure.querySelector("[data-prompt-unavailable]");
-        if (pending) pending.textContent = "Preparing content-free prompt summary…";
+        if (pending) pending.textContent = "Preparing rendered prompt summary…";
         try {
           const response = await fetch(disclosure.dataset.endpoint, {headers: {Accept: "application/json"}});
           if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
@@ -489,11 +497,22 @@
           blocks?.replaceChildren();
           for (const block of Array.isArray(bundle.blocks) ? bundle.blocks : []) {
             const item = document.createElement("li");
+            const button = document.createElement("button");
             const name = document.createElement("strong");
             const metadata = document.createElement("span");
             name.textContent = block.id;
             metadata.textContent = `${block.kind}${block.mode ? `/${block.mode}` : ""} · ${byteLabel(block.bytes)} · ${block.cacheable ? "stable/cacheable" : "stage-specific"} · ${block.sha256}`;
-            item.append(name, metadata);
+            button.type = "button";
+            button.setAttribute("aria-haspopup", "dialog");
+            button.append(name, metadata);
+            button.addEventListener("click", () => {
+              if (!promptDialog || !promptDialogTitle || !promptDialogContent) return;
+              promptDialogTitle.textContent = block.id;
+              if (promptDialogMeta) promptDialogMeta.textContent = `${block.kind}${block.mode ? ` / ${block.mode}` : ""} · ${byteLabel(block.bytes)}`;
+              promptDialogContent.textContent = block.content || "This block has no rendered content.";
+              promptDialog.showModal();
+            });
+            item.append(button);
             blocks?.append(item);
           }
           if (pending) pending.hidden = true;

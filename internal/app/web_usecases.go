@@ -218,11 +218,9 @@ type WebSprintResult struct {
 	AttentionFindings []DisplayFinding
 }
 
-// WebPromptBundleResult is a content-free, read-only projection of the prompt
-// that would be sent for one sprint stage. The full prompt is deliberately not
-// returned by the web surface: its ordered blocks, sizes, digests, and stable
-// prefix boundary provide observability without duplicating governed artifact
-// and source contents into the browser.
+// WebPromptBundleResult is a read-only projection of the prompt that would be
+// sent for one sprint stage. Blocks include their rendered content so operators
+// can inspect the exact provider payload from the run page.
 type WebPromptBundleResult struct {
 	Stage             sprint.PlanningStage
 	Available         bool
@@ -230,6 +228,7 @@ type WebPromptBundleResult struct {
 	UnavailableReason string
 	InputContract     sprint.StageInputContract
 	Explanation       *sprint.PromptExplanation
+	BlockContents     []string
 }
 
 // ParallelismSummary is the web-facing view of run-loop parallelism throttling.
@@ -784,6 +783,17 @@ func (u *webUseCases) PromptBundle(ctx context.Context, project, slug, stageName
 	explanation.InputContract = &contract
 	result.Available = true
 	result.Explanation = explanation
+	result.BlockContents = make([]string, 0, len(explanation.Blocks))
+	offset := 0
+	for _, block := range explanation.Blocks {
+		end := offset + block.Bytes
+		if end > len(preview.Prompt) {
+			result.BlockContents = nil
+			break
+		}
+		result.BlockContents = append(result.BlockContents, preview.Prompt[offset:end])
+		offset = end
+	}
 	return result, nil
 }
 

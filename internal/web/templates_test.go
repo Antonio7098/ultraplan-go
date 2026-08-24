@@ -204,7 +204,7 @@ func TestSprintRunExposesStageControls(t *testing.T) {
 	}
 }
 
-func TestPromptBundleSummaryAPIIsContentFree(t *testing.T) {
+func TestPromptBundleSummaryAPIIncludesRenderedBlockContent(t *testing.T) {
 	queries := sampleQueries()
 	handler := testHandler(t, queries, nil)
 	page := request(handler, http.MethodGet, "/projects/alpha/sprints/30-web/run", nil)
@@ -221,8 +221,8 @@ func TestPromptBundleSummaryAPIIsContentFree(t *testing.T) {
 			t.Errorf("prompt summary missing %q in %s", want, body)
 		}
 	}
-	if strings.Contains(body, `"prompt"`) || strings.Contains(body, "ULTRAPLAN STAGE-SPECIFIC") {
-		t.Fatalf("prompt summary exposed raw prompt content: %s", body)
+	if !strings.Contains(body, `"content"`) {
+		t.Fatalf("prompt summary omitted rendered block content: %s", body)
 	}
 }
 

@@ -428,7 +428,10 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .prompt-scope, .prompt-unavailable, .prompt-json-link { font-size: .78rem; }
 .prompt-unavailable { padding: .65rem .75rem; border-left: 2px solid var(--warning); background: var(--panel); }
 .prompt-blocks { display: grid; gap: .45rem; margin: .5rem 0 0; padding-left: 1.5rem; }
-.prompt-blocks li { padding: .5rem .6rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--panel); }
+.prompt-blocks li { border: 1px solid var(--border); border-radius: .45rem; background: var(--panel); }
+.prompt-blocks button { width: 100%; padding: .5rem .6rem; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.prompt-blocks button:hover { background: var(--panel-raised); }
+.prompt-blocks button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .prompt-blocks strong { display: block; font-size: .78rem; }
 .prompt-blocks span { color: var(--muted); font-size: .68rem; overflow-wrap: anywhere; }
 .stage-result { padding-top: 1rem; }
@@ -471,6 +474,9 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .reviewer-result-dialog::backdrop { background: rgb(0 0 0 / 76%); backdrop-filter: blur(3px); }
 .reviewer-result-heading h2 { margin: 0; }
 .reviewer-result-dialog pre { max-height: calc(100dvh - 9rem); overflow: auto; margin-top: 1rem; border: 1px solid var(--border); }
+.prompt-block-dialog { width: min(72rem, calc(100% - 2rem)); }
+.prompt-block-dialog .reviewer-result-heading p { margin: .3rem 0 0; color: var(--muted); font-size: .76rem; }
+.prompt-block-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .run-agent-grid .reviewer-card { cursor: pointer; transition: border-color .15s ease, background .15s ease; }
 .run-agent-grid .reviewer-card:hover, .run-agent-grid .reviewer-card:focus-within { border-color: var(--accent); background: var(--panel-raised); }
 .run-agent-card .agent-meta { display: flex; flex-wrap: wrap; gap: .3rem .9rem; margin-top: .1rem; color: var(--subtle); font-size: .74rem; }

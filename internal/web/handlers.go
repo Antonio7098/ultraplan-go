@@ -87,6 +87,7 @@ type promptBlockDTO struct {
 	Cacheable bool   `json:"cacheable"`
 	Bytes     int    `json:"bytes"`
 	Digest    string `json:"sha256"`
+	Content   string `json:"content"`
 }
 
 type promptBundleDTO struct {
@@ -1076,8 +1077,12 @@ func mapPromptBundle(item app.WebPromptBundleResult) promptBundleDTO {
 	out.CacheBreakpointBytes = explanation.CacheBreakpoint
 	out.CacheCandidate = explanation.CacheCandidate
 	out.CacheTransport = explanation.CacheTransport
-	for _, block := range explanation.Blocks {
-		out.Blocks = append(out.Blocks, promptBlockDTO{ID: block.ID, Kind: block.Kind, Mode: block.Mode, Cacheable: block.Cacheable, Bytes: block.Bytes, Digest: block.Digest})
+	for index, block := range explanation.Blocks {
+		content := ""
+		if index < len(item.BlockContents) {
+			content = item.BlockContents[index]
+		}
+		out.Blocks = append(out.Blocks, promptBlockDTO{ID: block.ID, Kind: block.Kind, Mode: block.Mode, Cacheable: block.Cacheable, Bytes: block.Bytes, Digest: block.Digest, Content: content})
 	}
 	return out
 }
