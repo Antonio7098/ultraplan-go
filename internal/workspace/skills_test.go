@@ -223,6 +223,12 @@ func TestExecuteSkillUsesCLIOnlyForStateAndPrompt(t *testing.T) {
 	for _, want := range []string{
 		"Act as the execution agent",
 		"perform the entire stage manually",
+		"Read `<sprint>/.workspace.json`",
+		"use its absolute `path` as the implementation target",
+		"Git reports it as a worktree of the recorded `sourceRoot` on the recorded `branch`",
+		"Never implement in `Target Implementation Directory`",
+		"Do not guess a worktree or fall back to another checkout",
+		"This worktree rule overrides target-directory wording",
 		"Use the UltraPlan CLI only for",
 		"sprint <project> <sprint> prompt execute",
 		"run the plan's required checks directly",

@@ -383,8 +383,12 @@ func renderStageSkill(skill StageSkill) string {
 		promptStep = "Use the canonical flow command in the stage workflow. The command resolves and applies the current effective stage prompt; do not reconstruct it in this skill."
 	}
 	stateRule := "Treat files, the project index, and fresh CLI status as authoritative; never hand-edit flow-state JSON."
+	targetResolutionRule := "The sprint directory contains governed stage artifacts; when implementation access is required, resolve its repository from `Target Implementation Directory`, falling back to `Repository` only when the target field is absent. Resolve relative repository paths against the workspace root and verify the result before using it."
 	if skill.ManualStateRepair {
 		stateRule = "Treat files, the project index, and fresh CLI status as authoritative. Do not hand-edit flow-state JSON except in the explicitly authorized manual review or smoke reconciliation branches below, where every fingerprint, digest, verdict, timestamp, evidence identity, and completion identity must be updated coherently and immediately verified through validation and sprint status."
+	}
+	if skill.Stage == "execute" {
+		targetResolutionRule = "The sprint directory contains governed stage artifacts. Read `<sprint>/.workspace.json` and use its absolute `path` as the implementation target. Verify that the record names the expected source repository and branch, that `path` exists, and that Git reports it as a worktree of the recorded `sourceRoot` on the recorded `branch`. Run every implementation edit, source inspection, test, formatter, build, and Git command in that worktree. Never implement in `Target Implementation Directory`, `Repository`, `sourceRoot`, the workspace root, or the checkout from which UltraPlan was launched. If the workspace record is absent, malformed, stale, or fails verification, stop and report the exact problem. Do not guess a worktree or fall back to another checkout. This worktree rule overrides target-directory wording in the resolved or canonical execution prompt."
 	}
 	return fmt.Sprintf(`---
 name: %s
@@ -397,7 +401,7 @@ Run this stage interactively while preserving UltraPlan's governed artifact chai
 
 ## Operating contract
 
-1. Treat a supplied sprint path as UltraPlan stage input, not as a Git target. For an input such as `+"`projects/<project>/sprints/<sprint>/`"+` or `+"`.ultra/projects/<project>/sprints/<sprint>/`"+`, find the workspace root, derive `+"`<project>`"+` and `+"`<sprint>`"+` from the path, and read the matching `+"`project-index.md`"+`. The sprint directory contains governed stage artifacts; when implementation access is required, resolve its repository from `+"`Target Implementation Directory`"+`, falling back to `+"`Repository`"+` only when the target field is absent. Resolve relative repository paths against the workspace root and verify the result before using it. Do not search nested source repositories for a similarly named skill, and do not ask what target to use merely because the supplied input is a directory.
+1. Treat a supplied sprint path as UltraPlan stage input, not as a Git target. For an input such as `+"`projects/<project>/sprints/<sprint>/`"+` or `+"`.ultra/projects/<project>/sprints/<sprint>/`"+`, find the workspace root, derive `+"`<project>`"+` and `+"`<sprint>`"+` from the path, and read the matching `+"`project-index.md`"+`. %s Do not search nested source repositories for a similarly named skill, and do not ask what target to use merely because the supplied input is a directory.
 2. If no sprint path was supplied, locate the workspace root and resolve the project and sprint from explicit references and the current location. Ask only when the project index is missing, a required implementation target cannot be resolved, or more than one project/sprint remains possible.
 3. Run all UltraPlan commands from the resolved workspace root. Run `+"`ultraplan project <project> status`"+` and `+"`ultraplan sprint <project> <sprint> status --json`"+`. %s
 4. Check these prerequisites:
@@ -424,7 +428,7 @@ Run this stage interactively while preserving UltraPlan's governed artifact chai
 The current resolved CLI prompt wins over this embedded baseline.
 
 %s
-`, skill.Name, skill.Stage, skill.Name, skill.DisplayName, stateRule, strings.Join(prerequisites, "\n"), prerequisiteRule, ownerRule, promptStep, validationStep, skill.StageWorkflow, strings.TrimSpace(skill.Prompt))
+`, skill.Name, skill.Stage, skill.Name, skill.DisplayName, targetResolutionRule, stateRule, strings.Join(prerequisites, "\n"), prerequisiteRule, ownerRule, promptStep, validationStep, skill.StageWorkflow, strings.TrimSpace(skill.Prompt))
 }
 
 func renderStageSkillMetadata(skill StageSkill) string {
