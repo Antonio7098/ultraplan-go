@@ -209,9 +209,18 @@ func CleanupRuntimeStores(scopeRoot string, maxAge time.Duration, maxBytes uint6
 	result := RuntimeStoreCleanup{}
 	for _, store := range stores {
 		staleActive := store.State == RuntimeStoreActive && !processAlive(store.PID) && now.Sub(store.UpdatedAt) > 30*time.Minute
+		if staleActive {
+			// A dead owner means an interrupted task, not disposable data. Keep the
+			// database resumable and let the normal retention/quota policy decide
+			// when it is safe to sacrifice it.
+			retainRuntimeStore(store.DatabasePath, store.Owner, errors.New("runtime store owner is no longer running"))
+			store.State = RuntimeStoreRetained
+			store.PID = 0
+			store.UpdatedAt = now
+		}
 		expired := store.State == RuntimeStoreRetained && maxAge > 0 && now.Sub(store.UpdatedAt) > maxAge
 		overQuota := maxBytes > 0 && total > maxBytes && store.State != RuntimeStoreActive
-		remove := store.State == RuntimeStoreCleanupPending || staleActive || expired || overQuota || (aggressive && store.State != RuntimeStoreActive)
+		remove := store.State == RuntimeStoreCleanupPending || expired || overQuota || (aggressive && store.State != RuntimeStoreActive)
 		if !remove {
 			continue
 		}

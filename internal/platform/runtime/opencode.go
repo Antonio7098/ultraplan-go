@@ -84,6 +84,9 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 			markRuntimeStoreCleanupPending(path, err)
 			return err
 		}
+		openCodeSessionCleanupMu.Lock()
+		_ = pruneOpenCodeLogs(c)
+		openCodeSessionCleanupMu.Unlock()
 		return nil
 	}
 	adapter.deleteSessions = func(ctx context.Context, sessionIDs []string) error {

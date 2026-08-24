@@ -74,3 +74,28 @@ func TestRemoveRuntimeStoreRejectsPathsOutsideManagedRoot(t *testing.T) {
 		t.Fatal("expected unmanaged path to be rejected")
 	}
 }
+
+func TestCleanupRuntimeStoresPreservesAnInterruptedStoreForResume(t *testing.T) {
+	root := t.TempDir()
+	path := ScopedRuntimeStorePath(root, "interrupted")
+	if err := prepareRuntimeStore(path, "interrupted"); err != nil {
+		t.Fatal(err)
+	}
+	record, err := loadRuntimeStoreRecord(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.PID = 999999999
+	record.UpdatedAt = time.Now().Add(-time.Hour)
+	if err := writeRuntimeStoreRecord(filepath.Dir(path), record); err != nil {
+		t.Fatal(err)
+	}
+	summary := CleanupRuntimeStores(root, 72*time.Hour, 0, false)
+	if len(summary.Removed) != 0 || len(summary.Failed) != 0 {
+		t.Fatalf("cleanup = %+v", summary)
+	}
+	stores, err := InspectRuntimeStores(root)
+	if err != nil || len(stores) != 1 || stores[0].State != RuntimeStoreRetained {
+		t.Fatalf("stores = %+v, err = %v", stores, err)
+	}
+}

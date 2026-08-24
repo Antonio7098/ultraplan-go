@@ -114,6 +114,9 @@ func (s Service) RuntimeMetrics(projectRef, sprintRef string) (SprintRuntimeMetr
 }
 
 func (s Service) startSprintRuntime(ctx context.Context, sp Sprint, stage PlanningStage, req pruntime.Request) (pruntime.Result, error) {
+	// Retry cleanup that was interrupted by a crash before admitting more work.
+	// Recent failed stores remain available for session recovery.
+	pruntime.CleanupRuntimeStores(sp.Path, 72*time.Hour, 2*1024*1024*1024, false)
 	result, runErr := s.runtime.StartRun(ctx, req)
 	if metricErr := s.recordRuntimeMetric(sp, stage, req, result); metricErr != nil {
 		result.Warnings = append(result.Warnings, "runtime metrics were not persisted: "+safeError(metricErr))

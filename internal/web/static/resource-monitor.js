@@ -74,7 +74,7 @@
     }
     const controls = samples.filter((sample) => sample.phase === "parallelism.throttled" || sample.phase === "parallelism.restored" || sample.phase === "disk.admission_paused" || sample.phase === "runtime_store.recovered").slice(-8).reverse();
     const list = monitor.querySelector("[data-resource-events]");
-    const events = controls.length ? controls : [{phase: "No throttle events recorded."}];
+    const events = controls.length ? controls : [{phase: "No control events recorded."}];
     list.replaceChildren(...events.map((event) => {
       const item = document.createElement("li");
       if (!event.timestamp) item.textContent = event.phase;
