@@ -161,19 +161,21 @@ func applyRuntimeObservation(target *OperationEvent, event runtimepkg.Event) {
 	target.Action = runtimeEventValue(event, "action", "state", "phase", "status")
 	target.Reason = runtimeEventValue(event, "reason")
 	target.Detail = runtimeEventValue(event, "detail", "error", "message")
-	normalized := map[string]string{}
-	captureToolObservation(normalized, event.Payload)
-	if target.Tool == "" {
-		target.Tool = normalized["tool_name"]
+	if event.Kind == "tool" {
+		normalized := map[string]string{}
+		captureToolObservation(normalized, event.Payload)
+		if target.Tool == "" {
+			target.Tool = normalized["tool_name"]
+		}
+		if target.Action == "" {
+			target.Action = normalized["tool_status"]
+		}
+		target.ToolCallID = normalized["tool_call_id"]
+		target.ToolStatus = normalized["tool_status"]
+		target.ToolArguments = normalized["tool_arguments"]
+		target.ToolResult = normalized["tool_result"]
+		target.ToolError = normalized["tool_error"]
 	}
-	if target.Action == "" {
-		target.Action = normalized["tool_status"]
-	}
-	target.ToolCallID = normalized["tool_call_id"]
-	target.ToolStatus = normalized["tool_status"]
-	target.ToolArguments = normalized["tool_arguments"]
-	target.ToolResult = normalized["tool_result"]
-	target.ToolError = normalized["tool_error"]
 	if target.Provider == "" {
 		target.Provider = runtimeEventValue(event, "provider")
 	}

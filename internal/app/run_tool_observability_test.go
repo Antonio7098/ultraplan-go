@@ -31,3 +31,11 @@ func TestRuntimeEventDraftPreservesRedactedToolArgumentsAndResult(t *testing.T) 
 		t.Fatalf("operation projection = %#v", operation)
 	}
 }
+
+func TestApplyRuntimeObservationDoesNotTreatUsageAsToolIO(t *testing.T) {
+	event := OperationEvent{}
+	applyRuntimeObservation(&event, runtimepkg.Event{Kind: "final_result", Type: "step_finish", Payload: map[string]any{"input": 120, "output": 40}})
+	if event.ToolArguments != "" || event.ToolResult != "" || event.ToolError != "" {
+		t.Fatalf("non-tool event gained tool details: %#v", event)
+	}
+}

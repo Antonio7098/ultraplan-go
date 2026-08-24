@@ -1124,6 +1124,26 @@
   const describeRunEvent = (event) => {
     const payload = event.payload || {};
     if (payload.kind === "tool") return `Tool call${payload.tool ? ` · ${payload.tool}` : ""}`;
+    const runtimeLabels = {
+      "permission.policy": "Permission policy initialized",
+      "step_start": "Model turn started",
+      "step_finish": "Model turn completed",
+      "validation.started": "Validation started",
+      "validation.completed": "Validation completed",
+      "repair.started": "Validation repair started",
+      "repair.completed": "Validation repair completed"
+    };
+    if (runtimeLabels[payload.type]) return runtimeLabels[payload.type];
+    if (payload.type === "lifecycle.transition") {
+      const lifecycleLabels = {
+        process_started: "Runtime process started",
+        run_finished: "Runtime process finished",
+        "validation started": "Validation started",
+        "validation completed": "Validation completed"
+      };
+      if (lifecycleLabels[payload.reason]) return lifecycleLabels[payload.reason];
+      return payload.reason ? humanizeRunText(payload.reason) : "Runtime state changed";
+    }
     const labels = {started: "Agent started", completed: "Report completed", failed: "Agent failed", waiting: "Waiting to retry", cancelled: "Cancelled", validating: "Validating report"};
     if (labels[event.stage]) return labels[event.stage];
     if (event.stage === "runtime" && payload.action) return humanizeRunText(payload.action);
