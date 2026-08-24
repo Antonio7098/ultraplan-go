@@ -182,16 +182,21 @@ func (v *runUsageView) addCost(known bool, amount float64, source string) {
 }
 
 type runEventView struct {
-	Sequence   uint64
-	Type       string
-	Stage      string
-	Task       string
-	Time       string
-	DetailKind string
-	DetailType string
-	DetailTool string
-	DetailText string
-	Omission   string
+	Sequence      uint64
+	Type          string
+	Stage         string
+	Task          string
+	Time          string
+	DetailKind    string
+	DetailType    string
+	DetailTool    string
+	DetailText    string
+	ToolCallID    string
+	ToolStatus    string
+	ToolArguments string
+	ToolResult    string
+	ToolError     string
+	Omission      string
 }
 
 func (h *handler) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -462,7 +467,25 @@ func newRunEventView(event app.RunEvent) runEventView {
 		text = text[:160] + "…"
 	}
 	return runEventView{Sequence: event.Sequence, Type: string(event.Type), Stage: event.Stage, Task: event.Task,
-		Time: committedRunEventTime(event), DetailKind: event.Payload["kind"], DetailType: event.Payload["type"], DetailTool: event.Payload["tool"], DetailText: text, Omission: omission}
+		Time: committedRunEventTime(event), DetailKind: event.Payload["kind"], DetailType: event.Payload["type"], DetailTool: firstNonEmptyPayload(event.Payload, "tool_name", "tool"), DetailText: text,
+		ToolCallID: event.Payload["tool_call_id"], ToolStatus: event.Payload["tool_status"],
+		ToolArguments: prettyObservableJSON(event.Payload["tool_arguments"]), ToolResult: prettyObservableJSON(event.Payload["tool_result"]), ToolError: prettyObservableJSON(event.Payload["tool_error"]), Omission: omission}
+}
+
+func prettyObservableJSON(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	var decoded any
+	if json.Unmarshal([]byte(value), &decoded) != nil {
+		return value
+	}
+	pretty, err := json.MarshalIndent(decoded, "", "  ")
+	if err != nil {
+		return value
+	}
+	return string(pretty)
 }
 
 func firstNonEmptyPayload(payload map[string]string, keys ...string) string {

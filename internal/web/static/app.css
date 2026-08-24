@@ -471,6 +471,12 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .run-agent-dialog .agent-dialog-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: .55rem 1rem; margin: 1rem 0 0; padding: .8rem .9rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--panel); }
 .run-agent-dialog .agent-dialog-summary dd { margin: .15rem 0 0; font-size: .88rem; font-weight: 530; letter-spacing: 0; text-transform: none; }
 .run-agent-dialog-timeline { height: auto; max-height: min(24rem, 44dvh); margin-top: 1rem; }
+.run-tool-observation { margin-top: .55rem; border: 1px solid var(--border-soft); border-radius: .5rem; background: var(--code-bg); }
+.run-tool-observation > summary { cursor: pointer; padding: .45rem .65rem; color: var(--muted); font-size: .76rem; font-weight: 620; }
+.run-tool-observation[open] > summary { border-bottom: 1px solid var(--border-soft); color: var(--text); }
+.run-tool-observation section + section { border-top: 1px solid var(--border-soft); }
+.run-tool-observation h4 { margin: 0; padding: .45rem .65rem 0; color: var(--subtle); font-size: .68rem; letter-spacing: .045em; text-transform: uppercase; }
+.run-tool-observation pre { max-height: 22rem; overflow: auto; margin: 0; padding: .5rem .65rem .7rem; border: 0; border-radius: 0; font-size: .72rem; line-height: 1.55; }
 .run-insight { margin-top: .6rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
 .run-insight > summary { cursor: pointer; padding: .55rem .8rem; font-weight: 600; color: var(--muted); }
 .run-insight[open] > summary { border-bottom: 1px solid var(--border); color: var(--text); }

@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -442,6 +444,9 @@ func runtimeEventDraft(req runtimepkg.Request, event runtimepkg.Event) runcontro
 		"type":             boundedSafe(event.Type),
 		"kind":             boundedSafe(event.Kind),
 	}
+	if lowerKind == "tool" || lowerKind == "tool_use" || lowerKind == "tool_call" || lowerKind == "tool_call_update" {
+		captureToolObservation(payload, event.Payload)
+	}
 	// Preserve safe observable payload fields into durable storage for observability.
 	// Deny sensitive keys and truncate values to runcontrol-safe limits.
 	// Flatten one level of nesting so tool/action names buried in maps are surfaced as top-level payload keys
@@ -609,10 +614,104 @@ func payloadValueString(value any) string {
 }
 
 func jsonMarshalTruncated(v any) (string, error) {
-	// Lightweight JSON marshal with truncation; avoid importing encoding/json at top if already there – use fmt.
-	// We use a small helper to avoid cycle; marshal then truncate to safe limit.
-	// This is called only for map/slice payloads which are rare.
-	return fmt.Sprintf("%v", v), nil
+	encoded, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func captureToolObservation(out map[string]string, payload map[string]any) {
+	for target, aliases := range map[string][]string{
+		"tool_call_id": {"tool_call_id", "toolCallId", "call_id", "callID"},
+		"tool_name":    {"tool_name", "toolName", "tool", "name"},
+		"tool_status":  {"tool_status", "status", "phase"},
+	} {
+		if value := findNestedPayloadValue(payload, aliases, 0); value != nil {
+			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+				out[target] = boundedPayloadValue(text)
+			}
+		}
+	}
+	for target, aliases := range map[string][]string{
+		"tool_arguments": {"tool_arguments", "arguments", "args", "input", "parameters"},
+		"tool_result":    {"tool_result", "result", "output", "content"},
+		"tool_error":     {"tool_error", "error"},
+	} {
+		value := findNestedPayloadValue(payload, aliases, 0)
+		if value == nil {
+			continue
+		}
+		encoded, err := json.Marshal(redactObservableValue(value))
+		if err == nil && string(encoded) != "null" {
+			out[target] = boundedPayloadValue(string(encoded))
+		}
+	}
+	if out["tool"] == "" {
+		out["tool"] = out["tool_name"]
+	}
+}
+
+func findNestedPayloadValue(value any, aliases []string, depth int) any {
+	if depth > 5 {
+		return nil
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, key := range aliases {
+			if found, ok := typed[key]; ok && found != nil {
+				return found
+			}
+		}
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if found := findNestedPayloadValue(typed[key], aliases, depth+1); found != nil {
+				return found
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if found := findNestedPayloadValue(item, aliases, depth+1); found != nil {
+				return found
+			}
+		}
+	}
+	return nil
+}
+
+func redactObservableValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		redacted := make(map[string]any, len(typed))
+		for key, item := range typed {
+			if isSensitivePayloadKey(key) {
+				redacted[key] = "[REDACTED]"
+			} else {
+				redacted[key] = redactObservableValue(item)
+			}
+		}
+		return redacted
+	case []any:
+		redacted := make([]any, len(typed))
+		for index, item := range typed {
+			redacted[index] = redactObservableValue(item)
+		}
+		return redacted
+	case string:
+		lower := strings.ToLower(typed)
+		for _, marker := range []string{"bearer ", "sk-", "ghp_", "github_pat_", "-----begin private key"} {
+			if strings.Contains(lower, marker) {
+				return "[REDACTED]"
+			}
+		}
+		return typed
+	default:
+		return value
+	}
 }
 
 func boundedPayloadValue(value string) string {

@@ -14,6 +14,8 @@ var allowedEventPayloadFields = map[string]struct{}{
 	"input_tokens": {}, "output_tokens": {}, "total_tokens": {}, "turns": {},
 	"artifact_kind": {}, "artifact_id": {}, "lifecycle": {}, "liveness": {},
 	"message": {}, "index": {}, "scope": {}, "tool": {}, "action": {}, "detail": {},
+	"tool_call_id": {}, "tool_name": {}, "tool_status": {}, "tool_arguments": {},
+	"tool_result": {}, "tool_error": {},
 }
 
 // sanitizeEventDraft is the final storage gate. Producers may only submit

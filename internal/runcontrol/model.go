@@ -8,8 +8,8 @@ import (
 
 const (
 	MaxTargetFieldBytes    = 512
-	MaxSafeValueBytes      = 2048
-	MaxEncodedEventBytes   = 16 << 10
+	MaxSafeValueBytes      = 32 << 10
+	MaxEncodedEventBytes   = 128 << 10
 	ProgressCoalesceWindow = 250 * time.Millisecond
 )
 

@@ -277,6 +277,11 @@ The browser projects the same `code-context` readiness, running state, bounded a
 Every later agent-backed planning, execute, review, or smoke-authoring request receives the sprint-owned byte-stable prefix. The web adapter contributes no route, request, confirmation, operation ID, timestamp, or browser state to those bytes. A source containment/range/budget failure is surfaced as the shared product-operation failure with actionable findings; the browser cannot bypass it or weaken repository permissions.
 ## Durable run observation
 
+Runtime tool events include the tool name, call ID, lifecycle status, and any
+available arguments, result, or error. The run page shows these fields in an
+expandable inspector in both the retained event feed and the per-agent stream.
+Structured values are stored as bounded JSON after recursive secret redaction.
+
 The server-rendered run index and detail pages are available at `/runs` and
 `/runs/{run_id}`. They work without JavaScript and show lifecycle separately
 from liveness, product status, cancellation, retention/gap facts, and a bounded
