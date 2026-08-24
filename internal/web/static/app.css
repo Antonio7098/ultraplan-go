@@ -478,6 +478,9 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .agent-failure { overflow-wrap: anywhere; margin-bottom: 0; padding: .45rem .55rem; border: 1px solid var(--danger); border-radius: var(--radius); color: var(--text); font-size: .8rem; white-space: pre-wrap; }
 .agent-retry-wait { overflow-wrap: anywhere; margin-bottom: 0; padding: .45rem .55rem; border: 1px solid var(--warning); border-radius: var(--radius); color: var(--text); font-size: .8rem; }
 .agent-harness { color: var(--muted); }
+
+.run-agent-card .agent-fact { color: var(--muted); }
+.run-agent-card .agent-fact b { color: var(--subtle); font-weight: 560; }
 .run-agent-failures { display: grid; gap: .5rem; margin: .6rem 0 0; padding: 0 .8rem .8rem; list-style: none; }
 .run-agent-failures li { padding: .5rem .65rem; border: 1px solid var(--border); border-left: 3px solid var(--danger); border-radius: var(--radius); background: var(--panel-raised); }
 .run-agent-failures code { overflow-wrap: anywhere; font-size: .72rem; }

@@ -1075,10 +1075,6 @@
     if (!Number.isFinite(retryAt) || retryAt <= Date.now()) return "";
     return `Next retry in ${formatRunWait(retryAt - Date.now())} · ${facts.retries || Math.max(0, (facts.attempts || 1) - 1)} retr${(facts.retries || Math.max(0, (facts.attempts || 1) - 1)) === 1 ? "y" : "ies"} so far`;
   };
-  const agentHarnessLabel = (facts) => {
-    if (!facts) return "";
-    return [facts.provider, facts.model, facts.harness].filter(Boolean).join(" · ");
-  };
   const loadAgentFailures = () => {
     if (agentFailuresFetch) return agentFailuresFetch;
     const source = document.querySelector("script[data-run-agent-failures]");
@@ -1231,12 +1227,15 @@
       const total = document.createElement("span");
       total.textContent = `${agent.events.length} events`;
       meta.append(time, tools, total);
-      const harness = agentHarnessLabel(agentFacts.get(agent.task));
-      if (harness) {
-        const harnessLabel = document.createElement("span");
-        harnessLabel.className = "agent-harness";
-        harnessLabel.textContent = harness;
-        meta.append(harnessLabel);
+      const facts = agentFacts.get(agent.task);
+      for (const [label, value] of facts ? [["Provider", facts.provider], ["Model", facts.model], ["Harness", facts.harness]] : []) {
+        if (!value) continue;
+        const fact = document.createElement("span");
+        fact.className = "agent-fact";
+        const name = document.createElement("b");
+        name.textContent = `${label} `;
+        fact.append(name, document.createTextNode(value));
+        meta.append(fact);
       }
       card.append(meta);
       const open = document.createElement("button");

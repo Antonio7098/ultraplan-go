@@ -179,7 +179,7 @@ func TestBrowserRunPageSurfacesStudyInsightsCompactly(t *testing.T) {
 		}
 	}
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"agentRetryWait", "Next retry in", `["Provider", facts.provider]`, `["Harness", facts.harness]`} {
+	for _, want := range []string{"agentRetryWait", "Next retry in", `["Provider", facts.provider]`, `["Model", facts.model]`, `["Harness", facts.harness]`, `agent-fact`} {
 		if !strings.Contains(js, want) {
 			t.Errorf("agent retry/harness enhancement missing %q", want)
 		}
