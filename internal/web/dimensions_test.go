@@ -71,6 +71,81 @@ func TestStudyDimensionsPageListsExpandableCards(t *testing.T) {
 	}
 }
 
+func TestStudyReposPageRanksAndComparesRepos(t *testing.T) {
+	root := t.TempDir()
+	var stderr strings.Builder
+	if status := app.Run(app.Config{Args: []string{"init-workspace", "--path", root}, Stderr: &stderr}); status != app.ExitOK {
+		t.Fatalf("init status=%d stderr=%s", status, stderr.String())
+	}
+	writeIntegrationFile(t, root, "studies/research/sources/repo/config.yml", "key: value\n")
+	writeIntegrationFile(t, root, "studies/research/sources/notes.md", "# Notes\n")
+	writeIntegrationFile(t, root, "studies/research/dimensions/01-contract.md", "# Contract Boundary\n")
+	writeIntegrationFile(t, root, "studies/research/dimensions/02-scope.md", "# Scope Discipline\n")
+	report := func(rel, rating string) {
+		writeIntegrationFile(t, root, rel, "## Findings\n\nSomething.\n\n## Rating\n\n"+rating+"\n")
+	}
+	// repo scores 9 and 7 -> avg 8.0; notes scores only 5 on contract.
+	report("studies/research/reports/source/01-contract/repo.md", "9/10")
+	report("studies/research/reports/source/02-scope/repo.md", "Rating: 7")
+	report("studies/research/reports/source/01-contract/notes.md", "5/10")
+
+	useCases := app.NewWebUseCases(root, app.WebUseCaseOptions{})
+	h, err := NewHandler(HandlerOptions{Queries: useCases, Operations: useCases.(app.WebOperations), Authority: testAuthority})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res := request(h, http.MethodGet, "/studies/research/repos", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	for _, want := range []string{
+		"Repo leaderboard",
+		"All scores",
+		"Dimension leaders",
+		`href="/studies/research/repos" aria-current="page"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("repos page missing %q in %s", want, body)
+		}
+	}
+
+	queries, ok := useCases.(app.WebStudyReportQueries)
+	if !ok {
+		t.Fatal("shared app use cases do not expose report queries")
+	}
+	result, err := queries.StudyRepos(context.Background(), "research")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Repos) != 2 || result.Repos[0].Name != "repo" || result.Repos[1].Name != "notes.md" {
+		t.Fatalf("ranking=%+v", result.Repos)
+	}
+	top := result.Repos[0]
+	if top.Average != 8 || top.Total != 16 || top.RatedCount != 2 || top.Applicable != 2 || top.Best == nil || top.Best.Score != 9 {
+		t.Fatalf("top repo=%+v best=%+v", top, top.Best)
+	}
+
+	page := request(h, http.MethodGet, "/studies/research/repos", nil).Body.String()
+	for _, want := range []string{
+		">repo</span>", // leaderboard name
+		"8.0",
+		"2 / 2 dimensions rated",
+		"best: <code>01-contract · 9</code>",
+		`style="--heat: 90%"`,
+		`style="--heat: 70%"`,
+		`style="--heat: 50%"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("repos page missing %q in %s", want, page)
+		}
+	}
+	if !strings.Contains(page, "/artifacts/") {
+		t.Errorf("score cells do not link to reports: %s", page)
+	}
+}
+
 func TestStudyReportsPageSplitsFinalAndSourceReports(t *testing.T) {
 	root := t.TempDir()
 	var stderr strings.Builder

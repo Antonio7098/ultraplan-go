@@ -283,6 +283,53 @@ type reportGroupView struct {
 	Reports   []reportLinkView
 }
 
+// repoBoardEntry is one ranked row of the study repo leaderboard.
+type repoBoardEntry struct {
+	Rank     int
+	Name     string
+	Average  string
+	BarWidth int
+	Coverage string
+	BestRef  string
+	BestText string
+}
+
+// repoMatrixColumn is one dimension column of the study repo score matrix.
+type repoMatrixColumn struct {
+	Number string
+	Label  string
+}
+
+// repoMatrixCell is one score cell of the study repo score matrix.
+type repoMatrixCell struct {
+	Label   string
+	Scored  bool
+	Leader  bool
+	Percent int
+	Ref     string
+}
+
+// repoMatrixRow is one repo row of the study repo score matrix.
+type repoMatrixRow struct {
+	Name    string
+	Average string
+	Cells   []repoMatrixCell
+}
+
+// repoLeaderView is one ranked leader inside a dimension champion list.
+type repoLeaderView struct {
+	Rank  int
+	Name  string
+	Score int
+	Ref   string
+}
+
+// repoChampion names the leading repos for one dimension.
+type repoChampion struct {
+	Dimension string
+	Leaders   []repoLeaderView
+}
+
 type pageModel struct {
 	Title             string
 	Heading           string
@@ -310,7 +357,7 @@ type pageModel struct {
 	ReportGroups      []reportGroupView
 	ReportSourceCount int
 	RepoBoard         []repoBoardEntry
-	RepoColumns       []string
+	RepoColumns       []repoMatrixColumn
 	RepoMatrix        []repoMatrixRow
 	RepoChampions     []repoChampion
 	StudyInsights     *runStudyInsightsView
@@ -718,18 +765,32 @@ func (h *handler) loadRepoBoard(r *http.Request, name string, model *pageModel) 
 	for _, repo := range result.Repos {
 		byName[repo.Name] = repo
 	}
+	labels := make(map[string]string)
 	columns := make([]string, 0)
-	seen := make(map[string]bool)
 	for _, repo := range result.Repos {
 		for _, entry := range repo.Scores {
-			if !seen[entry.Number] {
-				seen[entry.Number] = true
+			if _, seen := labels[entry.Number]; !seen {
+				labels[entry.Number] = entry.Dimension
 				columns = append(columns, entry.Number)
 			}
 		}
 	}
 	sort.Strings(columns)
-	model.RepoColumns = columns
+	topScores := make(map[string]int, len(columns))
+	for _, number := range columns {
+		best := 0
+		for _, repo := range result.Repos {
+			for _, score := range repo.Scores {
+				if score.Number == number && score.Score > best {
+					best = score.Score
+				}
+			}
+		}
+		topScores[number] = best
+	}
+	for _, number := range columns {
+		model.RepoColumns = append(model.RepoColumns, repoMatrixColumn{Number: number, Label: labels[number]})
+	}
 	for index, repo := range result.Repos {
 		entry := repoBoardEntry{
 			Rank:     index + 1,
@@ -761,7 +822,7 @@ func (h *handler) loadRepoBoard(r *http.Request, name string, model *pageModel) 
 			}
 			for _, score := range scoreByName.Scores {
 				if score.Number == column {
-					cell = repoMatrixCell{Label: strconv.Itoa(score.Score), Scored: true, Percent: score.Score * 10, Ref: score.Ref}
+					cell = repoMatrixCell{Label: strconv.Itoa(score.Score), Scored: true, Percent: score.Score * 10, Leader: topScores[column] > 0 && score.Score == topScores[column], Ref: score.Ref}
 					break
 				}
 			}

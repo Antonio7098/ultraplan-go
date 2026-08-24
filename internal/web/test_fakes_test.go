@@ -19,6 +19,7 @@ type fakeQueries struct {
 	artifact   app.WebArtifactPreview
 	dimensions app.WebDimensionsResult
 	reports    app.WebStudyReportsResult
+	repoScores app.WebStudyReposResult
 	health     app.WebHealthResult
 	prompt     app.WebPromptBundleResult
 	models     app.WebModelsResult
@@ -146,6 +147,9 @@ func (f *fakeQueries) StudyDimensions(context.Context, string) (app.WebDimension
 }
 func (f *fakeQueries) StudyReports(context.Context, string) (app.WebStudyReportsResult, error) {
 	return f.reports, f.err
+}
+func (f *fakeQueries) StudyRepos(context.Context, string) (app.WebStudyReposResult, error) {
+	return f.repoScores, f.err
 }
 func (f *fakeQueries) Models(context.Context) (app.WebModelsResult, error) {
 	return f.models, f.modelsErr

@@ -629,3 +629,46 @@ footer { min-height: 3.25rem; display: flex; align-items: center; justify-conten
 .report-group:first-of-type { margin-top: .2rem; }
 .report-group h3 { margin: 0 0 .2rem; font-size: .8rem; }
 .report-group h3 code { color: var(--code-text); }
+
+/* Repo score board */
+.repo-board { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.repo-row { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto minmax(7rem, 10rem); align-items: center; gap: 1rem; padding: .6rem .8rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.repo-row:first-child { border-color: color-mix(in oklch, var(--accent) 55%, var(--border)); background: var(--panel-raised); }
+.repo-rank { color: var(--subtle); font-family: var(--mono); font-size: .82rem; text-align: right; }
+.repo-row-top .repo-rank { color: var(--accent-strong); font-weight: 700; }
+.repo-main { display: grid; gap: .1rem; min-width: 0; }
+.repo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 620; }
+.repo-coverage { color: var(--muted); font-size: .76rem; }
+.repo-best { justify-self: end; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .78rem; text-decoration: none; }
+.repo-best code { color: var(--code-text); font-size: .74rem; }
+.repo-best:hover code { color: var(--accent-strong); text-decoration: underline; text-underline-offset: .22em; }
+.repo-score { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: .5rem; }
+.repo-score strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.repo-bar { height: .35rem; border-radius: 999px; background: color-mix(in oklch, var(--muted) 16%, transparent); overflow: hidden; }
+.repo-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--accent-strong)); }
+.score-matrix-wrap { max-width: 100%; }
+.score-matrix { border-collapse: separate; border-spacing: 0; }
+.score-matrix td, .score-matrix th { padding: .4rem .6rem; white-space: nowrap; }
+.score-matrix thead th, .score-matrix tbody th[scope="row"] { position: sticky; z-index: 1; background: var(--panel); box-shadow: inset -1px 0 var(--border-soft); font-weight: 600; }
+.score-matrix thead th { top: 0; color: var(--muted); font-size: .78rem; }
+.score-matrix thead th:first-child, .score-matrix tbody th[scope="row"] { left: 0; text-align: left; }
+.score-matrix td.scored { background: color-mix(in oklch, var(--success) calc(var(--heat, 0%) * .45), transparent); font-variant-numeric: tabular-nums; text-align: center; }
+.score-matrix td:not(.scored) { color: var(--subtle); text-align: center; }
+.score-matrix td.scored.leader a { font-weight: 750; text-decoration: underline; text-decoration-style: dotted; text-decoration-color: var(--success); text-underline-offset: .25em; }
+.score-matrix td a { text-decoration: none; font-weight: 600; display: inline-block; min-width: 1.4rem; }
+.score-matrix td a:hover { color: var(--text); text-decoration: underline; text-underline-offset: .2em; }
+.score-matrix .repo-avg { font-weight: 650; font-variant-numeric: tabular-nums; text-align: right; }
+.champion-grid { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr)); gap: .75rem; }
+.champion-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); padding: .8rem 1rem; }
+.champion-card h3 { margin: 0 0 .5rem; font-size: .8rem; }
+.champion-card h3 code { color: var(--code-text); }
+.champion-card ol { list-style: none; margin: 0; padding: 0; }
+.champion-card li + li { margin-top: .25rem; }
+.champion-card a { display: flex; align-items: baseline; gap: .45rem; color: var(--muted); font-size: .84rem; text-decoration: none; }
+.champion-card a:hover { color: var(--text); }
+.champion-card a strong { margin-left: auto; color: var(--text); font-variant-numeric: tabular-nums; }
+.champ-rank { color: var(--subtle); font-family: var(--mono); font-size: .72rem; }
+@media (max-width: 48rem) {
+  .repo-row { grid-template-columns: 2rem minmax(0, 1fr); row-gap: .5rem; }
+  .repo-best, .repo-score { grid-column: 2; justify-self: start; }
+}

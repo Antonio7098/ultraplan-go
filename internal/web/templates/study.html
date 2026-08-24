@@ -102,18 +102,18 @@
 {{if .RepoBoard}}
 <section><h2>Repo leaderboard</h2>
 <ol class="repo-board">{{range .RepoBoard}}
-<li class="repo-row"><span class="repo-rank">{{.Rank}}</span><div class="repo-main"><span class="repo-name">{{.Name}}</span><span class="repo-coverage">{{.Coverage}}</span></div>{{if .BestText}}<a class="repo-best" href="/artifacts/{{.BestRef}}">best: <code>{{.BestText}}</code></a>{{end}}<div class="repo-score" aria-label="Average rating {{.Average}} of 10"><strong>{{.Average}}</strong><i class="repo-bar" aria-hidden="true"><span style="width: {{.BarWidth}}%"></span></i></div></li>
+<li class="repo-row{{if le .Rank 3}} repo-row-top{{end}}"><span class="repo-rank">{{.Rank}}</span><div class="repo-main"><span class="repo-name">{{.Name}}</span><span class="repo-coverage">{{.Coverage}}</span></div>{{if .BestText}}<a class="repo-best" href="/artifacts/{{.BestRef}}">best: <code>{{.BestText}}</code></a>{{end}}<div class="repo-score" aria-label="Average rating {{.Average}} of 10"><strong>{{.Average}}</strong><i class="repo-bar" aria-hidden="true"><span style="width: {{.BarWidth}}%"></span></i></div></li>
 {{end}}</ol>
-</section>
-<section><h2>All scores</h2>
-<div class="table-wrap"><table class="score-matrix">
-<thead><tr><th scope="col">Repo</th>{{range .RepoColumns}}<th scope="col">{{.}}</th>{{end}}<th scope="col">Avg</th></tr></thead>
-<tbody>{{range .RepoMatrix}}<tr><th scope="row">{{.Name}}</th>{{range .Cells}}<td{{if .Scored}} class="scored" style="--heat: {{.Percent}}%"{{end}}>{{if .Ref}}<a href="/artifacts/{{.Ref}}" title="Open report">{{.Label}}</a>{{else}}{{.Label}}{{end}}</td>{{end}}<td class="repo-avg">{{.Average}}</td></tr>{{end}}</tbody>
-</table></div>
-<p class="group-description">Each cell links to that repo’s report for the dimension; – means the report has no rating yet, n/a means the dimension does not apply to the repo.</p>
 </section>
 <section><h2>Dimension leaders</h2>
 <ul class="champion-grid">{{range .RepoChampions}}<li class="champion-card"><h3><code>{{.Dimension}}</code></h3><ol>{{range .Leaders}}<li><a href="/artifacts/{{.Ref}}"><span class="champ-rank">{{.Rank}}</span> {{.Name}} <strong>{{.Score}}</strong></a></li>{{end}}</ol></li>{{end}}</ul>
+</section>
+<section><h2>All scores</h2>
+<div class="table-wrap score-matrix-wrap"><table class="score-matrix">
+<thead><tr><th scope="col">Repo</th>{{range .RepoColumns}}<th scope="col" title="{{.Number}}">{{.Label}}</th>{{end}}<th scope="col">Avg</th></tr></thead>
+<tbody>{{range .RepoMatrix}}<tr><th scope="row">{{.Name}}</th>{{range .Cells}}<td{{if .Scored}} class="scored{{if .Leader}} leader{{end}}" style="--heat: {{.Percent}}%"{{end}}>{{if .Ref}}<a href="/artifacts/{{.Ref}}" title="Open report">{{.Label}}</a>{{else}}{{.Label}}{{end}}</td>{{end}}<td class="repo-avg">{{.Average}}</td></tr>{{end}}</tbody>
+</table></div>
+<p class="group-description">Each cell links to that repo’s report for the dimension; outlined cells lead their dimension; – means no rating yet, n/a means the dimension does not apply to that repo.</p>
 </section>
 {{else}}<p class="empty">No repo reports have been rated yet.</p>{{end}}
 {{end}}

@@ -45,6 +45,7 @@ func TestRouteInventoryHTMLAndAPI(t *testing.T) {
 		{"/studies/research/operations", "text/html"},
 		{"/studies/research/validation", "text/html"},
 		{"/studies/research/reports", "text/html"},
+		{"/studies/research/repos", "text/html"},
 		{"/studies/research/dimensions", "text/html"},
 		{"/artifacts/artifact_ref", "text/html"},
 		{"/api/v1/dashboard", "application/json"},
