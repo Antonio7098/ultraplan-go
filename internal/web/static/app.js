@@ -431,17 +431,6 @@
   for (const workspace of document.querySelectorAll("[data-stage-workspace]")) {
     const controls = [...workspace.querySelectorAll("[data-stage-select]")];
     const panels = [...workspace.querySelectorAll("[data-stage-panel]")];
-    const artifactBrowser = workspace.querySelector("[data-previous-artifacts]");
-    const artifactLinks = [...(artifactBrowser?.querySelectorAll("[data-artifact-select]") || [])];
-    const artifactEmpty = artifactBrowser?.querySelector("[data-artifact-empty]");
-    const artifactContent = artifactBrowser?.querySelector("[data-artifact-content]");
-    const artifactName = artifactBrowser?.querySelector("[data-artifact-name]");
-    const artifactMeta = artifactBrowser?.querySelector("[data-artifact-meta]");
-    const artifactSource = artifactBrowser?.querySelector("[data-artifact-source]");
-    const artifactOpen = artifactBrowser?.querySelector("[data-artifact-open]");
-    const artifactCache = new Map();
-    const unavailableArtifacts = new Set();
-    let artifactRequest = 0;
     const promptDialog = workspace.querySelector("[data-prompt-block-dialog]");
     const promptDialogTitle = promptDialog?.querySelector("[data-prompt-block-title]");
     const promptDialogMeta = promptDialog?.querySelector("[data-prompt-block-meta]");
@@ -526,81 +515,6 @@
       });
     }
 
-    const showArtifact = async (link, fallbacks = []) => {
-      const request = ++artifactRequest;
-      for (const item of artifactLinks) item.setAttribute("aria-current", String(item === link));
-      if (artifactEmpty) {
-        artifactEmpty.hidden = false;
-        artifactEmpty.textContent = `Loading ${link.dataset.artifactStage}…`;
-      }
-      if (artifactContent) artifactContent.hidden = true;
-      try {
-        let artifact = artifactCache.get(link.dataset.artifactRef);
-        if (!artifact) {
-          const response = await fetch(`/api/v1/artifacts/${encodeURIComponent(link.dataset.artifactRef)}`, {headers: {Accept: "application/json"}});
-          if (!response.ok) {
-            const error = new Error(`Request failed with status ${response.status}`);
-            error.status = response.status;
-            throw error;
-          }
-          artifact = (await response.json()).data;
-          artifactCache.set(link.dataset.artifactRef, artifact);
-        }
-        if (request !== artifactRequest) return;
-        if (artifactName) artifactName.textContent = artifact.display_path || link.dataset.artifactStage;
-        if (artifactMeta) artifactMeta.textContent = `${artifact.media_type} · ${artifact.returned_bytes} of ${artifact.size_bytes} bytes${artifact.truncated ? " · truncated" : ""}`;
-        if (artifactSource) artifactSource.textContent = artifact.content || "";
-        if (artifactOpen) artifactOpen.href = link.href;
-        if (artifactEmpty) artifactEmpty.hidden = true;
-        if (artifactContent) artifactContent.hidden = false;
-      } catch (error) {
-        if (request !== artifactRequest) return;
-        if (error.status === 404) {
-          unavailableArtifacts.add(link.dataset.artifactRef);
-          link.closest("[data-artifact-item]").hidden = true;
-          const fallback = fallbacks[fallbacks.length - 1];
-          if (fallback) {
-            showArtifact(fallback, fallbacks.slice(0, -1));
-            return;
-          }
-        }
-        if (artifactEmpty) {
-          artifactEmpty.hidden = false;
-          artifactEmpty.textContent = "No previous artifact preview is available for this stage.";
-        }
-      }
-    };
-
-    for (const link of artifactLinks) link.addEventListener("click", (event) => {
-      event.preventDefault();
-      showArtifact(link);
-    });
-
-    const updateArtifacts = (stageID) => {
-      const currentIndex = controls.findIndex((control) => control.dataset.stageSelect === stageID);
-      const available = [];
-      for (const link of artifactLinks) {
-        const artifactIndex = controls.findIndex((control) => control.dataset.stageSelect === `stage-${link.dataset.artifactStage}`);
-        const artifactWasProduced = controls[artifactIndex]?.dataset.stageHasArtifact === "true";
-        const visible = artifactIndex >= 0 && artifactIndex < currentIndex && artifactWasProduced && !unavailableArtifacts.has(link.dataset.artifactRef);
-        link.closest("[data-artifact-item]").hidden = !visible;
-        if (visible) available.push(link);
-      }
-      const selected = available.find((link) => link.getAttribute("aria-current") === "true");
-      if (selected) return;
-      if (available.length) {
-        showArtifact(available[available.length - 1], available.slice(0, -1));
-        return;
-      }
-      artifactRequest++;
-      for (const link of artifactLinks) link.setAttribute("aria-current", "false");
-      if (artifactContent) artifactContent.hidden = true;
-      if (artifactEmpty) {
-        artifactEmpty.hidden = false;
-        artifactEmpty.textContent = "No artifacts from previous stages yet.";
-      }
-    };
-
     const selectStage = (id, moveFocus = false) => {
       const panel = panels.find((item) => item.id === id);
       if (!panel) return;
@@ -610,7 +524,6 @@
         control.setAttribute("aria-selected", String(selected));
         control.tabIndex = selected ? 0 : -1;
       }
-      updateArtifacts(id);
       if (moveFocus) panel.focus();
       history.replaceState(null, "", `#${id}`);
     };

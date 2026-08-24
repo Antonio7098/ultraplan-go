@@ -9,7 +9,7 @@ The normal release gates are offline and do not require OpenCode, provider crede
 - Valid `ultraplan.yml`.
 - A project containing `docs/`, `roadmap.md`, and `project-index.md`.
 - A sprint containing at least `requirements.md`.
-- An absolute, readable `Target Implementation Directory` and source references contained by it.
+- A readable `Target Implementation Directory`, absolute or relative to the UltraPlan workspace root, and source references contained by it.
 - OpenCode executable available through `agentwrap.executable` if running non-dry-run flow.
 - Provider/model configured through OpenCode/provider-native mechanisms if running non-dry-run flow.
 - Required network access for the provider if running non-dry-run flow.
@@ -63,7 +63,7 @@ Use `area-reasoning` only when the selected sprint-index includes reasoning temp
 
 ### Disposable requirements-to-plan dogfood
 
-Run the grounded-planning dogfood only in a newly created disposable workspace. Copy or author the minimum project catalog/docs/roadmap and requirements there, point its absolute `Target Implementation Directory` at the real read-only implementation repository, and keep the production planning workspace, product source/tests, smoke harness, and Git metadata outside every writable runtime path. Record before/after `git status --short` and content identities for those protected locations.
+Run the grounded-planning dogfood only in a newly created disposable workspace. Copy or author the minimum project catalog/docs/roadmap and requirements there, point `Target Implementation Directory` at the real read-only implementation repository using an absolute path or one relative to the disposable workspace root, and keep the production planning workspace, product source/tests, smoke harness, and Git metadata outside every writable runtime path. Record before/after `git status --short` and content identities for those protected locations.
 
 ```bash
 go run ./cmd/ultraplan --workspace "$DOGFOOD_WORKSPACE" \

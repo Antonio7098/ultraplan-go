@@ -165,14 +165,30 @@ type WebArtifactLink struct {
 }
 
 type WebProjectResult struct {
-	Ref          string
-	Name         string
-	Docs         []string
-	Findings     []DisplayFinding
-	Artifacts    []WebArtifactLink
-	Sprints      []WebSprintResult
-	Roadmap      []WebRoadmapPhase
-	SprintCounts CollectionInfo
+	Ref            string
+	Name           string
+	Docs           []string
+	Findings       []DisplayFinding
+	Artifacts      []WebArtifactLink
+	Sprints        []WebSprintResult
+	Roadmap        []WebRoadmapPhase
+	SprintCounts   CollectionInfo
+	Brief          WebProjectBrief
+	Documents      []WebDocumentPreview
+	Delivered      int
+	Active         int
+	Planned        int
+	NeedsAttention int
+}
+
+type WebProjectBrief struct {
+	Goal, Phase, Repository, Validation string
+	NonGoals                            []string
+}
+
+type WebDocumentPreview struct {
+	Ref, Kind, Name, Summary, Modified, Validation string
+	Sections                                       int
 }
 
 // WebRoadmapSprint is one roadmap entry joined with live sprint state when the
@@ -216,6 +232,17 @@ type WebSprintResult struct {
 	TotalStages       int
 	CurrentStage      string
 	AttentionFindings []DisplayFinding
+	Mission           WebSprintMission
+	Decisions         []string
+	UnresolvedRisk    string
+	DeferredDecisions int
+	Evidence          []WebArtifactLink
+}
+
+type WebSprintMission struct {
+	Goal, Output, Dependency          string
+	NonGoals                          []string
+	AcceptanceCriteria, OpenQuestions int
 }
 
 // WebPromptBundleResult is a read-only projection of the prompt that would be
@@ -240,25 +267,29 @@ type ParallelismSummary struct {
 }
 
 type WebStudyResult struct {
-	Ref          string
-	Name         string
-	Sources      []string
-	Dimensions   []string
-	Status       string
-	RunID        string
-	Total        int
-	Completed    int
-	Failed       int
-	RunActive    bool
-	ActiveTasks  int
-	Pending      int
-	Cancelled    int
-	Retries      study.RetrySummary
-	Parallelism  *ParallelismSummary
-	RetriedTasks []WebStudyTaskRetry
-	Tasks        []RunTaskSummary
-	Findings     []DisplayFinding
-	Artifacts    []WebArtifactLink
+	Ref             string
+	Name            string
+	Sources         []string
+	Dimensions      []string
+	Status          string
+	RunID           string
+	Total           int
+	Completed       int
+	Failed          int
+	RunActive       bool
+	ActiveTasks     int
+	Pending         int
+	Cancelled       int
+	Retries         study.RetrySummary
+	Parallelism     *ParallelismSummary
+	RetriedTasks    []WebStudyTaskRetry
+	Tasks           []RunTaskSummary
+	Findings        []DisplayFinding
+	Artifacts       []WebArtifactLink
+	SourcePreview   []string
+	DimensionGroups []string
+	RecentReports   []WebArtifactLink
+	Waiting         int
 }
 
 // WebStudyTaskRetry describes one task that needed retries and whether those
@@ -594,6 +625,7 @@ func (u *webUseCases) Project(ctx context.Context, name string) (WebProjectResul
 	result := u.webProject(*selected, out)
 	result.Roadmap = u.projectRoadmap(name, liveBySlug)
 	result.SprintCounts = collectionInfo(len(out), total)
+	u.enrichProjectDashboard(&result)
 	return result, nil
 }
 
@@ -717,6 +749,7 @@ func (u *webUseCases) Sprint(ctx context.Context, project, slug string) (WebSpri
 					result.CurrentStage = stage.Name
 				}
 			}
+			u.enrichSprintDashboard(&result)
 			return result, nil
 		}
 	}
@@ -821,6 +854,204 @@ func (u *webUseCases) sprintOverview(project, slug string) string {
 	return ""
 }
 
+// dashboardMarkdown is a deliberately small reader for governed Markdown. It
+// extracts useful previews while leaving the source documents authoritative.
+type dashboardMarkdown struct {
+	sections map[string][]string
+	order    []string
+}
+
+func readDashboardMarkdown(path string) dashboardMarkdown {
+	result := dashboardMarkdown{sections: map[string][]string{}}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return result
+	}
+	section := ""
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "## ") {
+			section = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "## ")))
+			result.order = append(result.order, section)
+			continue
+		}
+		if section != "" && line != "" && !strings.HasPrefix(line, "<!--") {
+			result.sections[section] = append(result.sections[section], line)
+		}
+	}
+	return result
+}
+
+func (m dashboardMarkdown) first(names ...string) string {
+	for _, name := range names {
+		for heading, lines := range m.sections {
+			if strings.EqualFold(heading, name) || strings.Contains(heading, strings.ToLower(name)) {
+				for _, line := range lines {
+					clean := cleanDashboardLine(line)
+					if clean != "" {
+						return clean
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func (m dashboardMarkdown) items(names ...string) []string {
+	var out []string
+	for _, name := range names {
+		for heading, lines := range m.sections {
+			if !strings.EqualFold(heading, name) && !strings.Contains(heading, strings.ToLower(name)) {
+				continue
+			}
+			for _, line := range lines {
+				if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") || strings.HasPrefix(line, "1. ") {
+					if value := cleanDashboardLine(line); value != "" {
+						out = append(out, value)
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+func cleanDashboardLine(line string) string {
+	line = strings.TrimSpace(line)
+	line = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, "- "), "* "), "1. ")
+	line = strings.Trim(line, "`*# ")
+	if strings.HasPrefix(line, "[") && strings.Contains(line, "]:") {
+		line = strings.TrimSpace(strings.SplitN(line, "]:", 2)[1])
+	}
+	return line
+}
+
+func countDashboardItems(m dashboardMarkdown, names ...string) int {
+	return len(m.items(names...))
+}
+
+func (u *webUseCases) enrichProjectDashboard(result *WebProjectResult) {
+	base := filepath.Join(u.root, "projects", result.Name)
+	index := readDashboardMarkdown(filepath.Join(base, "project-index.md"))
+	result.Brief = WebProjectBrief{
+		Goal:       index.first("project summary", "primary goal", "goal"),
+		Phase:      index.first("current phase", "product phase", "phase"),
+		Repository: index.first("target repository", "repository"),
+		Validation: index.first("validation", "last validation"),
+		NonGoals:   index.items("non-goals", "non goals"),
+	}
+	if result.Brief.Goal == "" {
+		result.Brief.Goal = "Project goal has not been recorded in project-index.md."
+	}
+	for _, phase := range result.Roadmap {
+		for _, item := range phase.Sprints {
+			switch item.Status {
+			case "delivered":
+				result.Delivered++
+			case "active":
+				result.Active++
+			default:
+				result.Planned++
+			}
+		}
+	}
+	for _, sprint := range result.Sprints {
+		if len(sprint.Findings) > 0 || sprint.Review.Stale || sprint.Smoke.Stale || sprint.Review.Failed > 0 || sprint.Execute.Failed > 0 {
+			result.NeedsAttention++
+		}
+	}
+	wanted := []struct{ file, kind string }{{"PRD.md", "Product"}, {"TRD.md", "Technical"}, {"ARCHITECTURE.md", "Architecture"}}
+	for _, doc := range wanted {
+		path := filepath.Join(base, doc.file)
+		parsed := readDashboardMarkdown(path)
+		if len(parsed.order) == 0 {
+			continue
+		}
+		preview := WebDocumentPreview{Kind: doc.kind, Name: doc.file, Sections: len(parsed.order), Summary: parsed.first("goal", "summary", "overview", "purpose")}
+		if preview.Summary == "" {
+			preview.Summary = parsed.first(parsed.order[0])
+		}
+		if info, err := os.Stat(path); err == nil {
+			preview.Modified = info.ModTime().Format("2 Jan 2006")
+		}
+		for _, artifact := range result.Artifacts {
+			if strings.EqualFold(filepath.Base(artifact.DisplayPath), doc.file) {
+				preview.Ref = artifact.Ref
+				break
+			}
+		}
+		result.Documents = append(result.Documents, preview)
+	}
+}
+
+func (u *webUseCases) enrichSprintDashboard(result *WebSprintResult) {
+	base := filepath.Join(u.root, "projects", result.Project, "sprints", result.Slug)
+	requirements := readDashboardMarkdown(filepath.Join(base, "requirements.md"))
+	index := readDashboardMarkdown(filepath.Join(base, "sprint-index.md"))
+	result.Mission = WebSprintMission{
+		Goal:               requirements.first("sprint goal", "goal"),
+		Output:             requirements.first("planned output", "deliverable", "outcome"),
+		Dependency:         index.first("dependencies", "dependency status"),
+		NonGoals:           requirements.items("non-goals", "non goals"),
+		AcceptanceCriteria: countDashboardItems(requirements, "acceptance criteria"),
+		OpenQuestions:      countDashboardItems(requirements, "open questions"),
+	}
+	if result.Mission.Goal == "" {
+		result.Mission.Goal = result.Overview
+	}
+	reasoning := readDashboardMarkdown(filepath.Join(base, "reasoning.md"))
+	result.Decisions = reasoning.items("final decisions", "decisions", "decision summary")
+	if len(result.Decisions) > 3 {
+		result.Decisions = result.Decisions[:3]
+	}
+	result.UnresolvedRisk = reasoning.first("unresolved risks", "risks", "open questions")
+	result.DeferredDecisions = countDashboardItems(reasoning, "deferred", "deferred scope")
+	preferred := map[string]bool{"requirements": true, "reasoning": true, "plan": true, "execute": true, "review": true, "smoke": true}
+	for _, artifact := range result.Artifacts {
+		if preferred[artifact.Label] {
+			result.Evidence = append(result.Evidence, artifact)
+		}
+		if len(result.Evidence) == 3 {
+			break
+		}
+	}
+}
+
+func (u *webUseCases) enrichStudyDashboard(result *WebStudyResult) {
+	for _, source := range result.Sources {
+		result.SourcePreview = append(result.SourcePreview, source)
+		if len(result.SourcePreview) == 4 {
+			break
+		}
+	}
+	seen := map[string]bool{}
+	for _, dimension := range result.Dimensions {
+		group := dimension
+		if cut := strings.IndexAny(group, "-_. "); cut > 0 {
+			group = group[:cut]
+		}
+		if !seen[group] {
+			seen[group] = true
+			result.DimensionGroups = append(result.DimensionGroups, group)
+		}
+		if len(result.DimensionGroups) == 4 {
+			break
+		}
+	}
+	for _, task := range result.Tasks {
+		if task.Status == "waiting" || task.Status == "retrying" {
+			result.Waiting++
+		}
+	}
+	for i := len(result.Artifacts) - 1; i >= 0 && len(result.RecentReports) < 3; i-- {
+		artifact := result.Artifacts[i]
+		if strings.Contains(strings.ToLower(artifact.Label), "report") || strings.Contains(strings.ToLower(artifact.DisplayPath), "report") {
+			result.RecentReports = append(result.RecentReports, artifact)
+		}
+	}
+}
+
 func sprintRunStages(item SprintSummary) []StageSummary {
 	stages := append([]StageSummary(nil), item.Stages...)
 	executeStatus := "waiting"
@@ -888,6 +1119,7 @@ func (u *webUseCases) Study(ctx context.Context, name string) (WebStudyResult, e
 					result.Parallelism = &ParallelismSummary{Decreased: throttle.Decreased, Events: throttle.Events, RequestedParallelism: throttle.RequestedParallelism, EffectiveParallelism: throttle.EffectiveParallelism}
 				}
 			}
+			u.enrichStudyDashboard(&result)
 			return result, nil
 		}
 	}

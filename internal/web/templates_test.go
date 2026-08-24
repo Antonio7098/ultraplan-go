@@ -115,11 +115,6 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 		}
 	}
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"data-previous-artifacts", "data-artifact-select", "/api/v1/artifacts/", "artifactIndex < currentIndex"} {
-		if !strings.Contains(js, want) {
-			t.Fatalf("previous artifact browser JavaScript missing %q", want)
-		}
-	}
 	studyOperations := request(h, http.MethodGet, "/studies/research/progress", nil).Body.String()
 	for _, want := range []string{`name="parallelism"`, `<option value="1" selected>1</option>`, `<option value="8">8</option>`} {
 		if !strings.Contains(studyOperations, want) {
@@ -191,7 +186,7 @@ func TestPrimaryNavigationUsesTopBarDestinations(t *testing.T) {
 
 func TestSprintRunExposesStageControls(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `class="run-workspace-columns"`, `data-previous-artifacts aria-labelledby="previous-artifacts-heading"`, `data-artifact-stage="requirements"`, `data-artifact-stage="code-context"`, `data-artifact-preview aria-live="polite"`, `data-artifact-source`, `href="#stage-requirements" data-stage-select="stage-requirements" data-stage-has-artifact="true"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, `data-stage-operation-status role="status" aria-live="polite"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript", `class="prompt-observability" data-prompt-observability`, `Stage input contract`, `Injected in this order`, `input contract + bundle summary`, `/api/v1/projects/alpha/sprints/30-web/prompts/requirements`, `<code>project-index</code>`, `<code>project-docs</code>`, `Open JSON summary`} {
+	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `class="stage-details"`, `href="#stage-requirements" data-stage-select="stage-requirements" data-stage-has-artifact="true"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, `data-stage-operation-status role="status" aria-live="polite"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript", `class="prompt-observability" data-prompt-observability`, `Stage input contract`, `Injected in this order`, `input contract + bundle summary`, `/api/v1/projects/alpha/sprints/30-web/prompts/requirements`, `<code>project-index</code>`, `<code>project-docs</code>`, `Open JSON summary`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("stage controls missing %q in %s", want, body)
 		}

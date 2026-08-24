@@ -26,15 +26,23 @@ type SprintWorkspace struct {
 
 func sprintWorkspacePath(sp Sprint) string { return filepath.Join(sp.Path, ".workspace.json") }
 
-func ResolveExecuteTarget(projectIndexContent string) (ExecuteTargetRef, []ValidationFinding) {
+func ResolveExecuteTarget(workspaceRoot, projectIndexContent string) (ExecuteTargetRef, []ValidationFinding) {
 	target := extractTargetImplementationDirectory(projectIndexContent)
 	if target == "" {
 		return ExecuteTargetRef{}, []ValidationFinding{finding("Project Scope", "Target Implementation Directory", "", "missing target implementation directory", "project-index.md does not declare a target implementation directory", "Set Project Scope / Target Implementation Directory to the approved implementation repository.")}
 	}
 	clean := filepath.Clean(target)
 	if !filepath.IsAbs(clean) {
-		return ExecuteTargetRef{}, []ValidationFinding{finding("Project Scope", "Target Implementation Directory", target, "target path must be absolute", "execute requires an explicit absolute target repository path", "Use the approved target implementation directory.")}
+		if strings.TrimSpace(workspaceRoot) == "" {
+			return ExecuteTargetRef{}, []ValidationFinding{finding("Project Scope", "Target Implementation Directory", target, "relative target has no workspace root", "the target cannot be resolved without the UltraPlan workspace root", "Run the command from a valid UltraPlan workspace or use an absolute target path.")}
+		}
+		clean = filepath.Join(workspaceRoot, clean)
 	}
+	resolved, err := filepath.Abs(clean)
+	if err != nil {
+		return ExecuteTargetRef{}, []ValidationFinding{finding("Project Scope", "Target Implementation Directory", target, "target path cannot be resolved", err.Error(), "Use a valid absolute path or a path relative to the UltraPlan workspace root.")}
+	}
+	clean = filepath.Clean(resolved)
 	info, err := os.Stat(clean)
 	if err != nil {
 		return ExecuteTargetRef{}, []ValidationFinding{finding("Project Scope", "Target Implementation Directory", target, "target root unavailable", err.Error(), "Create or restore the approved target repository before execute.")}
@@ -49,7 +57,7 @@ func (s Service) resolveSprintTarget(sp Sprint, projectIndex string, create bool
 	if s.codeContextTarget != nil {
 		return s.codeContextTarget(projectIndex)
 	}
-	source, findings := ResolveExecuteTarget(projectIndex)
+	source, findings := ResolveExecuteTarget(s.root, projectIndex)
 	if len(findings) > 0 {
 		return ExecuteTargetRef{}, findings
 	}

@@ -9,7 +9,7 @@ This document defines what can be selected for project work. It does not decide 
 
 - **Project Slug:** `[project-slug]`
 - **Repository:** `[repo path or URL]`
-- **Target Implementation Directory:** `[local filesystem path where sprint implementation files are written]`
+- **Target Implementation Directory:** `[absolute path or path relative to the UltraPlan workspace root for the source repository]`
 - **Primary Goal:** `[project goal]`
 - **Non-Goals:** `[explicit exclusions]`
 

@@ -125,7 +125,7 @@ func (s Service) prepareSmokeStatic(projectRef, sprintRef string, req SmokeReque
 	entry := entries[0]
 	target, targetFindings := s.resolveSprintTarget(sp, inputs.ProjectIndex, false)
 	if len(targetFindings) > 0 || target.Path == "" {
-		return smokePrepared{}, smokeError("smoke_target", "catalog", "target implementation directory is missing or invalid", "Set one absolute Target Implementation Directory in project-index.md.", nil)
+		return smokePrepared{}, smokeError("smoke_target", "catalog", "target implementation directory is missing or invalid", "Set one Target Implementation Directory in project-index.md, using an absolute path or one relative to the UltraPlan workspace root.", nil)
 	}
 	root, err := canonicalDirectory(entry.Path)
 	if err != nil {
