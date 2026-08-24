@@ -356,8 +356,9 @@ func TestReviewerInputPacketExcludesSiblingCoverageSources(t *testing.T) {
 }
 
 type areaBatchRuntime struct {
-	root     string
-	requests []pruntime.Request
+	root           string
+	requests       []pruntime.Request
+	failAfterWrite bool
 }
 
 type batchExecutionRuntime struct {
@@ -408,5 +409,33 @@ func (r *areaBatchRuntime) StartRun(_ context.Context, req pruntime.Request) (pr
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return pruntime.Result{}, err
 	}
+	if r.failAfterWrite {
+		return pruntime.Result{RunID: "area-" + strings.ToLower(area), SessionID: "session-" + strings.ToLower(area), Status: "failed"}, errors.New("runtime exited before final result")
+	}
 	return pruntime.Result{RunID: "area-" + strings.ToLower(area), SessionID: "session-" + strings.ToLower(area), Status: "success"}, nil
+}
+
+func TestAreaReasoningAcceptsValidArtifactWhenRuntimeExitsBeforeFinalResult(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-alpha")
+	writeFileContent(t, root, testProjectIndex(), "projects", "proj", "project-index.md")
+	writeFileContent(t, root, "# Architecture Template\n", "system", "reasoning", "architecture_reasoning_template.md")
+	writeEvidenceFile(t, root)
+	writeFileContent(t, sp.Path, "# Requirements\n\nReason about architecture.\n", "requirements.md")
+	writeCompletedCodeContext(t, root, sp)
+	writeFileContent(t, sp.Path, validSprintIndex(), "sprint-index.md")
+	writeFileContent(t, sp.Path, validReasoningTechnicalHandbook(), "technical-handbook.md")
+
+	runtime := &areaBatchRuntime{root: root, failAfterWrite: true}
+	result, err := NewService(root).WithRuntime(runtime).FlowReasoning(context.Background(), "proj", "01", FlowRequest{To: StageAreaReasoning})
+	if err != nil || result.Message != "area-reasoning complete" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(runtime.requests) != 1 {
+		t.Fatalf("runtime calls=%d want 1", len(runtime.requests))
+	}
+	validation, err := NewService(root).ValidateAreaReasoning("proj", "01")
+	if err != nil || !validation.Valid() {
+		t.Fatalf("recovered artifact validation=%+v err=%v", validation, err)
+	}
 }

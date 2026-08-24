@@ -1234,6 +1234,13 @@ func (s Service) flowAreaReasoning(ctx context.Context, sp Sprint, inputs Planni
 		result, runErr := s.startPlanningStageRun(ctx, sp, StageAreaReasoning, runtimeReq)
 		runtimeResult = result
 		if runErr != nil {
+			// OpenCode can exit after committing the requested artifact but before
+			// emitting its final event. This entry was invalid before the run, so a
+			// valid artifact here is durable proof that the requested work finished.
+			// Keep the session checkpoint for normal stage cleanup below.
+			if len(s.areaReasoningEntryFindings(manifest, entry)) == 0 {
+				continue
+			}
 			stages := flowFailedStages(sp, req.To, runErr, now)
 			_ = SaveFlowState(s.root, sp, NewFlowState(sp, stages, now))
 			return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: req.To, Runtime: runtimeResult, Stages: stages}, runErr
