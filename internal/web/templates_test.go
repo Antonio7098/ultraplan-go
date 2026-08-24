@@ -135,7 +135,7 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 		}
 	}
 	operationsJS := request(h, http.MethodGet, "/static/js/operations.js", nil).Body.String()
-	for _, want := range []string{"body.error?.details?.reason", "body.error?.details?.guidance"} {
+	for _, want := range []string{"body.error?.details?.reason", "body.error?.details?.guidance", `code === "session_required"`, `code === "csrf_failed"`, `response.headers.get("X-CSRF-Token")`, "attempt < 2"} {
 		if !strings.Contains(operationsJS, want) {
 			t.Fatalf("operation JavaScript missing safe error detail %q", want)
 		}

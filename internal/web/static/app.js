@@ -847,18 +847,28 @@
 
   async function command(path, payload, method = "POST") {
     if (window.UltraPlanOperations) return window.UltraPlanOperations.command(path, payload, method);
-    const response = await fetch(path, {
-      method,
-      credentials: "same-origin",
-      headers: {"Content-Type": "application/json", "X-CSRF-Token": csrf},
-      body: payload === null ? undefined : JSON.stringify(payload)
-    });
-    const body = await response.json();
-    if (!response.ok) {
-      const parts = [body.error?.message, body.error?.details?.reason, body.error?.details?.guidance].filter(Boolean);
-      throw new Error(parts.join(" ") || `Request failed (${response.status})`);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(path, {
+        method,
+        credentials: "same-origin",
+        headers: {"Content-Type": "application/json", "X-CSRF-Token": csrf},
+        body: payload === null ? undefined : JSON.stringify(payload)
+      });
+      const body = await response.json();
+      const code = body.error?.code;
+      const replacementCSRF = response.headers.get("X-CSRF-Token");
+      if (attempt === 0 && response.status === 403 && replacementCSRF && (code === "session_required" || code === "csrf_failed")) {
+        csrf = replacementCSRF;
+        const csrfMeta = document.querySelector('meta[name="ultraplan-csrf"]');
+        if (csrfMeta) csrfMeta.content = csrf;
+        continue;
+      }
+      if (!response.ok) {
+        const parts = [body.error?.message, body.error?.details?.reason, body.error?.details?.guidance].filter(Boolean);
+        throw new Error(parts.join(" ") || `Request failed (${response.status})`);
+      }
+      return body.data;
     }
-    return body.data;
   }
 
   function announce(message, isError = false) {
