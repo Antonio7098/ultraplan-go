@@ -116,10 +116,6 @@ p { color: var(--muted); }
 nav[aria-label="Breadcrumb"] { margin-top: 1.15rem; color: var(--subtle); font-size: .78rem; }
 nav[aria-label="Breadcrumb"] a { color: var(--muted); text-decoration: none; }
 .breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; }
-.entity-nav { display: flex; gap: .25rem; margin-top: 1rem; padding-bottom: .15rem; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: thin; }
-.entity-nav a { flex: 0 0 auto; padding: .65rem .8rem; border-bottom: 2px solid transparent; color: var(--muted); font-size: .86rem; font-weight: 580; text-decoration: none; }
-.entity-nav a:hover { color: var(--text); }
-.entity-nav a[aria-current="page"] { border-bottom-color: var(--accent); color: var(--text); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .section-heading h2 { margin-bottom: 0; }
 .section-heading > a { color: var(--accent-strong); font-size: .84rem; }
@@ -131,6 +127,18 @@ nav[aria-label="Breadcrumb"] a { color: var(--muted); text-decoration: none; }
 .dashboard-row > span:first-child { display: grid; gap: .25rem; }
 .dashboard-row small { color: var(--muted); font-weight: 400; }
 .entity-summary progress { width: 100%; margin-top: .85rem; }
+.dashboard-component { display: block; color: inherit; text-decoration: none; }
+.dashboard-component > section { position: relative; transition: border-color .18s ease, background .18s ease, transform .18s cubic-bezier(.22, 1, .36, 1); }
+.dashboard-component:hover > section, .dashboard-component:focus-visible > section { border-color: var(--accent); background: var(--panel-raised); transform: translateY(-2px); }
+.dashboard-component:focus-visible { border-radius: var(--radius); outline: 2px solid var(--focus); outline-offset: 3px; }
+.dashboard-component-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.dashboard-component-heading h2 { margin-bottom: 0; }
+.dashboard-component-heading strong { color: var(--muted); font-size: .82rem; font-weight: 600; }
+.dashboard-component-cue { display: inline-flex; margin-top: .75rem; color: var(--accent-strong); font-size: .84rem; font-weight: 600; }
+.dashboard-component-cue::after { content: " →"; margin-left: .35rem; }
+.roadmap-preview-timeline { margin-top: 1.25rem; }
+.roadmap-preview-entry { position: relative; display: block; min-height: 4.35rem; padding: .65rem .8rem; }
+.milestone-label { color: var(--subtle); font-size: .7rem; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
 
 section, .notice { margin-top: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); padding: 1.15rem; box-shadow: 0 1px 0 rgb(255 255 255 / 2%); }
 section > :first-child { margin-top: 0; }

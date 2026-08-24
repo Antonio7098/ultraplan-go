@@ -338,6 +338,7 @@ type pageModel struct {
 	Workspace         string
 	Projects          []app.WebProjectResult
 	Project           *app.WebProjectResult
+	RoadmapPreview    *projectRoadmapPreview
 	Sprints           []app.WebSprintResult
 	Sprint            *app.WebSprintResult
 	Studies           []app.WebStudyResult
@@ -368,6 +369,44 @@ type pageModel struct {
 	NextEventsURL     string
 	RunFilters        runPageFilters
 	Page              string
+}
+
+type projectRoadmapPreview struct {
+	Completed int
+	Total     int
+	Previous  *app.WebRoadmapSprint
+	Next      *app.WebRoadmapSprint
+}
+
+func makeProjectRoadmapPreview(project app.WebProjectResult) *projectRoadmapPreview {
+	preview := &projectRoadmapPreview{}
+	var nextPlanned *app.WebRoadmapSprint
+	for _, phase := range project.Roadmap {
+		for _, sprint := range phase.Sprints {
+			preview.Total++
+			if sprint.Status == "delivered" {
+				preview.Completed++
+				if preview.Previous == nil || sprint.Number > preview.Previous.Number {
+					copy := sprint
+					preview.Previous = &copy
+				}
+				continue
+			}
+			if sprint.Status == "active" && (preview.Next == nil || preview.Next.Status != "active" || sprint.Number < preview.Next.Number) {
+				copy := sprint
+				preview.Next = &copy
+				continue
+			}
+			if nextPlanned == nil || sprint.Number < nextPlanned.Number {
+				copy := sprint
+				nextPlanned = &copy
+			}
+		}
+	}
+	if preview.Next == nil {
+		preview.Next = nextPlanned
+	}
+	return preview
 }
 
 func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMatch) {
@@ -408,7 +447,7 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			h.handleQueryError(w, r, false, err)
 			return
 		}
-		h.render(w, r, http.StatusOK, "project", pageModel{Title: "Project " + result.Name, Heading: result.Name, Project: &result, Page: "overview"})
+		h.render(w, r, http.StatusOK, "project", pageModel{Title: "Project " + result.Name, Heading: result.Name, Project: &result, RoadmapPreview: makeProjectRoadmapPreview(result), Page: "overview"})
 	case "project_page":
 		result, err := h.queries.Project(r.Context(), match.params[0])
 		if err != nil {

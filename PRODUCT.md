@@ -40,7 +40,7 @@ The existing Go templates, handlers, compatibility tests, and `docs/ui-audit.md`
 
 - Place every action beside the state or object it changes.
 - Make each entity overview answer what is happening, what needs attention, and where to go next.
-- Preserve parent context through links and breadcrumbs instead of a persistent sidebar.
+- Navigate from whole dashboard components and preserve parent context with breadcrumbs instead of persistent sidebars or entity tab rows.
 - Keep live work globally discoverable through Runs while also linking each run to its owning entity.
 - Support operating and reviewing the whole product from the web UI.
 

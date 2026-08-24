@@ -1,19 +1,18 @@
 {{define "page/sprint"}}{{template "layout/top" .}}
 <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/projects">Projects</a><span aria-hidden="true">/</span><a href="/projects/{{.Sprint.Project}}">{{.Sprint.Project}}</a><span aria-hidden="true">/</span><a href="/projects/{{.Sprint.Project}}/roadmap">Roadmap</a><span aria-hidden="true">/</span><span>{{.Sprint.Slug}}</span></nav>
-<nav class="entity-nav" aria-label="Sprint sections"><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/workflow"{{if eq .Page "workflow"}} aria-current="page"{{end}}>Workflow</a><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts"{{if eq .Page "artifacts"}} aria-current="page"{{end}}>Artifacts</a></nav>
 {{if eq .Page "overview"}}
 <div class="sprint-overview-grid">
-<section class="sprint-intro sprint-overview-hero" aria-labelledby="sprint-overview-heading">
+<a class="dashboard-component sprint-overview-hero" href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts"><section class="sprint-intro" aria-labelledby="sprint-overview-heading">
   <p class="eyebrow">Sprint overview</p><h2 id="sprint-overview-heading">What this sprint is</h2>
   {{if .Sprint.Overview}}<p class="sprint-goal">{{.Sprint.Overview}}</p>{{else}}<p class="empty">No sprint overview yet. Run Requirements to define this sprint.</p>{{end}}
-  <a class="sprint-knowledge-link" href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts">View requirements and supporting artifacts <span aria-hidden="true">→</span></a>
-</section>
-<section class="sprint-status-panel" aria-labelledby="sprint-status-heading"><p class="eyebrow">Progress</p><h2 id="sprint-status-heading">Current status</h2>
+  <span class="dashboard-component-cue">View requirements and supporting artifacts</span>
+</section></a>
+<a class="dashboard-component" href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/workflow"><section class="sprint-status-panel" aria-labelledby="sprint-status-heading"><p class="eyebrow">Progress</p><h2 id="sprint-status-heading">Current status</h2>
   <div class="sprint-status-summary"><div><span class="status status-info">{{if .Sprint.CurrentStage}}{{.Sprint.CurrentStage}}{{else}}complete{{end}}</span><strong>{{.Sprint.CompletedStages}} of {{.Sprint.TotalStages}} stages complete</strong></div>
   <p>{{if .Sprint.NextAction}}{{.Sprint.NextAction}}{{else if .Sprint.CurrentStage}}Next: continue with {{.Sprint.CurrentStage}}.{{else}}No further action recorded.{{end}}</p></div>
   <progress class="sprint-progress" aria-label="Sprint stage progress" max="{{.Sprint.TotalStages}}" value="{{.Sprint.CompletedStages}}">{{.Sprint.CompletedStages}} of {{.Sprint.TotalStages}}</progress>
   <dl class="metadata"><div><dt>Assessment</dt><dd>{{if .Sprint.Assessment}}{{.Sprint.Assessment}}{{else}}not available{{end}}</dd></div><div><dt>Validation findings</dt><dd>{{len .Sprint.Findings}}</dd></div><div><dt>Review</dt><dd>{{if .Sprint.Review.Available}}{{.Sprint.Review.Status}} {{.Sprint.Review.Verdict}}{{else}}not started{{end}}</dd></div><div><dt>Smoke</dt><dd>{{if .Sprint.Smoke.Available}}{{.Sprint.Smoke.Status}} {{.Sprint.Smoke.Verdict}}{{else}}not started{{end}}</dd></div></dl>
-</section>
+</section></a>
 <section class="primary-action sprint-continue-panel" aria-labelledby="continue-heading"><p class="eyebrow">Next action</p><h2 id="continue-heading">Continue the sprint</h2><p>Run the governed flow through a target stage. Completed stages are checked and skipped.</p>
 <form class="operation-form flow-action" method="post" action="/operations/prepare" data-project="{{.Sprint.Project}}" data-sprint="{{.Sprint.Slug}}">
 <input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="project" value="{{.Sprint.Project}}"><input type="hidden" name="sprint" value="{{.Sprint.Slug}}">

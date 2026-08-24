@@ -259,13 +259,13 @@ func TestSprintCodeContextOrderAndPreservedArtifactOutcome(t *testing.T) {
 func TestSprintArtifactNavigatorKeepsExplorerContext(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	overview := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/artifacts", nil).Body.String()
-	for _, want := range []string{`aria-label="Sprint sections"`, `>Overview</a>`, ">Definition</h2>", ">Delivery</h2>", "/artifacts/artifact_ref"} {
+	for _, want := range []string{`class="breadcrumb"`, `href="/projects/alpha/roadmap"`, ">Definition</h2>", ">Delivery</h2>", "/artifacts/artifact_ref"} {
 		if !strings.Contains(overview, want) {
 			t.Errorf("artifact overview missing %q", want)
 		}
 	}
 	preview := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/artifacts/artifact_ref", nil).Body.String()
-	for _, want := range []string{`class="breadcrumb"`, `aria-label="Sprint sections"`, `href="/projects/alpha/roadmap"`, `class="markdown-body"`, "<h1>Plan</h1>"} {
+	for _, want := range []string{`class="breadcrumb"`, `href="/projects/alpha/roadmap"`, `class="markdown-body"`, "<h1>Plan</h1>"} {
 		if !strings.Contains(preview, want) {
 			t.Errorf("nested artifact preview missing %q", want)
 		}
@@ -290,61 +290,37 @@ func TestSprintRunShowsReviewerStatusGridInRunningReviewStage(t *testing.T) {
 	}
 }
 
-func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
+func TestDetailTemplatesUseBreadcrumbsWithoutTopNavigation(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
-	tests := []struct {
-		path, label, active string
-		links               []string
-	}{
-		{path: "/projects/alpha/documentation", label: "Project sections", active: "/projects/alpha/documentation", links: []string{"/projects/alpha", "/projects/alpha/documentation", "/projects/alpha/roadmap"}},
-		{path: "/projects/alpha/sprints/30-web/workflow", label: "Sprint sections", active: "/projects/alpha/sprints/30-web/workflow", links: []string{"/projects/alpha/sprints/30-web", "/projects/alpha/sprints/30-web/workflow", "/projects/alpha/sprints/30-web/artifacts"}},
-		{path: "/studies/research/progress", label: "Study sections", active: "/studies/research/progress", links: []string{"/studies/research", "/studies/research/inputs", "/studies/research/progress", "/studies/research/results"}},
-	}
-	for _, tt := range tests {
-		body := request(h, http.MethodGet, tt.path, nil).Body.String()
-		if !strings.Contains(body, `class="entity-nav"`) || !strings.Contains(body, `aria-label="`+tt.label+`"`) {
-			t.Fatalf("%s missing contextual navigation in %s", tt.path, body)
-		}
-		for _, link := range tt.links {
-			if !strings.Contains(body, `href="`+link+`"`) {
-				t.Errorf("%s missing destination %s", tt.path, link)
-			}
-		}
-		if !strings.Contains(body, `href="`+tt.active+`" aria-current="page"`) {
-			t.Errorf("%s does not identify the current page", tt.path)
-		}
-	}
-	sprintBody := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/workflow", nil).Body.String()
-	if !strings.Contains(sprintBody, `class="breadcrumb"`) || !strings.Contains(sprintBody, `href="/projects/alpha/roadmap"`) {
-		t.Errorf("sprint page is missing project context: %s", sprintBody)
-	}
-}
-
-func TestProjectNavigationIsSharedWithSprintPages(t *testing.T) {
-	h := testHandler(t, sampleQueries(), nil)
-	for _, path := range []string{"/projects/alpha"} {
+	for _, path := range []string{"/projects/alpha/documentation", "/projects/alpha/sprints/30-web/workflow", "/studies/research/progress"} {
 		body := request(h, http.MethodGet, path, nil).Body.String()
-		for _, want := range []string{">Overview</a>", ">Docs</a>", ">Roadmap</a>"} {
-			if !strings.Contains(body, want) {
-				t.Errorf("%s missing shared project item %q", path, want)
-			}
-		}
-		for _, stale := range []string{">Documentation</a>", ">Operations</a>", ">Validation</a>", ">Artifacts</a>"} {
-			if strings.Contains(body, stale) {
-				t.Errorf("%s retained stale project item %q", path, stale)
-			}
+		if !strings.Contains(body, `class="breadcrumb"`) || strings.Contains(body, `class="entity-nav"`) {
+			t.Errorf("%s does not use breadcrumb-only navigation: %s", path, body)
 		}
 	}
 }
 
-func TestNestedNavigationUsesEntityTabsWithoutSidebar(t *testing.T) {
+func TestProjectDashboardComponentsOwnTheirDestinations(t *testing.T) {
+	h := testHandler(t, sampleQueries(), nil)
+	body := request(h, http.MethodGet, "/projects/alpha", nil).Body.String()
+	for _, want := range []string{`class="dashboard-component roadmap-preview" href="/projects/alpha/roadmap"`, `class="dashboard-component" href="/projects/alpha/documentation"`, "sprints done", "Previous sprint", "Next sprint"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("project dashboard missing %q", want)
+		}
+	}
+	if strings.Contains(body, `class="section-heading"><h2>Documentation`) || strings.Contains(body, `class="entity-nav"`) {
+		t.Error("project dashboard retained redundant navigation")
+	}
+}
+
+func TestNestedNavigationHasNoSidebarOrEntityTabs(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	tests := []struct {
 		path  string
 		wants []string
 	}{
-		{"/projects/alpha/documentation", []string{`class="entity-nav"`, `aria-label="Project sections"`, `class="breadcrumb"`}},
-		{"/projects/alpha/sprints/30-web/artifacts", []string{`class="entity-nav"`, `aria-label="Sprint sections"`, `class="breadcrumb"`}},
+		{"/projects/alpha/documentation", []string{`class="breadcrumb"`}},
+		{"/projects/alpha/sprints/30-web/artifacts", []string{`class="breadcrumb"`}},
 	}
 	for _, tt := range tests {
 		body := request(h, http.MethodGet, tt.path, nil).Body.String()
@@ -353,7 +329,7 @@ func TestNestedNavigationUsesEntityTabsWithoutSidebar(t *testing.T) {
 				t.Errorf("%s missing drill-down sidebar marker %q", tt.path, want)
 			}
 		}
-		if strings.Contains(body, `class="detail-sidebar"`) || strings.Contains(body, `data-sidebar-stack`) {
+		if strings.Contains(body, `class="detail-sidebar"`) || strings.Contains(body, `data-sidebar-stack`) || strings.Contains(body, `class="entity-nav"`) {
 			t.Errorf("%s retained sidebar navigation", tt.path)
 		}
 	}
