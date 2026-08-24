@@ -18,3 +18,12 @@ func TestRunEventViewExposesPrettyToolObservation(t *testing.T) {
 		t.Fatalf("details = %#v", view)
 	}
 }
+
+func TestRunEventViewExposesStructuredPhaseProgress(t *testing.T) {
+	view := newRunEventView(app.RunEvent{AttemptID: "att_aaaaaaaaaaaaaaaaaaaaaaaaaa", Payload: map[string]string{
+		"phase_state": "checking", "summary": "Checking prerequisites", "action": "inspect", "reason": "gate",
+	}})
+	if view.AttemptID == "" || view.PhaseState != "checking" || view.Summary != "Checking prerequisites" || view.Action != "inspect" || view.Reason != "gate" {
+		t.Fatalf("phase progress = %#v", view)
+	}
+}

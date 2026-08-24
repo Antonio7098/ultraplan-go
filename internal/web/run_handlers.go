@@ -20,6 +20,7 @@ type runPageFilters struct {
 type runStateView struct {
 	Value string
 	Cue   string
+	Tone  string
 }
 
 type runRowView struct {
@@ -37,6 +38,8 @@ type runDetailView struct {
 	OldestRetainedSequence uint64
 	OmissionTotal          uint64
 	CurrentAttempt         string
+	Title                  string
+	Scope                  string
 	Target                 string
 	Lifecycle              runStateView
 	Liveness               runStateView
@@ -44,6 +47,9 @@ type runDetailView struct {
 	Cancellation           runStateView
 	History                string
 	Terminal               string
+	TerminalOutcome        string
+	TerminalReason         string
+	Duration               string
 	IsActive               bool
 }
 
@@ -183,6 +189,7 @@ func (v *runUsageView) addCost(known bool, amount float64, source string) {
 
 type runEventView struct {
 	Sequence      uint64
+	AttemptID     string
 	Type          string
 	Stage         string
 	Task          string
@@ -191,6 +198,10 @@ type runEventView struct {
 	DetailType    string
 	DetailTool    string
 	DetailText    string
+	PhaseState    string
+	Summary       string
+	Action        string
+	Reason        string
 	ToolCallID    string
 	ToolStatus    string
 	ToolArguments string
@@ -443,15 +454,32 @@ func newRunDetailView(snapshot app.RunSnapshot) runDetailView {
 		history += " · incomplete before sequence " + strconv.FormatUint(snapshot.OldestRetainedSequence, 10)
 	}
 	terminal := ""
+	terminalOutcome := ""
+	terminalReason := ""
 	if snapshot.Terminal != nil {
-		terminal = string(snapshot.Terminal.Outcome) + " · " + snapshot.Terminal.Reason
+		terminalOutcome = string(snapshot.Terminal.Outcome)
+		terminalReason = snapshot.Terminal.Reason
+		terminal = terminalOutcome
+		if terminalReason != "" {
+			terminal += " · " + terminalReason
+		}
+	}
+	started := snapshot.AcceptedAt
+	if snapshot.StartedAt != nil {
+		started = *snapshot.StartedAt
+	}
+	finished := snapshot.UpdatedAt
+	if snapshot.FinishedAt != nil {
+		finished = *snapshot.FinishedAt
 	}
 	return runDetailView{
 		RunID: snapshot.RunID, LastSequence: snapshot.LastSequence, OldestRetainedSequence: snapshot.OldestRetainedSequence,
-		OmissionTotal: snapshot.OmissionTotal, CurrentAttempt: firstRunViewValue(string(snapshot.CurrentAttemptID), "none"), Target: runTargetLabel(snapshot.Target),
+		OmissionTotal: snapshot.OmissionTotal, CurrentAttempt: firstRunViewValue(string(snapshot.CurrentAttemptID), "none"),
+		Title: runTargetTitle(snapshot.Target), Scope: runTargetScope(snapshot.Target), Target: runTargetLabel(snapshot.Target),
 		Lifecycle: runLifecycleView(string(snapshot.Lifecycle)), Liveness: runLivenessView(string(snapshot.Liveness)),
 		Product:      firstRunViewValue(snapshot.ProductStatus, "unknown"),
 		Cancellation: runCancellationView(string(snapshot.Cancellation.State)), History: history, Terminal: terminal,
+		TerminalOutcome: terminalOutcome, TerminalReason: terminalReason, Duration: formatRunDuration(finished.Sub(started)),
 		IsActive: snapshot.Lifecycle.IsActive(),
 	}
 }
@@ -466,8 +494,9 @@ func newRunEventView(event app.RunEvent) runEventView {
 	if len(text) > 160 {
 		text = text[:160] + "…"
 	}
-	return runEventView{Sequence: event.Sequence, Type: string(event.Type), Stage: event.Stage, Task: event.Task,
+	return runEventView{Sequence: event.Sequence, AttemptID: string(event.AttemptID), Type: string(event.Type), Stage: event.Stage, Task: event.Task,
 		Time: committedRunEventTime(event), DetailKind: event.Payload["kind"], DetailType: event.Payload["type"], DetailTool: firstNonEmptyPayload(event.Payload, "tool_name", "tool"), DetailText: text,
+		PhaseState: event.Payload["phase_state"], Summary: event.Payload["summary"], Action: event.Payload["action"], Reason: event.Payload["reason"],
 		ToolCallID: event.Payload["tool_call_id"], ToolStatus: event.Payload["tool_status"],
 		ToolArguments: prettyObservableJSON(event.Payload["tool_arguments"]), ToolResult: prettyObservableJSON(event.Payload["tool_result"]), ToolError: prettyObservableJSON(event.Payload["tool_error"]), Omission: omission}
 }
@@ -506,41 +535,96 @@ func committedRunEventTime(event app.RunEvent) string {
 
 func runLifecycleView(value string) runStateView {
 	cue := "Unknown"
+	tone := "muted"
 	switch value {
 	case "accepted", "queued", "running", "cancelling":
 		cue = "Active"
+		tone = "info"
 	case "succeeded":
 		cue = "Complete"
+		tone = "ok"
 	case "failed", "cancelled", "timed_out", "interrupted", "cleanup_uncertain", "persistence_degraded":
 		cue = "Attention"
+		tone = "error"
 	}
-	return runStateView{Value: firstRunViewValue(value, "unknown"), Cue: cue}
+	return runStateView{Value: firstRunViewValue(value, "unknown"), Cue: cue, Tone: tone}
 }
 
 func runLivenessView(value string) runStateView {
 	cue := "Unknown"
+	tone := "muted"
 	switch value {
 	case "live":
 		cue = "Live"
+		tone = "info"
 	case "terminal":
 		cue = "Stopped"
 	case "stalled", "owner_unreachable", "interrupted", "cleanup_uncertain":
 		cue = "Attention"
+		tone = "error"
 	}
-	return runStateView{Value: firstRunViewValue(value, "unknown"), Cue: cue}
+	return runStateView{Value: firstRunViewValue(value, "unknown"), Cue: cue, Tone: tone}
 }
 
 func runCancellationView(value string) runStateView {
 	cue := "No request"
+	tone := "muted"
 	switch value {
 	case "requested":
 		cue = "Requested"
+		tone = "warn"
 	case "acknowledged":
 		cue = "Acknowledged"
+		tone = "warn"
 	case "uncertain":
 		cue = "Uncertain"
+		tone = "error"
 	}
-	return runStateView{Value: firstRunViewValue(value, "unknown"), Cue: cue}
+	return runStateView{Value: firstRunViewValue(value, "unknown"), Cue: cue, Tone: tone}
+}
+
+func runTargetTitle(target app.RunTarget) string {
+	label := target.Stage
+	if label == "" {
+		label = target.Operation
+	}
+	label = humanizeRunLabel(label)
+	if label == "" {
+		return "Agent run"
+	}
+	return label + " run"
+}
+
+func runTargetScope(target app.RunTarget) string {
+	if target.Study != "" {
+		return "Study " + target.Study
+	}
+	parts := make([]string, 0, 2)
+	if target.Project != "" {
+		parts = append(parts, target.Project)
+	}
+	if target.Sprint != "" {
+		parts = append(parts, "Sprint "+target.Sprint)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func humanizeRunLabel(value string) string {
+	value = strings.TrimSpace(strings.NewReplacer("_", " ", "-", " ").Replace(value))
+	if value == "" {
+		return ""
+	}
+	return strings.ToUpper(value[:1]) + value[1:]
+}
+
+func formatRunDuration(duration time.Duration) string {
+	if duration < 0 {
+		return "unknown"
+	}
+	if duration < time.Second {
+		return "<1s"
+	}
+	return duration.Round(time.Second).String()
 }
 
 func runTargetLabel(target app.RunTarget) string {

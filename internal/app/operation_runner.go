@@ -25,7 +25,8 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 				return failedOperation(result, e)
 			}
 			r, e := service.FlowStage(ctx, req.Project, req.Sprint, stageFlowRequest(req, func(progress sprint.FlowProgress) {
-				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Message: progress.State + ": " + displaySafe(progress.Message)})
+				summary := displaySafe(progress.Message)
+				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Message: progress.State + ": " + summary, PhaseState: progress.State, SafeSummary: summary})
 			}))
 			result.Message = r.Message
 			result = operationWithSprintFindings(result, r.Findings)
@@ -38,7 +39,8 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 				return failedOperation(result, e)
 			}
 			flow := stageFlowRequest(req, func(progress sprint.FlowProgress) {
-				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Message: progress.State + ": " + displaySafe(progress.Message)})
+				summary := displaySafe(progress.Message)
+				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Message: progress.State + ": " + summary, PhaseState: progress.State, SafeSummary: summary})
 			})
 			flow.Review = sprint.ReviewRequest{Restart: req.RestartReview}
 			flow.Smoke = sprint.SmokeRequest{NonInteractive: true, OverrideConfirmed: req.ForceReview, ForceReview: req.ForceReview, OverrideRationale: req.OverrideRationale}
@@ -102,7 +104,8 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 				timeout, _ = time.ParseDuration(req.Timeout)
 			}
 			r, e := service.Verify(ctx, req.Project, req.Sprint, sprint.VerifyRequest{To: sprint.PlanningStage(req.Stage), Review: sprint.ReviewRequest{Focus: req.ReviewFocus, Restart: req.RestartReview}, Smoke: sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, Timeout: timeout, ForceReview: req.ForceReview, OverrideConfirmed: req.ForceReview, OverrideRationale: req.OverrideRationale}, Progress: func(p sprint.FlowProgress) {
-				emit(OperationEvent{State: OperationRunning, Stage: string(p.Stage), Message: p.State + ": " + p.Message})
+				summary := displaySafe(p.Message)
+				emit(OperationEvent{State: OperationRunning, Stage: string(p.Stage), Message: p.State + ": " + summary, PhaseState: p.State, SafeSummary: summary})
 			}})
 			result.Message = fmt.Sprintf("assessment=%s next=%s", r.Verification.Assessment, r.Verification.NextAction)
 			if e != nil {

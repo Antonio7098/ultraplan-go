@@ -39,7 +39,7 @@ func TestDurableOperationAcceptsBeforeExecutionRecordsEventsAndFinishes(t *testi
 	if snapshot.Lifecycle != runcontrol.LifecycleRunning || snapshot.Target.Operation != string(OperationExecuteStart) || snapshot.CurrentAttemptID == "" {
 		t.Fatalf("accepted snapshot=%+v", snapshot)
 	}
-	committed, err := manager.RecordOperationEvent(ctx, accepted.RunID, OperationEvent{State: OperationRunning, Stage: "execute", Task: "task-1", Message: "not stored", Completed: 1, Total: 2, EventType: "tool.completed", EventKind: "tool", Tool: "bash"})
+	committed, err := manager.RecordOperationEvent(ctx, accepted.RunID, OperationEvent{State: OperationRunning, Stage: "execute", Task: "task-1", Message: "not stored", PhaseState: "checking", SafeSummary: "Checking prerequisites", Completed: 1, Total: 2, EventType: "tool.completed", EventKind: "tool", Tool: "bash"})
 	if err != nil || !committed {
 		t.Fatalf("committed=%v err=%v", committed, err)
 	}
@@ -62,6 +62,9 @@ func TestDurableOperationAcceptsBeforeExecutionRecordsEventsAndFinishes(t *testi
 	}
 	if events[1].Payload["scope"] != "operation" || events[1].Payload["kind"] != "tool" || events[1].Payload["tool"] != "bash" {
 		t.Fatalf("tool call details were not retained: %+v", events[1].Payload)
+	}
+	if events[1].Payload["phase_state"] != "checking" || events[1].Payload["summary"] != "Checking prerequisites" {
+		t.Fatalf("safe phase progress was not retained: %+v", events[1].Payload)
 	}
 }
 

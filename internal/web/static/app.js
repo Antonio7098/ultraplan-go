@@ -1160,6 +1160,13 @@
   let durableLiveTimer = null;
   let durableLivePending = "";
   let durableLiveUpdatedAt = 0;
+  const runJourney = document.querySelector("[data-run-journey]");
+  const runJourneyStatus = document.querySelector("[data-run-journey-status]");
+  const runPhaseButtons = Array.from(document.querySelectorAll("[data-run-phase]"));
+  const runEventsDisclosure = document.querySelector("[data-run-events-disclosure]");
+  const runAttemptCount = document.querySelector("[data-run-attempt-count]");
+  const runStartedAttempts = new Set();
+  const runJourneyState = {running: false, checking: false, finished: false, outcome: durableRun?.dataset.runOutcome || "", latest: ""};
 
   const setDurableLive = (message) => {
     if (!durableLive) return;
@@ -1252,6 +1259,79 @@
   };
 
   const humanizeRunText = (value) => String(value || "").replaceAll("_", " ");
+  const journeyPhaseFor = (event) => {
+    const payload = event?.payload || {};
+    const stage = String(event?.stage || "");
+    const type = String(event?.type || "");
+    const detailType = String(payload.type || "");
+    if (type === "terminal") return "finished";
+    if (payload.phase_state === "checking" || stage === "validating" || detailType.startsWith("validation.") || detailType.startsWith("repair.")) return "checking";
+    if (type === "accepted" || type === "claimed") return "queued";
+    return "running";
+  };
+  const renderRunJourney = () => {
+    if (!runJourney) return;
+    const lifecycle = durableRun?.dataset.runLifecycle || "";
+    const terminal = runJourneyState.finished || ["succeeded", "failed", "cancelled", "timed_out", "interrupted", "cleanup_uncertain", "persistence_degraded"].includes(lifecycle);
+    const terminalFailed = terminal && (runJourneyState.outcome || lifecycle) !== "succeeded";
+    const active = terminal ? "finished" : runJourneyState.checking ? "checking" : runJourneyState.running ? "running" : "queued";
+    const states = {
+      queued: active === "queued" ? "active" : "complete",
+      running: active === "queued" ? "pending" : active === "running" ? "active" : terminalFailed && !runJourneyState.checking ? "failed" : "complete",
+      checking: active === "checking" ? "active" : terminal ? (runJourneyState.checking ? (terminalFailed ? "failed" : "complete") : "skipped") : "pending",
+      finished: terminal ? (runJourneyState.outcome === "succeeded" || lifecycle === "succeeded" ? "complete" : "failed") : "pending"
+    };
+    for (const [index, button] of runPhaseButtons.entries()) {
+      const state = states[button.dataset.runPhase] || "pending";
+      button.dataset.phaseState = state;
+      if (state === "active") button.setAttribute("aria-current", "step");
+      else button.removeAttribute("aria-current");
+      button.setAttribute("aria-label", `${button.querySelector("strong")?.textContent || button.dataset.runPhase}: ${state}`);
+      const mark = button.querySelector(".run-phase-mark");
+      if (mark) mark.textContent = state === "complete" ? "✓" : state === "failed" ? "!" : state === "skipped" ? "–" : String(index + 1);
+    }
+    if (runJourneyStatus) {
+      const label = active === "finished" ? (runJourneyState.outcome || lifecycle || "finished") : `${active} in progress`;
+      runJourneyStatus.textContent = runJourneyState.latest ? `${humanizeRunText(label)} · ${runJourneyState.latest}` : humanizeRunText(label);
+    }
+  };
+  const ingestRunJourneyEvent = (event) => {
+    const payload = event?.payload || {};
+    const phase = journeyPhaseFor(event);
+    if (phase === "running") runJourneyState.running = true;
+    if (phase === "checking") {
+      runJourneyState.running = true;
+      runJourneyState.checking = true;
+    }
+    if (phase === "finished") {
+      runJourneyState.finished = true;
+      runJourneyState.outcome = payload.outcome || payload.state || runJourneyState.outcome;
+    }
+    if (payload.summary) runJourneyState.latest = payload.summary;
+    if (payload.type === "lifecycle.transition" && payload.reason === "process_started") {
+      runStartedAttempts.add(String(event.sequence || `${event.task || "run"}-${runStartedAttempts.size}`));
+      if (runAttemptCount) runAttemptCount.textContent = String(runStartedAttempts.size);
+    }
+    renderRunJourney();
+  };
+  const selectRunPhase = (phase) => {
+    if (!durableTimeline) return;
+    let visible = 0;
+    for (const item of durableTimeline.querySelectorAll("[data-run-sequence]")) {
+      const itemPhase = journeyPhaseFor({type: item.dataset.runType, stage: item.dataset.runStage, payload: {type: item.dataset.runTypeDetail, phase_state: item.dataset.runPhaseState}});
+      item.hidden = itemPhase !== phase;
+      if (!item.hidden) visible++;
+    }
+    for (const button of runPhaseButtons) button.setAttribute("aria-pressed", String(button.dataset.runPhase === phase));
+    if (runEventsDisclosure) runEventsDisclosure.open = true;
+    if (runJourneyStatus) runJourneyStatus.textContent = visible ? `Showing ${visible} durable ${phase} event${visible === 1 ? "" : "s"}.` : `No retained ${phase} events.`;
+    document.getElementById("run-events-heading")?.scrollIntoView({block: "start", behavior: "smooth"});
+  };
+  for (const button of runPhaseButtons) {
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", () => selectRunPhase(button.dataset.runPhase));
+  }
+  document.querySelector("[data-run-show-failure]")?.addEventListener("click", () => selectRunPhase("finished"));
   const formatRunTime = (value) => {
     if (!value) return "";
     const date = new Date(value);
@@ -1468,7 +1548,11 @@
 
   const selectAgentTab = (tab) => {
     agentTab = tab === "planned" ? "planned" : "history";
-    for (const tabButton of agentTabs) tabButton.setAttribute("aria-selected", String(tabButton.dataset.runTab === agentTab));
+    for (const tabButton of agentTabs) {
+      const selected = tabButton.dataset.runTab === agentTab;
+      tabButton.setAttribute("aria-selected", String(selected));
+      tabButton.tabIndex = selected ? 0 : -1;
+    }
     const showHistory = agentTab === "history";
     const showPlanned = agentTab === "planned";
     if (agentHistoryGrid) agentHistoryGrid.hidden = !showHistory;
@@ -1477,7 +1561,17 @@
     if (agentPlannedEmpty) agentPlannedEmpty.hidden = !showPlanned || agentPlannedEmpty.dataset.empty !== "true";
   };
 
-  for (const tabButton of agentTabs) tabButton.addEventListener("click", () => selectAgentTab(tabButton.dataset.runTab));
+  for (const tabButton of agentTabs) {
+    tabButton.addEventListener("click", () => selectAgentTab(tabButton.dataset.runTab));
+    tabButton.addEventListener("keydown", (event) => {
+      const index = agentTabs.indexOf(tabButton);
+      const next = event.key === "ArrowRight" ? (index + 1) % agentTabs.length : event.key === "ArrowLeft" ? (index - 1 + agentTabs.length) % agentTabs.length : event.key === "Home" ? 0 : event.key === "End" ? agentTabs.length - 1 : -1;
+      if (next < 0) return;
+      event.preventDefault();
+      selectAgentTab(agentTabs[next].dataset.runTab);
+      agentTabs[next].focus();
+    });
+  }
 
   const renderAgentGrid = () => {
     if (!agentSection) return;
@@ -1597,7 +1691,7 @@
   };
 
   const openAgentFromClick = (event) => {
-    const trigger = event.target.closest(".run-agent-card");
+    const trigger = event.target.closest(".agent-details-open")?.closest(".run-agent-card");
     if (trigger?.dataset.runAgent) openRunAgent(trigger.dataset.runAgent);
   };
   agentGrid?.addEventListener("click", openAgentFromClick);
@@ -1613,26 +1707,30 @@
   });
 
   for (const item of durableTimeline?.querySelectorAll("[data-run-sequence]") || []) {
-    const task = item.dataset.runTask;
-    if (!task) continue;
-    ingestRunEvent({
+    const event = {
       sequence: Number(item.dataset.runSequence) || 0,
       type: item.dataset.runType,
       stage: item.dataset.runStage,
-      task,
+      task: item.dataset.runTask,
       committed_at: item.dataset.runTime,
-      payload: {kind: item.dataset.runKind, tool: item.dataset.runTool, tool_call_id: item.dataset.runToolCallId, tool_status: item.dataset.runToolStatus, tool_arguments: item.dataset.runToolArguments, tool_result: item.dataset.runToolResult, tool_error: item.dataset.runToolError}
-    });
+      payload: {type: item.dataset.runTypeDetail, phase_state: item.dataset.runPhaseState, summary: item.dataset.runSummary, action: item.dataset.runAction, reason: item.dataset.runReason, kind: item.dataset.runKind, tool: item.dataset.runTool, tool_call_id: item.dataset.runToolCallId, tool_status: item.dataset.runToolStatus, tool_arguments: item.dataset.runToolArguments, tool_result: item.dataset.runToolResult, tool_error: item.dataset.runToolError}
+    };
+    ingestRunJourneyEvent(event);
+    if (event.task) ingestRunEvent(event);
   }
+  renderRunJourney();
   renderAgentGrid();
   runAgentsLive = true;
 
   const appendDurableEvent = (event) => {
+    ingestRunJourneyEvent(event);
     ingestRunEvent(event);
     if (!durableTimeline) return;
     durableTimeline.querySelector(":scope > .empty")?.remove();
     const item = document.createElement("li");
     item.dataset.runSequence = String(event.sequence);
+    item.dataset.runType = event.type || "";
+    item.dataset.runStage = event.stage || "";
     const heading = document.createElement("strong");
     heading.textContent = `${event.sequence} · ${event.type || "event"}`;
     item.append(heading);
@@ -1643,16 +1741,18 @@
       item.append(detail);
     }
     const payload = event.payload || {};
+    item.dataset.runTypeDetail = payload.type || "";
+    item.dataset.runPhaseState = payload.phase_state || "";
     for (const value of [payload.kind ? `kind=${payload.kind}` : "", payload.tool_name || payload.tool ? `tool=${payload.tool_name || payload.tool}` : "", payload.tool_status ? `status=${payload.tool_status}` : "", payload.tool_call_id ? `call=${payload.tool_call_id}` : ""]) {
       if (!value) continue;
       const meta = document.createElement("small");
       meta.textContent = ` ${value}`;
       item.append(meta);
     }
-    const detailText = payload.text || payload.delta || payload.detail || payload.message || payload.content || payload.title || "";
+    const detailText = payload.summary || payload.text || payload.delta || payload.detail || payload.message || payload.content || payload.title || "";
     if (detailText) {
       const detail = document.createElement("p");
-      detail.className = "run-event-detail";
+      detail.className = payload.summary ? "run-event-summary" : "run-event-detail";
       detail.textContent = detailText;
       item.append(detail);
     }

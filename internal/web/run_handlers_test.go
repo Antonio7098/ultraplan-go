@@ -102,7 +102,7 @@ func TestBrowserRunPagesPreserveFiltersAndBoundAccessibleEnhancement(t *testing.
 	if detail.Code != http.StatusOK {
 		t.Fatalf("detail status=%d body=%s", detail.Code, body)
 	}
-	for _, want := range []string{`role="status" aria-live="polite"`, `data-confirm="Request durable cancellation`, `Current attempt`, `Replay boundary`, `oldest 1, last 700, omitted 11`, `Continue retained event replay`, `data-run-agents`,
+	for _, want := range []string{`role="status" aria-live="polite"`, `data-confirm="Request durable cancellation`, `Owner attempt`, `Runtime attempts`, `data-run-journey`, `data-run-phase="checking"`, `Replay boundary`, `oldest 1, last 700, omitted 11`, `Continue retained event replay`, `data-run-agents`,
 		`id="run-agent-grid"`,
 		`data-run-slots`,
 		`data-run-tab="history"`,
@@ -119,7 +119,7 @@ func TestBrowserRunPagesPreserveFiltersAndBoundAccessibleEnhancement(t *testing.
 	}
 
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{`form[data-confirm]`, `window.confirm`, `event.submitter?.focus()`, `250 - (Date.now()`, `durableTimeline.children.length > 500`, `sequence <= durableLast`, `document.hidden`, `.textContent =`, `ingestRunEvent(event)`, `[data-run-agents]`, `openRunAgent(trigger.dataset.runAgent)`, `agentDialog.showModal()`, `${agent.toolCalls} tool call`} {
+	for _, want := range []string{`form[data-confirm]`, `window.confirm`, `event.submitter?.focus()`, `250 - (Date.now()`, `durableTimeline.children.length > 500`, `sequence <= durableLast`, `document.hidden`, `.textContent =`, `ingestRunEvent(event)`, `ingestRunJourneyEvent(event)`, `selectRunPhase`, `"ArrowRight"`, `[data-run-agents]`, `openRunAgent(trigger.dataset.runAgent)`, `agentDialog.showModal()`, `${agent.toolCalls} tool call`} {
 		if !strings.Contains(js, want) {
 			t.Errorf("run enhancement missing %q", want)
 		}

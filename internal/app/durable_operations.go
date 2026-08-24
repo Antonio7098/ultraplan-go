@@ -134,7 +134,7 @@ func (m *durableOperationManager) RecordOperationEvent(ctx context.Context, runI
 	if event.State == OperationFailed {
 		eventType = runcontrol.EventWarning
 	}
-	key := string(eventType) + "\x00" + event.Stage + "\x00" + event.Task + "\x00" + event.EventType + "\x00" + event.EventKind + "\x00" + event.Tool + "\x00" + event.Reason + "\x00" + event.Detail
+	key := string(eventType) + "\x00" + event.Stage + "\x00" + event.Task + "\x00" + event.PhaseState + "\x00" + event.SafeSummary + "\x00" + event.EventType + "\x00" + event.EventKind + "\x00" + event.Tool + "\x00" + event.Reason + "\x00" + event.Detail
 	now := time.Now().UTC()
 	elapsed := now.Sub(owned.progressAt)
 	if eventType == runcontrol.EventProgress && key == owned.progressKey && elapsed >= 0 && elapsed < runcontrol.ProgressCoalesceWindow {
@@ -150,6 +150,7 @@ func (m *durableOperationManager) RecordOperationEvent(ctx context.Context, runI
 		"count": fmt.Sprintf("%d/%d", event.Completed, event.Total),
 	}
 	for key, value := range map[string]string{
+		"phase_state": event.PhaseState, "summary": event.SafeSummary,
 		"tool_call_id": event.ToolCallID, "tool_status": event.ToolStatus,
 		"tool_arguments": event.ToolArguments, "tool_result": event.ToolResult, "tool_error": event.ToolError,
 		"provider": event.Provider, "model": event.Model, "harness": event.Harness,
