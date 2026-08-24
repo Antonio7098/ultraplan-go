@@ -33,7 +33,7 @@ func TestStudyDimensionsPageListsExpandableCards(t *testing.T) {
 	}
 	body := res.Body.String()
 	for _, want := range []string{
-		`href="/studies/research/dimensions" aria-current="page"`,
+		`href="/studies/research/inputs" aria-current="page"`,
 		`data-dimension-search`,
 		`data-dimension-card`,
 		"Contract Boundary",
@@ -104,7 +104,7 @@ func TestStudyReposPageRanksAndComparesRepos(t *testing.T) {
 		"Repo leaderboard",
 		"All scores",
 		"Dimension leaders",
-		`href="/studies/research/repos" aria-current="page"`,
+		`href="/studies/research/results" aria-current="page"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("repos page missing %q in %s", want, body)
@@ -184,7 +184,7 @@ func TestStudyReportsPageSplitsFinalAndSourceReports(t *testing.T) {
 		"<code>01-contract</code><span>studies/research/reports/final/01-contract.md</span>",
 		"<code>repo</code><span>studies/research/reports/source/01-contract/repo.md</span>",
 		"<code>notes</code><span>studies/research/reports/source/01-contract/notes.md</span>",
-		`href="/studies/research/reports" aria-current="page"`,
+		`href="/studies/research/results" aria-current="page"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("reports page missing %q in %s", want, body)

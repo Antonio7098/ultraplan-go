@@ -43,11 +43,13 @@ The browser pages and bundled `/api/v1` resources inspect:
 - existing validation findings
 - governed Markdown and JSON artifacts through bounded source previews
 
-Project, sprint, and study pages also expose allowlisted operations backed by
-the same typed app capability as the TUI: validation, prompt/dry-run and sprint
-flow, execute, review, smoke, verify, study run-loop, status, and explicit
-cancellation. The browser cannot submit arbitrary commands, paths, prompts, or
-executables.
+Project, sprint, and study pages expose allowlisted actions beside the state
+they affect. Dashboards contain common start and validation actions; Roadmap,
+Sprint Workflow, and Study Progress contain more specific controls. There is
+no user-facing Operations section. The actions use the same typed app
+capability as the TUI: validation, prompt/dry-run and sprint flow, execute,
+review, smoke, verify, study run-loop, status, and explicit cancellation. The
+browser cannot submit arbitrary commands, paths, prompts, or executables.
 
 Each request reads current app-owned workspace state. State-bearing HTML, JSON,
 errors, operation projections, and SSE use `Cache-Control: no-store`. Embedded
@@ -282,8 +284,9 @@ available arguments, result, or error. The run page shows these fields in an
 expandable inspector in both the retained event feed and the per-agent stream.
 Structured values are stored as bounded JSON after recursive secret redaction.
 
-The server-rendered run index and detail pages are available at `/runs` and
-`/runs/{run_id}`. They work without JavaScript and show lifecycle separately
+Runs is a direct top-level navigation destination. The server-rendered run
+index and detail pages are available at `/runs` and `/runs/{run_id}`. They work
+without JavaScript and show lifecycle separately
 from liveness, product status, cancellation, retention/gap facts, and a bounded
 retained timeline. Cancellation is an explicit same-origin, session-bound,
 CSRF-protected form action.

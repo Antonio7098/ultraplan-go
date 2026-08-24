@@ -106,9 +106,9 @@ func TestTemplateAccessibilityStaticAndHostileNames(t *testing.T) {
 
 func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
-	for _, path := range []string{"/projects/alpha/operations", "/projects/alpha/sprints/30-web/operations", "/studies/research/operations"} {
+	for _, path := range []string{"/projects/alpha", "/projects/alpha/sprints/30-web", "/studies/research/progress"} {
 		body := request(h, http.MethodGet, path, nil).Body.String()
-		for _, want := range []string{`class="operation-form`, `aria-live="polite"`, `id="operation-timeline"`, `type="button"`, `<noscript>`} {
+		for _, want := range []string{`class="operation-form`, `action="/operations/prepare"`} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s missing %q in %s", path, want, body)
 			}
@@ -117,10 +117,10 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
 	for _, want := range []string{"data-previous-artifacts", "data-artifact-select", "/api/v1/artifacts/", "artifactIndex < currentIndex"} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("previous artefact browser JavaScript missing %q", want)
+			t.Fatalf("previous artifact browser JavaScript missing %q", want)
 		}
 	}
-	studyOperations := request(h, http.MethodGet, "/studies/research/operations", nil).Body.String()
+	studyOperations := request(h, http.MethodGet, "/studies/research/progress", nil).Body.String()
 	for _, want := range []string{`name="parallelism"`, `<option value="1" selected>1</option>`, `<option value="8">8</option>`} {
 		if !strings.Contains(studyOperations, want) {
 			t.Fatalf("study operations missing parallelism choice %q", want)
@@ -129,7 +129,7 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 	if !strings.Contains(js, "form.elements?.parallelism?.value") {
 		t.Fatal("operation JavaScript ignores the chosen parallelism")
 	}
-	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select", "data-stage-operation-status", "setInterval(refreshReviewers, 2000)", "durableStatusPath", "durableProcesses", `item.kind === "sprint-flow"`, "activeFlows.has(sprintScope)", "operation.href", `processes.addEventListener("pointerenter"`, `querySelectorAll(".detail-sidebar details")`, `addEventListener("pointerenter"`, `addEventListener("pointerleave"`, "pinnedOpen", "sidebar-hover-preview", "groupActiveRuns", `kind === "study-loop"`, "parallel agent"} {
+	for _, want := range []string{"new EventSource", "stream.onopen", "EventSource.CONNECTING", "Reconnecting automatically", "while (timeline.children.length > 100)", "timeline.scrollTop = timeline.scrollHeight", `method = "POST"`, `"DELETE"`, "stream.close()", "event.submitter", "window.location.assign", "window.location.reload", "data-stage-select", "data-stage-operation-status", "setInterval(refreshReviewers, 2000)", "durableStatusPath", "durableProcesses", `item.kind === "sprint-flow"`, "activeFlows.has(sprintScope)", "operation.href", `processes.addEventListener("pointerenter"`, "groupActiveRuns", `kind === "study-loop"`, "parallel agent"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("JavaScript missing %q", want)
 		}
@@ -174,16 +174,13 @@ func TestPrimaryNavigationUsesTopBarDestinations(t *testing.T) {
 		t.Fatal(err)
 	}
 	shell := string(body)
-	for _, want := range []string{`class="brand" href="/"`, `<a href="/projects">Projects</a>`, `<a href="/studies">Studies</a>`, `class="run-history-link" href="/runs" aria-label="Run history"`} {
+	for _, want := range []string{`class="brand" href="/"`, `<a href="/projects">Projects</a>`, `<a href="/studies">Studies</a>`, `class="runs-nav-link" href="/runs"`} {
 		if !strings.Contains(shell, want) {
 			t.Errorf("primary navigation missing %q", want)
 		}
 	}
 	if strings.Contains(shell, `<a href="/">Dashboard</a>`) {
 		t.Error("primary navigation still contains a dashboard item")
-	}
-	if strings.Contains(shell, `<a href="/runs">Runs</a>`) {
-		t.Error("primary navigation still contains a top-bar runs item")
 	}
 	for _, want := range []string{`data-nav-flyout`, `aria-label="Show projects"`, `aria-label="Show studies"`, `data-endpoint="/api/v1/projects"`, `data-endpoint="/api/v1/studies"`} {
 		if !strings.Contains(shell, want) {
@@ -262,15 +259,15 @@ func TestSprintCodeContextOrderAndPreservedArtifactOutcome(t *testing.T) {
 func TestSprintArtifactNavigatorKeepsExplorerContext(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	overview := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/artifacts", nil).Body.String()
-	for _, want := range []string{`aria-label="Artefact navigation"`, `>Overview</a>`, ">Definition</summary>", ">Delivery</summary>", "/projects/alpha/sprints/30-web/artifacts/artifact_ref"} {
+	for _, want := range []string{`aria-label="Sprint sections"`, `>Overview</a>`, ">Definition</h2>", ">Delivery</h2>", "/artifacts/artifact_ref"} {
 		if !strings.Contains(overview, want) {
-			t.Errorf("artefact overview missing %q", want)
+			t.Errorf("artifact overview missing %q", want)
 		}
 	}
 	preview := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/artifacts/artifact_ref", nil).Body.String()
-	for _, want := range []string{`class="detail-layout sprint-detail-layout sprint-artifact-layout"`, `aria-label="Project navigation"`, `aria-label="Sprint navigation"`, `aria-label="Artefact navigation"`, `class="markdown-body"`, "<h1>Plan</h1>"} {
+	for _, want := range []string{`class="breadcrumb"`, `aria-label="Sprint sections"`, `href="/projects/alpha/roadmap"`, `class="markdown-body"`, "<h1>Plan</h1>"} {
 		if !strings.Contains(preview, want) {
-			t.Errorf("nested artefact preview missing %q", want)
+			t.Errorf("nested artifact preview missing %q", want)
 		}
 	}
 }
@@ -299,14 +296,14 @@ func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
 		path, label, active string
 		links               []string
 	}{
-		{path: "/projects/alpha/documentation", label: "Project navigation", active: "/projects/alpha/documentation", links: []string{"/projects/alpha", "/projects/alpha/documentation", "/projects/alpha/roadmap"}},
-		{path: "/projects/alpha/sprints/30-web/run", label: "Sprint navigation", active: "/projects/alpha/sprints/30-web/run", links: []string{"/projects/alpha/sprints/30-web", "/projects/alpha/sprints/30-web/run", "/projects/alpha/sprints/30-web/artifacts"}},
-		{path: "/studies/research/progress", label: "Study navigation", active: "/studies/research/progress", links: []string{"/studies/research", "/studies/research/inputs", "/studies/research/dimensions", "/studies/research/operations", "/studies/research/validation", "/studies/research/reports"}},
+		{path: "/projects/alpha/documentation", label: "Project sections", active: "/projects/alpha/documentation", links: []string{"/projects/alpha", "/projects/alpha/documentation", "/projects/alpha/roadmap"}},
+		{path: "/projects/alpha/sprints/30-web/workflow", label: "Sprint sections", active: "/projects/alpha/sprints/30-web/workflow", links: []string{"/projects/alpha/sprints/30-web", "/projects/alpha/sprints/30-web/workflow", "/projects/alpha/sprints/30-web/artifacts"}},
+		{path: "/studies/research/progress", label: "Study sections", active: "/studies/research/progress", links: []string{"/studies/research", "/studies/research/inputs", "/studies/research/progress", "/studies/research/results"}},
 	}
 	for _, tt := range tests {
 		body := request(h, http.MethodGet, tt.path, nil).Body.String()
-		if !strings.Contains(body, `class="detail-sidebar"`) || !strings.Contains(body, `aria-label="`+tt.label+`"`) {
-			t.Fatalf("%s missing contextual sidebar in %s", tt.path, body)
+		if !strings.Contains(body, `class="entity-nav"`) || !strings.Contains(body, `aria-label="`+tt.label+`"`) {
+			t.Fatalf("%s missing contextual navigation in %s", tt.path, body)
 		}
 		for _, link := range tt.links {
 			if !strings.Contains(body, `href="`+link+`"`) {
@@ -317,15 +314,15 @@ func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
 			t.Errorf("%s does not identify the current page", tt.path)
 		}
 	}
-	sprintBody := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	if !strings.Contains(sprintBody, `class="detail-layout sprint-detail-layout"`) || !strings.Contains(sprintBody, `aria-label="Project navigation"`) || !strings.Contains(sprintBody, `/projects/alpha/roadmap" aria-current="page"`) {
-		t.Errorf("sprint page is missing persistent project navigation: %s", sprintBody)
+	sprintBody := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/workflow", nil).Body.String()
+	if !strings.Contains(sprintBody, `class="breadcrumb"`) || !strings.Contains(sprintBody, `href="/projects/alpha/roadmap"`) {
+		t.Errorf("sprint page is missing project context: %s", sprintBody)
 	}
 }
 
 func TestProjectNavigationIsSharedWithSprintPages(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
-	for _, path := range []string{"/projects/alpha", "/projects/alpha/sprints/30-web"} {
+	for _, path := range []string{"/projects/alpha"} {
 		body := request(h, http.MethodGet, path, nil).Body.String()
 		for _, want := range []string{">Overview</a>", ">Docs</a>", ">Roadmap</a>"} {
 			if !strings.Contains(body, want) {
@@ -340,14 +337,14 @@ func TestProjectNavigationIsSharedWithSprintPages(t *testing.T) {
 	}
 }
 
-func TestNestedNavigationUsesOneDrillDownSidebar(t *testing.T) {
+func TestNestedNavigationUsesEntityTabsWithoutSidebar(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	tests := []struct {
 		path  string
 		wants []string
 	}{
-		{"/projects/alpha/documentation", []string{`data-sidebar-stack`, `id="project-sidebar"`, `id="docs-sidebar"`, `data-sidebar-back="project-sidebar"`}},
-		{"/projects/alpha/sprints/30-web/artifacts", []string{`id="project-sidebar"`, `id="sprint-sidebar"`, `id="artifact-sidebar"`, `data-sidebar-back="sprint-sidebar"`}},
+		{"/projects/alpha/documentation", []string{`class="entity-nav"`, `aria-label="Project sections"`, `class="breadcrumb"`}},
+		{"/projects/alpha/sprints/30-web/artifacts", []string{`class="entity-nav"`, `aria-label="Sprint sections"`, `class="breadcrumb"`}},
 	}
 	for _, tt := range tests {
 		body := request(h, http.MethodGet, tt.path, nil).Body.String()
@@ -356,15 +353,9 @@ func TestNestedNavigationUsesOneDrillDownSidebar(t *testing.T) {
 				t.Errorf("%s missing drill-down sidebar marker %q", tt.path, want)
 			}
 		}
-	}
-	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"data-sidebar-stack", "data-sidebar-back", "panel.hidden = panel !== target", "Only the back", "event.preventDefault()"} {
-		if !strings.Contains(js, want) {
-			t.Errorf("sidebar behavior missing %q", want)
+		if strings.Contains(body, `class="detail-sidebar"`) || strings.Contains(body, `data-sidebar-stack`) {
+			t.Errorf("%s retained sidebar navigation", tt.path)
 		}
-	}
-	if strings.Contains(js, `open && showPanel(open.dataset.sidebarOpen)`) {
-		t.Error("sidebar drill-down links still suppress main-content navigation")
 	}
 }
 
@@ -372,7 +363,7 @@ func TestDetailOverviewPagesStayFocused(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	for _, path := range []string{"/projects/alpha", "/studies/research"} {
 		body := request(h, http.MethodGet, path, nil).Body.String()
-		if !strings.Contains(body, `class="destination-grid"`) || strings.Contains(body, `class="operation-form"`) || strings.Contains(body, `<h2>Artifacts</h2>`) {
+		if !strings.Contains(body, `class="entity-summary"`) || !strings.Contains(body, `class="operation-form`) || strings.Contains(body, `>Operations</a>`) {
 			t.Errorf("%s is not a focused overview: %s", path, body)
 		}
 	}

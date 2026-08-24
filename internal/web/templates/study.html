@@ -1,25 +1,13 @@
 {{define "page/study"}}{{template "layout/top" .}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/studies">Studies</a> / {{.Study.Name}}{{if ne .Page "overview"}} / {{if eq .Page "inputs"}}Inputs{{else if eq .Page "progress"}}Progress{{else if eq .Page "operations"}}Operations{{else if eq .Page "validation"}}Validation{{else if eq .Page "dimensions"}}Dimensions{{else if eq .Page "repos"}}Repos{{else}}Reports{{end}}{{end}}</nav>
-<div class="detail-layout">
-<aside class="detail-sidebar">
-<nav aria-label="Study navigation"><h2>Study</h2><ul>
-<li><a href="/studies/{{.Study.Name}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
-<li><a href="/studies/{{.Study.Name}}/inputs"{{if eq .Page "inputs"}} aria-current="page"{{end}}>Inputs</a></li>
-<li><a href="/studies/{{.Study.Name}}/dimensions"{{if eq .Page "dimensions"}} aria-current="page"{{end}}>Dimensions</a></li>
-<li><a href="/studies/{{.Study.Name}}/progress"{{if eq .Page "progress"}} aria-current="page"{{end}}>Progress</a></li>
-<li><a href="/studies/{{.Study.Name}}/operations"{{if eq .Page "operations"}} aria-current="page"{{end}}>Operations</a></li>
-<li><a href="/studies/{{.Study.Name}}/validation"{{if eq .Page "validation"}} aria-current="page"{{end}}>Validation</a></li>
-<li><a href="/studies/{{.Study.Name}}/reports"{{if eq .Page "reports"}} aria-current="page"{{end}}>Reports</a></li>
-<li><a href="/studies/{{.Study.Name}}/repos"{{if eq .Page "repos"}} aria-current="page"{{end}}>Repos</a></li>
-</ul></nav>
-</aside>
-<div class="detail-content">
+<nav class="breadcrumb" aria-label="Breadcrumb"><a href="/studies">Studies</a><span aria-hidden="true">/</span><span>{{.Study.Name}}</span>{{if ne .Page "overview"}}<span aria-hidden="true">/</span><span>{{if eq .Page "inputs"}}Inputs{{else if eq .Page "progress"}}Progress{{else}}Results{{end}}</span>{{end}}</nav>
+<nav class="entity-nav" aria-label="Study sections"><a href="/studies/{{.Study.Name}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a><a href="/studies/{{.Study.Name}}/inputs"{{if eq .Page "inputs"}} aria-current="page"{{end}}>Inputs</a><a href="/studies/{{.Study.Name}}/progress"{{if eq .Page "progress"}} aria-current="page"{{end}}>Progress</a><a href="/studies/{{.Study.Name}}/results"{{if eq .Page "results"}} aria-current="page"{{end}}>Results</a></nav>
 {{if eq .Page "overview"}}
-<section><h2>Overview</h2><dl class="metadata"><div><dt>Status</dt><dd>{{.Study.Status}}</dd></div><div><dt>Tasks</dt><dd>{{.Study.Completed}} complete / {{.Study.Total}} total</dd></div><div><dt>Active</dt><dd>{{if .Study.RunActive}}yes{{else}}no{{end}}</dd></div><div><dt>Validation findings</dt><dd>{{len .Study.Findings}}</dd></div></dl></section>
-<nav class="destination-grid" aria-label="Study overview destinations"><a href="/studies/{{.Study.Name}}/inputs"><strong>Inputs</strong><span>Review sources and analysis dimensions.</span></a><a href="/studies/{{.Study.Name}}/progress"><strong>Progress</strong><span>See the detailed task and run state.</span></a><a href="/studies/{{.Study.Name}}/operations"><strong>Operations</strong><span>Prepare validation or run the study.</span></a><a href="/studies/{{.Study.Name}}/reports"><strong>Reports</strong><span>Read the study’s per-source and final reports.</span></a><a href="/studies/{{.Study.Name}}/repos"><strong>Repos</strong><span>Compare repo ratings and dimension leaders.</span></a></nav>
+<section class="entity-summary"><div class="section-heading"><h2>{{if .Study.RunActive}}Study running{{else if lt .Study.Completed .Study.Total}}Study ready to continue{{else}}Study complete{{end}}</h2><span class="status {{if .Study.RunActive}}status-info{{else}}status-muted{{end}}">{{.Study.Status}}</span></div><progress max="{{.Study.Total}}" value="{{.Study.Completed}}">{{.Study.Completed}} of {{.Study.Total}}</progress><dl class="metadata"><div><dt>Tasks</dt><dd>{{.Study.Completed}} complete / {{.Study.Total}} total</dd></div><div><dt>Inputs</dt><dd>{{len .Study.Sources}} sources · {{len .Study.Dimensions}} dimensions</dd></div><div><dt>Needs attention</dt><dd>{{len .Study.Findings}} findings</dd></div></dl><div class="context-actions">{{if .Study.RunID}}<a class="button-link" href="/runs/{{.Study.RunID}}">Open active run</a>{{else}}<form class="operation-form inline-operation" method="post" action="/operations/prepare" data-operation-kind="study_run_loop" data-study="{{.Study.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="study_run_loop"><input type="hidden" name="study" value="{{.Study.Name}}"><input type="hidden" name="parallelism" value="1"><button type="submit">{{if gt .Study.Completed 0}}Resume study{{else}}Start study{{end}}</button></form>{{end}}<form class="operation-form inline-operation" method="post" action="/operations/prepare" data-operation-kind="validation" data-study="{{.Study.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="validation"><input type="hidden" name="study" value="{{.Study.Name}}"><button type="submit">Validate study</button></form></div></section>
+<section><div class="section-heading"><h2>Inputs</h2><a href="/studies/{{.Study.Name}}/inputs">Review inputs</a></div><p>{{len .Study.Sources}} sources are evaluated against {{len .Study.Dimensions}} dimensions.</p></section>
+<section><div class="section-heading"><h2>Results</h2><a href="/studies/{{.Study.Name}}/results">Open results</a></div><p>Read final reports, inspect source evidence, and compare repository scores.</p></section>
+<section><h2>Needs attention</h2>{{template "component/findings" .Study.Findings}}</section>
 {{else if eq .Page "inputs"}}
 <section><h2>Sources</h2>{{if .Study.Sources}}<ul>{{range .Study.Sources}}<li>{{.}}</li>{{end}}</ul>{{else}}<p class="empty">No sources found.</p>{{end}}</section>
-{{else if eq .Page "dimensions"}}
 <section class="dimensions-browser" data-dimensions-browser aria-label="Dimension browser">
   <h2>Dimensions</h2>
   <div class="dimensions-toolbar">
@@ -51,6 +39,7 @@
 <section><h2>Dimensions</h2>{{if .Study.Dimensions}}<ul>{{range .Study.Dimensions}}<li>{{.}}</li>{{end}}</ul>{{else}}<p class="empty">No dimensions found.</p>{{end}}</section>
 {{else if eq .Page "progress"}}
 <section class="study-progress-summary" aria-labelledby="study-progress-heading"><header><div><p class="eyebrow">Study progress</p><h2 id="study-progress-heading">{{.Study.Completed}} of {{.Study.Total}} tasks complete</h2><p class="group-description">{{if .Study.RunActive}}Agents are working now.{{else}}No agents are currently running.{{end}}</p></div><span class="status {{if .Study.RunActive}}status-info{{else}}status-muted{{end}}">{{if .Study.RunActive}}Active{{else}}Idle{{end}}</span></header><progress max="{{.Study.Total}}" value="{{.Study.Completed}}">{{.Study.Completed}} of {{.Study.Total}}</progress><dl class="study-progress-counts"><div><dt>Complete</dt><dd>{{.Study.Completed}}</dd></div><div><dt>Active</dt><dd>{{.Study.ActiveTasks}}</dd></div><div><dt>Needs attention</dt><dd>{{.Study.Failed}} failed · {{.Study.Cancelled}} cancelled</dd></div><div><dt>Pending</dt><dd>{{.Study.Pending}}</dd></div></dl>{{if .Study.RunID}}<p class="study-current-run">Current run <a href="/runs/{{.Study.RunID}}"><code>{{.Study.RunID}}</code></a></p>{{end}}</section>
+<section><h2>Run controls</h2><div class="operation-actions"><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="study_run_loop" data-study="{{.Study.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="study_run_loop"><input type="hidden" name="study" value="{{.Study.Name}}"><label class="parallelism-choice">Parallel agents <select name="parallelism"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label><label class="model-choice">Model <input type="text" name="model" list="ultraplan-model-options" data-model-input placeholder="Workspace default" autocomplete="off" spellcheck="false"></label><button type="submit">{{if gt .Study.Completed 0}}Resume study{{else}}Start study{{end}}</button></form></div></section>
 <link rel="stylesheet" href="/static/run-timeline.css">
 <section class="run-history-timeline" data-run-timeline data-timeline-scope="study" data-timeline-study="{{.Study.Name}}" aria-labelledby="run-timeline-heading">
 <header><div><p class="eyebrow">Run history</p><h2 id="run-timeline-heading">Run timeline</h2><p>Each line is one durable run for this study across the selected window; spikes show tool activity.</p></div>
@@ -73,12 +62,7 @@
 <div class="resource-events"><h3>Memory controls</h3><ul data-resource-events><li>No throttle events recorded.</li></ul></div>
 </section>
 <script src="/static/resource-monitor.js" defer></script>
-{{else if eq .Page "operations"}}
-<section><h2>Study operations</h2><div class="operation-actions"><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="validation" data-study="{{.Study.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="validation"><input type="hidden" name="study" value="{{.Study.Name}}"><button type="submit">Prepare study validation</button></form><form class="operation-form" method="post" action="/operations/prepare" data-operation-kind="study_run_loop" data-study="{{.Study.Name}}"><input type="hidden" name="_csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="study_run_loop"><input type="hidden" name="study" value="{{.Study.Name}}"><label class="parallelism-choice">Parallel agents <select name="parallelism"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label><label class="model-choice">Model <input type="text" name="model" list="ultraplan-model-options" data-model-input placeholder="Workspace default" autocomplete="off" spellcheck="false"></label><button type="submit">Prepare study run loop</button></form></div></section>
-{{template "component/operation-console" .}}
-{{else if eq .Page "validation"}}
-<section><h2>Validation findings</h2>{{template "component/findings" .Study.Findings}}</section>
-{{else if eq .Page "reports"}}
+{{else if eq .Page "results"}}
 <section class="reports-browser">
   <div class="pill-tabs" role="tablist" aria-label="Report kinds" data-report-tabs>
     <button type="button" role="tab" id="reports-tab-final" aria-selected="true" aria-controls="reports-panel-final" data-report-tab="final">Final <span class="tab-count">{{len .ReportFinals}}</span></button>
@@ -98,7 +82,6 @@
   </div>
 </section>
 <script src="/static/js/study.js" defer></script>
-{{else if eq .Page "repos"}}
 {{if .RepoBoard}}
 <section><h2>Repo leaderboard</h2>
 <ol class="repo-board">{{range .RepoBoard}}
@@ -117,6 +100,4 @@
 </section>
 {{else}}<p class="empty">No repo reports have been rated yet.</p>{{end}}
 {{end}}
-</div>
-</div>
 {{template "layout/bottom" .}}{{end}}

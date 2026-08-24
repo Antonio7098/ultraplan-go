@@ -1,32 +1,12 @@
 {{define "page/sprint"}}{{template "layout/top" .}}
-<div class="detail-layout sprint-detail-layout{{if eq .Page "artifacts"}} sprint-artifact-layout{{end}}">
-<div class="sidebar-stack" data-sidebar-stack>
-{{template "component/sidebar-controls" .}}
-{{template "component/project-navigation" .}}
-<aside id="sprint-sidebar" class="detail-sidebar" data-sidebar-panel{{if eq .Page "artifacts"}} hidden{{end}}>
-<nav aria-label="Sprint navigation"><button class="sidebar-back" type="button" data-sidebar-back="project-sidebar">← Sprint</button><h2>Sprint</h2><ul>
-<li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
-<li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts"{{if eq .Page "artifacts"}} aria-current="page"{{end}}{{if eq .Page "artifacts"}} data-sidebar-open="artifact-sidebar"{{end}}>Artefact Navigator</a></li>
-<li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/run"{{if eq .Page "run"}} aria-current="page"{{end}}>Run</a></li>
-</ul></nav>
-</aside>
-{{if eq .Page "artifacts"}}<aside id="artifact-sidebar" class="detail-sidebar artifact-explorer-sidebar" data-sidebar-panel>
-<nav aria-label="Artefact navigation"><button class="sidebar-back" type="button" data-sidebar-back="sprint-sidebar">← Artefacts</button><h2>Artefacts</h2><ul class="artifact-tree">
-<li><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts"{{if not .Artifact}} aria-current="page"{{end}}>Overview</a></li>
-<li><details open><summary>Definition</summary><ul>{{range .Sprint.Artifacts}}{{if or (eq .Label "requirements") (eq .Label "code-context") (eq .Label "sprint-index")}}<li><a href="/projects/{{$.Sprint.Project}}/sprints/{{$.Sprint.Slug}}/artifacts/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
-<li><details open><summary>Design</summary><ul>{{range .Sprint.Artifacts}}{{if or (eq .Label "technical-handbook") (eq .Label "reasoning")}}<li><a href="/projects/{{$.Sprint.Project}}/sprints/{{$.Sprint.Slug}}/artifacts/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
-<li><details open><summary>Delivery</summary><ul>{{range .Sprint.Artifacts}}{{if or (eq .Label "plan") (eq .Label "execute")}}<li><a href="/projects/{{$.Sprint.Project}}/sprints/{{$.Sprint.Slug}}/artifacts/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
-<li><details open><summary>Assurance</summary><ul>{{range .Sprint.Artifacts}}{{if or (eq .Label "review") (eq .Label "smoke")}}<li><a href="/projects/{{$.Sprint.Project}}/sprints/{{$.Sprint.Slug}}/artifacts/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
-<li><details><summary>Internal state</summary><ul>{{range .Sprint.Artifacts}}{{if or (eq .Label "flow-state") (eq .Label "run-state")}}<li><a href="/projects/{{$.Sprint.Project}}/sprints/{{$.Sprint.Slug}}/artifacts/{{.Ref}}"{{if and $.Artifact (eq $.Artifact.Ref .Ref)}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
-</ul></nav></aside>{{end}}
-</div>
-<div class="detail-content">
+<nav class="breadcrumb" aria-label="Breadcrumb"><a href="/projects">Projects</a><span aria-hidden="true">/</span><a href="/projects/{{.Sprint.Project}}">{{.Sprint.Project}}</a><span aria-hidden="true">/</span><a href="/projects/{{.Sprint.Project}}/roadmap">Roadmap</a><span aria-hidden="true">/</span><span>{{.Sprint.Slug}}</span></nav>
+<nav class="entity-nav" aria-label="Sprint sections"><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/workflow"{{if eq .Page "workflow"}} aria-current="page"{{end}}>Workflow</a><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts"{{if eq .Page "artifacts"}} aria-current="page"{{end}}>Artifacts</a></nav>
 {{if eq .Page "overview"}}
 <div class="sprint-overview-grid">
 <section class="sprint-intro sprint-overview-hero" aria-labelledby="sprint-overview-heading">
   <p class="eyebrow">Sprint overview</p><h2 id="sprint-overview-heading">What this sprint is</h2>
   {{if .Sprint.Overview}}<p class="sprint-goal">{{.Sprint.Overview}}</p>{{else}}<p class="empty">No sprint overview yet. Run Requirements to define this sprint.</p>{{end}}
-  <a class="sprint-knowledge-link" href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts">View requirements and supporting artefacts <span aria-hidden="true">→</span></a>
+  <a class="sprint-knowledge-link" href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts">View requirements and supporting artifacts <span aria-hidden="true">→</span></a>
 </section>
 <section class="sprint-status-panel" aria-labelledby="sprint-status-heading"><p class="eyebrow">Progress</p><h2 id="sprint-status-heading">Current status</h2>
   <div class="sprint-status-summary"><div><span class="status status-info">{{if .Sprint.CurrentStage}}{{.Sprint.CurrentStage}}{{else}}complete{{end}}</span><strong>{{.Sprint.CompletedStages}} of {{.Sprint.TotalStages}} stages complete</strong></div>
@@ -45,13 +25,13 @@
 </div>
 {{else if eq .Page "artifacts"}}
 {{if .Artifact}}
-<section class="artifact-preview-heading"><p class="eyebrow">Artefact preview</p><h2>{{.Artifact.DisplayPath}}</h2><dl class="metadata"><div><dt>Media type</dt><dd>{{.Artifact.MediaType}}</dd></div><div><dt>Returned bytes</dt><dd>{{.Artifact.ReturnedBytes}} of {{.Artifact.SizeBytes}}</dd></div><div><dt>Truncated</dt><dd>{{if .Artifact.Truncated}}yes{{else}}no{{end}}</dd></div></dl></section>
+<section class="artifact-preview-heading"><p class="eyebrow">Artifact preview</p><h2>{{.Artifact.DisplayPath}}</h2><dl class="metadata"><div><dt>Media type</dt><dd>{{.Artifact.MediaType}}</dd></div><div><dt>Returned bytes</dt><dd>{{.Artifact.ReturnedBytes}} of {{.Artifact.SizeBytes}}</dd></div><div><dt>Truncated</dt><dd>{{if .Artifact.Truncated}}yes{{else}}no{{end}}</dd></div></dl></section>
 {{if .Artifact.Truncated}}<p class="notice" role="status">Preview truncated at the safe 256 KiB limit.</p>{{end}}
 {{if and (eq .Artifact.MediaType "application/json") (not .Artifact.JSONValid)}}<p class="notice" role="status">The bounded source is not valid JSON.</p>{{end}}
 {{if .ArtifactHTML}}<article class="markdown-body">{{.ArtifactHTML}}</article>{{else}}<div class="code-wrap artifact-explorer-preview"><pre aria-label="Escaped artifact source"><code>{{.Artifact.Content}}</code></pre></div>{{end}}
 {{if .SmokeArtifact}}{{with .Sprint.Smoke.CoverageMapping}}{{template "component/smoke-coverage-mapping" .}}{{end}}{{end}}
 {{else}}
-<section><p class="eyebrow">Sprint knowledge</p><h2>Artefact Navigator</h2><p>Browse the sprint by purpose. Governed documents explain the work; internal state is kept separate.</p></section>
+<section><p class="eyebrow">Sprint knowledge</p><h2>Artifact Navigator</h2><p>Browse the sprint by purpose. Governed documents explain the work; internal state is kept separate.</p></section>
 <div class="artifact-groups">
 <section><h2>Definition</h2><p class="group-description">What the sprint must achieve and the project material selected for it.</p>{{range .Sprint.Artifacts}}{{if or (eq .Label "requirements") (eq .Label "code-context") (eq .Label "sprint-index")}}<a class="artifact-card" href="/artifacts/{{.Ref}}"><strong>{{.Label}}</strong><span>{{.DisplayPath}}</span></a>{{end}}{{end}}</section>
 <section><h2>Design</h2><p class="group-description">The technical context and decisions behind the plan.</p>{{range .Sprint.Artifacts}}{{if or (eq .Label "technical-handbook") (eq .Label "reasoning")}}<a class="artifact-card" href="/artifacts/{{.Ref}}"><strong>{{.Label}}</strong><span>{{.DisplayPath}}</span></a>{{end}}{{end}}</section>
@@ -61,7 +41,7 @@
 </div>
 {{end}}
 {{else}}
-<div class="run-heading"><div><p class="eyebrow">Governed lifecycle</p><h2>Run</h2></div><p><strong>{{.Sprint.CompletedStages}} of {{.Sprint.TotalStages}}</strong> stages complete</p></div>
+<div class="run-heading"><div><h2>Workflow</h2></div><p><strong>{{.Sprint.CompletedStages}} of {{.Sprint.TotalStages}}</strong> stages complete</p></div>
 <link rel="stylesheet" href="/static/run-timeline.css">
 <section class="run-history-timeline" data-run-timeline data-timeline-scope="sprint" data-timeline-project="{{.Sprint.Project}}" data-timeline-sprint="{{.Sprint.Slug}}" aria-labelledby="run-timeline-heading">
 <header><div><p class="eyebrow">Run history</p><h2 id="run-timeline-heading">Run timeline</h2><p>Each line is one durable run for this sprint across the selected window; spikes show tool activity.</p></div>
@@ -75,11 +55,11 @@
 <ol class="stage-timeline" aria-label="Sprint stages">{{range .Sprint.RunStages}}<li class="stage-{{.Status}}"><a href="#stage-{{.Name}}" data-stage-select="stage-{{.Name}}" data-stage-has-artifact="{{if or (eq .Status "complete") (eq .Status "completed") .ArtifactAvailable}}true{{else}}false{{end}}" aria-controls="stage-{{.Name}}"><span class="stage-marker" aria-hidden="true"></span><strong>{{.Name}}</strong><span class="status status-{{if or (eq .Status "complete") (eq .Status "completed") (eq .Status "skipped")}}ok{{else if eq .Status "running"}}info{{else if or (eq .Status "failed") (eq .Status "blocked")}}error{{else}}warn{{end}}">{{.Status}}</span></a></li>{{end}}</ol>
 <div class="run-workspace-columns">
 <aside class="previous-artifacts-panel" data-previous-artifacts aria-labelledby="previous-artifacts-heading">
-<header><p class="eyebrow">Stage context</p><h2 id="previous-artifacts-heading">Previous artefacts</h2><p>Browse outputs produced before the selected stage.</p></header>
+<header><p class="eyebrow">Stage context</p><h2 id="previous-artifacts-heading">Previous artifacts</h2><p>Browse outputs produced before the selected stage.</p></header>
 <ul class="previous-artifact-list">{{range .Sprint.Artifacts}}{{if not (or (eq .Label "flow-state") (eq .Label "run-state"))}}<li data-artifact-item><a href="/projects/{{$.Sprint.Project}}/sprints/{{$.Sprint.Slug}}/artifacts/{{.Ref}}" data-artifact-select data-artifact-stage="{{.Label}}" data-artifact-ref="{{.Ref}}"><strong>{{.Label}}</strong><span>{{.DisplayPath}}</span></a></li>{{end}}{{end}}</ul>
 <div class="previous-artifact-preview" data-artifact-preview aria-live="polite">
-<p class="empty" data-artifact-empty>Select a stage to browse its previous artefacts.</p>
-<div data-artifact-content hidden><div class="previous-artifact-preview-heading"><div><strong data-artifact-name>Artefact</strong><span data-artifact-meta></span></div><a data-artifact-open href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts">Open full artefact</a></div><div class="code-wrap"><pre aria-label="Artefact source preview"><code data-artifact-source></code></pre></div></div>
+<p class="empty" data-artifact-empty>Select a stage to browse its previous artifacts.</p>
+<div data-artifact-content hidden><div class="previous-artifact-preview-heading"><div><strong data-artifact-name>Artifact</strong><span data-artifact-meta></span></div><a data-artifact-open href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts">Open full artifact</a></div><div class="code-wrap"><pre aria-label="Artifact source preview"><code data-artifact-source></code></pre></div></div>
 </div>
 </aside>
 <div class="stage-details">{{range .Sprint.RunStages}}{{$stage := .}}<section id="stage-{{.Name}}" class="stage-detail" data-stage-panel tabindex="-1"><header><div><p class="eyebrow">Stage</p><h2>{{.Name}}</h2></div><span class="status status-{{if or (eq .Status "complete") (eq .Status "completed") (eq .Status "skipped")}}ok{{else if eq .Status "running"}}info{{else if or (eq .Status "failed") (eq .Status "blocked")}}error{{else}}warn{{end}}">{{.Status}}</span></header>
@@ -111,7 +91,7 @@
 <dialog class="reviewer-result-dialog prompt-block-dialog" data-prompt-block-dialog aria-labelledby="prompt-block-dialog-title"><div class="reviewer-result-heading"><div><h2 id="prompt-block-dialog-title" data-prompt-block-title>Rendered block</h2><p data-prompt-block-meta></p></div><button type="button" data-prompt-block-close aria-label="Close rendered block">Close</button></div><pre tabindex="0"><code data-prompt-block-content></code></pre></dialog>
 </div></div>
 {{end}}
-</div></div>{{template "layout/bottom" .}}{{end}}
+</div>{{template "layout/bottom" .}}{{end}}
 
 {{define "component/smoke-coverage-mapping"}}<section class="smoke-coverage-mapping" aria-labelledby="smoke-coverage-heading">
   <p class="eyebrow">Deep smoke</p><h2 id="smoke-coverage-heading">Coverage mapping</h2>

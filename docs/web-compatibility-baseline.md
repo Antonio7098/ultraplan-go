@@ -9,12 +9,14 @@ updates; snapshot regeneration alone is not approval.
 ## Route And Method Inventory
 
 State-bearing HTML routes accept `GET` and `HEAD`: `/`, `/projects`,
-`/projects/{project}`, project documentation/sprint/operation/validation
-views, `/projects/{project}/sprints/{sprint}` and its run/artifact/operation/
-validation views, `/studies`, `/studies/{study}` and its input/progress/
-operation/validation/artifact views, `/artifacts/{ref}`, and
+`/projects/{project}`, its dashboard, roadmap, and documentation views,
+`/projects/{project}/sprints/{sprint}` and its workflow/artifact views,
+`/studies`, `/studies/{study}` and its dashboard, input, progress, and results
+views, `/artifacts/{ref}`, and
 `/operations/{id}`. Normal HTML preparation/start/cancel forms use `POST` at
 `/operations/prepare`, `/operations/start`, and `/operations/{id}/cancel`.
+Former operation, validation, run, dimensions, reports, and repos paths remain
+GET-compatible aliases to their consolidated entity page.
 
 The JSON/SSE matrix is fixed as follows:
 

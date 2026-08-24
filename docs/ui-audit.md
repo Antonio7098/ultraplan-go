@@ -1,5 +1,7 @@
 # UltraPlan Web UI Audit & Redesign Report
 
+> Implementation note, 24 August 2026: project, sprint, and study sidebars have now been removed. Their overview pages act as dashboards, short section tabs handle sibling navigation, Runs is a direct top-level destination, and actions live beside the state they affect. The historical findings below remain as the record that motivated the change.
+
 Scope: `internal/web` (templates, CSS, JS), benchmarked against two references the team likes:
 
 - **agent-chat-ui demo** (`~/coding/agent-chat-ui/index.html`) — a single-page mock of the ideal "run" experience: run summary panel + live action track.

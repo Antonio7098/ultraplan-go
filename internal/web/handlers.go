@@ -416,8 +416,11 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		page := match.params[1]
-		if page == "artifacts" || page == "validation" {
+		if page == "artifacts" {
 			page = "documentation"
+		}
+		if page == "operations" || page == "validation" {
+			page = "overview"
 		}
 		if page == "sprints" || page == "roadmap" {
 			page = "roadmap"
@@ -450,8 +453,8 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		page := match.params[2]
-		if page == "plan" || page == "delivery" || page == "operations" || page == "validation" {
-			page = "run"
+		if page == "run" || page == "plan" || page == "delivery" || page == "operations" || page == "validation" {
+			page = "workflow"
 		}
 		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: sprintPageTitle(page) + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Page: page})
 	case "sprint_artifact":
@@ -493,8 +496,20 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		page := match.params[1]
-		model := pageModel{Title: studyPageTitle(page) + " · " + result.Name, Heading: result.Name, Study: &result, Page: page}
 		if page == "dimensions" {
+			page = "inputs"
+		}
+		if page == "operations" {
+			page = "progress"
+		}
+		if page == "validation" {
+			page = "overview"
+		}
+		if page == "reports" || page == "repos" {
+			page = "results"
+		}
+		model := pageModel{Title: studyPageTitle(page) + " · " + result.Name, Heading: result.Name, Study: &result, Page: page}
+		if page == "inputs" {
 			cards, err := h.studyDimensionCards(r, match.params[0])
 			if err != nil {
 				h.handleQueryError(w, r, false, err)
@@ -502,7 +517,7 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			}
 			model.DimensionList = cards
 		}
-		if page == "reports" {
+		if page == "results" {
 			finals, groups, err := h.studyReportViews(r, match.params[0])
 			if err != nil {
 				h.handleQueryError(w, r, false, err)
@@ -514,7 +529,7 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 				model.ReportSourceCount += len(group.Reports)
 			}
 		}
-		if page == "repos" {
+		if page == "results" {
 			if err := h.loadRepoBoard(r, match.params[0], &model); err != nil {
 				h.handleQueryError(w, r, false, err)
 				return
@@ -727,10 +742,10 @@ func safeMarkdown(source string) template.HTML {
 
 func sprintPageTitle(page string) string {
 	switch page {
-	case "run":
-		return "Run"
+	case "workflow":
+		return "Workflow"
 	default:
-		return "Artefact Navigator"
+		return "Artifact Navigator"
 	}
 }
 
@@ -740,14 +755,8 @@ func studyPageTitle(page string) string {
 		return "Inputs"
 	case "progress":
 		return "Progress"
-	case "operations":
-		return "Operations"
-	case "validation":
-		return "Validation"
-	case "reports":
-		return "Reports"
-	case "repos":
-		return "Repos"
+	case "results":
+		return "Results"
 	default:
 		return "Reports"
 	}

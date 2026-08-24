@@ -38,9 +38,9 @@
         </div>
       </div>
       <div class="running-processes" data-running-processes>
-        <button type="button" aria-label="Running processes: 0" aria-expanded="false" aria-controls="running-processes-flyout">
+        <a class="runs-nav-link" href="/runs">Runs <span data-running-count>0</span><span class="visually-hidden"> active</span></a>
+        <button type="button" aria-label="Show active runs" aria-expanded="false" aria-controls="running-processes-flyout">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/></svg>
-          <span data-running-count>0</span>
         </button>
         <div class="running-processes-flyout" id="running-processes-flyout">
           <div class="top-nav-flyout-heading"><strong>Running processes</strong><span data-running-status>Checking…</span><a class="run-history-link" href="/runs" aria-label="Run history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a></div>
@@ -52,7 +52,6 @@
   <main id="main" tabindex="-1">
     <div class="heading-row">
       <div>
-        <p class="eyebrow">Local workspace</p>
         <h1>{{.Heading}}</h1>
       </div>
       <a class="refresh-link" href="" aria-describedby="refresh-status">Refresh</a>
@@ -77,22 +76,6 @@
   {{end}}
 </ul>
 {{else}}<p class="empty">No previewable artifacts.</p>{{end}}
-{{end}}
-
-{{define "component/project-navigation"}}
-{{$name := ""}}{{if .Project}}{{$name = .Project.Name}}{{else if .Sprint}}{{$name = .Sprint.Project}}{{end}}
-<aside id="project-sidebar" class="detail-sidebar" data-sidebar-panel{{if or .Sprint (and .Project (eq .Page "documentation"))}} hidden{{end}}><nav aria-label="Project navigation"><a class="sidebar-back" href="/projects">← Project</a><h2>Project</h2><ul>
-  <li><a href="/projects/{{$name}}"{{if and .Project (eq .Page "overview")}} aria-current="page"{{end}}>Overview</a></li>
-  <li><a href="/projects/{{$name}}/documentation"{{if and .Project (eq .Page "documentation")}} aria-current="page"{{end}}{{if and .Project (eq .Page "documentation")}} data-sidebar-open="docs-sidebar"{{end}}>Docs</a></li>
-  <li><a href="/projects/{{$name}}/roadmap"{{if or .Sprint (eq .Page "roadmap") (eq .Page "sprints")}} aria-current="page"{{end}}{{if .Sprint}} data-sidebar-open="sprint-sidebar"{{end}}>Roadmap</a></li>
-</ul></nav></aside>
-{{end}}
-
-{{define "component/sidebar-controls"}}
-<div class="sidebar-controls">
-  <button class="sidebar-launcher" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Toggle contextual navigation"><span class="sidebar-launcher-icon" aria-hidden="true"></span><span data-sidebar-label>{{if and .Sprint (eq .Page "artifacts")}}Artefacts{{else if .Sprint}}Sprint{{else if and .Project (eq .Page "documentation")}}Docs{{else}}Project{{end}}</span></button>
-  <button class="sidebar-pin" type="button" data-sidebar-pin aria-pressed="false" aria-label="Pin contextual navigation"><span aria-hidden="true">⌖</span><span class="visually-hidden" data-pin-label>Pin navigation</span></button>
-</div>
 {{end}}
 
 {{define "component/operation-console"}}

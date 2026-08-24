@@ -428,92 +428,6 @@
     window.setInterval(load, 5000);
   }
 
-  for (const stack of document.querySelectorAll("[data-sidebar-stack]")) {
-    const launcher = stack.querySelector("[data-sidebar-toggle]");
-    const pin = stack.querySelector("[data-sidebar-pin]");
-    const label = stack.querySelector("[data-sidebar-label]");
-    const pinLabel = stack.querySelector("[data-pin-label]");
-    const storageKey = "ultraplan.sidebar.pinned";
-    let pinned = false;
-    let hovered = false;
-    try { pinned = localStorage.getItem(storageKey) === "true"; } catch (_) {}
-    stack.classList.add("is-collapsible");
-    stack.classList.toggle("is-pinned", pinned);
-    stack.classList.toggle("is-expanded", pinned);
-    pin?.setAttribute("aria-pressed", String(pinned));
-    if (pinLabel) pinLabel.textContent = pinned ? "Unpin navigation" : "Pin navigation";
-    launcher?.setAttribute("aria-expanded", String(pinned));
-
-    const setExpanded = (expanded) => {
-      if (pinned && !expanded) return;
-      stack.classList.toggle("is-expanded", expanded);
-      launcher?.setAttribute("aria-expanded", String(expanded));
-    };
-    stack.addEventListener("pointerenter", (event) => {
-      if (event.pointerType === "touch") return;
-      hovered = true;
-      setExpanded(true);
-    });
-    stack.addEventListener("pointerleave", (event) => {
-      if (event.pointerType === "touch") return;
-      hovered = false;
-      setExpanded(false);
-    });
-    stack.addEventListener("focusin", () => setExpanded(true));
-    stack.addEventListener("focusout", (event) => {
-      if (!stack.contains(event.relatedTarget)) setExpanded(false);
-    });
-    launcher?.addEventListener("click", () => setExpanded(true));
-    pin?.addEventListener("click", () => {
-      pinned = !pinned;
-      stack.classList.toggle("is-pinned", pinned);
-      stack.classList.toggle("is-expanded", pinned || hovered || stack.matches(":focus-within"));
-      pin.setAttribute("aria-pressed", String(pinned));
-      launcher?.setAttribute("aria-expanded", String(stack.classList.contains("is-expanded")));
-      if (pinLabel) pinLabel.textContent = pinned ? "Unpin navigation" : "Pin navigation";
-      try { localStorage.setItem(storageKey, String(pinned)); } catch (_) {}
-    });
-
-    const showPanel = (id) => {
-      const target = stack.querySelector(`#${CSS.escape(id)}`);
-      if (!target) return false;
-      for (const panel of stack.querySelectorAll("[data-sidebar-panel]")) panel.hidden = panel !== target;
-      const heading = target.querySelector("h2")?.textContent?.trim();
-      if (label && heading) label.textContent = heading;
-      target.querySelector("a, button")?.focus();
-      return true;
-    };
-    stack.addEventListener("click", (event) => {
-      const back = event.target.closest?.("[data-sidebar-back]");
-      if (back) {
-        event.preventDefault();
-        showPanel(back.dataset.sidebarBack);
-        return;
-      }
-      // Drill-down links must retain normal navigation so the destination's
-      // main content changes as well as its contextual sidebar. Only the back
-      // buttons above are sidebar-local controls.
-    });
-  }
-
-  for (const details of document.querySelectorAll(".detail-sidebar details")) {
-    let pinnedOpen = details.open;
-    details.addEventListener("pointerenter", (event) => {
-      if (event.pointerType === "touch") return;
-      if (!pinnedOpen) details.classList.add("sidebar-hover-preview");
-    });
-    details.addEventListener("pointerleave", (event) => {
-      if (event.pointerType === "touch") return;
-      details.classList.remove("sidebar-hover-preview");
-    });
-    details.querySelector(":scope > summary")?.addEventListener("click", (event) => {
-      event.preventDefault();
-      pinnedOpen = !pinnedOpen;
-      details.classList.remove("sidebar-hover-preview");
-      details.open = pinnedOpen;
-    });
-  }
-
   for (const workspace of document.querySelectorAll("[data-stage-workspace]")) {
     const controls = [...workspace.querySelectorAll("[data-stage-select]")];
     const panels = [...workspace.querySelectorAll("[data-stage-panel]")];
@@ -652,7 +566,7 @@
         }
         if (artifactEmpty) {
           artifactEmpty.hidden = false;
-          artifactEmpty.textContent = "No previous artefact preview is available for this stage.";
+          artifactEmpty.textContent = "No previous artifact preview is available for this stage.";
         }
       }
     };
@@ -683,7 +597,7 @@
       if (artifactContent) artifactContent.hidden = true;
       if (artifactEmpty) {
         artifactEmpty.hidden = false;
-        artifactEmpty.textContent = "No artefacts from previous stages yet.";
+        artifactEmpty.textContent = "No artifacts from previous stages yet.";
       }
     };
 
