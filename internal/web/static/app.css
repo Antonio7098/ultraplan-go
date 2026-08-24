@@ -193,6 +193,9 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .operation-failure h3 { margin-top: 0; }
 .operation-timeline { height: min(28rem, 52dvh); overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; padding-left: 1.5rem; color: var(--code-text); background: var(--code-bg); border: 1px solid var(--border); border-radius: .55rem; font-family: var(--mono); font-size: .8rem; }
 .operation-timeline li { padding: .4rem 0; border-bottom: 1px solid var(--border-soft); overflow-wrap: anywhere; }
+.auto-follow-resume { position: absolute; right: .65rem; bottom: .65rem; display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .65rem; border: 1px solid var(--accent); border-radius: 999px; background: color-mix(in oklch, var(--panel) 88%, var(--accent) 22%); color: var(--text); font: inherit; font-size: .72rem; font-family: var(--sans); cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, .22); z-index: 2; }
+.auto-follow-resume:hover { background: var(--accent); color: var(--panel); }
+.auto-follow-resume:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .flow-action { display: flex; align-items: end; flex-wrap: wrap; gap: .65rem; }
 .parallelism-choice { display: inline-flex; align-items: center; gap: .5rem; color: var(--muted); font-size: .78rem; }
 .model-choice { display: inline-flex; flex-direction: column; gap: .3rem; color: var(--muted); font-size: .78rem; }

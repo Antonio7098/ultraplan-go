@@ -190,6 +190,16 @@
       if (operation.project && operation.sprint) return `${operation.project} / ${operation.sprint}`;
       return operation.project || operation.sprint || "Workspace";
     };
+    const humanizeAgentLabel = (value) => String(value || "").trim()
+      ? String(value).trim().split(/[-_\s]+/).filter(Boolean).map((word) => word[0]?.toUpperCase() + word.slice(1)).join(" ")
+      : "";
+    const currentAgentLabel = (run) => {
+      if (!run) return "";
+      const target = run.target || {};
+      const stageLabel = humanizeAgentLabel(target.stage);
+      if (stageLabel && target.operation === "sprint-stage") return stageLabel;
+      return processLabel({kind: target.operation || run.kind || "run"});
+    };
     const durableProcesses = (dashboard) => {
       const active = [];
       const sprints = Array.isArray(dashboard?.sprints) ? dashboard.sprints : dashboard?.slug ? [dashboard] : [];
@@ -254,6 +264,15 @@
         if (operation.kind === "study-loop") {
           title.textContent = `Study · ${operation.study}`;
           detail.textContent = `${operation.agents} parallel agent${operation.agents === 1 ? "" : "s"}`;
+        } else if (operation.kind === "run-process") {
+          const current = operation.current || {};
+          const target = current.target || {};
+          title.textContent = "Run process";
+          const agent = currentAgentLabel(current);
+          const parts = [processScope(operation)];
+          if (agent && agent.toLowerCase() !== processLabel({kind: target.operation}).toLowerCase()) parts.push(agent);
+          parts.push(operation.state || current.lifecycle || "running");
+          detail.textContent = parts.join(" · ");
         } else {
           title.textContent = processLabel(operation);
           detail.textContent = `${processScope(operation)} · ${operation.state}`;
@@ -266,21 +285,52 @@
     const groupActiveRuns = (runs) => {
       const grouped = [];
       const studies = new Map();
+      const sprints = new Map();
+      const activeLifecycles = new Set(["accepted", "queued", "running", "cancelling"]);
+      const runTimestamp = (run) => {
+        const t = Date.parse(run.updated_at || "");
+        return Number.isFinite(t) ? t : 0;
+      };
+      const isActive = (run) => activeLifecycles.has(run.lifecycle);
+      const pickCurrentAgent = (group, run) => {
+        if (!group.current) {
+          group.current = run;
+          return;
+        }
+        const current = group.current;
+        const runActive = isActive(run);
+        const currentActive = isActive(current);
+        const runTs = runTimestamp(run);
+        const currentTs = runTimestamp(current);
+        if (runActive && !currentActive) { group.current = run; return; }
+        if (runActive === currentActive && runTs > currentTs) { group.current = run; return; }
+      };
       for (const run of runs) {
         const target = run.target || {};
-        if (!target.study || target.project || target.sprint) {
-          grouped.push(run);
+        if (target.study && !target.project && !target.sprint) {
+          const existing = studies.get(target.study);
+          if (existing) {
+            if (target.kind === "operation" && !existing.loopRunID) existing.loopRunID = run.run_id;
+            else existing.agents++;
+            continue;
+          }
+          const entry = {kind: "study-loop", study: target.study, state: run.lifecycle, loopRunID: target.kind === "operation" ? run.run_id : "", agents: target.kind === "operation" ? 0 : 1};
+          studies.set(target.study, entry);
+          grouped.push(entry);
           continue;
         }
-        const existing = studies.get(target.study);
-        if (existing) {
-          if (target.kind === "operation" && !existing.loopRunID) existing.loopRunID = run.run_id;
-          else existing.agents++;
+        if (target.project && target.sprint) {
+          const key = `${target.project}:${target.sprint}`;
+          let group = sprints.get(key);
+          if (!group) {
+            group = {kind: "run-process", project: target.project, sprint: target.sprint, state: run.lifecycle, current: null};
+            sprints.set(key, group);
+            grouped.push(group);
+          }
+          pickCurrentAgent(group, run);
           continue;
         }
-        const entry = {kind: "study-loop", study: target.study, state: run.lifecycle, loopRunID: target.kind === "operation" ? run.run_id : "", agents: target.kind === "operation" ? 0 : 1};
-        studies.set(target.study, entry);
-        grouped.push(entry);
+        grouped.push(run);
       }
       return grouped;
     };
@@ -300,6 +350,14 @@
           href: run.loopRunID
             ? `/runs/${encodeURIComponent(run.loopRunID)}`
             : `/studies/${encodeURIComponent(run.study)}/progress`
+        } : run.kind === "run-process" ? {
+          id: run.current?.run_id || "",
+          kind: run.kind,
+          state: run.current?.lifecycle || run.state,
+          project: run.project,
+          sprint: run.sprint,
+          current: run.current,
+          href: run.current?.run_id ? `/runs/${encodeURIComponent(run.current.run_id)}` : `/projects/${encodeURIComponent(run.project)}/sprints/${encodeURIComponent(run.sprint)}/run`
         } : {
           id: run.run_id,
           kind: run.target?.operation || run.target?.kind || "run",
@@ -640,9 +698,52 @@
   const reviewerDialogClose = document.getElementById("reviewer-result-close");
   if (forms.length === 0 && !statusRoot && !reviewStatus && !document.querySelector(".reviewer-card") && !document.querySelector("[data-run-id]")) return;
 
+  const installAutoFollow = (timeline, label = "Jump to latest") => {
+    if (!timeline) return;
+    if (getComputedStyle(timeline).position === "static") timeline.style.position = "relative";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "auto-follow-resume";
+    button.textContent = label;
+    button.hidden = true;
+    timeline.appendChild(button);
+    const tolerance = 16;
+    const isAtBottom = () => timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight <= tolerance + 1;
+    let atBottom = isAtBottom();
+    let raf = 0;
+    const refresh = () => {
+      atBottom = isAtBottom();
+      button.hidden = atBottom;
+    };
+    timeline.addEventListener("scroll", () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; refresh(); });
+    }, {passive: true});
+    if (timeline.scrollHeight > timeline.clientHeight && timeline.scrollTop === 0) {
+      timeline.scrollTop = timeline.scrollHeight;
+      atBottom = true;
+      button.hidden = true;
+    }
+    const observer = new MutationObserver(() => {
+      if (atBottom) {
+        timeline.scrollTop = timeline.scrollHeight;
+        button.hidden = true;
+      } else {
+        button.hidden = false;
+      }
+    });
+    observer.observe(timeline, {childList: true});
+    button.addEventListener("click", () => {
+      timeline.scrollTop = timeline.scrollHeight;
+      atBottom = true;
+      button.hidden = true;
+    });
+  };
+
   const csrf = document.querySelector('meta[name="ultraplan-csrf"]')?.content || "";
   let live = document.getElementById("operation-live");
   let timeline = document.getElementById("operation-timeline");
+  installAutoFollow(timeline);
   let cancelButton = document.getElementById("operation-cancel");
   const reviewerGrid = document.getElementById("live-reviewer-grid");
   const reviewerEmpty = document.getElementById("reviewer-grid-empty");
@@ -758,7 +859,6 @@
     item.dataset.event = name;
     timeline.append(item);
     while (timeline.children.length > 100) timeline.firstElementChild.remove();
-    timeline.scrollTop = timeline.scrollHeight;
     recordActivity(message, payload, event.time);
   }
 
@@ -814,7 +914,6 @@
     item.dataset.event = "durable-review";
     timeline.append(item);
     while (timeline.children.length > 100) timeline.firstElementChild.remove();
-    timeline.scrollTop = timeline.scrollHeight;
     if (latestEvent) latestEvent.textContent = message;
     if (eventLogCount) eventLogCount.textContent = String(timeline.children.length);
   }
@@ -1029,6 +1128,7 @@
 
   const durableRun = document.querySelector("[data-run-id]");
   const durableTimeline = document.querySelector("[data-run-timeline]");
+  if (durableRun && durableTimeline && durableTimeline.tagName === "OL") installAutoFollow(durableTimeline);
   const durableLive = document.querySelector("[data-run-live-status]");
   let durableStream = null;
   let durableReconnect = null;
@@ -1068,6 +1168,7 @@
   const agentDialogSubtitle = document.getElementById("run-agent-dialog-subtitle");
   const agentDialogSummary = document.getElementById("run-agent-dialog-summary");
   const agentDialogTimeline = document.getElementById("run-agent-dialog-timeline");
+  installAutoFollow(agentDialogTimeline);
   const runAgents = new Map();
   let openAgentTask = "";
   const seenAgentTasks = new Set();
@@ -1188,7 +1289,6 @@
     appendToolObservation(item, entry);
     list.append(item);
     while (list.children.length > 500) list.firstElementChild.remove();
-    list.scrollTop = list.scrollHeight;
   };
 
   const runAgentIsActive = (agent) => agent.status === "running" || agent.status === "pending";
