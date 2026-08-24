@@ -237,6 +237,10 @@ type WebSprintResult struct {
 	UnresolvedRisk    string
 	DeferredDecisions int
 	Evidence          []WebArtifactLink
+	ExecutionPercent  int
+	ExecuteHealth     string
+	ReviewHealth      string
+	SmokeHealth       string
 }
 
 type WebSprintMission struct {
@@ -288,8 +292,22 @@ type WebStudyResult struct {
 	Artifacts       []WebArtifactLink
 	SourcePreview   []string
 	DimensionGroups []string
-	RecentReports   []WebArtifactLink
+	RecentReports   []WebReportPreview
+	MatrixRows      []WebStudyMatrixRow
 	Waiting         int
+}
+
+type WebReportPreview struct {
+	Ref, Label, DisplayPath, Summary string
+}
+
+type WebStudyMatrixRow struct {
+	Source string
+	Cells  []WebStudyMatrixCell
+}
+
+type WebStudyMatrixCell struct {
+	Group, Status string
 }
 
 // WebStudyTaskRetry describes one task that needed retries and whether those
@@ -739,6 +757,7 @@ func (u *webUseCases) Sprint(ctx context.Context, project, slug string) (WebSpri
 			}
 			result.Overview = u.sprintOverview(project, slug)
 			result.RunStages = sprintRunStages(item)
+			u.annotateStageModels(&result)
 			result.TotalStages = len(result.RunStages)
 			for _, stage := range result.RunStages {
 				if stage.Status == "complete" || stage.Status == "completed" || stage.Status == "skipped" {
@@ -863,7 +882,12 @@ type dashboardMarkdown struct {
 
 func readDashboardMarkdown(path string) dashboardMarkdown {
 	result := dashboardMarkdown{sections: map[string][]string{}}
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
+	if err != nil {
+		return result
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, 64<<10))
 	if err != nil {
 		return result
 	}
@@ -884,7 +908,8 @@ func readDashboardMarkdown(path string) dashboardMarkdown {
 
 func (m dashboardMarkdown) first(names ...string) string {
 	for _, name := range names {
-		for heading, lines := range m.sections {
+		for _, heading := range m.order {
+			lines := m.sections[heading]
 			if strings.EqualFold(heading, name) || strings.Contains(heading, strings.ToLower(name)) {
 				for _, line := range lines {
 					clean := cleanDashboardLine(line)
@@ -901,7 +926,8 @@ func (m dashboardMarkdown) first(names ...string) string {
 func (m dashboardMarkdown) items(names ...string) []string {
 	var out []string
 	for _, name := range names {
-		for heading, lines := range m.sections {
+		for _, heading := range m.order {
+			lines := m.sections[heading]
 			if !strings.EqualFold(heading, name) && !strings.Contains(heading, strings.ToLower(name)) {
 				continue
 			}
@@ -964,6 +990,14 @@ func (u *webUseCases) enrichProjectDashboard(result *WebProjectResult) {
 	wanted := []struct{ file, kind string }{{"PRD.md", "Product"}, {"TRD.md", "Technical"}, {"ARCHITECTURE.md", "Architecture"}}
 	for _, doc := range wanted {
 		path := filepath.Join(base, doc.file)
+		ref := ""
+		for _, artifact := range result.Artifacts {
+			if strings.EqualFold(filepath.Base(artifact.DisplayPath), doc.file) {
+				path = filepath.Join(u.root, filepath.FromSlash(artifact.DisplayPath))
+				ref = artifact.Ref
+				break
+			}
+		}
 		parsed := readDashboardMarkdown(path)
 		if len(parsed.order) == 0 {
 			continue
@@ -975,12 +1009,7 @@ func (u *webUseCases) enrichProjectDashboard(result *WebProjectResult) {
 		if info, err := os.Stat(path); err == nil {
 			preview.Modified = info.ModTime().Format("2 Jan 2006")
 		}
-		for _, artifact := range result.Artifacts {
-			if strings.EqualFold(filepath.Base(artifact.DisplayPath), doc.file) {
-				preview.Ref = artifact.Ref
-				break
-			}
-		}
+		preview.Ref = ref
 		result.Documents = append(result.Documents, preview)
 	}
 }
@@ -1007,6 +1036,9 @@ func (u *webUseCases) enrichSprintDashboard(result *WebSprintResult) {
 	}
 	result.UnresolvedRisk = reasoning.first("unresolved risks", "risks", "open questions")
 	result.DeferredDecisions = countDashboardItems(reasoning, "deferred", "deferred scope")
+	if result.Execute.Total > 0 {
+		result.ExecutionPercent = result.Execute.Complete * 100 / result.Execute.Total
+	}
 	preferred := map[string]bool{"requirements": true, "reasoning": true, "plan": true, "execute": true, "review": true, "smoke": true}
 	for _, artifact := range result.Artifacts {
 		if preferred[artifact.Label] {
@@ -1027,10 +1059,7 @@ func (u *webUseCases) enrichStudyDashboard(result *WebStudyResult) {
 	}
 	seen := map[string]bool{}
 	for _, dimension := range result.Dimensions {
-		group := dimension
-		if cut := strings.IndexAny(group, "-_. "); cut > 0 {
-			group = group[:cut]
-		}
+		group := dashboardDimensionGroup(dimension)
 		if !seen[group] {
 			seen[group] = true
 			result.DimensionGroups = append(result.DimensionGroups, group)
@@ -1044,10 +1073,77 @@ func (u *webUseCases) enrichStudyDashboard(result *WebStudyResult) {
 			result.Waiting++
 		}
 	}
+	for _, source := range result.SourcePreview {
+		row := WebStudyMatrixRow{Source: source}
+		for _, group := range result.DimensionGroups {
+			status, matched, complete, matchedCount := "pending", false, 0, 0
+			for _, task := range result.Tasks {
+				if task.Source != source || dashboardDimensionGroup(task.Dimension) != group {
+					continue
+				}
+				matched = true
+				matchedCount++
+				switch task.Status {
+				case "failed", "cancelled":
+					status = "failed"
+				case "running", "retrying":
+					if status != "failed" {
+						status = "running"
+					}
+				case "complete", "completed":
+					complete++
+				case "inapplicable", "skipped":
+					if status == "pending" {
+						status = "inapplicable"
+					}
+				}
+			}
+			if matched && status == "pending" && complete == matchedCount {
+				status = "complete"
+			}
+			row.Cells = append(row.Cells, WebStudyMatrixCell{Group: group, Status: status})
+		}
+		result.MatrixRows = append(result.MatrixRows, row)
+	}
 	for i := len(result.Artifacts) - 1; i >= 0 && len(result.RecentReports) < 3; i-- {
 		artifact := result.Artifacts[i]
 		if strings.Contains(strings.ToLower(artifact.Label), "report") || strings.Contains(strings.ToLower(artifact.DisplayPath), "report") {
-			result.RecentReports = append(result.RecentReports, artifact)
+			parsed := readDashboardMarkdown(filepath.Join(u.root, filepath.FromSlash(artifact.DisplayPath)))
+			result.RecentReports = append(result.RecentReports, WebReportPreview{Ref: artifact.Ref, Label: artifact.Label, DisplayPath: artifact.DisplayPath, Summary: parsed.first("summary", "synthesis", "finding")})
+		}
+	}
+}
+
+func dashboardDimensionGroup(value string) string {
+	if cut := strings.IndexAny(value, "-_. "); cut > 0 {
+		return value[:cut]
+	}
+	return value
+}
+
+// annotateStageModels records which model each stage will use when the
+// operator leaves the model input empty, plus the model that the most recent
+// completed run of each stage actually used. Both come from read-only state:
+// the effective planning configuration and sprint runtime metrics.
+func (u *webUseCases) annotateStageModels(result *WebSprintResult) {
+	for index := range result.RunStages {
+		stage := sprint.PlanningStage(result.RunStages[index].Name)
+		if runtime, ok := u.dashboard.stageRuntime[stage]; ok {
+			result.RunStages[index].ConfiguredModel = strings.TrimSpace(runtime.Model)
+		}
+	}
+	metrics, err := sprint.NewService(u.root).RuntimeMetrics(result.Project, result.Slug)
+	if err != nil {
+		return
+	}
+	for _, run := range metrics.Runs {
+		if strings.TrimSpace(run.Model) == "" || run.Status != "completed" {
+			continue
+		}
+		for index := range result.RunStages {
+			if sprint.PlanningStage(result.RunStages[index].Name) == run.Stage {
+				result.RunStages[index].RunModel = run.Model
+			}
 		}
 	}
 }
@@ -1260,7 +1356,7 @@ func (u *webUseCases) webSprint(item SprintSummary) WebSprintResult {
 	if findings == nil {
 		findings = []DisplayFinding{}
 	}
-	return WebSprintResult{
+	result := WebSprintResult{
 		Ref:        u.issue("sprint", item.Project, item.Slug),
 		Project:    item.Project,
 		Slug:       item.Slug,
@@ -1274,6 +1370,38 @@ func (u *webUseCases) webSprint(item SprintSummary) WebSprintResult {
 		Findings:   findings,
 		Artifacts:  u.webArtifacts(item.Artifacts),
 	}
+	result.ExecuteHealth = "waiting"
+	switch {
+	case item.Execute.Failed > 0:
+		result.ExecuteHealth = "failed"
+	case item.Execute.Running > 0:
+		result.ExecuteHealth = "running"
+	case item.Execute.Total > 0 && item.Execute.Complete+item.Execute.Deferred == item.Execute.Total:
+		result.ExecuteHealth = "complete"
+	}
+	result.ReviewHealth = "waiting"
+	switch {
+	case item.Review.Stale:
+		result.ReviewHealth = "stale"
+	case item.Review.Failed > 0:
+		result.ReviewHealth = "failed"
+	case item.Review.Status == "complete" || item.Review.Status == "completed":
+		result.ReviewHealth = "complete"
+	case item.Review.Running > 0:
+		result.ReviewHealth = "running"
+	}
+	result.SmokeHealth = "waiting"
+	switch {
+	case item.Smoke.Stale:
+		result.SmokeHealth = "stale"
+	case item.Smoke.Status == "failed" || item.Smoke.Verdict == "fail":
+		result.SmokeHealth = "failed"
+	case item.Smoke.Status == "complete" || item.Smoke.Status == "completed":
+		result.SmokeHealth = "complete"
+	case item.Smoke.Status == "running":
+		result.SmokeHealth = "running"
+	}
+	return result
 }
 
 func (u *webUseCases) webStudy(item StudySummary) WebStudyResult {

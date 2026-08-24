@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -259,6 +260,52 @@ func TestWebEmptyCollectionsAreKnownAndNonNil(t *testing.T) {
 	}
 	if projects.Items == nil || studies.Items == nil || projects.TotalCount != 0 || studies.TotalCount != 0 {
 		t.Fatalf("projects=%+v studies=%+v", projects, studies)
+	}
+}
+
+func TestWebSprintSurfacesStageModels(t *testing.T) {
+	root := initializedWorkspace(t)
+	writeCommandSprintProject(t, root, "proj", "01-alpha")
+	base := filepath.Join(root, "projects", "proj", "sprints", "01-alpha")
+	metrics := sprint.SprintRuntimeMetrics{
+		SchemaVersion: 1, Project: "proj", Sprint: "01-alpha",
+		Runs: []sprint.SprintRuntimeMetric{
+			{Stage: sprint.StageReasoning, Status: "failed", Model: "provider/old"},
+			{Stage: sprint.StageReasoning, Status: "completed", Model: "openai/gpt-5.6-sol"},
+			{Stage: sprint.StageRequirements, Status: "completed", Model: "workspace/primary"},
+			{Stage: sprint.StagePlan, Status: "completed", Model: ""},
+		},
+	}
+	data, err := json.Marshal(metrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixtureFileContent(t, base, string(data), ".runtime-metrics.json")
+	for _, artifact := range []string{"requirements.md", "sprint-index.md", "technical-handbook.md", "reasoning.md", "plan.md"} {
+		writeFixtureFileContent(t, base, "# "+artifact+"\n", artifact)
+	}
+
+	queries := NewWebUseCases(root, WebUseCaseOptions{StageRuntime: map[sprint.PlanningStage]sprint.StageRuntime{
+		sprint.StageReasoning: {Model: "openai/gpt-5.6-sol", Variant: "high"},
+	}})
+	result, err := queries.Sprint(context.Background(), "proj", "01-alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := map[string]StageSummary{}
+	for _, stage := range result.RunStages {
+		models[stage.Name] = stage
+	}
+	reasoning := models["reasoning"]
+	if reasoning.ConfiguredModel != "openai/gpt-5.6-sol" || reasoning.RunModel != "openai/gpt-5.6-sol" {
+		t.Fatalf("reasoning stage = %+v", reasoning)
+	}
+	requirements := models["requirements"]
+	if requirements.ConfiguredModel != "" || requirements.RunModel != "workspace/primary" {
+		t.Fatalf("requirements stage = %+v", requirements)
+	}
+	if plan := models["plan"]; plan.RunModel != "" {
+		t.Fatalf("plan stage should have no recorded run model = %+v", plan)
 	}
 }
 

@@ -73,6 +73,13 @@ type StageSummary struct {
 	LatestOutcome     string
 	NextAction        string
 	PromptContract    *sprint.StageInputContract
+	// ConfiguredModel is the stage-specific ultraplan.yml planning model that
+	// applies when the operator leaves the model input empty. It stays empty
+	// when only the workspace default governs the stage.
+	ConfiguredModel string
+	// RunModel is the model recorded by the most recent completed run of this
+	// stage in sprint runtime metrics.
+	RunModel string
 }
 
 type ExecuteSummary struct {

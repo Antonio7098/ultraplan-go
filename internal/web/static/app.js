@@ -665,7 +665,10 @@
     }
     if (data?.default) {
       for (const input of inputs) {
-        input.placeholder = `Workspace default (${data.default})`;
+        const stageDefault = input.dataset.modelDefault;
+        input.placeholder = stageDefault
+          ? `Stage default (${stageDefault})`
+          : `Workspace default (${data.default})`;
       }
     }
   }
