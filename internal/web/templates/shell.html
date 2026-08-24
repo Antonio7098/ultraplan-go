@@ -38,9 +38,9 @@
         </div>
       </div>
       <div class="running-processes" data-running-processes>
-        <a class="runs-nav-link" href="/runs">Runs <span data-running-count>0</span><span class="visually-hidden"> active</span></a>
+        <a class="runs-nav-link" href="/runs" aria-label="Runs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg><span data-running-count>0</span><span class="visually-hidden"> active runs</span></a>
         <button type="button" aria-label="Show active runs" aria-expanded="false" aria-controls="running-processes-flyout">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/></svg>
+          <span aria-hidden="true">›</span>
         </button>
         <div class="running-processes-flyout" id="running-processes-flyout">
           <div class="top-nav-flyout-heading"><strong>Running processes</strong><span data-running-status>Checking…</span><a class="run-history-link" href="/runs" aria-label="Run history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a></div>
