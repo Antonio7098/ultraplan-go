@@ -299,14 +299,14 @@ Not yet materialized.
 		t.Fatalf("roadmap = %+v", result.Roadmap)
 	}
 	first := result.Roadmap[0].Sprints[0]
-	if first.Number != 1 || first.Slug != "01-test" || !first.Exists {
-		t.Fatalf("materialized entry = %+v", first)
-	}
-	if first.Goal != "Prove the fixture project." || len(first.GateItems) != 1 || first.GateItems[0] != "fixture validates" {
-		t.Fatalf("entry content = %+v", first)
+	if first.Number != 2 || first.Exists || first.Status != "planned" || first.DependsOn[0] != 1 {
+		t.Fatalf("newest entry = %+v", first)
 	}
 	second := result.Roadmap[0].Sprints[1]
-	if second.Exists || second.Status != "planned" || second.DependsOn[0] != 1 {
-		t.Fatalf("planned entry = %+v", second)
+	if second.Number != 1 || second.Slug != "01-test" || !second.Exists {
+		t.Fatalf("materialized entry = %+v", second)
+	}
+	if second.Goal != "Prove the fixture project." || len(second.GateItems) != 1 || second.GateItems[0] != "fixture validates" {
+		t.Fatalf("entry content = %+v", second)
 	}
 }

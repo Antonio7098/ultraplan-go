@@ -960,6 +960,32 @@ func (s Service) resolveSprintForRequirements(projectRef, sprintRef string, crea
 	return sp, catalog, files.MarkdownDocs, nil
 }
 
+// CreateWorkspace materializes the sprint directory for a project and slug
+// without running any flow stage. An existing sprint is returned unchanged.
+func (s Service) CreateWorkspace(projectRef, sprintRef string) (Sprint, error) {
+	projects, err := project.DiscoverProjects(s.root)
+	if err != nil {
+		return Sprint{}, err
+	}
+	p, err := project.ResolveProject(projects, projectRef)
+	if err != nil {
+		return Sprint{}, err
+	}
+	sprints, err := DiscoverSprints(s.root, p)
+	if err != nil {
+		return Sprint{}, err
+	}
+	sp, err := ResolveSprint(sprints, sprintRef)
+	if err != nil {
+		var refErr RefError
+		if !errors.As(err, &refErr) || refErr.Ambiguous {
+			return Sprint{}, err
+		}
+		return s.createSprintSkeleton(p, sprintRef)
+	}
+	return sp, nil
+}
+
 func (s Service) createSprintSkeleton(p project.Project, sprintRef string) (Sprint, error) {
 	slug := strings.TrimSpace(sprintRef)
 	if !project.IsSafeName(slug) {

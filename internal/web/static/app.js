@@ -91,6 +91,16 @@
     });
   }
 
+  for (const trigger of document.querySelectorAll("[data-start-sprint]")) {
+    const dialog = document.getElementById(trigger.getAttribute("data-start-sprint"));
+    const close = dialog?.querySelector("[data-add-sprint-close]");
+    trigger.addEventListener("click", () => dialog?.showModal());
+    close?.addEventListener("click", () => dialog?.close());
+    dialog?.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+  }
+
   for (const mapping of document.querySelectorAll(".smoke-coverage-mapping")) {
     const dialog = mapping.querySelector("[data-coverage-requirement-dialog]");
     const id = dialog?.querySelector("[data-coverage-dialog-id]");
@@ -1025,10 +1035,14 @@
   const agentSection = document.querySelector("[data-run-agents]");
   const agentGrid = document.getElementById("run-agent-grid");
   const agentEmptyMessage = document.getElementById("run-agent-grid-empty");
-  const completedToggle = document.querySelector("[data-run-completed-toggle]");
-  const completedToggleLabel = completedToggle?.querySelector("[data-run-completed-label]");
-  const completedToggleCount = completedToggle?.querySelector("[data-run-completed-count]");
-  const completedTogglePlural = completedToggle?.querySelector("[data-run-completed-plural]");
+  const agentHistoryGrid = document.getElementById("run-agent-history");
+  const agentHistoryEmpty = document.getElementById("run-agent-history-empty");
+  const agentPlannedGrid = document.getElementById("run-agent-planned");
+  const agentPlannedEmpty = document.getElementById("run-agent-planned-empty");
+  const agentTabs = Array.from(document.querySelectorAll("[data-run-tab]"));
+  const agentTabCounts = new Map();
+  for (const badge of document.querySelectorAll("[data-run-tab-count]")) agentTabCounts.set(badge.dataset.runTabCount, badge);
+  let agentTab = "history";
   const agentDialog = document.getElementById("run-agent-dialog");
   const agentDialogClose = document.getElementById("run-agent-dialog-close");
   const agentDialogTitle = document.getElementById("run-agent-dialog-title");
@@ -1039,10 +1053,12 @@
   let openAgentTask = "";
   const seenAgentTasks = new Set();
   let runAgentsLive = false;
-  let completedAgentsExpanded = false;
-  let previousActiveAgentCount = 0;
   const agentFailures = new Map();
   let agentFailuresFetch;
+  let runParallelism = null;
+  for (const payload of document.querySelectorAll("script[data-run-parallelism]")) {
+    try { runParallelism = JSON.parse(payload.textContent || "null"); } catch {}
+  }
   for (const payload of document.querySelectorAll("script[data-run-agent-failures]")) {
     for (const failure of JSON.parse(payload.textContent || "[]")) {
       if (failure?.task && failure.message) agentFailures.set(failure.task, {code: failure.code || "", message: failure.message});
@@ -1127,7 +1143,10 @@
   const appendAgentStreamRow = (list, entry) => {
     const item = document.createElement("li");
     const time = formatRunTime(entry.time);
-    item.textContent = `${time ? `${time} · ` : ""}${entry.label}${entry.detail ? ` (${entry.detail})` : ""}`;
+    const line = document.createElement("div");
+    line.textContent = `${time ? `${time} · ` : ""}${entry.label}${entry.detail ? ` (${entry.detail})` : ""}`;
+    item.append(line);
+    appendToolObservation(item, entry);
     list.append(item);
     while (list.children.length > 500) list.firstElementChild.remove();
     list.scrollTop = list.scrollHeight;
@@ -1135,10 +1154,41 @@
 
   const runAgentIsActive = (agent) => agent.status === "running" || agent.status === "pending";
 
-  const activeAgentCount = () => {
-    let count = 0;
-    for (const agent of runAgents.values()) if (runAgentIsActive(agent)) count++;
-    return count;
+  const prettyRunJSON = (value) => {
+    if (!value) return "";
+    try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return String(value); }
+  };
+
+  const appendToolObservation = (item, payload) => {
+    const blocks = [["Arguments", payload.tool_arguments], ["Result", payload.tool_result], ["Error", payload.tool_error]].filter(([, value]) => value);
+    if (!blocks.length) return;
+    const details = document.createElement("details");
+    details.className = "run-tool-observation";
+    const summary = document.createElement("summary");
+    summary.textContent = "Inspect tool call";
+    details.append(summary);
+    for (const [label, value] of blocks) {
+      const section = document.createElement("section");
+      const heading = document.createElement("h4");
+      const body = document.createElement("pre");
+      heading.textContent = label;
+      body.textContent = prettyRunJSON(value);
+      section.append(heading, body);
+      details.append(section);
+    }
+    item.append(details);
+  };
+
+  const runAgentIsRunning = (agent) => agent.status === "running";
+
+  // runSlotPlan derives the live slot layout from the recorded parallelism
+  // diagnostics: `slots` are usable worker slots and `throttled` are slots kept
+  // dark by memory-pressure throttling, each annotated with the reason.
+  const runSlotPlan = (runningCount) => {
+    const requested = Number(runParallelism?.requested_parallelism) || 0;
+    const effective = Number(runParallelism?.effective_parallelism) || requested;
+    if (!requested) return {requested: 0, effective: 0, slots: runningCount, throttled: 0};
+    return {requested, effective, slots: Math.max(effective, runningCount), throttled: Math.max(0, requested - effective)};
   };
 
   const flipAgentGrid = (mutate) => {
@@ -1163,105 +1213,140 @@
     }
   };
 
-  const renderAgentGrid = () => {
-    if (!agentGrid || !agentSection) return;
-    if (previousActiveAgentCount > 0 && activeAgentCount() === 0) completedAgentsExpanded = true;
-    const active = [];
-    const settled = [];
-    let activeCount = 0;
-    for (const agent of runAgents.values()) {
-      if (runAgentIsActive(agent)) {
-        active.push(agent);
-        activeCount++;
-      } else settled.push(agent);
+  const buildAgentCard = (agent) => {
+    const identity = runAgentIdentity(agent.task);
+    const card = document.createElement("li");
+    card.className = `reviewer-card reviewer-${agent.status} run-agent-card`;
+    card.dataset.runAgent = agent.task;
+    if (!seenAgentTasks.has(agent.task)) {
+      seenAgentTasks.add(agent.task);
+      if (runAgentsLive && runAgentIsRunning(agent)) card.classList.add("agent-card-new");
     }
-    previousActiveAgentCount = activeCount;
-    const showCompleted = completedAgentsExpanded || activeCount === 0;
-    const fragment = document.createDocumentFragment();
-    for (const agent of [...active, ...(showCompleted ? settled : [])]) {
-      const identity = runAgentIdentity(agent.task);
-      const card = document.createElement("li");
-      card.className = `reviewer-card reviewer-${agent.status} run-agent-card`;
-      card.dataset.runAgent = agent.task;
-      if (!seenAgentTasks.has(agent.task)) {
-        seenAgentTasks.add(agent.task);
-        if (runAgentsLive) card.classList.add("agent-card-new");
-      }
-      if (runAgentIsActive(agent)) card.classList.add("agent-card-live");
-      const heading = document.createElement("div");
-      heading.className = "reviewer-heading";
-      const name = document.createElement("strong");
-      name.textContent = identity.title || agent.task;
-      const badge = document.createElement("span");
-      badge.className = `status status-${runAgentBadge(agent.status)}`;
-      badge.textContent = agent.status;
-      heading.append(name, badge);
-      card.append(heading);
-      const taskCode = document.createElement("code");
-      taskCode.textContent = agent.task;
-      card.append(taskCode);
-      const latest = document.createElement("p");
-      latest.className = "reviewer-summary agent-latest";
-      latest.textContent = agent.latest?.label || "Awaiting committed activity.";
-      card.append(latest);
-      const failure = agentFailures.get(agent.task);
-      if (agent.status === "failed" && failure) {
-        const reason = document.createElement("p");
-        reason.className = "agent-failure";
-        reason.textContent = failure.code ? `${failure.code}: ${failure.message}` : failure.message;
-        card.append(reason);
-      }
-      const retryWait = agentRetryWait(agent);
-      if (retryWait) {
-        const wait = document.createElement("p");
-        wait.className = "agent-retry-wait";
-        wait.textContent = retryWait;
-        card.append(wait);
-      }
-      const meta = document.createElement("div");
-      meta.className = "agent-meta";
-      const time = document.createElement("span");
-      time.textContent = formatRunTime(agent.latest?.time) || "no time yet";
-      const tools = document.createElement("span");
-      tools.textContent = `${agent.toolCalls} tool call${agent.toolCalls === 1 ? "" : "s"}`;
-      const total = document.createElement("span");
-      total.textContent = `${agent.events.length} events`;
-      meta.append(time, tools, total);
-      const facts = agentFacts.get(agent.task);
-      for (const [label, value] of facts ? [["Provider", facts.provider], ["Model", facts.model], ["Harness", facts.harness]] : []) {
-        if (!value) continue;
-        const fact = document.createElement("span");
-        fact.className = "agent-fact";
-        const name = document.createElement("b");
-        name.textContent = `${label} `;
-        fact.append(name, document.createTextNode(value));
-        meta.append(fact);
-      }
-      card.append(meta);
-      const open = document.createElement("button");
-      open.type = "button";
-      open.className = "reviewer-result-open agent-details-open";
-      open.setAttribute("aria-haspopup", "dialog");
-      open.textContent = "View agent details";
-      card.append(open);
-      fragment.append(card);
+    if (runAgentIsRunning(agent)) card.classList.add("agent-card-live");
+    const heading = document.createElement("div");
+    heading.className = "reviewer-heading";
+    const name = document.createElement("strong");
+    name.textContent = identity.title || agent.task;
+    const badge = document.createElement("span");
+    badge.className = `status status-${runAgentBadge(agent.status)}`;
+    badge.textContent = agent.status;
+    heading.append(name, badge);
+    card.append(heading);
+    const taskCode = document.createElement("code");
+    taskCode.textContent = agent.task;
+    card.append(taskCode);
+    const latest = document.createElement("p");
+    latest.className = "reviewer-summary agent-latest";
+    latest.textContent = agent.latest?.label || "Awaiting committed activity.";
+    card.append(latest);
+    const failure = agentFailures.get(agent.task);
+    if (agent.status === "failed" && failure) {
+      const reason = document.createElement("p");
+      reason.className = "agent-failure";
+      reason.textContent = failure.code ? `${failure.code}: ${failure.message}` : failure.message;
+      card.append(reason);
     }
-    flipAgentGrid(() => agentGrid.replaceChildren(fragment));
-    agentSection.hidden = runAgents.size === 0;
-    if (agentEmptyMessage) agentEmptyMessage.hidden = runAgents.size > 0;
-    if (completedToggle) {
-      completedToggle.hidden = activeCount === 0 || settled.length === 0;
-      completedToggle.setAttribute("aria-expanded", String(completedAgentsExpanded));
-      if (completedToggleLabel) completedToggleLabel.textContent = completedAgentsExpanded ? "Hide" : "Show";
-      if (completedToggleCount) completedToggleCount.textContent = String(settled.length);
-      if (completedTogglePlural) completedTogglePlural.hidden = settled.length === 1;
+    const retryWait = agentRetryWait(agent);
+    if (retryWait) {
+      const wait = document.createElement("p");
+      wait.className = "agent-retry-wait";
+      wait.textContent = retryWait;
+      card.append(wait);
     }
+    const meta = document.createElement("div");
+    meta.className = "agent-meta";
+    const time = document.createElement("span");
+    time.textContent = formatRunTime(agent.latest?.time) || "no time yet";
+    const tools = document.createElement("span");
+    tools.textContent = `${agent.toolCalls} tool call${agent.toolCalls === 1 ? "" : "s"}`;
+    const total = document.createElement("span");
+    total.textContent = `${agent.events.length} events`;
+    meta.append(time, tools, total);
+    const facts = agentFacts.get(agent.task);
+    for (const [label, value] of facts ? [["Provider", facts.provider], ["Model", facts.model], ["Harness", facts.harness]] : []) {
+      if (!value) continue;
+      const fact = document.createElement("span");
+      fact.className = "agent-fact";
+      const name = document.createElement("b");
+      name.textContent = `${label} `;
+      fact.append(name, document.createTextNode(value));
+      meta.append(fact);
+    }
+    card.append(meta);
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "reviewer-result-open agent-details-open";
+    open.setAttribute("aria-haspopup", "dialog");
+    open.textContent = "View agent details";
+    card.append(open);
+    return card;
   };
 
-  completedToggle?.addEventListener("click", () => {
-    completedAgentsExpanded = !completedAgentsExpanded;
-    renderAgentGrid();
-  });
+  const buildIdleSlot = () => {
+    const slot = document.createElement("li");
+    slot.className = "agent-slot agent-slot-idle";
+    const title = document.createElement("strong");
+    title.textContent = "Open slot";
+    const detail = document.createElement("p");
+    detail.textContent = "Waiting for a planned agent to start.";
+    slot.append(title, detail);
+    return slot;
+  };
+
+  const buildThrottledSlot = (plan) => {
+    const slot = document.createElement("li");
+    slot.className = "agent-slot agent-slot-throttled";
+    const title = document.createElement("strong");
+    title.textContent = "Slot held back · memory pressure";
+    const detail = document.createElement("p");
+    detail.textContent = `Memory pressure reduced parallelism from ${plan.requested} to ${plan.effective} agent(s). This slot stays idle until throttling recovers.`;
+    slot.append(title, detail);
+    return slot;
+  };
+
+  const selectAgentTab = (tab) => {
+    agentTab = tab === "planned" ? "planned" : "history";
+    for (const tabButton of agentTabs) tabButton.setAttribute("aria-selected", String(tabButton.dataset.runTab === agentTab));
+    const showHistory = agentTab === "history";
+    const showPlanned = agentTab === "planned";
+    if (agentHistoryGrid) agentHistoryGrid.hidden = !showHistory;
+    if (agentHistoryEmpty) agentHistoryEmpty.hidden = !showHistory || agentHistoryEmpty.dataset.empty !== "true";
+    if (agentPlannedGrid) agentPlannedGrid.hidden = !showPlanned;
+    if (agentPlannedEmpty) agentPlannedEmpty.hidden = !showPlanned || agentPlannedEmpty.dataset.empty !== "true";
+  };
+
+  for (const tabButton of agentTabs) tabButton.addEventListener("click", () => selectAgentTab(tabButton.dataset.runTab));
+
+  const renderAgentGrid = () => {
+    if (!agentSection) return;
+    const running = [];
+    const planned = [];
+    const settled = [];
+    for (const agent of runAgents.values()) {
+      if (runAgentIsRunning(agent)) running.push(agent);
+      else if (agent.status === "pending") planned.push(agent);
+      else settled.push(agent);
+    }
+    agentSection.hidden = runAgents.size === 0;
+    if (agentEmptyMessage) agentEmptyMessage.hidden = runAgents.size > 0;
+    const plan = runSlotPlan(running.length);
+    if (agentGrid) {
+      const fragment = document.createDocumentFragment();
+      for (const agent of running) fragment.append(buildAgentCard(agent));
+      for (let i = running.length; i < plan.slots; i++) fragment.append(buildIdleSlot());
+      for (let i = 0; i < plan.throttled; i++) fragment.append(buildThrottledSlot(plan));
+      flipAgentGrid(() => agentGrid.replaceChildren(fragment));
+    }
+    const fillRoster = (list, emptyMessage, agents) => {
+      if (!list) return;
+      list.replaceChildren(...agents.map(buildAgentCard));
+      if (emptyMessage) emptyMessage.dataset.empty = agents.length === 0 ? "true" : "false";
+    };
+    fillRoster(agentHistoryGrid, agentHistoryEmpty, settled);
+    fillRoster(agentPlannedGrid, agentPlannedEmpty, planned);
+    for (const [tab, badge] of agentTabCounts) badge.textContent = String(tab === "history" ? settled.length : planned.length);
+    selectAgentTab(agentTab);
+  };
 
   const refreshAgentDialogSummary = (agent) => {
     if (!agentDialogSummary || !agent || openAgentTask !== agent.task) return;
@@ -1317,7 +1402,7 @@
     if (mappedStatus === "failed" && !agentFailures.has(event.task)) loadAgentFailures();
     const label = describeRunEvent(event);
     agent.latest = {label, time: event.committed_at || "", sequence: Number(event.sequence) || 0};
-    const entry = {label, detail: payload.action && payload.kind !== "tool" ? humanizeRunText(payload.action) : "", time: event.committed_at || ""};
+    const entry = {label, detail: payload.action && payload.kind !== "tool" ? humanizeRunText(payload.action) : "", time: event.committed_at || "", tool_arguments: payload.tool_arguments || "", tool_result: payload.tool_result || "", tool_error: payload.tool_error || ""};
     agent.events.push(entry);
     while (agent.events.length > 500) agent.events.shift();
     renderAgentGrid();
@@ -1343,10 +1428,13 @@
     agentDialog.showModal();
   };
 
-  agentGrid?.addEventListener("click", (event) => {
+  const openAgentFromClick = (event) => {
     const trigger = event.target.closest(".run-agent-card");
     if (trigger?.dataset.runAgent) openRunAgent(trigger.dataset.runAgent);
-  });
+  };
+  agentGrid?.addEventListener("click", openAgentFromClick);
+  agentHistoryGrid?.addEventListener("click", openAgentFromClick);
+  agentPlannedGrid?.addEventListener("click", openAgentFromClick);
   agentDialogClose?.addEventListener("click", () => {
     openAgentTask = "";
     agentDialog.close();
@@ -1365,7 +1453,7 @@
       stage: item.dataset.runStage,
       task,
       committed_at: item.dataset.runTime,
-      payload: {kind: item.dataset.runKind, tool: item.dataset.runTool}
+      payload: {kind: item.dataset.runKind, tool: item.dataset.runTool, tool_call_id: item.dataset.runToolCallId, tool_status: item.dataset.runToolStatus, tool_arguments: item.dataset.runToolArguments, tool_result: item.dataset.runToolResult, tool_error: item.dataset.runToolError}
     });
   }
   renderAgentGrid();
@@ -1386,6 +1474,21 @@
       detail.textContent = ` ${value}`;
       item.append(detail);
     }
+    const payload = event.payload || {};
+    for (const value of [payload.kind ? `kind=${payload.kind}` : "", payload.tool_name || payload.tool ? `tool=${payload.tool_name || payload.tool}` : "", payload.tool_status ? `status=${payload.tool_status}` : "", payload.tool_call_id ? `call=${payload.tool_call_id}` : ""]) {
+      if (!value) continue;
+      const meta = document.createElement("small");
+      meta.textContent = ` ${value}`;
+      item.append(meta);
+    }
+    const detailText = payload.text || payload.delta || payload.detail || payload.message || payload.content || payload.title || "";
+    if (detailText) {
+      const detail = document.createElement("p");
+      detail.className = "run-event-detail";
+      detail.textContent = detailText;
+      item.append(detail);
+    }
+    appendToolObservation(item, payload);
     if (event.omission) {
       const omission = document.createElement("p");
       omission.textContent = `Omitted ${event.omission.count || 0} detail item(s): ${event.omission.reason || "bounded history"}`;

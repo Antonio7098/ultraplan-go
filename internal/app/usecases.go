@@ -227,6 +227,9 @@ func supportedPreviewPath(rel string) bool {
 		if strings.Contains(rel, "/sources/") && strings.HasSuffix(rel, ".md") {
 			return true
 		}
+		if strings.Contains(rel, "/reports/") && strings.HasSuffix(rel, ".md") {
+			return true
+		}
 		if strings.HasSuffix(rel, "/.ultraplan/run-state.json") {
 			return true
 		}

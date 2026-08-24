@@ -24,7 +24,7 @@ var staticAssetNames = map[string]struct{}{
 	"app.css": {}, "app.js": {}, "resource-monitor.css": {}, "resource-monitor.js": {},
 	"run-timeline.css": {}, "run-timeline.js": {},
 	"css/tokens.css": {}, "css/base.css": {}, "css/primitives.css": {}, "css/components.css": {}, "css/layouts.css": {}, "css/utilities.css": {},
-	"js/app.js": {}, "js/operations.js": {}, "js/sse.js": {},
+	"js/app.js": {}, "js/operations.js": {}, "js/sse.js": {}, "js/study.js": {},
 }
 
 type HandlerOptions struct {
@@ -250,7 +250,7 @@ func allowedMethods(match routeMatch) []string {
 		return []string{http.MethodPost}
 	case "api_operations":
 		return []string{http.MethodGet, http.MethodHead, http.MethodPost}
-	case "operation_prepare", "operation_start", "operation_cancel", "run_cancel":
+	case "operation_prepare", "operation_start", "operation_cancel", "run_cancel", "sprint_create":
 		return []string{http.MethodPost}
 	case "api_operation":
 		return []string{http.MethodGet, http.MethodDelete}
@@ -335,6 +335,8 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "project", params: parts[1:], known: true}
 	case len(parts) == 5 && parts[0] == "projects" && parts[2] == "sprints" && validSprintPage(parts[4]):
 		return routeMatch{name: "sprint_page", params: []string{parts[1], parts[3], parts[4]}, known: true}
+	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "sprints" && parts[3] == "create":
+		return routeMatch{name: "sprint_create", params: []string{parts[1]}, known: true}
 	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "sprints":
 		return routeMatch{name: "sprint", params: []string{parts[1], parts[3]}, known: true}
 	case len(parts) == 3 && parts[0] == "studies" && validStudyPage(parts[2]):
@@ -400,7 +402,7 @@ func validSprintPage(page string) bool {
 
 func validStudyPage(page string) bool {
 	switch page {
-	case "inputs", "progress", "operations", "validation", "artifacts":
+	case "inputs", "progress", "operations", "validation", "dimensions", "reports", "repos":
 		return true
 	default:
 		return false

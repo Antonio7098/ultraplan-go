@@ -134,12 +134,13 @@ func (m *securityMiddleware) wrap(next http.Handler) http.Handler {
 		apiOperationMutation := (r.Method == http.MethodPost || r.Method == http.MethodDelete) && strings.HasPrefix(r.URL.Path, "/api/v1/operations")
 		apiRunMutation := r.Method == http.MethodDelete && matchedRoute.name == "api_run"
 		htmlOperationMutation := r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/operations/")
+		htmlSprintMutation := r.Method == http.MethodPost && matchedRoute.name == "sprint_create"
 		htmlRunMutation := r.Method == http.MethodPost && matchedRoute.name == "run_cancel"
-		operationMutation := apiOperationMutation || apiRunMutation || htmlOperationMutation || htmlRunMutation
+		operationMutation := apiOperationMutation || apiRunMutation || htmlOperationMutation || htmlSprintMutation || htmlRunMutation
 		operationRead := (r.Method == http.MethodGet || r.Method == http.MethodHead) && (matchedRoute.name == "api_operation" || matchedRoute.name == "api_operation_events")
 		staticAsset := (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.HasPrefix(r.URL.Path, "/static/")
 		hasBody := r.ContentLength > 0 || len(r.TransferEncoding) > 0
-		operationBody := r.Method == http.MethodPost && (matchedRoute.name == "api_operation_prepare" || matchedRoute.name == "api_operations" || matchedRoute.name == "operation_prepare" || matchedRoute.name == "operation_start" || matchedRoute.name == "operation_cancel" || matchedRoute.name == "run_cancel")
+		operationBody := r.Method == http.MethodPost && (matchedRoute.name == "api_operation_prepare" || matchedRoute.name == "api_operations" || matchedRoute.name == "operation_prepare" || matchedRoute.name == "operation_start" || matchedRoute.name == "operation_cancel" || matchedRoute.name == "run_cancel" || matchedRoute.name == "sprint_create")
 		switch {
 		case len(r.RequestURI) > MaxRequestTarget:
 			m.reject(tracked, r, http.StatusBadRequest, "invalid_request", "The request target is too long.")

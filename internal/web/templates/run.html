@@ -19,12 +19,17 @@
       <div class="run-events-links">{{with .NextEventsURL}}<a href="{{.}}">Continue retained event replay →</a>{{end}}</div>
     </section>
     <section aria-labelledby="run-agents-heading" data-run-agents hidden>
-      <header class="run-section-header"><div><h2 id="run-agents-heading">Agents in this run</h2><p class="group-description">Each card follows one study agent. Select a card for its detailed summary and full event stream.</p></div></header>
-      <ul id="run-agent-grid" class="reviewer-grid run-agent-grid"></ul>
-      <div class="run-agent-completed-row">
-        <button id="run-agent-completed-toggle" type="button" data-run-completed-toggle aria-expanded="false" aria-controls="run-agent-grid" hidden><span data-run-completed-label>Show</span> <span data-run-completed-count>0</span> completed agent<span data-run-completed-plural>s</span><span class="run-agent-toggle-chevron" aria-hidden="true">▾</span></button>
-      </div>
+      <header class="run-section-header"><div><h2 id="run-agents-heading">Agents in this run</h2><p class="group-description">Running agents occupy the live parallelism slots. Select any card for its detailed summary and full event stream.</p></div></header>
+      <ul id="run-agent-grid" class="reviewer-grid run-agent-grid" data-run-slots aria-label="Live parallelism slots"></ul>
       <p id="run-agent-grid-empty" class="empty">No per-agent activity has been committed yet.</p>
+      <div class="run-agent-tabs" role="tablist" aria-label="Agent rosters">
+        <button id="run-tab-history" type="button" role="tab" aria-selected="true" aria-controls="run-agent-history" data-run-tab="history">History <span class="run-tab-count" data-run-tab-count="history">0</span></button>
+        <button id="run-tab-planned" type="button" role="tab" aria-selected="false" aria-controls="run-agent-planned" data-run-tab="planned">Planned <span class="run-tab-count" data-run-tab-count="planned">0</span></button>
+      </div>
+      <ul id="run-agent-history" class="reviewer-grid run-agent-grid" role="tabpanel" aria-labelledby="run-tab-history"></ul>
+      <p id="run-agent-history-empty" class="empty" hidden>No settled agents yet.</p>
+      <ul id="run-agent-planned" class="reviewer-grid run-agent-grid" role="tabpanel" aria-labelledby="run-tab-planned" hidden></ul>
+      <p id="run-agent-planned-empty" class="empty" hidden>No planned agents are waiting to start.</p>
     </section>
   </div>
   <aside class="run-rail">
@@ -55,6 +60,7 @@
 </div>
 {{with .StudyInsights}}
 <script type="application/json" data-run-agent-tasks>{{.SeedTasks}}</script>
+{{with .Parallelism}}<script type="application/json" data-run-parallelism>{{.}}</script>{{end}}
 <link rel="stylesheet" href="/static/resource-monitor.css">
 <section class="resource-monitor" data-study-resources="/api/v1/studies/{{.Study}}/resources" aria-label="Live resource diagnostics">
 <header><div><h3>Resource usage</h3><p class="group-description">Live diagnostics</p></div><span class="resource-monitor-state" data-resource-state>Loading</span></header>

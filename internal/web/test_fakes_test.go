@@ -9,21 +9,27 @@ import (
 )
 
 type fakeQueries struct {
-	dashboard   app.WebDashboardResult
-	projects    app.WebProjectsResult
-	project     app.WebProjectResult
-	sprint      app.WebSprintResult
-	studies     app.WebStudiesResult
-	study       app.WebStudyResult
-	validation  app.WebValidationResult
-	artifact    app.WebArtifactPreview
-	health      app.WebHealthResult
-	prompt      app.WebPromptBundleResult
-	models      app.WebModelsResult
-	modelsErr   error
-	err         error
-	healthCalls int
-	promptCalls int
+	dashboard  app.WebDashboardResult
+	projects   app.WebProjectsResult
+	project    app.WebProjectResult
+	sprint     app.WebSprintResult
+	studies    app.WebStudiesResult
+	study      app.WebStudyResult
+	validation app.WebValidationResult
+	artifact   app.WebArtifactPreview
+	dimensions app.WebDimensionsResult
+	reports    app.WebStudyReportsResult
+	health     app.WebHealthResult
+	prompt     app.WebPromptBundleResult
+	models     app.WebModelsResult
+	modelsErr  error
+	err        error
+	createErr  error
+
+	healthCalls    int
+	promptCalls    int
+	createdProject string
+	createdSprint  string
 }
 
 func sampleQueries() *fakeQueries {
@@ -98,8 +104,14 @@ func sampleQueries() *fakeQueries {
 		study:      study,
 		validation: app.WebValidationResult{Scope: "project", Ref: "project_ref", Findings: []app.DisplayFinding{finding}, CollectionInfo: app.CollectionInfo{ReturnedCount: 1, TotalCount: 1}},
 		artifact:   app.WebArtifactPreview{Ref: "artifact_ref", DisplayPath: artifact.DisplayPath, MediaType: "text/markdown", Content: "# Plan\n", SizeBytes: 7, ReturnedBytes: 7},
-		health:     app.WebHealthResult{Status: "ok", Server: true, Workspace: true},
-		prompt:     app.WebPromptBundleResult{Stage: sprintpkg.StagePlan, Available: true, Scope: "Deterministic stage preview", InputContract: contract, Explanation: &explanation},
+		dimensions: app.WebDimensionsResult{Items: []app.WebDimension{{Study: "research", Number: "01", Slug: "contract", Title: "Contract", DisplayPath: "studies/research/dimensions/01-contract.md", Content: "# Contract\n\nCheck the contract boundary.", Bytes: 35}}, CollectionInfo: app.CollectionInfo{ReturnedCount: 1, TotalCount: 1}},
+		reports: app.WebStudyReportsResult{Dimensions: []app.WebStudyDimensionReports{{
+			Number: "01", Slug: "contract",
+			Final:   &app.WebStudyReportFile{Source: "01-contract", Ref: "final_ref", DisplayPath: "studies/research/reports/final/01-contract.md", Bytes: 12},
+			Sources: []app.WebStudyReportFile{{Source: "repo", Ref: "source_ref", DisplayPath: "studies/research/reports/source/01-contract/repo.md", Bytes: 8}},
+		}}, CollectionInfo: app.CollectionInfo{ReturnedCount: 2, TotalCount: 2}},
+		health: app.WebHealthResult{Status: "ok", Server: true, Workspace: true},
+		prompt: app.WebPromptBundleResult{Stage: sprintpkg.StagePlan, Available: true, Scope: "Deterministic stage preview", InputContract: contract, Explanation: &explanation},
 	}
 }
 
@@ -129,8 +141,19 @@ func (f *fakeQueries) Validations(context.Context, string, string) (app.WebValid
 func (f *fakeQueries) Artifact(context.Context, string) (app.WebArtifactPreview, error) {
 	return f.artifact, f.err
 }
+func (f *fakeQueries) StudyDimensions(context.Context, string) (app.WebDimensionsResult, error) {
+	return f.dimensions, f.err
+}
+func (f *fakeQueries) StudyReports(context.Context, string) (app.WebStudyReportsResult, error) {
+	return f.reports, f.err
+}
 func (f *fakeQueries) Models(context.Context) (app.WebModelsResult, error) {
 	return f.models, f.modelsErr
+}
+
+func (f *fakeQueries) CreateSprintWorkspace(_ context.Context, project, slug string) error {
+	f.createdProject, f.createdSprint = project, slug
+	return f.createErr
 }
 
 func (f *fakeQueries) Health(context.Context) (app.WebHealthResult, error) {

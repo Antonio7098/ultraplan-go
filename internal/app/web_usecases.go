@@ -67,6 +67,13 @@ type WebSprintUsageQueries interface {
 	SprintRuntimeUsage(ctx context.Context, project, slug string) (SprintMetricsSummary, error)
 }
 
+// WebSprintWorkspaceMutation is an additive capability for surfaces that may
+// materialize a roadmap sprint workspace directory without running any flow
+// stage.
+type WebSprintWorkspaceMutation interface {
+	CreateSprintWorkspace(ctx context.Context, project, slug string) error
+}
+
 // SprintMetricsSummary projects sprint runtime metrics for usage surfaces.
 type SprintMetricsSummary struct {
 	RecentRuns []SprintMetricRow
@@ -630,6 +637,16 @@ func (u *webUseCases) projectRoadmap(projectName string, live map[string]SprintS
 		}
 		phases = append(phases, WebRoadmapPhase{Title: phase.Title, Sprints: sprints})
 	}
+	for i, j := 0, len(phases)-1; i < j; i, j = i+1, j-1 {
+		phases[i], phases[j] = phases[j], phases[i]
+	}
+	for i := range phases {
+		sprints := phases[i].Sprints
+		for a, b := 0, len(sprints)-1; a < b; a, b = a+1, b-1 {
+			sprints[a], sprints[b] = sprints[b], sprints[a]
+		}
+		phases[i].Sprints = sprints
+	}
 	return phases
 }
 
@@ -662,6 +679,19 @@ func (u *webUseCases) SprintRuntimeUsage(ctx context.Context, projectRef, slug s
 		summary.RecentRuns = append(summary.RecentRuns, row)
 	}
 	return summary, nil
+}
+
+// CreateSprintWorkspace materializes the sprint directory for a roadmap slug
+// without running any flow stage.
+func (u *webUseCases) CreateSprintWorkspace(ctx context.Context, project, slug string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	_, err := u.dashboard.sprintService().CreateWorkspace(project, slug)
+	if err != nil {
+		return mapSprintError("sprint.create", err)
+	}
+	return nil
 }
 
 func (u *webUseCases) Sprint(ctx context.Context, project, slug string) (WebSprintResult, error) {

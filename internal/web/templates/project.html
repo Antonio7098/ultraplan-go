@@ -37,10 +37,19 @@
   {{range $entry := $phase.Sprints}}
     <li class="sprint-milestone{{if eq $entry.Status "delivered"}} milestone-complete{{else if eq $entry.Status "active"}} milestone-current{{else}} milestone-planned{{end}}">
     {{if $entry.Exists}}<a href="/projects/{{$.Project.Name}}/sprints/{{$entry.Slug}}">
-    {{else}}<span class="milestone-entry">
+    {{else}}<button type="button" class="milestone-entry milestone-start" data-start-sprint="start-sprint-{{$entry.Slug}}" aria-haspopup="dialog">
     {{end}}<span class="milestone-node" aria-hidden="true"></span><span class="milestone-content"><span class="milestone-title">Sprint {{$entry.Number}}: {{$entry.Title}}{{with $entry.Slug}} <code>{{.}}</code>{{end}}</span>
     {{if $entry.Goal}}<span class="milestone-goal">{{$entry.Goal}}</span>{{end}}
-    <span class="milestone-meta"><span class="status status-{{if eq $entry.Status "delivered"}}ok{{else if eq $entry.Status "active"}}info{{else}}warn{{end}}">{{$entry.Status}}</span>{{if $entry.Exists}} · {{$entry.CompletedStages}} of {{$entry.TotalStages}} stages complete{{if $entry.Assessment}} · assessment {{$entry.Assessment}}{{end}}{{end}}{{if $entry.GateItems}} · {{len $entry.GateItems}} acceptance criteria{{end}}</span></span>{{if $entry.Exists}}<span class="milestone-arrow" aria-hidden="true">→</span></a>{{else}}</span>{{end}}</li>
+    <span class="milestone-meta"><span class="status status-{{if eq $entry.Status "delivered"}}ok{{else if eq $entry.Status "active"}}info{{else}}warn{{end}}">{{$entry.Status}}</span>{{if $entry.Exists}} · {{$entry.CompletedStages}} of {{$entry.TotalStages}} stages complete{{if $entry.Assessment}} · assessment {{$entry.Assessment}}{{end}}{{end}}{{if $entry.GateItems}} · {{len $entry.GateItems}} acceptance criteria{{end}}{{if not $entry.Exists}} · no folder yet{{end}}</span></span>{{if $entry.Exists}}<span class="milestone-arrow" aria-hidden="true">→</span></a>
+    {{else}}<span class="milestone-action">Create folder</span></button>
+    <dialog class="add-sprint-dialog" id="start-sprint-{{$entry.Slug}}" aria-labelledby="start-sprint-heading-{{$entry.Slug}}">
+      <div class="add-sprint-heading"><div><p class="eyebrow">Roadmap delivery</p><h2 id="start-sprint-heading-{{$entry.Slug}}">Create sprint {{$entry.Number}}</h2></div><button type="button" data-add-sprint-close aria-label="Close create sprint dialog">×</button></div>
+      <p>Create the <code>sprints/{{$entry.Slug}}</code> workspace from the roadmap slug, then start its flow from the sprint page.</p>
+      <form class="sprint-create-form" method="post" action="/projects/{{$.Project.Name}}/sprints/create">
+      <input type="hidden" name="_csrf" value="{{$.CSRF}}"><input type="hidden" name="sprint" value="{{$entry.Slug}}">
+        <button type="submit">Create folder</button>
+      </form>
+    </dialog>{{end}}</li>
   {{end}}
   </ol>
 </section>

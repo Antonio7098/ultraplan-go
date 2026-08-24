@@ -102,7 +102,14 @@ func TestBrowserRunPagesPreserveFiltersAndBoundAccessibleEnhancement(t *testing.
 	if detail.Code != http.StatusOK {
 		t.Fatalf("detail status=%d body=%s", detail.Code, body)
 	}
-	for _, want := range []string{`role="status" aria-live="polite"`, `data-confirm="Request durable cancellation`, `Current attempt`, `Replay boundary`, `oldest 1, last 700, omitted 11`, `Continue retained event replay`, `data-run-agents`, `id="run-agent-grid"`, `id="run-agent-dialog"`, `data-run-type="progress" data-run-stage="execute" data-run-task=""`} {
+	for _, want := range []string{`role="status" aria-live="polite"`, `data-confirm="Request durable cancellation`, `Current attempt`, `Replay boundary`, `oldest 1, last 700, omitted 11`, `Continue retained event replay`, `data-run-agents`,
+		`id="run-agent-grid"`,
+		`data-run-slots`,
+		`data-run-tab="history"`,
+		`data-run-tab="planned"`,
+		`id="run-agent-history"`,
+		`id="run-agent-planned"`,
+		`id="run-agent-dialog"`, `data-run-type="progress" data-run-stage="execute" data-run-task=""`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail missing %q", want)
 		}
@@ -168,6 +175,9 @@ func TestBrowserRunPageSurfacesStudyInsightsCompactly(t *testing.T) {
 		`data-study-resources="/api/v1/studies/research/resources"`,
 		`data-resource="parallelism"`, `/static/resource-monitor.js`,
 		`data-run-agent-tasks`,
+		`data-run-parallelism`,
+		`"requested_parallelism":4`,
+		`"effective_parallelism":2`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("run study insights missing %q", want)
@@ -179,7 +189,9 @@ func TestBrowserRunPageSurfacesStudyInsightsCompactly(t *testing.T) {
 		}
 	}
 	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{"agentRetryWait", "Next retry in", `["Provider", facts.provider]`, `["Model", facts.model]`, `["Harness", facts.harness]`, `agent-fact`} {
+	for _, want := range []string{"agentRetryWait", "Next retry in", `["Provider", facts.provider]`, `["Model", facts.model]`, `["Harness", facts.harness]`, `agent-fact`,
+		"runSlotPlan", "requested_parallelism", "effective_parallelism", "agent-slot-throttled",
+		"Memory pressure reduced parallelism from", "selectAgentTab"} {
 		if !strings.Contains(js, want) {
 			t.Errorf("agent retry/harness enhancement missing %q", want)
 		}

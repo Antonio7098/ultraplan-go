@@ -1,22 +1,53 @@
 {{define "page/study"}}{{template "layout/top" .}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/studies">Studies</a> / {{.Study.Name}}{{if ne .Page "overview"}} / {{if eq .Page "inputs"}}Inputs{{else if eq .Page "progress"}}Progress{{else if eq .Page "operations"}}Operations{{else if eq .Page "validation"}}Validation{{else}}Artifacts{{end}}{{end}}</nav>
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/studies">Studies</a> / {{.Study.Name}}{{if ne .Page "overview"}} / {{if eq .Page "inputs"}}Inputs{{else if eq .Page "progress"}}Progress{{else if eq .Page "operations"}}Operations{{else if eq .Page "validation"}}Validation{{else if eq .Page "dimensions"}}Dimensions{{else if eq .Page "repos"}}Repos{{else}}Reports{{end}}{{end}}</nav>
 <div class="detail-layout">
 <aside class="detail-sidebar">
 <nav aria-label="Study navigation"><h2>Study</h2><ul>
 <li><a href="/studies/{{.Study.Name}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>Overview</a></li>
 <li><a href="/studies/{{.Study.Name}}/inputs"{{if eq .Page "inputs"}} aria-current="page"{{end}}>Inputs</a></li>
+<li><a href="/studies/{{.Study.Name}}/dimensions"{{if eq .Page "dimensions"}} aria-current="page"{{end}}>Dimensions</a></li>
 <li><a href="/studies/{{.Study.Name}}/progress"{{if eq .Page "progress"}} aria-current="page"{{end}}>Progress</a></li>
 <li><a href="/studies/{{.Study.Name}}/operations"{{if eq .Page "operations"}} aria-current="page"{{end}}>Operations</a></li>
 <li><a href="/studies/{{.Study.Name}}/validation"{{if eq .Page "validation"}} aria-current="page"{{end}}>Validation</a></li>
-<li><a href="/studies/{{.Study.Name}}/artifacts"{{if eq .Page "artifacts"}} aria-current="page"{{end}}>Artifacts</a></li>
+<li><a href="/studies/{{.Study.Name}}/reports"{{if eq .Page "reports"}} aria-current="page"{{end}}>Reports</a></li>
+<li><a href="/studies/{{.Study.Name}}/repos"{{if eq .Page "repos"}} aria-current="page"{{end}}>Repos</a></li>
 </ul></nav>
 </aside>
 <div class="detail-content">
 {{if eq .Page "overview"}}
 <section><h2>Overview</h2><dl class="metadata"><div><dt>Status</dt><dd>{{.Study.Status}}</dd></div><div><dt>Tasks</dt><dd>{{.Study.Completed}} complete / {{.Study.Total}} total</dd></div><div><dt>Active</dt><dd>{{if .Study.RunActive}}yes{{else}}no{{end}}</dd></div><div><dt>Validation findings</dt><dd>{{len .Study.Findings}}</dd></div></dl></section>
-<nav class="destination-grid" aria-label="Study overview destinations"><a href="/studies/{{.Study.Name}}/inputs"><strong>Inputs</strong><span>Review sources and analysis dimensions.</span></a><a href="/studies/{{.Study.Name}}/progress"><strong>Progress</strong><span>See the detailed task and run state.</span></a><a href="/studies/{{.Study.Name}}/operations"><strong>Operations</strong><span>Prepare validation or run the study.</span></a><a href="/studies/{{.Study.Name}}/artifacts"><strong>Artifacts</strong><span>Open the study’s generated outputs.</span></a></nav>
+<nav class="destination-grid" aria-label="Study overview destinations"><a href="/studies/{{.Study.Name}}/inputs"><strong>Inputs</strong><span>Review sources and analysis dimensions.</span></a><a href="/studies/{{.Study.Name}}/progress"><strong>Progress</strong><span>See the detailed task and run state.</span></a><a href="/studies/{{.Study.Name}}/operations"><strong>Operations</strong><span>Prepare validation or run the study.</span></a><a href="/studies/{{.Study.Name}}/reports"><strong>Reports</strong><span>Read the study’s per-source and final reports.</span></a><a href="/studies/{{.Study.Name}}/repos"><strong>Repos</strong><span>Compare repo ratings and dimension leaders.</span></a></nav>
 {{else if eq .Page "inputs"}}
 <section><h2>Sources</h2>{{if .Study.Sources}}<ul>{{range .Study.Sources}}<li>{{.}}</li>{{end}}</ul>{{else}}<p class="empty">No sources found.</p>{{end}}</section>
+{{else if eq .Page "dimensions"}}
+<section class="dimensions-browser" data-dimensions-browser aria-label="Dimension browser">
+  <h2>Dimensions</h2>
+  <div class="dimensions-toolbar">
+    <label for="dimension-search">Search dimensions</label>
+    <input id="dimension-search" type="search" placeholder="Search by number, title, or content…" data-dimension-search autocomplete="off" spellcheck="false">
+    <span class="dimensions-count" data-dimension-count aria-live="polite"></span>
+  </div>
+  {{if .DimensionList}}
+  <ul class="dimension-list">
+    {{range .DimensionList}}
+    <li class="dimension-card" data-dimension-card>
+      <details>
+        <summary>
+          <span class="dimension-number">{{.Number}}</span>
+          <span class="dimension-title">{{if .Title}}{{.Title}}{{else if .Slug}}{{.Slug}}{{else}}Dimension{{end}}</span>
+          {{if .CodeCitationsDisabled}}<span class="status status-warn" title="This dimension forbids code citations in reports.">no code citations</span>{{end}}
+          <span class="dimension-meta"><code>{{.DisplayPath}}</code></span>
+        </summary>
+        <div class="dimension-content">{{.Body}}</div>
+        {{if .Truncated}}<p class="dimension-truncated">Preview truncated at 64 KiB; the full file remains authoritative on disk.</p>{{end}}
+      </details>
+    </li>
+    {{end}}
+  </ul>
+  <p class="empty" data-dimension-empty hidden>No dimensions match the search.</p>
+  {{else}}<p class="empty">No dimensions found.</p>{{end}}
+</section>
+<script src="/static/js/study.js" defer></script>
 <section><h2>Dimensions</h2>{{if .Study.Dimensions}}<ul>{{range .Study.Dimensions}}<li>{{.}}</li>{{end}}</ul>{{else}}<p class="empty">No dimensions found.</p>{{end}}</section>
 {{else if eq .Page "progress"}}
 <section><h2>Progress</h2><dl class="metadata"><div><dt>Status</dt><dd>{{.Study.Status}}</dd></div><div><dt>Completed</dt><dd>{{.Study.Completed}}</dd></div><div><dt>Pending</dt><dd>{{.Study.Pending}}</dd></div><div><dt>Active tasks</dt><dd>{{.Study.ActiveTasks}}</dd></div><div><dt>Failed</dt><dd>{{.Study.Failed}}</dd></div><div><dt>Cancelled</dt><dd>{{.Study.Cancelled}}</dd></div>{{if .Study.RunID}}<div><dt>Run ID</dt><dd>{{.Study.RunID}}</dd></div>{{end}}</dl></section>
@@ -47,8 +78,44 @@
 {{template "component/operation-console" .}}
 {{else if eq .Page "validation"}}
 <section><h2>Validation findings</h2>{{template "component/findings" .Study.Findings}}</section>
-{{else}}
-<section><h2>Artifacts</h2>{{template "component/artifacts" .Study.Artifacts}}</section>
+{{else if eq .Page "reports"}}
+<section class="reports-browser">
+  <div class="pill-tabs" role="tablist" aria-label="Report kinds" data-report-tabs>
+    <button type="button" role="tab" id="reports-tab-final" aria-selected="true" aria-controls="reports-panel-final" data-report-tab="final">Final <span class="tab-count">{{len .ReportFinals}}</span></button>
+    <button type="button" role="tab" id="reports-tab-source" aria-selected="false" aria-controls="reports-panel-source" tabindex="-1" data-report-tab="source">Dimension × repo <span class="tab-count">{{.ReportSourceCount}}</span></button>
+  </div>
+  <div id="reports-panel-final" role="tabpanel" aria-labelledby="reports-tab-final">
+    {{if .ReportFinals}}
+    <ul class="report-list">{{range .ReportFinals}}<li><a href="/artifacts/{{.Ref}}"><code>{{.Label}}</code><span>{{.DisplayPath}}</span></a></li>{{end}}</ul>
+    {{else}}<p class="empty">No final reports have been generated yet.</p>{{end}}
+  </div>
+  <div id="reports-panel-source" role="tabpanel" aria-labelledby="reports-tab-source" hidden>
+    {{if .ReportGroups}}{{range .ReportGroups}}
+    <div class="report-group"><h3><code>{{.Dimension}}</code></h3>
+      <ul class="report-list">{{range .Reports}}<li><a href="/artifacts/{{.Ref}}"><code>{{.Label}}</code><span>{{.DisplayPath}}</span></a></li>{{end}}</ul>
+    </div>
+    {{end}}{{else}}<p class="empty">No per-source reports have been generated yet.</p>{{end}}
+  </div>
+</section>
+<script src="/static/js/study.js" defer></script>
+{{else if eq .Page "repos"}}
+{{if .RepoBoard}}
+<section><h2>Repo leaderboard</h2>
+<ol class="repo-board">{{range .RepoBoard}}
+<li class="repo-row"><span class="repo-rank">{{.Rank}}</span><div class="repo-main"><span class="repo-name">{{.Name}}</span><span class="repo-coverage">{{.Coverage}}</span></div>{{if .BestText}}<a class="repo-best" href="/artifacts/{{.BestRef}}">best: <code>{{.BestText}}</code></a>{{end}}<div class="repo-score" aria-label="Average rating {{.Average}} of 10"><strong>{{.Average}}</strong><i class="repo-bar" aria-hidden="true"><span style="width: {{.BarWidth}}%"></span></i></div></li>
+{{end}}</ol>
+</section>
+<section><h2>All scores</h2>
+<div class="table-wrap"><table class="score-matrix">
+<thead><tr><th scope="col">Repo</th>{{range .RepoColumns}}<th scope="col">{{.}}</th>{{end}}<th scope="col">Avg</th></tr></thead>
+<tbody>{{range .RepoMatrix}}<tr><th scope="row">{{.Name}}</th>{{range .Cells}}<td{{if .Scored}} class="scored" style="--heat: {{.Percent}}%"{{end}}>{{if .Ref}}<a href="/artifacts/{{.Ref}}" title="Open report">{{.Label}}</a>{{else}}{{.Label}}{{end}}</td>{{end}}<td class="repo-avg">{{.Average}}</td></tr>{{end}}</tbody>
+</table></div>
+<p class="group-description">Each cell links to that repo’s report for the dimension; – means the report has no rating yet, n/a means the dimension does not apply to the repo.</p>
+</section>
+<section><h2>Dimension leaders</h2>
+<ul class="champion-grid">{{range .RepoChampions}}<li class="champion-card"><h3><code>{{.Dimension}}</code></h3><ol>{{range .Leaders}}<li><a href="/artifacts/{{.Ref}}"><span class="champ-rank">{{.Rank}}</span> {{.Name}} <strong>{{.Score}}</strong></a></li>{{end}}</ol></li>{{end}}</ul>
+</section>
+{{else}}<p class="empty">No repo reports have been rated yet.</p>{{end}}
 {{end}}
 </div>
 </div>

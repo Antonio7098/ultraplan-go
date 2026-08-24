@@ -157,6 +157,12 @@ func failedCheck(name, path, expected, observed string, kind SourceKind, guidanc
 	return ValidationCheck{Name: name, Status: ValidationStatusFailed, Severity: ValidationSeverityError, Path: path, Expected: expected, Observed: observed, SourceKind: kind, Guidance: guidance}
 }
 
+// ReportRating extracts the rating from generated report content, honoring
+// the report's dedicated rating section when one is present.
+func ReportRating(content string) RatingResult {
+	return findRating(content)
+}
+
 func findRating(content string) RatingResult {
 	lines, ratingSection := ratingCandidateLines(content)
 	var ratingLines []string

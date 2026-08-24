@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -254,35 +256,70 @@ type artifactPreviewDTO struct {
 	JSONValid     *bool  `json:"json_valid,omitempty"`
 }
 
+// dimensionCard is one expandable card on the dimensions browse page.
+type dimensionCard struct {
+	Study                 string
+	Number                string
+	Slug                  string
+	Title                 string
+	DisplayPath           string
+	Bytes                 int64
+	Truncated             bool
+	CodeCitationsDisabled bool
+	Body                  template.HTML
+}
+
+// reportLinkView is one report file link on the study reports page.
+type reportLinkView struct {
+	Label       string
+	Ref         string
+	DisplayPath string
+	Bytes       int64
+}
+
+// reportGroupView holds one dimension's per-source report links.
+type reportGroupView struct {
+	Dimension string
+	Reports   []reportLinkView
+}
+
 type pageModel struct {
-	Title         string
-	Heading       string
-	Description   string
-	Workspace     string
-	Projects      []app.WebProjectResult
-	Project       *app.WebProjectResult
-	Sprints       []app.WebSprintResult
-	Sprint        *app.WebSprintResult
-	Studies       []app.WebStudyResult
-	Study         *app.WebStudyResult
-	Artifact      *app.WebArtifactPreview
-	ArtifactHTML  template.HTML
-	SmokeArtifact bool
-	Health        *app.WebHealthResult
-	Status        int
-	Error         string
-	CSRF          string
-	Preparation   *operationPreparationView
-	Operation     *operationDocument
-	Runs          []runRowView
-	Run           *runDetailView
-	StudyInsights *runStudyInsightsView
-	SprintUsage   *runSprintUsageView
-	RunEvents     []runEventView
-	NextRunsURL   string
-	NextEventsURL string
-	RunFilters    runPageFilters
-	Page          string
+	Title             string
+	Heading           string
+	Description       string
+	Workspace         string
+	Projects          []app.WebProjectResult
+	Project           *app.WebProjectResult
+	Sprints           []app.WebSprintResult
+	Sprint            *app.WebSprintResult
+	Studies           []app.WebStudyResult
+	Study             *app.WebStudyResult
+	Artifact          *app.WebArtifactPreview
+	ArtifactHTML      template.HTML
+	SmokeArtifact     bool
+	Health            *app.WebHealthResult
+	Status            int
+	Error             string
+	CSRF              string
+	Preparation       *operationPreparationView
+	Operation         *operationDocument
+	Runs              []runRowView
+	Run               *runDetailView
+	DimensionList     []dimensionCard
+	ReportFinals      []reportLinkView
+	ReportGroups      []reportGroupView
+	ReportSourceCount int
+	RepoBoard         []repoBoardEntry
+	RepoColumns       []string
+	RepoMatrix        []repoMatrixRow
+	RepoChampions     []repoChampion
+	StudyInsights     *runStudyInsightsView
+	SprintUsage       *runSprintUsageView
+	RunEvents         []runEventView
+	NextRunsURL       string
+	NextEventsURL     string
+	RunFilters        runPageFilters
+	Page              string
 }
 
 func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMatch) {
@@ -408,7 +445,34 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		page := match.params[1]
-		h.render(w, r, http.StatusOK, "study", pageModel{Title: studyPageTitle(page) + " · " + result.Name, Heading: result.Name, Study: &result, Page: page})
+		model := pageModel{Title: studyPageTitle(page) + " · " + result.Name, Heading: result.Name, Study: &result, Page: page}
+		if page == "dimensions" {
+			cards, err := h.studyDimensionCards(r, match.params[0])
+			if err != nil {
+				h.handleQueryError(w, r, false, err)
+				return
+			}
+			model.DimensionList = cards
+		}
+		if page == "reports" {
+			finals, groups, err := h.studyReportViews(r, match.params[0])
+			if err != nil {
+				h.handleQueryError(w, r, false, err)
+				return
+			}
+			model.ReportFinals = finals
+			model.ReportGroups = groups
+			for _, group := range groups {
+				model.ReportSourceCount += len(group.Reports)
+			}
+		}
+		if page == "repos" {
+			if err := h.loadRepoBoard(r, match.params[0], &model); err != nil {
+				h.handleQueryError(w, r, false, err)
+				return
+			}
+		}
+		h.render(w, r, http.StatusOK, "study", model)
 	case "artifact":
 		result, err := h.queries.Artifact(r.Context(), match.params[0])
 		if err != nil {
@@ -576,6 +640,8 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		h.handleOperationEvents(w, r, match.params[0])
 	case "operation_prepare":
 		h.handleHTMLOperationPrepare(w, r)
+	case "sprint_create":
+		h.handleSprintCreate(w, r, match.params[0])
 	case "operation_start":
 		h.handleHTMLOperationStart(w, r)
 	case "operation_cancel":
@@ -600,7 +666,11 @@ func renderMarkdown(artifact app.WebArtifactPreview) template.HTML {
 	if artifact.MediaType != "text/markdown" {
 		return ""
 	}
-	rendered, err := app.RenderSafeMarkdown(artifact.Content)
+	return safeMarkdown(artifact.Content)
+}
+
+func safeMarkdown(source string) template.HTML {
+	rendered, err := app.RenderSafeMarkdown(source)
 	if err != nil {
 		return ""
 	}
@@ -626,9 +696,140 @@ func studyPageTitle(page string) string {
 		return "Operations"
 	case "validation":
 		return "Validation"
+	case "reports":
+		return "Reports"
+	case "repos":
+		return "Repos"
 	default:
-		return "Artifacts"
+		return "Reports"
 	}
+}
+
+func (h *handler) loadRepoBoard(r *http.Request, name string, model *pageModel) error {
+	queries, ok := h.queries.(app.WebStudyReportQueries)
+	if !ok {
+		return app.ErrWebUnavailable
+	}
+	result, err := queries.StudyRepos(r.Context(), name)
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]app.WebRepoScore, len(result.Repos))
+	for _, repo := range result.Repos {
+		byName[repo.Name] = repo
+	}
+	columns := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, repo := range result.Repos {
+		for _, entry := range repo.Scores {
+			if !seen[entry.Number] {
+				seen[entry.Number] = true
+				columns = append(columns, entry.Number)
+			}
+		}
+	}
+	sort.Strings(columns)
+	model.RepoColumns = columns
+	for index, repo := range result.Repos {
+		entry := repoBoardEntry{
+			Rank:     index + 1,
+			Name:     repo.Name,
+			Coverage: fmt.Sprintf("%d / %d dimensions rated", repo.RatedCount, repo.Applicable),
+		}
+		if repo.RatedCount > 0 {
+			entry.Average = strconv.FormatFloat(repo.Average, 'f', 1, 64)
+			entry.BarWidth = int(math.Round(repo.Average * 10))
+		} else {
+			entry.Average = "-"
+		}
+		if repo.Best != nil {
+			entry.BestRef = repo.Best.Ref
+			entry.BestText = repo.Best.Dimension + " · " + strconv.Itoa(repo.Best.Score)
+		}
+		model.RepoBoard = append(model.RepoBoard, entry)
+
+		scoreByName := byName[repo.Name]
+		applicable := make(map[string]bool, len(scoreByName.ApplicableNumbers))
+		for _, number := range scoreByName.ApplicableNumbers {
+			applicable[number] = true
+		}
+		row := repoMatrixRow{Name: repo.Name, Average: entry.Average}
+		for _, column := range columns {
+			cell := repoMatrixCell{Label: "n/a"}
+			if applicable[column] {
+				cell = repoMatrixCell{Label: "–"}
+			}
+			for _, score := range scoreByName.Scores {
+				if score.Number == column {
+					cell = repoMatrixCell{Label: strconv.Itoa(score.Score), Scored: true, Percent: score.Score * 10, Ref: score.Ref}
+					break
+				}
+			}
+			row.Cells = append(row.Cells, cell)
+		}
+		model.RepoMatrix = append(model.RepoMatrix, row)
+	}
+	for _, dimension := range result.Dimensions {
+		champion := repoChampion{Dimension: dimension.Dimension}
+		for _, leader := range dimension.Leaders {
+			champion.Leaders = append(champion.Leaders, repoLeaderView{Rank: leader.Rank, Name: leader.Name, Score: leader.Score, Ref: leader.Ref})
+		}
+		model.RepoChampions = append(model.RepoChampions, champion)
+	}
+	return nil
+}
+
+func (h *handler) studyReportViews(r *http.Request, name string) ([]reportLinkView, []reportGroupView, error) {
+	queries, ok := h.queries.(app.WebStudyReportQueries)
+	if !ok {
+		return nil, nil, app.ErrWebUnavailable
+	}
+	result, err := queries.StudyReports(r.Context(), name)
+	if err != nil {
+		return nil, nil, err
+	}
+	var finals []reportLinkView
+	var groups []reportGroupView
+	for _, dimension := range result.Dimensions {
+		ref := dimension.Number
+		if dimension.Slug != "" {
+			ref += "-" + dimension.Slug
+		}
+		if dimension.Final != nil {
+			finals = append(finals, reportLinkView{Label: ref, Ref: dimension.Final.Ref, DisplayPath: dimension.Final.DisplayPath, Bytes: dimension.Final.Bytes})
+		}
+		if len(dimension.Sources) == 0 {
+			continue
+		}
+		group := reportGroupView{Dimension: ref, Reports: make([]reportLinkView, 0, len(dimension.Sources))}
+		for _, source := range dimension.Sources {
+			group.Reports = append(group.Reports, reportLinkView{Label: source.Source, Ref: source.Ref, DisplayPath: source.DisplayPath, Bytes: source.Bytes})
+		}
+		groups = append(groups, group)
+	}
+	return nonNilSlice(finals), nonNilSlice(groups), nil
+}
+
+func (h *handler) studyDimensionCards(r *http.Request, name string) ([]dimensionCard, error) {
+	queries, ok := h.queries.(app.WebDimensionQueries)
+	if !ok {
+		return nil, app.ErrWebUnavailable
+	}
+	result, err := queries.StudyDimensions(r.Context(), name)
+	if err != nil {
+		return nil, err
+	}
+	cards := make([]dimensionCard, 0, len(result.Items))
+	for _, item := range result.Items {
+		cards = append(cards, dimensionCard{
+			Study: item.Study, Number: item.Number, Slug: item.Slug,
+			Title: item.Title, DisplayPath: item.DisplayPath,
+			Bytes: item.Bytes, Truncated: item.Truncated,
+			CodeCitationsDisabled: item.CodeCitationsDisabled,
+			Body:                  safeMarkdown(item.Content),
+		})
+	}
+	return cards, nil
 }
 
 func (h *handler) handleValidations(w http.ResponseWriter, r *http.Request) {
@@ -899,6 +1100,30 @@ func newestSprintsFirst(items []app.WebSprintResult) []app.WebSprintResult {
 		out[left], out[right] = out[right], out[left]
 	}
 	return out
+}
+
+// handleSprintCreate materializes a roadmap sprint workspace directory and
+// returns the browser straight to the sprint page.
+func (h *handler) handleSprintCreate(w http.ResponseWriter, r *http.Request, projectName string) {
+	if err := r.ParseForm(); err != nil || r.FormValue("_csrf") != csrfToken(r.Context()) {
+		h.renderError(w, r, http.StatusForbidden, "Request rejected", "The browser session or CSRF proof is invalid. Refresh the page and try again.")
+		return
+	}
+	mutation, ok := h.queries.(app.WebSprintWorkspaceMutation)
+	if !ok {
+		h.renderError(w, r, http.StatusServiceUnavailable, "Unavailable", "Sprint workspace creation is unavailable on this surface.")
+		return
+	}
+	slug := r.FormValue("sprint")
+	if !validOptionalIdentifier(projectName) || projectName == "" || !validIdentifier(slug) {
+		h.renderError(w, r, http.StatusBadRequest, "Invalid sprint", "The project or sprint reference is not a single safe path segment.")
+		return
+	}
+	if err := mutation.CreateSprintWorkspace(r.Context(), projectName, slug); err != nil {
+		h.renderError(w, r, http.StatusUnprocessableEntity, "Creation failed", htmlOperationFailure("The sprint workspace could not be created from the roadmap slug.", err))
+		return
+	}
+	http.Redirect(w, r, "/projects/"+projectName+"/sprints/"+slug, http.StatusSeeOther)
 }
 
 func intPtr(value int) *int    { return &value }

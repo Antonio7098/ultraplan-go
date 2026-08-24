@@ -301,7 +301,7 @@ func TestDetailTemplatesIncludeRoutedContextualNavigation(t *testing.T) {
 	}{
 		{path: "/projects/alpha/documentation", label: "Project navigation", active: "/projects/alpha/documentation", links: []string{"/projects/alpha", "/projects/alpha/documentation", "/projects/alpha/roadmap"}},
 		{path: "/projects/alpha/sprints/30-web/run", label: "Sprint navigation", active: "/projects/alpha/sprints/30-web/run", links: []string{"/projects/alpha/sprints/30-web", "/projects/alpha/sprints/30-web/run", "/projects/alpha/sprints/30-web/artifacts"}},
-		{path: "/studies/research/progress", label: "Study navigation", active: "/studies/research/progress", links: []string{"/studies/research", "/studies/research/inputs", "/studies/research/operations", "/studies/research/validation", "/studies/research/artifacts"}},
+		{path: "/studies/research/progress", label: "Study navigation", active: "/studies/research/progress", links: []string{"/studies/research", "/studies/research/inputs", "/studies/research/dimensions", "/studies/research/operations", "/studies/research/validation", "/studies/research/reports"}},
 	}
 	for _, tt := range tests {
 		body := request(h, http.MethodGet, tt.path, nil).Body.String()
@@ -408,6 +408,8 @@ func TestProjectRoadmapRendersPhasesAndSprintEntries(t *testing.T) {
 			"1 acceptance criteria",
 			"3 of 5 stages complete",
 			`data-add-sprint`, `name="sprint_number"`, `name="kind" value="sprint-flow"`, `>Prepare sprint flow</button>`,
+			`data-start-sprint="start-sprint-31-web-operations"`, `id="start-sprint-31-web-operations"`,
+			`action="/projects/alpha/sprints/create"`, `name="sprint" value="31-web-operations"`, "no folder yet", ">Create folder</button>",
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("roadmap page %s missing %q", path, want)
@@ -419,12 +421,12 @@ func TestProjectRoadmapRendersPhasesAndSprintEntries(t *testing.T) {
 	if strings.Contains(planned, `href="/projects/alpha/sprints/31-web-operations"`) {
 		t.Errorf("unmaterialized planned sprint is rendered as a link: %s", planned)
 	}
-	if !strings.Contains(planned, `class="milestone-entry"`) {
-		t.Errorf("unmaterialized planned sprint lacks static entry markup: %s", planned)
+	if !strings.Contains(planned, `class="milestone-entry milestone-start"`) {
+		t.Errorf("unmaterialized planned sprint lacks create-folder trigger markup: %s", planned)
 	}
 
 	js := request(testHandler(t, queries, nil), http.MethodGet, "/static/app.js", nil).Body.String()
-	for _, want := range []string{`[data-add-sprint]`, `dialog?.showModal()`, `dialog?.close()`} {
+	for _, want := range []string{`[data-add-sprint]`, `[data-start-sprint]`, `dialog?.showModal()`, `dialog?.close()`} {
 		if !strings.Contains(js, want) {
 			t.Errorf("add sprint dialog behavior missing %q", want)
 		}
