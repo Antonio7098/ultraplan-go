@@ -1,5 +1,5 @@
 {{define "page/projects"}}{{template "layout/top" .}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Projects</nav>
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/projects" aria-current="page">Projects</a></nav>
 {{if .Projects}}
 <ul class="summary-grid">{{range .Projects}}<li><a href="/projects/{{.Name}}">{{.Name}}</a><span>{{len .Docs}} docs · {{len .Findings}} findings</span></li>{{end}}</ul>
 {{else}}<p class="empty">No projects found.</p>{{end}}

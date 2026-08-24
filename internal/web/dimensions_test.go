@@ -104,7 +104,7 @@ func TestStudyReposPageRanksAndComparesRepos(t *testing.T) {
 		"Repo leaderboard",
 		"All scores",
 		"Dimension leaders",
-		`<span>Results</span>`,
+		`<a href="/studies/research/results" aria-current="page">Results</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("repos page missing %q in %s", want, body)
@@ -184,7 +184,7 @@ func TestStudyReportsPageSplitsFinalAndSourceReports(t *testing.T) {
 		"<code>01-contract</code><span>studies/research/reports/final/01-contract.md</span>",
 		"<code>repo</code><span>studies/research/reports/source/01-contract/repo.md</span>",
 		"<code>notes</code><span>studies/research/reports/source/01-contract/notes.md</span>",
-		`<span>Results</span>`,
+		`<a href="/studies/research/results" aria-current="page">Results</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("reports page missing %q in %s", want, body)

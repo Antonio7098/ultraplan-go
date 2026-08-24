@@ -1,6 +1,6 @@
 {{define "page/run"}}{{template "layout/top" .}}{{$csrf := .CSRF}}
 <div class="run-page">
-<nav aria-label="Breadcrumb" class="run-breadcrumb"><a href="/">Dashboard</a><span aria-hidden="true">/</span><a href="/runs">Runs</a><span aria-hidden="true">/</span><span aria-current="page">Run</span></nav>
+<nav aria-label="Breadcrumb" class="run-breadcrumb"><a href="/">Dashboard</a><span aria-hidden="true">/</span><a href="/runs">Runs</a><span aria-hidden="true">/</span><a href="" aria-current="page">Run</a></nav>
 {{with .Run}}
 <section class="run-state-panel" aria-labelledby="run-state-heading" data-run-id="{{.RunID}}" data-last-sequence="{{.LastSequence}}" data-run-lifecycle="{{.Lifecycle.Value}}" data-run-outcome="{{.TerminalOutcome}}">
   <header class="run-heading">

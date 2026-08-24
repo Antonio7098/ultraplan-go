@@ -174,7 +174,7 @@ func TestPrimaryNavigationUsesTopBarDestinations(t *testing.T) {
 		t.Fatal(err)
 	}
 	shell := string(body)
-	for _, want := range []string{`class="brand" href="/"`, `<a href="/projects">Projects</a>`, `<a href="/studies">Studies</a>`, `class="runs-nav-link" href="/runs"`} {
+	for _, want := range []string{`class="brand" href="/"`, `<a href="/projects">Projects</a>`, `<a href="/studies">Studies</a>`, `aria-label="Running processes: 0"`, `class="run-history-link" href="/runs"`} {
 		if !strings.Contains(shell, want) {
 			t.Errorf("primary navigation missing %q", want)
 		}

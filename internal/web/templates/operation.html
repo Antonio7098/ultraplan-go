@@ -9,7 +9,7 @@
 {{end}}{{end}}
 
 {{define "page/operation"}}{{template "layout/top" .}}{{$csrf := .CSRF}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Operation</nav>
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="" aria-current="page">Operation</a></nav>
 {{with .Operation}}
 {{$active := or (eq .State "accepted") (eq .State "running") (eq .State "cancelling")}}
 <div class="operation-status-page"{{if $active}} data-operation-id="{{.ID}}" data-operation-state="{{.State}}"{{end}}>

@@ -1,5 +1,5 @@
 {{define "page/error"}}{{template "layout/top" .}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Error</nav>
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="" aria-current="page">Error</a></nav>
 <p class="notice" role="alert"><strong>{{.Status}}</strong> {{.Error}}</p>
 <p><a href="/">Return to the dashboard</a></p>
 {{template "layout/bottom" .}}{{end}}

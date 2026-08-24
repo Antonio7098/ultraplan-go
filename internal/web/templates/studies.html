@@ -1,4 +1,4 @@
 {{define "page/studies"}}{{template "layout/top" .}}
-<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / Studies</nav>
+<nav aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/studies" aria-current="page">Studies</a></nav>
 {{if .Studies}}<ul class="summary-grid">{{range .Studies}}<li><a href="/studies/{{.Name}}">{{.Name}}</a><span>{{.Completed}} / {{.Total}} complete · {{.Status}}</span></li>{{end}}</ul>{{else}}<p class="empty">No studies found.</p>{{end}}
 {{template "layout/bottom" .}}{{end}}

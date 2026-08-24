@@ -1,5 +1,5 @@
 {{define "page/sprint"}}{{template "layout/top" .}}
-<nav class="breadcrumb" aria-label="Breadcrumb"><a href="/projects">Projects</a><span aria-hidden="true">/</span><a href="/projects/{{.Sprint.Project}}">{{.Sprint.Project}}</a><span aria-hidden="true">/</span><a href="/projects/{{.Sprint.Project}}/roadmap">Roadmap</a><span aria-hidden="true">/</span><span>{{.Sprint.Slug}}</span></nav>
+<nav class="breadcrumb" aria-label="Breadcrumb"><a href="/projects">Projects</a><span aria-hidden="true">/</span><a href="/projects/{{.Sprint.Project}}">{{.Sprint.Project}}</a><span aria-hidden="true">/</span><a href="/projects/{{.Sprint.Project}}/roadmap">Roadmap</a><span aria-hidden="true">/</span><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}"{{if eq .Page "overview"}} aria-current="page"{{end}}>{{.Sprint.Slug}}</a>{{if ne .Page "overview"}}<span aria-hidden="true">/</span><a href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/{{.Page}}" aria-current="page">{{if eq .Page "workflow"}}Workflow{{else}}Artifacts{{end}}</a>{{end}}</nav>
 {{if eq .Page "overview"}}
 <div class="entity-dashboard sprint-overview-grid">
 <a class="dashboard-component sprint-overview-hero" href="/projects/{{.Sprint.Project}}/sprints/{{.Sprint.Slug}}/artifacts"><section class="sprint-intro" aria-labelledby="sprint-overview-heading">
