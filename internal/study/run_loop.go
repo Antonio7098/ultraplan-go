@@ -57,6 +57,8 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	}
 	diagnostics.runID = state.RunID
 	diagnostics.configureParallelism(req.Parallelism)
+	startupCleanup := runtimepkg.CleanupRuntimeStores(listing.Study.Path, 72*time.Hour, 2*1024*1024*1024, false)
+	diagnostics.storage("runtime_store.recovered", startupCleanup, readDiskPressure(listing.Study.Path))
 	stopDiagnostics := diagnostics.start(ctx)
 	defer stopDiagnostics()
 	history, err := LoadRunHistory(listing.Study)
@@ -243,34 +245,6 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		return firstErr
 	}
 	attempted := map[string]bool{}
-	var cleanupMu sync.Mutex
-	pendingCleanup := map[string]bool{}
-	queueCleanup := func(ids []string) {
-		cleanupMu.Lock()
-		defer cleanupMu.Unlock()
-		for _, id := range ids {
-			if id != "" {
-				pendingCleanup[id] = true
-			}
-		}
-	}
-	flushCleanup := func() error {
-		cleanupMu.Lock()
-		ids := make([]string, 0, len(pendingCleanup))
-		for id := range pendingCleanup {
-			ids = append(ids, id)
-		}
-		cleanupMu.Unlock()
-		if err := s.deleteSessionIDs(ctx, ids); err != nil {
-			return fmt.Errorf("clean up completed runtime sessions: %w", err)
-		}
-		cleanupMu.Lock()
-		for _, id := range ids {
-			delete(pendingCleanup, id)
-		}
-		cleanupMu.Unlock()
-		return nil
-	}
 	runTask := func(id string) {
 		if ctx.Err() != nil {
 			recordErr(markTaskCancelled(update, id, ctx.Err()))
@@ -323,14 +297,14 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 		switch task.Kind {
 		case TaskKindAnalysis:
-			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, DeferSessionCleanup: true, OnEvent: func(event runtimeEvent) {
+			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {
 				res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
 			}
 		case TaskKindSynthesis:
-			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, DeferSessionCleanup: true, OnEvent: func(event runtimeEvent) {
+			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {
@@ -341,9 +315,6 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			return
 		}
 		diagnostics.sample("runtime.end", id, time.Since(runtimeStarted), err)
-		if res.Status == ExecutionStatusCompleted {
-			queueCleanup(res.CleanupSessionIDs)
-		}
 		recordErr(applyExecutionResult(update, id, res))
 		recordErr(recordHistory(id))
 		emitTask(progressEventForExecution(res), id)
@@ -352,16 +323,6 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	active := 0
 	stopScheduling := false
 	for active > 0 || (!stopScheduling && ctx.Err() == nil) {
-		if active > 0 {
-			// Keep workers in fixed waves. Cleanup runs only after every runtime in
-			// the wave has stopped writing to OpenCode's shared SQLite database.
-			<-done
-			active--
-			if active == 0 {
-				recordErr(flushCleanup())
-			}
-			continue
-		}
 		if loadFirstErr() != nil {
 			stopScheduling = true
 		}
@@ -392,6 +353,29 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		if parallelismChanged {
 			emit(changeEvent, TaskState{})
 		}
+		disk := readDiskPressure(listing.Study.Path)
+		if disk.Pressured {
+			cleanup := runtimepkg.CleanupRuntimeStores(listing.Study.Path, 72*time.Hour, 2*1024*1024*1024, disk.Critical)
+			diagnostics.storage("disk.admission_paused", cleanup, disk)
+			disk = readDiskPressure(listing.Study.Path)
+			if disk.Pressured {
+				mu.Lock()
+				schedulingMessage = fmt.Sprintf("disk pressure paused new workers; %.1f%% used, %d MiB available", disk.UsedPercent, disk.AvailableBytes/(1024*1024))
+				mu.Unlock()
+				if active > 0 {
+					<-done
+					active--
+					continue
+				}
+				timer := time.NewTimer(30 * time.Second)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+				case <-timer.C:
+				}
+				continue
+			}
+		}
 		available := effectiveParallelism - active
 		var ids []string
 		var nextRetry *time.Time
@@ -415,6 +399,10 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			}(id)
 		}
 		if active > 0 {
+			// Each task owns its OpenCode database, so a completed slot can be
+			// refilled without waiting for sibling cleanup.
+			<-done
+			active--
 			continue
 		}
 		if stopScheduling || (len(ids) == 0 && nextRetry == nil) {

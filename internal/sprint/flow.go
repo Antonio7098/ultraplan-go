@@ -18,6 +18,10 @@ type sessionDeleter interface {
 	DeleteSession(context.Context, string) error
 }
 
+type runtimeStoreDeleter interface {
+	DeleteRuntimeStore(context.Context, string) error
+}
+
 func (s Service) deleteCompletedSession(ctx context.Context, sessionID string) error {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil
@@ -30,6 +34,11 @@ func (s Service) deleteCompletedSession(ctx context.Context, sessionID string) e
 }
 
 func (s Service) deleteCompletedSessions(ctx context.Context, result runtime.Result) error {
+	if result.RuntimeStorePath != "" {
+		if deleter, ok := s.runtime.(runtimeStoreDeleter); ok {
+			return deleter.DeleteRuntimeStore(ctx, result.RuntimeStorePath)
+		}
+	}
 	ids := append([]string(nil), result.SessionIDs...)
 	ids = append(ids, result.SessionID)
 	seen := map[string]bool{}

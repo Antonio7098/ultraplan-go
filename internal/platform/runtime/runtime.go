@@ -14,30 +14,33 @@ import (
 	"time"
 
 	"github.com/Antonio7098/agentwrap"
+	agentwrapopencode "github.com/Antonio7098/agentwrap/opencode"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
 )
 
 type Request struct {
-	Prompt        string
-	PromptRef     PromptReference
-	TraceID       string
-	ParentTraceID string
-	WorkDir       string
-	SessionID     string
-	SessionAction string
-	Provider      string
-	Model         string
-	Timeout       time.Duration
-	Metadata      map[string]string
-	RequireHealth []string
-	RequireCaps   []string
-	Sandbox       string
-	Permissions   string
-	Policy        PermissionPolicy
-	Validation    *agentwrap.ValidationSpec
-	OnEvent       func(Event)
-	Cache         CacheDirective
+	Prompt            string
+	PromptRef         PromptReference
+	TraceID           string
+	ParentTraceID     string
+	WorkDir           string
+	SessionID         string
+	SessionAction     string
+	Provider          string
+	Model             string
+	Timeout           time.Duration
+	Metadata          map[string]string
+	RequireHealth     []string
+	RequireCaps       []string
+	Sandbox           string
+	Permissions       string
+	Policy            PermissionPolicy
+	Validation        *agentwrap.ValidationSpec
+	OnEvent           func(Event)
+	Cache             CacheDirective
+	RuntimeStorePath  string
+	RuntimeStoreOwner string
 }
 
 // CacheDirective carries product-owned prompt boundary semantics to runtime
@@ -75,28 +78,29 @@ type PermissionPathRule struct {
 }
 
 type Result struct {
-	RunID          string
-	SessionID      string
-	SessionIDs     []string
-	TurnID         string
-	Status         string
-	TerminalOutput string
-	Events         []Event
-	EventStats     EventStats
-	Memory         MemoryStats
-	Artifacts      []Artifact
-	Warnings       []string
-	Attempts       []AttemptSummary
-	Usage          Usage
-	EstimatedCost  *CostEstimate
-	Policy         PolicySummary
-	Permissions    PermissionSummary
-	Cleanup        CleanupSummary
-	Validation     ValidationSummary
-	Repair         RepairSummary
-	Error          *Error
-	StartedAt      time.Time
-	FinishedAt     time.Time
+	RunID            string
+	SessionID        string
+	SessionIDs       []string
+	TurnID           string
+	Status           string
+	TerminalOutput   string
+	Events           []Event
+	EventStats       EventStats
+	Memory           MemoryStats
+	Artifacts        []Artifact
+	Warnings         []string
+	Attempts         []AttemptSummary
+	Usage            Usage
+	EstimatedCost    *CostEstimate
+	Policy           PolicySummary
+	Permissions      PermissionSummary
+	Cleanup          CleanupSummary
+	Validation       ValidationSummary
+	Repair           RepairSummary
+	Error            *Error
+	StartedAt        time.Time
+	FinishedAt       time.Time
+	RuntimeStorePath string
 }
 
 type Event struct {
@@ -253,10 +257,11 @@ type Runtime interface {
 }
 
 type Adapter struct {
-	runtime        agentwrap.Runtime
-	health         agentwrap.HealthChecker
-	deleteSession  func(context.Context, string) error
-	deleteSessions func(context.Context, []string) error
+	runtime            agentwrap.Runtime
+	health             agentwrap.HealthChecker
+	deleteSession      func(context.Context, string) error
+	deleteSessions     func(context.Context, []string) error
+	deleteRuntimeStore func(context.Context, string) error
 }
 
 // DeleteSession removes a completed retained session and its runtime-owned
@@ -287,6 +292,13 @@ func (a Adapter) DeleteSessions(ctx context.Context, sessionIDs []string) error 
 	return nil
 }
 
+func (a Adapter) DeleteRuntimeStore(ctx context.Context, path string) error {
+	if strings.TrimSpace(path) == "" || a.deleteRuntimeStore == nil {
+		return nil
+	}
+	return a.deleteRuntimeStore(ctx, path)
+}
+
 func NewAdapter(aw agentwrap.Runtime) Adapter {
 	a := Adapter{runtime: aw}
 	if h, ok := aw.(agentwrap.HealthChecker); ok {
@@ -299,13 +311,21 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 	if a.runtime == nil {
 		return Result{}, fmt.Errorf("runtime is required")
 	}
+	if req.RuntimeStorePath != "" {
+		if err := prepareRuntimeStore(req.RuntimeStorePath, req.RuntimeStoreOwner); err != nil {
+			return Result{RuntimeStorePath: req.RuntimeStorePath}, err
+		}
+	}
 	awReq, err := toAgentwrapRequest(req)
 	if err != nil {
-		return Result{}, err
+		retainRuntimeStore(req.RuntimeStorePath, req.RuntimeStoreOwner, err)
+		return Result{RuntimeStorePath: req.RuntimeStorePath}, err
 	}
 	run, err := a.runtime.StartRun(ctx, awReq)
 	if err != nil {
-		return Result{}, mapError(err)
+		mappedErr := mapError(err)
+		retainRuntimeStore(req.RuntimeStorePath, req.RuntimeStoreOwner, mappedErr)
+		return Result{RuntimeStorePath: req.RuntimeStorePath}, mappedErr
 	}
 
 	eventsCh := make(chan eventCollection, 1)
@@ -347,10 +367,12 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 			waitErr = waited.err
 		case <-time.After(5 * time.Second):
 			mapped := Result{
-				Status:     "cancelled",
-				FinishedAt: time.Now(),
-				Error:      &Error{Category: "cancellation", Operation: "run", UserDetail: ctx.Err().Error()},
+				Status:           "cancelled",
+				FinishedAt:       time.Now(),
+				Error:            &Error{Category: "cancellation", Operation: "run", UserDetail: ctx.Err().Error()},
+				RuntimeStorePath: req.RuntimeStorePath,
 			}
+			retainRuntimeStore(req.RuntimeStorePath, req.RuntimeStoreOwner, ctx.Err())
 			return mapped, ctx.Err()
 		}
 		if waitErr == nil {
@@ -359,6 +381,7 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 	}
 
 	mapped := mapResult(result)
+	mapped.RuntimeStorePath = req.RuntimeStorePath
 	select {
 	case events := <-eventsCh:
 		mapped.Events = events.events
@@ -377,6 +400,7 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 	case <-time.After(time.Second):
 	}
 	if waitErr != nil {
+		retainRuntimeStore(req.RuntimeStorePath, req.RuntimeStoreOwner, waitErr)
 		if errors.Is(waitErr, context.Canceled) {
 			mapped.Status = "cancelled"
 			mapped.Error = &Error{Category: "cancellation", Operation: "run", UserDetail: waitErr.Error()}
@@ -387,8 +411,10 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 		return mapped, mapError(waitErr)
 	}
 	if result.Err != nil {
+		retainRuntimeStore(req.RuntimeStorePath, req.RuntimeStoreOwner, result.Err)
 		return mapped, mapError(result.Err)
 	}
+	retainRuntimeStore(req.RuntimeStorePath, req.RuntimeStoreOwner, nil)
 	return mapped, nil
 }
 
@@ -547,6 +573,13 @@ func toAgentwrapRequest(req Request) (agentwrap.RunRequest, error) {
 		return agentwrap.RunRequest{}, err
 	}
 	metadata := cloneStringMap(req.Metadata)
+	if req.RuntimeStorePath != "" {
+		if metadata == nil {
+			metadata = map[string]string{}
+		}
+		metadata[agentwrapopencode.MetadataDatabasePath] = req.RuntimeStorePath
+		metadata["runtime_store_owner"] = req.RuntimeStoreOwner
+	}
 	if req.Cache.Key != "" {
 		if metadata == nil {
 			metadata = map[string]string{}

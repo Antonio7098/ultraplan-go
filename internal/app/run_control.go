@@ -125,6 +125,16 @@ func (r controlledRuntime) DeleteSessions(ctx context.Context, sessionIDs []stri
 	return deleter.DeleteSessions(ctx, sessionIDs)
 }
 
+func (r controlledRuntime) DeleteRuntimeStore(ctx context.Context, path string) error {
+	deleter, ok := r.base.(interface {
+		DeleteRuntimeStore(context.Context, string) error
+	})
+	if !ok {
+		return nil
+	}
+	return deleter.DeleteRuntimeStore(ctx, path)
+}
+
 func controlledRuntimeFor(deps dependencies, workspaceRoot string, effectiveConfig config.Config, base interface {
 	StartRun(context.Context, runtimepkg.Request) (runtimepkg.Result, error)
 }) (controlledRuntime, error) {

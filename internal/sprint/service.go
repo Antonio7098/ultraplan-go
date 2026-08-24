@@ -1028,6 +1028,9 @@ func (s Service) runtimeRequest(prompt string, metadata map[string]string) prunt
 	stage := strings.TrimSpace(metadata["stage"])
 	project := strings.TrimSpace(metadata["project"])
 	sprint := strings.TrimSpace(metadata["sprint"])
+	storeOwner := strings.Join([]string{"sprint", project, sprint, stage, strings.TrimSpace(metadata["task"]), strings.TrimSpace(metadata["coverage"]), strings.TrimSpace(metadata["area"])}, ":")
+	req.RuntimeStoreOwner = storeOwner
+	req.RuntimeStorePath = pruntime.ScopedRuntimeStorePath(filepath.Join(s.root, "projects", project, "sprints", sprint), storeOwner)
 	sum := sha256.Sum256([]byte(prompt))
 	checksum := hex.EncodeToString(sum[:])
 	req.PromptRef = pruntime.PromptReference{

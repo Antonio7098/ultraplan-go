@@ -113,6 +113,12 @@ func (s Service) startRuntime(ctx context.Context, prompt PromptResult, kind Tas
 	}
 	req = withStudyRuntimeIsolation(req)
 	req.Metadata = executionMetadata(req, kind, study, dimension, source, outputPath)
+	storeOwner := "study:" + study.Name + ":" + string(kind) + ":" + dimension.Ref()
+	if source.Name != "" {
+		storeOwner += ":" + string(source.Kind) + ":" + source.Name
+	}
+	req.RuntimeStoreOwner = storeOwner
+	req.RuntimeStorePath = runtimepkg.ScopedRuntimeStorePath(study.Path, storeOwner)
 	req.Validation = studyReportValidationSpec(kind, study, source, dimension, outputPath)
 	var fingerprint string
 	var fingerprintErr error

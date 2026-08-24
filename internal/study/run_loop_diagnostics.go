@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 const (
@@ -21,6 +23,7 @@ const (
 
 type runLoopDiagnostics struct {
 	path                 string
+	studyRoot            string
 	runID                string
 	mu                   sync.Mutex
 	activeTasks          map[string]struct{}
@@ -60,6 +63,22 @@ type RunLoopMemorySample struct {
 	ChildRSSBytes        uint64                 `json:"child_rss_bytes,omitempty"`
 	ActiveTaskIDs        []string               `json:"active_task_ids,omitempty"`
 	Children             []RunLoopChildResource `json:"children,omitempty"`
+	DiskTotalBytes       uint64                 `json:"disk_total_bytes,omitempty"`
+	DiskAvailableBytes   uint64                 `json:"disk_available_bytes,omitempty"`
+	DiskUsedPercent      float64                `json:"disk_used_percent,omitempty"`
+	AdmissionPaused      bool                   `json:"admission_paused,omitempty"`
+	RuntimeStoreBytes    uint64                 `json:"runtime_store_bytes,omitempty"`
+	RuntimeStoreCount    int                    `json:"runtime_store_count,omitempty"`
+	RuntimeStores        []RunLoopStoreResource `json:"runtime_stores,omitempty"`
+	StoresRemoved        int                    `json:"stores_removed,omitempty"`
+	StoreCleanupErrors   []string               `json:"store_cleanup_errors,omitempty"`
+}
+
+type RunLoopStoreResource struct {
+	Owner     string                       `json:"owner"`
+	State     runtimepkg.RuntimeStoreState `json:"state"`
+	Bytes     uint64                       `json:"bytes"`
+	UpdatedAt time.Time                    `json:"updated_at"`
 }
 
 type RunLoopResourceHistory struct {
@@ -71,7 +90,7 @@ type runLoopMemorySample = RunLoopMemorySample
 
 func newRunLoopDiagnostics(study Study, runID string) *runLoopDiagnostics {
 	return &runLoopDiagnostics{
-		path: filepath.Join(study.Path, RunStateDirName, "diagnostics", "run-loop-memory.jsonl"), runID: runID,
+		path: filepath.Join(study.Path, RunStateDirName, "diagnostics", "run-loop-memory.jsonl"), studyRoot: study.Path, runID: runID,
 		activeTasks: map[string]struct{}{},
 	}
 }
@@ -119,6 +138,8 @@ func (d *runLoopDiagnostics) sample(phase, taskID string, duration time.Duration
 	requestedParallelism := d.requestedParallelism
 	effectiveParallelism := d.effectiveParallelism
 	children := childProcessResources(activeTasks)
+	disk := readDiskPressure(d.studyRoot)
+	stores, storeBytes := runtimeStoreResources(d.studyRoot)
 	if phase == "runtime.end" && taskID != "" {
 		delete(d.activeTasks, taskID)
 	}
@@ -144,6 +165,13 @@ func (d *runLoopDiagnostics) sample(phase, taskID string, duration time.Duration
 		ChildRSSBytes:        childRSS,
 		ActiveTaskIDs:        activeTasks,
 		Children:             children,
+		DiskTotalBytes:       disk.TotalBytes,
+		DiskAvailableBytes:   disk.AvailableBytes,
+		DiskUsedPercent:      disk.UsedPercent,
+		AdmissionPaused:      disk.Pressured,
+		RuntimeStoreBytes:    storeBytes,
+		RuntimeStoreCount:    len(stores),
+		RuntimeStores:        stores,
 		RequestedParallelism: requestedParallelism,
 		EffectiveParallelism: effectiveParallelism,
 		MemoryAvailableBytes: memoryAvailable,
@@ -152,6 +180,31 @@ func (d *runLoopDiagnostics) sample(phase, taskID string, duration time.Duration
 		sample.Error = compactDiagnostic(sampleErr.Error())
 	}
 	d.append(sample)
+}
+
+func (d *runLoopDiagnostics) storage(phase string, cleanup runtimepkg.RuntimeStoreCleanup, disk diskPressure) {
+	if d == nil {
+		return
+	}
+	stores, storeBytes := runtimeStoreResources(d.studyRoot)
+	d.append(RunLoopMemorySample{Timestamp: time.Now().UTC(), RunID: d.runID, Phase: phase,
+		DiskTotalBytes: disk.TotalBytes, DiskAvailableBytes: disk.AvailableBytes, DiskUsedPercent: disk.UsedPercent,
+		AdmissionPaused: disk.Pressured, RuntimeStoreBytes: storeBytes, RuntimeStoreCount: len(stores), RuntimeStores: stores,
+		StoresRemoved: len(cleanup.Removed), StoreCleanupErrors: cleanup.Failed})
+}
+
+func runtimeStoreResources(studyRoot string) ([]RunLoopStoreResource, uint64) {
+	stores, err := runtimepkg.InspectRuntimeStores(studyRoot)
+	if err != nil {
+		return nil, 0
+	}
+	resources := make([]RunLoopStoreResource, 0, len(stores))
+	var total uint64
+	for _, store := range stores {
+		total += store.Bytes
+		resources = append(resources, RunLoopStoreResource{Owner: store.Owner, State: store.State, Bytes: store.Bytes, UpdatedAt: store.UpdatedAt})
+	}
+	return resources, total
 }
 
 func (d *runLoopDiagnostics) scheduling(phase string, requested, effective int, available uint64) {

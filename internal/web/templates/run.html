@@ -58,13 +58,15 @@
 <link rel="stylesheet" href="/static/resource-monitor.css">
 <section class="resource-monitor" data-study-resources="/api/v1/studies/{{.Study}}/resources" aria-label="Live resource diagnostics">
 <header><div><h3>Resource usage</h3><p class="group-description">Live diagnostics</p></div><span class="resource-monitor-state" data-resource-state>Loading</span></header>
-<dl class="resource-metrics"><div><dt>Available memory</dt><dd data-resource="available">-</dd></div><div><dt>UltraPlan RSS</dt><dd data-resource="parent-rss">-</dd></div><div><dt>Workers RSS</dt><dd data-resource="child-rss">-</dd></div><div><dt>Swap</dt><dd data-resource="swap">-</dd></div><div><dt>Parallelism</dt><dd data-resource="parallelism">-</dd></div><div><dt>Workers</dt><dd data-resource="workers">-</dd></div></dl>
+<dl class="resource-metrics"><div><dt>Available memory</dt><dd data-resource="available">-</dd></div><div><dt>UltraPlan RSS</dt><dd data-resource="parent-rss">-</dd></div><div><dt>Workers RSS</dt><dd data-resource="child-rss">-</dd></div><div><dt>Swap</dt><dd data-resource="swap">-</dd></div><div><dt>Parallelism</dt><dd data-resource="parallelism">-</dd></div><div><dt>Workers</dt><dd data-resource="workers">-</dd></div><div><dt>Disk available</dt><dd data-resource="disk-available">-</dd></div><div><dt>Runtime storage</dt><dd data-resource="store-bytes">-</dd></div></dl>
+<p class="runtime-admission" data-runtime-admission role="status">Worker admission status has not been sampled yet.</p>
 <div class="resource-monitor-body">
 <div class="resource-chart"><svg viewBox="0 0 720 180" role="img" aria-label="Memory usage over time"><polyline data-resource-line="children" class="resource-line resource-line-children" points=""></polyline><polyline data-resource-line="parent" class="resource-line resource-line-parent" points=""></polyline></svg><div class="resource-legend"><span><i class="children"></i>Workers RSS</span><span><i class="parent"></i>UltraPlan RSS</span></div></div>
 <div class="resource-events"><h4>Memory controls</h4><ul data-resource-events><li>No throttle events recorded.</li></ul></div>
 </div>
 <p class="resource-empty" data-resource-empty hidden>No run-loop diagnostics have been recorded for this study.</p>
 <div class="table-wrap"><table class="resource-processes"><thead><tr><th>PID</th><th>Task</th><th>RSS</th><th>Swap</th><th>CPU time</th><th>Elapsed</th></tr></thead><tbody data-resource-processes></tbody></table></div>
+<details class="runtime-stores" open><summary>Task-owned runtime stores · <span data-runtime-store-count>0</span></summary><p class="group-description">Successful task stores disappear immediately. Retained stores preserve interrupted work and expire under the recovery policy.</p><div class="table-wrap"><table><thead><tr><th>Owner</th><th>State</th><th>Size</th><th>Updated</th></tr></thead><tbody data-runtime-stores><tr><td colspan="4" class="empty">No task-owned runtime stores.</td></tr></tbody></table></div></details>
 </section>
 <script src="/static/resource-monitor.js" defer></script>
 {{end}}

@@ -12,18 +12,32 @@ import (
 	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
-type cleanupBarrierRuntime struct {
-	mu                 sync.Mutex
-	active             int
-	deleted            int
-	cleanupWhileActive bool
+type continuousRefillRuntime struct {
+	mu            sync.Mutex
+	calls         int
+	thirdStarted  chan struct{}
+	releaseFirst  chan struct{}
+	releaseOnce   sync.Once
+	requestStores []string
 }
 
-func (r *cleanupBarrierRuntime) StartRun(_ context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
+func (r *continuousRefillRuntime) StartRun(_ context.Context, req runtimepkg.Request) (runtimepkg.Result, error) {
 	r.mu.Lock()
-	r.active++
+	r.calls++
+	call := r.calls
+	r.requestStores = append(r.requestStores, req.RuntimeStorePath)
 	r.mu.Unlock()
-	time.Sleep(30 * time.Millisecond)
+	if call == 1 {
+		select {
+		case <-r.releaseFirst:
+		case <-time.After(5 * time.Second):
+			return runtimepkg.Result{}, errors.New("scheduler waited for a batch barrier")
+		}
+	}
+	if call == 3 {
+		close(r.thirdStarted)
+		r.releaseOnce.Do(func() { close(r.releaseFirst) })
+	}
 	path := req.Validation.Expectations[0].Path
 	content := validSourceReport
 	if req.Metadata["task.kind"] == string(TaskKindSynthesis) {
@@ -35,26 +49,15 @@ func (r *cleanupBarrierRuntime) StartRun(_ context.Context, req runtimepkg.Reque
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return runtimepkg.Result{}, err
 	}
-	r.mu.Lock()
-	r.active--
-	r.mu.Unlock()
 	return runtimepkg.Result{SessionID: req.Metadata["task.kind"] + ":" + req.Metadata["source.name"], Status: "completed"}, nil
 }
 
-func (r *cleanupBarrierRuntime) DeleteSession(_ context.Context, _ string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.deleted++
-	if r.active > 0 {
-		r.cleanupWhileActive = true
-	}
-	return nil
-}
+func (r *continuousRefillRuntime) DeleteSession(_ context.Context, _ string) error { return nil }
 
-func TestRunLoopCleansSessionsOnlyBetweenParallelWaves(t *testing.T) {
+func TestRunLoopRefillsAWorkerSlotWithoutWaitingForTheBatch(t *testing.T) {
 	root, _ := executionFixture(t)
 	mkdir(t, root, "studies", "demo", "sources", "second")
-	runtime := &cleanupBarrierRuntime{}
+	runtime := &continuousRefillRuntime{thirdStarted: make(chan struct{}), releaseFirst: make(chan struct{})}
 	service := NewService(root, WithRuntime(runtime, runtimeRequest()))
 
 	result, err := service.RunLoop(context.Background(), RunLoopRequest{StudyRef: "demo", DimensionRefs: []string{"01"}, Parallelism: 2, Command: []string{"ultraplan", "study", "demo", "run-loop"}})
@@ -62,15 +65,32 @@ func TestRunLoopCleansSessionsOnlyBetweenParallelWaves(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Status != RunAllStatusCompleted {
-		t.Fatalf("status = %q, want completed", result.Status)
+		for _, task := range result.State.Tasks {
+			if task.LastError != nil {
+				t.Logf("task %s failed: %+v", task.ID, *task.LastError)
+			}
+		}
+		t.Fatalf("status = %q, want completed; counts=%+v", result.Status, result.Counts)
+	}
+	select {
+	case <-runtime.thirdStarted:
+	default:
+		t.Fatal("third task did not start while the first worker was still occupied")
 	}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	if runtime.cleanupWhileActive {
-		t.Fatal("session cleanup ran while another runtime was active")
+	if len(runtime.requestStores) != 4 {
+		t.Fatalf("runtime store requests = %d, want 4", len(runtime.requestStores))
 	}
-	if runtime.deleted != 4 {
-		t.Fatalf("deleted sessions = %d, want 4", runtime.deleted)
+	seen := map[string]bool{}
+	for _, store := range runtime.requestStores {
+		if store == "" {
+			t.Fatal("runtime request did not receive an isolated store")
+		}
+		if seen[store] {
+			t.Fatalf("runtime store was reused across tasks: %s", store)
+		}
+		seen[store] = true
 	}
 }
 

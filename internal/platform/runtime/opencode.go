@@ -79,6 +79,13 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 		Policy: agentwrap.PersistencePolicy{PersistUnsafeRawPayloads: false},
 	}
 	adapter := Adapter{runtime: stack, health: primary}
+	adapter.deleteRuntimeStore = func(_ context.Context, path string) error {
+		if err := removeRuntimeStore(path); err != nil {
+			markRuntimeStoreCleanupPending(path, err)
+			return err
+		}
+		return nil
+	}
 	adapter.deleteSessions = func(ctx context.Context, sessionIDs []string) error {
 		openCodeSessionCleanupMu.Lock()
 		defer openCodeSessionCleanupMu.Unlock()
