@@ -353,7 +353,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		if parallelismChanged {
 			emit(changeEvent, TaskState{})
 		}
-		disk := readDiskPressure(listing.Study.Path)
+		disk := readSchedulerDiskPressure(listing.Study.Path)
 		if disk.Pressured {
 			// When no worker can make progress, retained stores must not pin the
 			// scheduler below its admission threshold forever. Active workers keep
@@ -361,7 +361,7 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			aggressiveCleanup := disk.Critical || active == 0
 			cleanup := runtimepkg.CleanupRuntimeStores(listing.Study.Path, 72*time.Hour, 2*1024*1024*1024, aggressiveCleanup)
 			diagnostics.storage("disk.admission_paused", cleanup, disk)
-			disk = readDiskPressure(listing.Study.Path)
+			disk = readSchedulerDiskPressure(listing.Study.Path)
 			if disk.Pressured {
 				mu.Lock()
 				schedulingMessage = fmt.Sprintf("disk pressure paused new workers; %.1f%% used, %d MiB available", disk.UsedPercent, disk.AvailableBytes/(1024*1024))

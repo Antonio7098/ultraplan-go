@@ -3,8 +3,8 @@ package study
 import "syscall"
 
 const (
-	minimumRuntimeFreeBytes  = 768 * 1024 * 1024
-	criticalRuntimeFreeBytes = 256 * 1024 * 1024
+	minimumRuntimeFreeBytes  = 1536 * 1024 * 1024
+	criticalRuntimeFreeBytes = 768 * 1024 * 1024
 	runtimeWorkerDiskBudget  = 512 * 1024 * 1024
 )
 
@@ -15,6 +15,8 @@ type diskPressure struct {
 	Pressured      bool
 	Critical       bool
 }
+
+var readSchedulerDiskPressure = readDiskPressure
 
 func diskParallelismCap(pressure diskPressure, requested int) int {
 	if requested < 1 || pressure.TotalBytes == 0 {

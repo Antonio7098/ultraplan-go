@@ -30,7 +30,7 @@ func (r *continuousRefillRuntime) StartRun(_ context.Context, req runtimepkg.Req
 	if call == 1 {
 		select {
 		case <-r.releaseFirst:
-		case <-time.After(20 * time.Second):
+		case <-time.After(15 * time.Second):
 			return runtimepkg.Result{}, errors.New("scheduler waited for a batch barrier")
 		}
 	}
@@ -55,6 +55,11 @@ func (r *continuousRefillRuntime) StartRun(_ context.Context, req runtimepkg.Req
 func (r *continuousRefillRuntime) DeleteSession(_ context.Context, _ string) error { return nil }
 
 func TestRunLoopRefillsAWorkerSlotWithoutWaitingForTheBatch(t *testing.T) {
+	previousDiskReader := readSchedulerDiskPressure
+	readSchedulerDiskPressure = func(string) diskPressure {
+		return diskPressure{TotalBytes: 100 << 30, AvailableBytes: 50 << 30}
+	}
+	t.Cleanup(func() { readSchedulerDiskPressure = previousDiskReader })
 	root, _ := executionFixture(t)
 	mkdir(t, root, "studies", "demo", "sources", "second")
 	runtime := &continuousRefillRuntime{thirdStarted: make(chan struct{}), releaseFirst: make(chan struct{})}
