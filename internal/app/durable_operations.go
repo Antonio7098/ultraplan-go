@@ -149,6 +149,14 @@ func (m *durableOperationManager) RecordOperationEvent(ctx context.Context, runI
 		"state": string(event.State), "type": event.EventType,
 		"count": fmt.Sprintf("%d/%d", event.Completed, event.Total),
 	}
+	for key, value := range map[string]string{
+		"tool_call_id": event.ToolCallID, "tool_status": event.ToolStatus,
+		"tool_arguments": event.ToolArguments, "tool_result": event.ToolResult, "tool_error": event.ToolError,
+	} {
+		if value != "" {
+			payload[key] = value
+		}
+	}
 	var omission *runcontrol.Omission
 	if event.Message != "" {
 		omission = &runcontrol.Omission{Reason: "presentation message omitted", Count: 1}

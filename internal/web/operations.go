@@ -261,6 +261,8 @@ func (h *operationHub) publishAppEvent(record *operationRecord, event app.Operat
 		"state": string(event.State), "stage": safeWebText(event.Stage), "task": safeWebText(event.Task),
 		"message": safeWebText(event.Message), "completed": event.Completed, "total": event.Total, "attempt": event.Attempt,
 		"event_kind": safeWebText(event.EventKind), "event_type": safeWebText(event.EventType), "tool": safeWebText(event.Tool), "action": safeWebText(event.Action),
+		"tool_call_id": safeWebText(event.ToolCallID), "tool_status": safeWebText(event.ToolStatus),
+		"tool_arguments": event.ToolArguments, "tool_result": event.ToolResult, "tool_error": event.ToolError,
 		"reason": safeWebText(event.Reason), "detail": safeWebText(event.Detail),
 		"runtime_attempts": event.RuntimeAttempts, "turns": event.Turns, "turns_known": event.TurnsKnown,
 		"tokens": event.Tokens, "tokens_known": event.TokensKnown, "duration": safeWebText(event.Duration),

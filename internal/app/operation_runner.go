@@ -120,12 +120,7 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 				stats := operationTaskStats(p.Task, time.Now().UTC())
 				event := OperationEvent{State: OperationRunning, Task: p.Task.ID, Stage: string(p.Event), Message: strings.TrimSpace(p.Task.DimensionRef + " " + p.Task.Source), Completed: p.ScopeCounts.Completed, Total: p.ScopeCounts.Total, Attempt: p.Task.Attempts, RuntimeAttempts: stats.RuntimeAttempts, Turns: stats.Turns, TurnsKnown: stats.TurnsKnown, Tokens: stats.Tokens, TokensKnown: stats.TokensKnown, InputTokens: stats.InputTokens, OutputTokens: stats.OutputTokens, ReasoningTokens: stats.ReasoningTokens, CacheReadTokens: stats.CacheReadTokens, CacheWriteTokens: stats.CacheWriteTokens, Duration: stats.Duration, Provider: stats.Provider, Model: stats.Model, Cost: stats.Cost, RuntimeEvents: stats.Events}
 				if p.RuntimeEvent != nil {
-					event.EventType = p.RuntimeEvent.Type
-					event.EventKind = p.RuntimeEvent.Kind
-					event.Tool = runtimeEventValue(*p.RuntimeEvent, "tool", "name")
-					event.Action = runtimeEventValue(*p.RuntimeEvent, "action", "state", "phase", "status")
-					event.Reason = runtimeEventValue(*p.RuntimeEvent, "reason")
-					event.Detail = runtimeEventValue(*p.RuntimeEvent, "detail", "error", "message")
+					applyRuntimeObservation(&event, *p.RuntimeEvent)
 					event.Message = runtimeProgressSummary(*p.RuntimeEvent)
 				}
 				emit(event)

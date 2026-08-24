@@ -61,7 +61,9 @@ func tuiSprintRuntimeProgress(emit func(OperationEvent)) func(sprint.RuntimeProg
 			return
 		}
 		task := operationFirstNonEmpty(progress.Task, progress.CoverageID)
-		emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Task: task, Message: runtimeProgressSummary(progress.Event), EventKind: progress.Event.Kind, EventType: progress.Event.Type, Tool: runtimeEventValue(progress.Event, "tool", "name"), Action: runtimeEventValue(progress.Event, "action", "state", "phase", "status"), RuntimeEvents: 1})
+		event := OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Task: task, Message: runtimeProgressSummary(progress.Event), RuntimeEvents: 1}
+		applyRuntimeObservation(&event, progress.Event)
+		emit(event)
 	}
 }
 
