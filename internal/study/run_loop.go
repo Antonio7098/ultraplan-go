@@ -380,6 +380,16 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 				continue
 			}
 		}
+		diskCap := diskParallelismCap(disk, req.Parallelism)
+		if diskCap > 0 && diskCap < effectiveParallelism {
+			mu.Lock()
+			previous := effectiveParallelism
+			effectiveParallelism = diskCap
+			schedulingMessage = fmt.Sprintf("disk headroom reduced parallelism from %d to %d", previous, effectiveParallelism)
+			mu.Unlock()
+			diagnostics.scheduling("parallelism.disk_throttled", req.Parallelism, effectiveParallelism, disk.AvailableBytes)
+			emit(RunLoopProgressThrottled, TaskState{})
+		}
 		available := effectiveParallelism - active
 		var ids []string
 		var nextRetry *time.Time

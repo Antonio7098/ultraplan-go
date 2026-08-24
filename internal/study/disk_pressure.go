@@ -5,6 +5,7 @@ import "syscall"
 const (
 	minimumRuntimeFreeBytes  = 768 * 1024 * 1024
 	criticalRuntimeFreeBytes = 256 * 1024 * 1024
+	runtimeWorkerDiskBudget  = 512 * 1024 * 1024
 )
 
 type diskPressure struct {
@@ -13,6 +14,23 @@ type diskPressure struct {
 	UsedPercent    float64
 	Pressured      bool
 	Critical       bool
+}
+
+func diskParallelismCap(pressure diskPressure, requested int) int {
+	if requested < 1 || pressure.TotalBytes == 0 {
+		return requested
+	}
+	if pressure.AvailableBytes <= minimumRuntimeFreeBytes {
+		return 0
+	}
+	cap := int((pressure.AvailableBytes - minimumRuntimeFreeBytes) / runtimeWorkerDiskBudget)
+	if cap < 1 {
+		cap = 1
+	}
+	if cap > requested {
+		cap = requested
+	}
+	return cap
 }
 
 func readDiskPressure(path string) diskPressure {

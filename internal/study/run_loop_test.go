@@ -30,7 +30,7 @@ func (r *continuousRefillRuntime) StartRun(_ context.Context, req runtimepkg.Req
 	if call == 1 {
 		select {
 		case <-r.releaseFirst:
-		case <-time.After(5 * time.Second):
+		case <-time.After(20 * time.Second):
 			return runtimepkg.Result{}, errors.New("scheduler waited for a batch barrier")
 		}
 	}
