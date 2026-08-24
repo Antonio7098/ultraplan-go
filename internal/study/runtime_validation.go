@@ -48,13 +48,6 @@ func studyReportValidationSpec(kind TaskKind, study Study, source Source, dimens
 			BuildPrompt: func(ctx agentwrap.RepairContext) string {
 				return buildStudyReportRepairPrompt(outputPath, ctx.Validation.Failures)
 			},
-			OverrideRequest: func(ctx agentwrap.RepairContext, req agentwrap.RunRequest) agentwrap.RunRequest {
-				if ctx.Attempt >= 2 {
-					req.SessionID = ""
-					req.SessionAction = agentwrap.SessionActionFresh
-				}
-				return req
-			},
 		},
 	}
 }
