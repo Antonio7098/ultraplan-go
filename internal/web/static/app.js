@@ -1396,6 +1396,12 @@
       runAgents.set(event.task, agent);
     }
     const payload = event.payload || {};
+    const currentFacts = agentFacts.get(event.task) || {task: event.task};
+    const nextFacts = {...currentFacts};
+    for (const key of ["provider", "model", "harness"]) {
+      if (payload[key]) nextFacts[key] = payload[key];
+    }
+    agentFacts.set(event.task, nextFacts);
     if (payload.kind === "tool") agent.toolCalls++;
     const mappedStatus = runAgentStatusFor(event);
     if (mappedStatus) agent.status = mappedStatus;

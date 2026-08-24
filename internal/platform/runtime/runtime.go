@@ -644,6 +644,11 @@ func mapEvent(event agentwrap.Event) Event {
 	rawPresent := event.Raw != nil
 	rawSafe := rawPresent && event.Raw.Safe
 	payload := cloneAnyMap(event.Payload)
+	if runtimeContext, ok := event.Payload["context"].(agentwrap.RuntimeContext); ok {
+		payload["provider"] = string(runtimeContext.Provider)
+		payload["model"] = string(runtimeContext.Model)
+		payload["harness"] = string(runtimeContext.RuntimeKind)
+	}
 	promoteObservablePayloadFields(payload)
 	return Event{
 		ID:                string(event.ID),

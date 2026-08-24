@@ -13,7 +13,7 @@ func TestRuntimeEventDraftPreservesRedactedToolArgumentsAndResult(t *testing.T) 
 		Payload: map[string]any{"part": map[string]any{
 			"callID": "call-1", "tool": "bash",
 			"state": map[string]any{"status": "completed", "input": map[string]any{"command": "go test ./...", "api_token": "private"}, "output": "ok"},
-		}},
+		}, "provider": "openrouter", "model": "stealth/ox-alpha", "harness": "opencode"},
 	}
 	draft := runtimeEventDraft(runtimepkg.Request{Metadata: map[string]string{"task": "analysis:01:source"}}, runtimeEvent)
 	if draft.Tool != "bash" || draft.Payload["tool_call_id"] != "call-1" || draft.Payload["tool_status"] != "completed" {
@@ -27,7 +27,7 @@ func TestRuntimeEventDraftPreservesRedactedToolArgumentsAndResult(t *testing.T) 
 	}
 	operation := OperationEvent{}
 	applyRuntimeObservation(&operation, runtimeEvent)
-	if operation.Tool != "bash" || operation.ToolCallID != "call-1" || operation.ToolStatus != "completed" || operation.ToolArguments != draft.Payload["tool_arguments"] || operation.ToolResult != draft.Payload["tool_result"] {
+	if operation.Tool != "bash" || operation.ToolCallID != "call-1" || operation.ToolStatus != "completed" || operation.ToolArguments != draft.Payload["tool_arguments"] || operation.ToolResult != draft.Payload["tool_result"] || operation.Provider != "openrouter" || operation.Model != "stealth/ox-alpha" || operation.Harness != "opencode" {
 		t.Fatalf("operation projection = %#v", operation)
 	}
 }

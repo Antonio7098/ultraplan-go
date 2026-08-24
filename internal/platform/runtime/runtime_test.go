@@ -20,7 +20,7 @@ func TestAdapterStartRunMapsEventsUsageAndError(t *testing.T) {
 			ID:      "event-1",
 			RunID:   "run-1",
 			Type:    "native.message",
-			Payload: agentwrap.EventPayloadWithKind(agentwrap.EventMessage, agentwrap.EventPayload{"text": "ok"}),
+			Payload: agentwrap.EventPayloadWithKind(agentwrap.EventMessage, agentwrap.EventPayload{"text": "ok", "context": agentwrap.RuntimeContext{Provider: "openrouter", Model: "stealth/ox-alpha", RuntimeKind: "opencode"}}),
 			Raw:     &agentwrap.RawPayload{Source: "stdout", Encoding: "json", Data: []byte(`{"secret":"x"}`), Safe: false},
 		}},
 		result: agentwrap.RunResult{
@@ -43,6 +43,9 @@ func TestAdapterStartRunMapsEventsUsageAndError(t *testing.T) {
 	}
 	if len(result.Events) != 1 || result.Events[0].Kind != "message" || !result.Events[0].RawOmitted {
 		t.Fatalf("event not mapped safely: %+v", result.Events)
+	}
+	if result.Events[0].Payload["provider"] != "openrouter" || result.Events[0].Payload["model"] != "stealth/ox-alpha" || result.Events[0].Payload["harness"] != "opencode" {
+		t.Fatalf("runtime identity = %#v", result.Events[0].Payload)
 	}
 	if !result.Usage.InputTokensKnown || result.Usage.InputTokens != 12 || result.Usage.OutputTokensKnown {
 		t.Fatalf("usage knownness not preserved: %+v", result.Usage)

@@ -266,7 +266,7 @@ func (h *operationHub) publishAppEvent(record *operationRecord, event app.Operat
 		"reason": safeWebText(event.Reason), "detail": safeWebText(event.Detail),
 		"runtime_attempts": event.RuntimeAttempts, "turns": event.Turns, "turns_known": event.TurnsKnown,
 		"tokens": event.Tokens, "tokens_known": event.TokensKnown, "duration": safeWebText(event.Duration),
-		"provider": safeWebText(event.Provider), "model": safeWebText(event.Model), "cost": safeWebText(event.Cost), "runtime_events": event.RuntimeEvents,
+		"provider": safeWebText(event.Provider), "model": safeWebText(event.Model), "harness": safeWebText(event.Harness), "cost": safeWebText(event.Cost), "runtime_events": event.RuntimeEvents,
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -152,6 +152,7 @@ func (m *durableOperationManager) RecordOperationEvent(ctx context.Context, runI
 	for key, value := range map[string]string{
 		"tool_call_id": event.ToolCallID, "tool_status": event.ToolStatus,
 		"tool_arguments": event.ToolArguments, "tool_result": event.ToolResult, "tool_error": event.ToolError,
+		"provider": event.Provider, "model": event.Model, "harness": event.Harness,
 	} {
 		if value != "" {
 			payload[key] = value

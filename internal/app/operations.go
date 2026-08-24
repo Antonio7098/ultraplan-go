@@ -150,7 +150,7 @@ type OperationEvent struct {
 	Tokens                                                                        int64
 	TokensKnown                                                                   bool
 	InputTokens, OutputTokens, ReasoningTokens, CacheReadTokens, CacheWriteTokens int64
-	Duration, Provider, Model, Cost                                               string
+	Duration, Provider, Model, Harness, Cost                                      string
 	RuntimeEvents                                                                 int64
 }
 
@@ -174,6 +174,15 @@ func applyRuntimeObservation(target *OperationEvent, event runtimepkg.Event) {
 	target.ToolArguments = normalized["tool_arguments"]
 	target.ToolResult = normalized["tool_result"]
 	target.ToolError = normalized["tool_error"]
+	if target.Provider == "" {
+		target.Provider = runtimeEventValue(event, "provider")
+	}
+	if target.Model == "" {
+		target.Model = runtimeEventValue(event, "model")
+	}
+	if target.Harness == "" {
+		target.Harness = runtimeEventValue(event, "harness", "runtime_kind")
+	}
 }
 
 type OperationResult struct {
