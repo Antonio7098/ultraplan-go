@@ -355,7 +355,11 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 		disk := readDiskPressure(listing.Study.Path)
 		if disk.Pressured {
-			cleanup := runtimepkg.CleanupRuntimeStores(listing.Study.Path, 72*time.Hour, 2*1024*1024*1024, disk.Critical)
+			// When no worker can make progress, retained stores must not pin the
+			// scheduler below its admission threshold forever. Active workers keep
+			// their resumable stores unless pressure becomes critical.
+			aggressiveCleanup := disk.Critical || active == 0
+			cleanup := runtimepkg.CleanupRuntimeStores(listing.Study.Path, 72*time.Hour, 2*1024*1024*1024, aggressiveCleanup)
 			diagnostics.storage("disk.admission_paused", cleanup, disk)
 			disk = readDiskPressure(listing.Study.Path)
 			if disk.Pressured {

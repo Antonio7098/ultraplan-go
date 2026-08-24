@@ -99,3 +99,23 @@ func TestCleanupRuntimeStoresPreservesAnInterruptedStoreForResume(t *testing.T) 
 		t.Fatalf("stores = %+v, err = %v", stores, err)
 	}
 }
+
+func TestAggressiveCleanupSacrificesRetainedButNotLiveStores(t *testing.T) {
+	root := t.TempDir()
+	retained := ScopedRuntimeStorePath(root, "retained")
+	live := ScopedRuntimeStorePath(root, "live")
+	for owner, path := range map[string]string{"retained": retained, "live": live} {
+		if err := prepareRuntimeStore(path, owner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	retainRuntimeStore(retained, "retained", nil)
+	summary := CleanupRuntimeStores(root, 72*time.Hour, 0, true)
+	if len(summary.Removed) != 1 || summary.Removed[0].Owner != "retained" {
+		t.Fatalf("cleanup = %+v", summary)
+	}
+	stores, err := InspectRuntimeStores(root)
+	if err != nil || len(stores) != 1 || stores[0].Owner != "live" || stores[0].State != RuntimeStoreActive {
+		t.Fatalf("stores = %+v, err = %v", stores, err)
+	}
+}
