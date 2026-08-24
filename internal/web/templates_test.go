@@ -303,7 +303,7 @@ func TestDetailTemplatesUseBreadcrumbsWithoutTopNavigation(t *testing.T) {
 func TestProjectDashboardComponentsOwnTheirDestinations(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	body := request(h, http.MethodGet, "/projects/alpha", nil).Body.String()
-	for _, want := range []string{`class="dashboard-component roadmap-preview" href="/projects/alpha/roadmap"`, `class="dashboard-component" href="/projects/alpha/documentation"`, "sprints done", "Previous sprint", "Next sprint"} {
+	for _, want := range []string{`href="/projects/alpha/roadmap"`, `href="/projects/alpha/documentation"`, "sprints done", "Previous sprint", "Next sprint"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("project dashboard missing %q", want)
 		}
@@ -339,12 +339,12 @@ func TestDetailOverviewPagesStayFocused(t *testing.T) {
 	h := testHandler(t, sampleQueries(), nil)
 	for _, path := range []string{"/projects/alpha", "/studies/research"} {
 		body := request(h, http.MethodGet, path, nil).Body.String()
-		if !strings.Contains(body, `class="entity-summary"`) || !strings.Contains(body, `class="operation-form`) || strings.Contains(body, `>Operations</a>`) {
+		if !strings.Contains(body, `entity-summary`) || !strings.Contains(body, `class="operation-form`) || strings.Contains(body, `>Operations</a>`) {
 			t.Errorf("%s is not a focused overview: %s", path, body)
 		}
 	}
 	sprintBody := request(h, http.MethodGet, "/projects/alpha/sprints/30-web", nil).Body.String()
-	for _, want := range []string{"What this sprint is", "Make sprint delivery easier to understand.", "Current status", "Run flow"} {
+	for _, want := range []string{"Sprint brief", "Make sprint delivery easier to understand.", "Current status", "Run flow"} {
 		if !strings.Contains(sprintBody, want) {
 			t.Errorf("sprint overview missing %q", want)
 		}

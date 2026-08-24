@@ -343,6 +343,7 @@ type pageModel struct {
 	Sprint            *app.WebSprintResult
 	Studies           []app.WebStudyResult
 	Study             *app.WebStudyResult
+	StudyArtifacts    []app.WebArtifactLink
 	Artifact          *app.WebArtifactPreview
 	ArtifactHTML      template.HTML
 	SmokeArtifact     bool
@@ -527,7 +528,11 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			h.handleQueryError(w, r, false, err)
 			return
 		}
-		h.render(w, r, http.StatusOK, "study", pageModel{Title: "Study " + result.Name, Heading: result.Name, Study: &result, Page: "overview"})
+		artifacts := result.Artifacts
+		if len(artifacts) > 4 {
+			artifacts = artifacts[:4]
+		}
+		h.render(w, r, http.StatusOK, "study", pageModel{Title: "Study " + result.Name, Heading: result.Name, Study: &result, StudyArtifacts: artifacts, Page: "overview"})
 	case "study_page":
 		result, err := h.queries.Study(r.Context(), match.params[0])
 		if err != nil {
