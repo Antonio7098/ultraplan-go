@@ -37,6 +37,7 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 			opencode.WithExecutable(c.Agentwrap.Executable),
 			opencode.WithExtraArgs(args...),
 			opencode.WithEnv(c.Agentwrap.Env...),
+			opencode.WithSnapshots(false),
 			opencode.WithStderrLimit(c.Agentwrap.StderrLimit),
 			opencode.WithRateTableStore(rateStore),
 		)
