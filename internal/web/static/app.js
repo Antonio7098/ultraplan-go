@@ -238,6 +238,20 @@
       const study = location.pathname.match(/^\/studies\/([^/]+)/);
       return study ? `/api/v1/studies/${study[1]}` : "";
     };
+    const activeFlowScopes = new Set();
+    const applyStartButtonState = () => {
+      const forms = document.querySelectorAll(".operation-form[data-operation-kind='sprint-flow'][data-project][data-sprint]");
+      for (const form of forms) {
+        const scope = `${form.dataset.project}:${form.dataset.sprint}`;
+        const submit = form.querySelector("button[type='submit']");
+        if (!submit) continue;
+        const busy = activeFlowScopes.has(scope);
+        submit.disabled = busy;
+        if (busy) submit.setAttribute("aria-disabled", "true");
+        else submit.removeAttribute("aria-disabled");
+        submit.title = busy ? "A run is already in progress for this sprint." : "";
+      }
+    };
     let renderedKey = "";
     const render = (operations) => {
       const key = JSON.stringify(operations);
@@ -342,6 +356,15 @@
         if (!response.ok) throw new Error();
         const payload = await response.json();
         const runs = Array.isArray(payload?.data?.runs) ? payload.data.runs : [];
+        activeFlowScopes.clear();
+        for (const run of runs) {
+          const target = run.target || {};
+          const kind = target.operation || target.kind || run.kind;
+          if (kind === "sprint-flow" && target.project && target.sprint) {
+            activeFlowScopes.add(`${target.project}:${target.sprint}`);
+          }
+        }
+        applyStartButtonState();
         render(groupActiveRuns(runs).map((run) => run.kind === "study-loop" ? {
           id: run.loopRunID,
           kind: run.kind,
