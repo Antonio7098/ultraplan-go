@@ -74,7 +74,7 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 		Runtime: agentwrap.ValidatingRuntime{
 			Runtime: agentwrap.PolicyRunner{
 				Runtime: stageRuntime,
-				Policy:  policy,
+				Policy:  missingSessionPolicy{next: policy},
 			},
 		},
 		Policy: agentwrap.PersistencePolicy{PersistUnsafeRawPayloads: false},
@@ -124,6 +124,28 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 		return nil
 	}
 	return adapter, nil
+}
+
+type missingSessionPolicy struct {
+	next agentwrap.ResiliencePolicy
+}
+
+func (p missingSessionPolicy) Decide(ctx context.Context, policyCtx agentwrap.PolicyContext) (agentwrap.PolicyDecision, error) {
+	if openCodeSessionNotFound(policyCtx.Err) {
+		return agentwrap.PolicyDecision{Kind: agentwrap.PolicyDecisionStop, Reason: "session not found", Detail: policyCtx.Err.UserDetail, Err: policyCtx.Err}, nil
+	}
+	return p.next.Decide(ctx, policyCtx)
+}
+
+func openCodeSessionNotFound(err *agentwrap.SDKError) bool {
+	if err == nil {
+		return false
+	}
+	details := []string{err.UserDetail, err.DebugDetail, err.ResponseBody}
+	if err.Cause != nil {
+		details = append(details, err.Cause.Error())
+	}
+	return strings.Contains(strings.ToLower(strings.Join(details, "\n")), "session not found")
 }
 
 func checkpointOpenCode(ctx context.Context, c config.Config) error {

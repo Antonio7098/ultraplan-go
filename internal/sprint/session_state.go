@@ -91,13 +91,28 @@ func stageSessionCompatible(record stageSessionRecord, req pruntime.Request) boo
 	return record.SessionID != "" && record.Provider == req.Provider && record.Model == req.Model && record.WorkDir == req.WorkDir
 }
 
+func stageSessionKey(stage PlanningStage, req pruntime.Request) string {
+	parts := []string{string(stage)}
+	for _, dimension := range []string{"task", "coverage", "area"} {
+		parts = append(parts, strings.TrimSpace(req.Metadata[dimension]))
+	}
+	if parts[1] == "" && parts[2] == "" && parts[3] == "" {
+		return parts[0]
+	}
+	return strings.Join(parts, ":")
+}
+
 func (s Service) startPlanningStageRun(ctx context.Context, sp Sprint, stage PlanningStage, req pruntime.Request) (pruntime.Result, error) {
+	key := stageSessionKey(stage, req)
+	originalPrompt := req.Prompt
+	continuing := false
 	state, loadErr := loadStageSessions(sp)
 	if loadErr == nil {
-		if record, ok := state.Sessions[string(stage)]; ok && stageSessionCompatible(record, req) {
+		if record, ok := state.Sessions[key]; ok && stageSessionCompatible(record, req) {
 			req.SessionID = record.SessionID
 			req.SessionAction = "continue"
 			req.Prompt = insertStageContinuation(req.Prompt, "Continue the interrupted UltraPlan stage from the existing session. Re-read the current stage prompt and filesystem state, then finish only the requested stage.")
+			continuing = true
 		}
 	}
 	previousOnEvent := req.OnEvent
@@ -117,7 +132,7 @@ func (s Service) startPlanningStageRun(ctx context.Context, sp Sprint, stage Pla
 		if err != nil {
 			return
 		}
-		current.Sessions[string(stage)] = stageSessionRecord{SessionID: sessionID, Provider: req.Provider, Model: req.Model, WorkDir: req.WorkDir, PromptChecksum: req.PromptRef.Checksum, UpdatedAt: s.now().UTC()}
+		current.Sessions[key] = stageSessionRecord{SessionID: sessionID, Provider: req.Provider, Model: req.Model, WorkDir: req.WorkDir, PromptChecksum: req.PromptRef.Checksum, UpdatedAt: s.now().UTC()}
 		_ = saveStageSessions(sp, current)
 	}
 	req.OnEvent = func(event pruntime.Event) {
@@ -128,7 +143,31 @@ func (s Service) startPlanningStageRun(ctx context.Context, sp Sprint, stage Pla
 	}
 	result, err := s.startSprintRuntime(ctx, sp, stage, req)
 	persist(result.SessionID)
+	if continuing && planningSessionNotFound(result, err) && ctx.Err() == nil {
+		_ = clearPlanningStageSessionKey(sp, key)
+		lastSession = ""
+		req.SessionID = ""
+		req.SessionAction = "fresh"
+		req.Prompt = originalPrompt
+		result, err = s.startSprintRuntime(ctx, sp, stage, req)
+		persist(result.SessionID)
+	}
 	return result, err
+}
+
+func planningSessionNotFound(result pruntime.Result, err error) bool {
+	var details []string
+	if err != nil {
+		details = append(details, err.Error())
+	}
+	details = append(details, result.TerminalOutput)
+	if result.Error != nil {
+		details = append(details, result.Error.UserDetail, result.Error.DebugDetail)
+	}
+	for _, attempt := range result.Attempts {
+		details = append(details, attempt.ErrorDetail)
+	}
+	return strings.Contains(strings.ToLower(strings.Join(details, "\n")), "session not found")
 }
 
 func insertStageContinuation(prompt, instruction string) string {
@@ -145,10 +184,32 @@ func clearPlanningStageSession(sp Sprint, stage PlanningStage) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := state.Sessions[string(stage)]; !ok {
+	found := false
+	for key := range state.Sessions {
+		if key == string(stage) || strings.HasPrefix(key, string(stage)+":") {
+			delete(state.Sessions, key)
+			found = true
+		}
+	}
+	if !found {
 		return nil
 	}
-	delete(state.Sessions, string(stage))
+	return saveOrRemoveStageSessions(sp, state)
+}
+
+func clearPlanningStageSessionKey(sp Sprint, key string) error {
+	state, err := loadStageSessions(sp)
+	if err != nil {
+		return err
+	}
+	if _, ok := state.Sessions[key]; !ok {
+		return nil
+	}
+	delete(state.Sessions, key)
+	return saveOrRemoveStageSessions(sp, state)
+}
+
+func saveOrRemoveStageSessions(sp Sprint, state stageSessionState) error {
 	if len(state.Sessions) == 0 {
 		if err := os.Remove(stageSessionPath(sp)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err

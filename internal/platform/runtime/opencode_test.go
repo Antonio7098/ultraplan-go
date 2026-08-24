@@ -2,10 +2,30 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Antonio7098/agentwrap"
 )
+
+type countingPolicy struct {
+	calls int
+}
+
+func (p *countingPolicy) Decide(context.Context, agentwrap.PolicyContext) (agentwrap.PolicyDecision, error) {
+	p.calls++
+	return agentwrap.PolicyDecision{Kind: agentwrap.PolicyDecisionRetry}, nil
+}
+
+func TestMissingSessionPolicyStopsWithoutRetrying(t *testing.T) {
+	next := &countingPolicy{}
+	policy := missingSessionPolicy{next: next}
+	sdkErr := agentwrap.NewError(agentwrap.ErrorRuntimeExit, "opencode run", "OpenCode exited before a successful final result", errors.New("Error: Session not found"))
+	decision, err := policy.Decide(context.Background(), agentwrap.PolicyContext{Err: sdkErr})
+	if err != nil || decision.Kind != agentwrap.PolicyDecisionStop || next.calls != 0 {
+		t.Fatalf("decision=%+v next calls=%d err=%v", decision, next.calls, err)
+	}
+}
 
 type variantProbeRuntime struct {
 	calls int
