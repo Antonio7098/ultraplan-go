@@ -480,7 +480,7 @@ func (s Service) renderExecuteSessionPrompt(sp Sprint, task ExecutePlanTask, que
 		directSprintArtifactInput(s.root, sp, StageReasoning),
 		directSprintArtifactInput(s.root, sp, StagePlan),
 	)
-	return appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
+	return appendDirectInputPacket(prompt, inputs)
 }
 
 func RenderExecuteContinuationPrompt(sp Sprint, task ExecutePlanTask) string {

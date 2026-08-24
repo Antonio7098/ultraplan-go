@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"unicode/utf8"
 )
 
 func TestDirectInputPacketPreservesCanonicalOrderAndExplanation(t *testing.T) {
@@ -14,11 +13,11 @@ func TestDirectInputPacketPreservesCanonicalOrderAndExplanation(t *testing.T) {
 		directContentInput("first", "artifact", "first.md", "first content\n"),
 		directContentInput("second", "project-doc", "docs/second.md", "second content\n"),
 	}
-	got := appendDirectInputPacket(prompt, inputs, 8<<10)
+	got := appendDirectInputPacket(prompt, inputs)
 	if first, second := strings.Index(got, "ID: first"), strings.Index(got, "ID: second"); first < 0 || second <= first {
 		t.Fatalf("direct input order was not preserved:\n%s", got)
 	}
-	if strings.Count(got, "Mode: full") != 2 || len(got) > 8<<10 {
+	if strings.Count(got, "Mode: full") != 2 {
 		t.Fatalf("unexpected full packet size=%d:\n%s", len(got), got)
 	}
 	explanation := explainComposedPrompt(got)
@@ -30,32 +29,28 @@ func TestDirectInputPacketPreservesCanonicalOrderAndExplanation(t *testing.T) {
 	}
 }
 
-func TestDirectInputPacketFairlyBoundsOversizedInputs(t *testing.T) {
+func TestDirectInputPacketIncludesOversizedInputsInFull(t *testing.T) {
 	prompt := strings.Repeat("p", 128)
 	inputs := []directPromptInput{
 		directContentInput("one", "artifact", "one.md", strings.Repeat("α-one\n", 6000)),
 		directContentInput("two", "artifact", "two.md", strings.Repeat("β-two\n", 6000)),
 		directContentInput("three", "artifact", "three.md", strings.Repeat("γ-three\n", 6000)),
 	}
-	const limit = 4096
-	got := appendDirectInputPacket(prompt, inputs, limit)
-	if len(got) > limit || !utf8.ValidString(got) {
-		t.Fatalf("bounded packet bytes=%d valid_utf8=%t", len(got), utf8.ValidString(got))
-	}
+	got := appendDirectInputPacket(prompt, inputs)
 	for _, id := range []string{"one", "two", "three"} {
 		if !strings.Contains(got, "ID: "+id) {
 			t.Fatalf("oversized input %q was starved:\n%s", id, got)
 		}
 	}
-	if strings.Count(got, "Mode: partial") != len(inputs) || strings.Count(got, "bytes omitted by UltraPlan prompt budget") != len(inputs) {
-		t.Fatalf("partial packet did not report every excerpt:\n%s", got)
+	if strings.Count(got, "Mode: full") != len(inputs) || strings.Contains(got, "omitted by UltraPlan") {
+		t.Fatalf("packet did not preserve every input in full:\n%s", got)
 	}
 }
 
 func TestDirectInputPacketRedactsWorkspaceFromUnavailableInput(t *testing.T) {
 	root := t.TempDir()
 	input := directWorkspaceInput(root, "missing", "artifact", "projects/proj/missing.md")
-	got := appendDirectInputPacket("stage\n", []directPromptInput{input}, 4<<10)
+	got := appendDirectInputPacket("stage\n", []directPromptInput{input})
 	if strings.Contains(got, root) || strings.Contains(got, filepath.ToSlash(root)) {
 		t.Fatalf("packet leaked workspace root: %s", got)
 	}
@@ -106,8 +101,8 @@ func TestSmokeAuthorDirectlyInjectsCompletePriorStageArtifacts(t *testing.T) {
 			t.Fatalf("smoke prompt missing direct %s input", id)
 		}
 	}
-	if len(prompt) > sharedPromptSuffixReserve {
-		t.Fatalf("smoke stage suffix exceeded budget: %d", len(prompt))
+	if strings.Contains(prompt, "omitted by UltraPlan") {
+		t.Fatalf("smoke stage prompt truncated governed input: %s", prompt)
 	}
 }
 

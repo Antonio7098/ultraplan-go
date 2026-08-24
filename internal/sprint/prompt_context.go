@@ -18,10 +18,8 @@ import (
 
 const (
 	maxSharedPromptPrefixBytes = 256 << 10
-	sharedPromptSuffixReserve  = 64 << 10
 	sharedSourceReadBuffer     = 32 << 10
 	maxSharedContextReferences = 64
-	maxSharedSourceLines       = 4096
 )
 
 type promptContextErrorKind string
@@ -155,9 +153,6 @@ func composeStagePrompt(prefix, suffix string) string {
 }
 
 func composeStagePromptChecked(prefix, suffix string) (string, error) {
-	if prefix != "" && len(suffix) > sharedPromptSuffixReserve {
-		return "", &promptContextError{Kind: promptContextBudget, Allowed: sharedPromptSuffixReserve, Observed: len(suffix), Err: errors.New("stage-specific suffix exceeds its reserved budget")}
-	}
 	return composeStagePrompt(prefix, suffix), nil
 }
 
@@ -253,7 +248,6 @@ func canonicalSharedSelections(refs []sharedContextReference) ([]sharedSourceSel
 		selections[position].Ranges = append(selections[position].Ranges, ranges...)
 		selections[position].References = append(selections[position].References, ref)
 	}
-	totalLines := 0
 	for i := range selections {
 		ranges := selections[i].Ranges
 		sort.Slice(ranges, func(a, b int) bool {
@@ -271,12 +265,6 @@ func canonicalSharedSelections(refs []sharedContextReference) ([]sharedSourceSel
 			if current.End > merged[len(merged)-1].End {
 				merged[len(merged)-1].End = current.End
 			}
-		}
-		for _, selected := range merged {
-			totalLines += selected.End - selected.Start + 1
-		}
-		if totalLines > maxSharedSourceLines {
-			return nil, &promptContextError{Kind: promptContextBudget, Path: selections[i].Path, Allowed: maxSharedSourceLines, Observed: totalLines, Unit: "lines", Err: errors.New("selected source line budget exceeded")}
 		}
 		selections[i].Ranges = merged
 		selections[i].Lines = formatSharedLineRanges(merged)

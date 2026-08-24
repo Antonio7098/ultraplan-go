@@ -54,7 +54,7 @@ func RenderRequirementsPrompt(root string, sp Sprint, catalog project.ProjectInd
 	prompt := renderPromptFromDefault(root, "prompts/create-requirements.md", sp.Project, sp.Slug, b.String())
 	inputs := directProjectDefinitionInputs(root, sp, docs)
 	inputs = append(inputs, directPriorSprintReviewInputs(root, sp)...)
-	prompt = appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
+	prompt = appendDirectInputPacket(prompt, inputs)
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
@@ -75,7 +75,7 @@ func RenderCodeContextPrompt(root string, sp Sprint, requirements string, target
 	prompt := renderPromptFromDefault(root, "prompts/create-code-context.md", sp.Project, sp.Slug, b.String())
 	prompt = appendDirectInputPacket(prompt, []directPromptInput{
 		directContentInput("requirements", "artifact", ArtifactRelPath(sp, StageRequirements), requirements),
-	}, sharedPromptSuffixReserve)
+	})
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
@@ -98,7 +98,7 @@ func RenderSprintIndexPrompt(root string, sp Sprint, catalog project.ProjectInde
 	fmt.Fprintln(&b, "- Use workspace-relative paths.")
 	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, source repositories, config, Git state, or any artifact other than sprint-index.md.")
 	prompt := renderPromptFromDefault(root, "prompts/create-sprint-index.md", sp.Project, sp.Slug, b.String())
-	prompt = appendDirectInputPacket(prompt, directProjectDefinitionInputs(root, sp, docs), sharedPromptSuffixReserve)
+	prompt = appendDirectInputPacket(prompt, directProjectDefinitionInputs(root, sp, docs))
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
@@ -116,7 +116,7 @@ func RenderTechnicalHandbookPrompt(root string, manifest HandbookManifest) Promp
 	sp := Sprint{Project: manifest.ProjectSlug, Slug: manifest.SprintSlug, Path: filepath.Join(root, filepath.FromSlash(manifest.SprintRoot))}
 	inputs := []directPromptInput{directSprintArtifactInput(root, sp, StageSprintIndex)}
 	inputs = append(inputs, directSelectedEvidenceInputs(root, manifest.Evidence)...)
-	prompt = appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
+	prompt = appendDirectInputPacket(prompt, inputs)
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
 }
 
@@ -140,7 +140,7 @@ func RenderAreaReasoningPrompt(root string, manifest ReasoningManifest, entry Re
 	sp := Sprint{Project: manifest.ProjectSlug, Slug: manifest.SprintSlug, Path: filepath.Join(root, filepath.FromSlash(manifest.SprintRoot))}
 	inputs := directProjectDocInputsFromWorkspace(root, sp)
 	inputs = append(inputs, directSelectedReasoningContext(root, sp, manifest)...)
-	prompt = appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
+	prompt = appendDirectInputPacket(prompt, inputs)
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}, nil
 }
 
@@ -171,7 +171,7 @@ func RenderFinalReasoningPrompt(root string, manifest ReasoningManifest) (Prompt
 	inputs := directProjectDefinitionInputsFromWorkspace(root, sp)
 	inputs = append(inputs, directSelectedReasoningContext(root, sp, manifest)...)
 	inputs = append(inputs, directReasoningOutputs(root, manifest.ReasoningTemplates)...)
-	prompt = appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
+	prompt = appendDirectInputPacket(prompt, inputs)
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}, nil
 }
 
@@ -212,7 +212,7 @@ func RenderPlanPrompt(root string, manifest PlanManifest) PromptPreview {
 	)
 	inputs = append(inputs, directReasoningOutputs(root, manifest.ReasoningTemplates)...)
 	inputs = append(inputs, directSprintArtifactInput(root, sp, StageReasoning))
-	prompt = appendDirectInputPacket(prompt, inputs, sharedPromptSuffixReserve)
+	prompt = appendDirectInputPacket(prompt, inputs)
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
 }
 

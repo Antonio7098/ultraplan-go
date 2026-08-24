@@ -41,7 +41,7 @@ Shared prompts expose this exact ordered block contract:
 7. one block per direct input, using its canonical input ID
 8. `stage-tail` when content follows the final direct input
 
-`sprint <project> <sprint> prompt <stage> --explain` returns content-free byte counts, SHA-256 digests, stable-prefix breakpoint, cache key, transport status, stage input contract, and `full`/`partial` mode for each directly copied input. Volatile stage/run/task/reviewer data remains after the boundary. Session continuation instructions are inserted after the boundary, preserving the prefix.
+`sprint <project> <sprint> prompt <stage> --explain` returns byte counts, SHA-256 digests, stable-prefix breakpoint, cache key, transport status, stage input contract, and mode for each directly copied input. The run-page API also returns each block's exact rendered content for inspection. Volatile stage/run/task/reviewer data remains after the boundary. Session continuation instructions are inserted after the boundary, preserving the prefix.
 
 Runtime requests carry a cache foundation key and a provider/model/work-directory/policy-scoped cohort key in metadata. This prevents observability from incorrectly grouping incompatible runtime envelopes.
 
@@ -59,7 +59,7 @@ The pack freezes the exact resolved source evidence selected during planning so 
 - Reference count is capped at 64 and unique selected source lines at 4,096, with errors reporting the correct unit.
 - Area reasoning launches one independently validated request for each missing/invalid selected template and excludes sibling templates.
 - Valid area outputs are skipped rather than regenerated.
-- Every agent-backed stage receives its governed file inputs directly when those inputs are bounded files. Full files are preferred. If the 64 KiB stage-suffix budget cannot hold everything, each available dependency receives a fair head/tail excerpt, is marked `partial`, and reports its omitted byte count. Unavailable inputs receive a safe omission reason and remain explicit fallbacks rather than silent gaps.
+- Every agent-backed stage receives each available governed file input directly and in full. UltraPlan does not impose a stage-suffix byte limit or create partial head/tail excerpts. Unavailable inputs receive a safe reason and remain explicit fallbacks rather than silent gaps. The selected runtime model and provider enforce their own context limits.
 - Requirements receives project index, roadmap, project docs, and all existing prior-sprint reviews except the current sprint. Sprint index receives project definitions. Handbook receives the selected sprint index and selected reports. Area/final reasoning, plan, and execute receive their required project context and all applicable prior sprint artifacts. Review receives its coverage-specific governed packet. Smoke authoring receives the complete planning, execution, review, and run-state chain.
 - The technical handbook is copied as a complete artifact into Plan and Execute, so `Examples Worth Investigating`/`Examples Worth Inspecting` and surrounding rationale arrive together without a separate special-case excerpt.
 - Execute uses one agent session for the ordered pending-task queue. The first turn receives shared sprint context, project definitions, every prior planning artifact, the concise queue, current task, and safety policy; later tasks are compact continuation turns in the same session. UltraPlan still checkpoints status and evidence after each task, resumes from the latest compatible session, stops on a failed/cancelled task, and falls back to a full fresh prompt if the runtime returns no reusable session ID.
@@ -142,7 +142,7 @@ The baseline time samples were 788,225–818,137 ns/op. The improved isolated sa
 - `go test -race ./internal/sprint ./internal/platform/runtime ./internal/web -count=1` — pass
 - `go vet ./...` — pass
 - Focused app, sprint, runtime, and packaged-web tests — pass
-- Real dashboard prompt-summary endpoint against the representative `ultraplan-go/35-durable-run-observability` sprint — schema v2; individual full/partial project, handbook, area-reasoning, and final-reasoning blocks present; pass
+- Real dashboard prompt-summary endpoint against the representative `ultraplan-go/35-durable-run-observability` sprint — schema v2; individual full project, handbook, area-reasoning, and final-reasoning blocks present; pass
 - `git diff --check` — pass
 
 Coverage added for prompt block order and input contracts, direct block explanation modes, canonical ordering, fair oversized-input allocation, UTF-8-safe excerpts, hard byte caps, safe omission diagnostics, absolute-path redaction, prior-review selection, complete handbook forwarding, complete smoke forwarding, review packet visibility, cache cohort isolation, frozen and lazy context reuse, preview read-only behavior, cache identity misses, reference/line budgets, concurrent metrics writers, metrics CLI JSON, shared multi-task execute sessions, compact continuations, missing-session fallback, stop-on-failure queue behavior, multi-template area isolation, reviewer packet isolation, tolerant interrupted-session reuse, and cache/token usage persistence.

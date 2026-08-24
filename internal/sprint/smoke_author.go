@@ -51,7 +51,7 @@ func (s Service) authorSmokeSuite(ctx context.Context, prepared smokePrepared, r
 
 	prompt, err := composeStagePromptChecked(sharedPrefix, s.renderSmokeAuthorPrompt(prepared))
 	if err != nil {
-		return smokeError("smoke_author_context", "authoring", "smoke author instructions exceed the shared stage-suffix reserve", "Reduce the stage-specific authoring manifest without truncating shared evidence.", err)
+		return smokeError("smoke_author_context", "authoring", "smoke author prompt could not be composed", "Repair the governed smoke inputs and retry authoring.", err)
 	}
 	req := s.runtimeRequest(prompt, map[string]string{"project": prepared.Sprint.Project, "sprint": prepared.Sprint.Slug, "stage": string(StageSmoke), "operation": "author"})
 	req.WorkDir = prepared.HarnessRoot
@@ -317,7 +317,7 @@ independently validates discovery coverage and runs the selected suite.`)
 		directSprintArtifactInput(s.root, prepared.Sprint, StageReview),
 		directWorkspaceInput(s.root, "execute-run-state", "run-state", ExecuteRunStateRelPath(prepared.Sprint)),
 	)
-	return appendDirectInputPacket(b.String(), inputsToInject, sharedPromptSuffixReserve)
+	return appendDirectInputPacket(b.String(), inputsToInject)
 }
 
 func smokeAuthorModel(req pruntime.Request) string {

@@ -890,10 +890,6 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 		out.Error = safeReviewText(s.root, composeErr.Error())
 		return
 	}
-	if len(prompt) > reviewPromptMaxBytes {
-		out.Error = fmt.Sprintf("review prompt exceeds safe subprocess argument budget: %d > %d bytes", len(prompt), reviewPromptMaxBytes)
-		return
-	}
 	req := s.runtimeRequest(prompt, map[string]string{"project": m.Project, "sprint": m.Sprint, "stage": string(StageReview), "coverage": c.ID, "model_source": m.ModelSource})
 	req.WorkDir = m.ReviewerRoot
 	req.Model = strings.TrimPrefix(m.Model, req.Provider+"/")
@@ -1529,8 +1525,6 @@ func renderReviewPreview(m ReviewManifest) string {
 	return b.String()
 }
 
-const reviewPromptMaxBytes = maxSharedPromptPrefixBytes + sharedPromptSuffixReserve
-
 func renderReviewerPrompt(m ReviewManifest, c ReviewInput) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(m.PromptTemplate))
@@ -1552,7 +1546,7 @@ func renderReviewerPrompt(m ReviewManifest, c ReviewInput) string {
 		}
 		direct = append(direct, directContentInput(input.ID, input.Kind, input.Path, content))
 	}
-	return appendDirectInputPacket(b.String(), direct, sharedPromptSuffixReserve)
+	return appendDirectInputPacket(b.String(), direct)
 }
 
 func reviewerInputPacket(m ReviewManifest, coverage ReviewInput) []ReviewInput {

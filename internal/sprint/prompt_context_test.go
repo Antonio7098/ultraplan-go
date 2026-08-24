@@ -204,9 +204,6 @@ func TestRenderSharedPromptContextEnforcesCompletePrefixBudget(t *testing.T) {
 	if !errors.As(err, &budgetErr) || budgetErr.Kind != promptContextBudget || budgetErr.Allowed != maxSharedPromptPrefixBytes {
 		t.Fatalf("budget error = %#v", err)
 	}
-	if sharedPromptSuffixReserve != 64<<10 {
-		t.Fatalf("suffix reserve = %d", sharedPromptSuffixReserve)
-	}
 }
 
 func TestRenderSharedPromptContextDoesNotRecurseOrMutateSource(t *testing.T) {
@@ -251,13 +248,10 @@ func TestComposeStagePromptKeepsDynamicSuffixAfterBoundaryAndLegacyCompatibility
 	if got := composeStagePrompt("", "legacy"); got != "legacy" {
 		t.Fatalf("legacy prompt = %q", got)
 	}
-	if _, err := composeStagePromptChecked(prefix, strings.Repeat("s", sharedPromptSuffixReserve)); err != nil {
-		t.Fatalf("exact suffix reserve failed: %v", err)
-	}
-	_, err := composeStagePromptChecked(prefix, strings.Repeat("s", sharedPromptSuffixReserve+1))
-	var budgetErr *promptContextError
-	if !errors.As(err, &budgetErr) || budgetErr.Kind != promptContextBudget || budgetErr.Allowed != sharedPromptSuffixReserve {
-		t.Fatalf("suffix budget error = %#v", err)
+	largeSuffix := strings.Repeat("s", 512<<10)
+	composed, err := composeStagePromptChecked(prefix, largeSuffix)
+	if err != nil || composed != prefix+largeSuffix {
+		t.Fatalf("large suffix composition failed: bytes=%d err=%v", len(composed), err)
 	}
 }
 

@@ -172,7 +172,7 @@ func TestReviewManifestExecutionAndArtifactPreservation(t *testing.T) {
 		if req.WorkDir == "" || req.Policy.Default != "deny" || req.Policy.Tools["external_directory"] != "" || req.Sandbox != "read_only" {
 			t.Fatalf("unsafe reviewer request: %+v", req)
 		}
-		if len(req.Prompt) > reviewPromptMaxBytes || !strings.Contains(req.Prompt, "# Requirements\n\nReview this sprint.") || strings.Count(req.Prompt, sharedPromptStageBoundary) != 1 {
+		if !strings.Contains(req.Prompt, "# Requirements\n\nReview this sprint.") || strings.Count(req.Prompt, sharedPromptStageBoundary) != 1 {
 			t.Fatalf("reviewer prompt omitted the one shared prefix: bytes=%d", len(req.Prompt))
 		}
 		if got := testSharedPrefix(t, req.Prompt); sharedPrefix == "" {
@@ -343,7 +343,7 @@ func TestReviewRestartDiscardsCoverageAndSessions(t *testing.T) {
 	}
 }
 
-func TestReviewerPromptStaysBelowSubprocessArgumentBudget(t *testing.T) {
+func TestReviewerPromptUsesFrozenPathsForSharedGovernedInputs(t *testing.T) {
 	root, sp := reviewFixture(t)
 	large := strings.Repeat("governed evidence line\n", 10_000)
 	writeFileContent(t, sp.Path, "# Requirements\n\n"+large, "requirements.md")
@@ -353,9 +353,6 @@ func TestReviewerPromptStaysBelowSubprocessArgumentBudget(t *testing.T) {
 		t.Fatalf("prepare: err=%v findings=%+v", err, findings)
 	}
 	prompt := renderReviewerPrompt(manifest, manifest.Coverage[0])
-	if len(prompt) > reviewPromptMaxBytes {
-		t.Fatalf("prompt bytes=%d budget=%d", len(prompt), reviewPromptMaxBytes)
-	}
 	if strings.Contains(prompt, large) || !strings.Contains(prompt, filepath.Join(root, filepath.FromSlash(ArtifactRelPath(sp, StageRequirements)))) {
 		t.Fatal("prompt did not replace governed content with its readable frozen path")
 	}
