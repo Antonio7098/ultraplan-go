@@ -78,7 +78,7 @@ func runSprint(deps dependencies, args []string) error {
 	if err != nil {
 		return err
 	}
-	service := sprint.NewService(root.Path).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env)))
+	service := sprint.NewService(root.Path).WithPublisher(stagePublisher(effective.Config)).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env)))
 	switch args[2] {
 	case "status":
 		jsonOut := len(args) == 4 && args[3] == "--json"
@@ -498,7 +498,7 @@ func sprintRuntimeService(deps dependencies, root workspace.Root, observers ...f
 	if len(observers) > 0 {
 		progress = observers[0]
 	}
-	return sprint.NewService(root.Path).WithRuntime(controlled, req).WithRuntimeProgress(progress).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env))), nil
+	return sprint.NewService(root.Path).WithRuntime(controlled, req).WithPublisher(stagePublisher(effective.Config)).WithRuntimeProgress(progress).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env))), nil
 }
 
 func renderSprintFlowProgress(deps dependencies) func(sprint.FlowProgress) {

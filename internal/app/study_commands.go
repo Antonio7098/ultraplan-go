@@ -348,7 +348,7 @@ func runLoopService(deps dependencies, root workspace.Root, flags runAllFlags) (
 		DefaultRetries:   effective.Config.Execution.DefaultRetries,
 		WorkspaceVersion: strconv.Itoa(effective.Config.Version),
 	}
-	return study.NewService(root.Path, study.WithRuntime(controlled, req)), parallelism, summary, nil
+	return study.NewService(root.Path, study.WithRuntime(controlled, req), study.WithPublisher(stagePublisher(effective.Config))), parallelism, summary, nil
 }
 
 func mapStudyRunLoopError(err error) error {
@@ -696,7 +696,7 @@ func runAllService(deps dependencies, root workspace.Root, flags runAllFlags) (s
 	if err != nil {
 		return study.Service{}, 0, classified(ExitRuntime, "run-control.init: %w", err)
 	}
-	return study.NewService(root.Path, study.WithRuntime(controlled, req)), parallelism, nil
+	return study.NewService(root.Path, study.WithRuntime(controlled, req), study.WithPublisher(stagePublisher(effective.Config))), parallelism, nil
 }
 
 func renderRunAllResult(deps dependencies, result study.RunAllResult) {
@@ -874,7 +874,7 @@ func executionService(deps dependencies, root workspace.Root) (study.Service, er
 	if err != nil {
 		return study.Service{}, classified(ExitRuntime, "run-control.init: %w", err)
 	}
-	return study.NewService(root.Path, study.WithRuntime(controlled, req)), nil
+	return study.NewService(root.Path, study.WithRuntime(controlled, req), study.WithPublisher(stagePublisher(effective.Config))), nil
 }
 
 func renderExecutionResult(deps dependencies, result study.ExecutionResult) {

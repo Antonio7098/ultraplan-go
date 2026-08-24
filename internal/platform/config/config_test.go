@@ -90,6 +90,9 @@ func TestRedactSensitiveValues(t *testing.T) {
 	if redacted.Planning.CodeContextModel != "[REDACTED]" {
 		t.Fatalf("code-context model was not redacted: %q", redacted.Planning.CodeContextModel)
 	}
+	if redacted.Git != e.Config.Git {
+		t.Fatalf("git config missing from redacted projection: got %+v want %+v", redacted.Git, e.Config.Git)
+	}
 	if got := RedactValue("lock.command", "ultraplan study demo run-loop --api-key=secret-value"); got != "[REDACTED]" {
 		t.Fatalf("dash-form api key was not redacted: %q", got)
 	}
@@ -146,6 +149,51 @@ func TestSmokeConfigBoundsAndEnvironment(t *testing.T) {
 	c.Smoke.Environment = []string{"PATH", "bad-name"}
 	if err := Validate(c); err == nil {
 		t.Fatal("expected environment-name error")
+	}
+}
+
+func TestGitPublicationConfigDefaultsPrecedenceAndBounds(t *testing.T) {
+	defaults := Defaults().Git
+	if defaults.StageCompletion != "off" || defaults.Remote != "origin" || defaults.PushTimeout != "2m" {
+		t.Fatalf("git defaults = %+v", defaults)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ultraplan.yml"), []byte(`version: 1
+git:
+  stage_completion: commit
+  remote: upstream
+  push_timeout: 3m
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	effective, err := Load(LoadOptions{WorkspaceRoot: root, Env: func(key string) string {
+		if key == "ULTRAPLAN_GIT_STAGE_COMPLETION" {
+			return "commit-and-push"
+		}
+		return ""
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.Config.Git.StageCompletion != "commit-and-push" || effective.Config.Git.Remote != "upstream" || effective.Config.Git.PushTimeout != "3m" {
+		t.Fatalf("git effective config = %+v", effective.Config.Git)
+	}
+	if effective.Sources["git.stage_completion"] != "env" || effective.Sources["git.remote"] != "workspace" {
+		t.Fatalf("git config sources = %+v", effective.Sources)
+	}
+
+	for name, mutate := range map[string]func(*Config){
+		"mode":    func(c *Config) { c.Git.StageCompletion = "always" },
+		"remote":  func(c *Config) { c.Git.Remote = "bad remote" },
+		"timeout": func(c *Config) { c.Git.PushTimeout = "31m" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := Defaults()
+			mutate(&cfg)
+			if err := Validate(cfg); err == nil {
+				t.Fatal("expected git config validation error")
+			}
+		})
 	}
 }
 

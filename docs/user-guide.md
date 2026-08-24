@@ -1,6 +1,6 @@
 # UltraPlan User Guide
 
-This guide covers study workflows and governed sprint delivery through execute, resumable automated review, integrated verification, review-gated deep smoke, and the local loopback browser dashboard. Issue management, hosted services, remote/multi-user browser access, and Git mutation beyond sprint worktree creation are not part of this release.
+This guide covers study workflows and governed sprint delivery through execute, resumable automated review, integrated verification, review-gated deep smoke, opt-in stage publication to Git, and the local loopback browser dashboard. Issue management, hosted services, remote/multi-user browser access, and general Git automation beyond stage publication and sprint worktree creation are not part of this release.
 
 ## Local Browser Dashboard
 
@@ -286,6 +286,10 @@ ultraplan sprint <project> <sprint> execute --resume
 Use `prompt <stage>` before runtime-backed flow to inspect the stage input. Use `flow --to <stage> --dry-run` to preview planned stage execution. Non-dry-run flow can generate planning artifacts when runtime prerequisites are available. While it runs, the CLI prints stage transitions and sanitized runtime progress to stderr, leaving the final result on stdout. The TUI shows the same stage and runtime events in the active operation view for sprint flow, execute, and review.
 
 The first non-dry-run code-context stage creates a linked Git worktree for the sprint. UltraPlan branches from the implementation target's current `HEAD` and stores the assignment in `projects/<project>/sprints/<sprint>/.workspace.json`. Commit or stash changes in the source checkout first. Later stages use the sprint worktree, so edits in another checkout or another sprint do not change this sprint's source. Execution may edit the sprint worktree. UltraPlan will not rebase, retarget, remove, or recreate it automatically.
+
+When `git.stage_completion` is `commit` or `commit-and-push`, UltraPlan publishes each valid completed stage before starting the next one. Study reports and sprint planning artifacts commit only their owned paths in the workspace repository. Execute commits the complete dedicated sprint worktree plus its workspace summary and run state. Review and smoke publish valid canonical evidence even when the verdict fails. Dry runs, cancelled stages, and invalid output never publish.
+
+With `commit-and-push`, UltraPlan pushes the current upstream branch. If the branch has no upstream, it pushes to `git.remote` and sets one. A failed push stops the command but leaves the stage complete and the local commit intact. Retry the same command to finish the push without duplicating the commit.
 
 `code-context` reads the configured implementation target under a restricted read-only runtime policy and atomically replaces only the sprint's `code-context.md` after structural validation. The artifact records paths, exact line ranges, optional symbols, and rationale—not copied source. Downstream agent-backed prompts share the exact requirements and code-context bytes plus transient bounded source excerpts, clearly marked untrusted; the context pack never prevents further live repository inspection. A bad path, range, encoding, containment check, changed read, or 256 KiB shared-prefix budget overflow stops before runtime invocation and leaves the last valid artifacts/state intact.
 

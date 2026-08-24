@@ -79,6 +79,9 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 					result.Warnings = append(result.Warnings, err.Error())
 				}
 			}
+			if !req.DeferPublication {
+				return s.publishExecution(ctx, result)
+			}
 			return result, nil
 		}
 		if recoverableRuntimeOutputFailure(runtimeResult) {
@@ -95,6 +98,9 @@ func (s Service) RunAnalysis(ctx context.Context, req ExecutionRequest) (Executi
 		if err := s.deleteCompletedSessions(ctx, runtimeResult); err != nil {
 			result.Warnings = append(result.Warnings, err.Error())
 		}
+	}
+	if !req.DeferPublication {
+		return s.publishExecution(ctx, result)
 	}
 	return result, nil
 }

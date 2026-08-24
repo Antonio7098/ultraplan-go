@@ -65,7 +65,7 @@ After an agent writes or repairs a planning artifact, run `sprint status
 --json`; status persists the derived stage state while preserving review and
 smoke evidence. Do not hand-edit state JSON to mark a stage complete.
 
-The governed sprint chain continues through execute, review, and smoke using the shared `sprint verify` transition. Verification does not authorize issue management, remediation, or Git mutation.
+The governed sprint chain continues through execute, review, and smoke using the shared `sprint verify` transition. Verification does not authorize issue management, remediation, or agent-driven Git mutation. Configured stage publication runs only after canonical validation and persistence.
 
 ## Verify Recovery
 

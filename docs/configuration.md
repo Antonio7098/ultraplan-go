@@ -70,6 +70,10 @@ smoke:
     - TMPDIR
     - LANG
     - LC_ALL
+git:
+  stage_completion: off
+  remote: origin
+  push_timeout: 2m
 logging:
   format: text
   level: info
@@ -120,6 +124,9 @@ ULTRAPLAN_SMOKE_RUN_TIMEOUT
 ULTRAPLAN_SMOKE_STDOUT_LIMIT
 ULTRAPLAN_SMOKE_STDERR_LIMIT
 ULTRAPLAN_SMOKE_CLEANUP_GRACE
+ULTRAPLAN_GIT_STAGE_COMPLETION
+ULTRAPLAN_GIT_REMOTE
+ULTRAPLAN_GIT_PUSH_TIMEOUT
 ULTRAPLAN_LOG_FORMAT
 ULTRAPLAN_LOG_LEVEL
 ULTRAPLAN_AGENTWRAP_EXECUTABLE
@@ -184,6 +191,7 @@ Validation rejects:
 - negative retries.
 - invalid Go duration syntax such as an empty or non-positive `execution.default_timeout`.
 - smoke discovery timeouts above 5 minutes, run timeouts above 24 hours, cleanup grace above 30 seconds, stdout above 64 MiB, stderr above 16 MiB, or invalid environment names.
+- Git stage-completion modes other than `off`, `commit`, or `commit-and-push`, empty or whitespace-containing remote names, and push timeouts above 30 minutes.
 - logging formats other than `text` or `json`.
 - logging levels other than `debug`, `info`, `warn`, or `error`.
 - unsupported health checks or capabilities.
@@ -208,6 +216,14 @@ UltraPlan delegates runtime execution through agentwrap and the OpenCode adapter
 - `agentwrap.sandbox`, `agentwrap.permission_mode`, `agentwrap.permission_default`, and `agentwrap.permission_unsupported_behavior` map to agentwrap sandbox and permission policy fields.
 
 UltraPlan does not own OpenCode provider credentials or provider billing. Configure those through OpenCode/provider-native mechanisms.
+
+## Git stage publication
+
+`git.stage_completion` controls publication after a study task or sprint stage has produced valid canonical output and persisted its state. `commit` creates a local commit. `commit-and-push` also pushes the current branch, using its upstream when present or `git.remote` when no upstream exists. `off` preserves the working tree without Git mutation.
+
+UltraPlan commits only paths owned by the completed stage. It leaves unrelated staged and unstaged changes alone. Execute is different because its recorded Git worktree belongs to one sprint; UltraPlan commits the complete worktree change set there. Agents remain prohibited from running `git add`, `git commit`, or `git push` themselves.
+
+A push failure does not reopen a completed product stage. The command returns an error and leaves the local commit in place. Rerunning the stage pushes that commit without creating a duplicate. Git commands never prompt for credentials, and `git.push_timeout` bounds each push attempt.
 
 ## Smoke Configuration
 

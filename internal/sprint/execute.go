@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/gitpublish"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
@@ -88,6 +89,7 @@ type ExecuteResult struct {
 	Findings     []ValidationFinding
 	Runtime      []pruntime.Result
 	Message      string
+	Publications []gitpublish.Result
 }
 
 func (s Service) PromptExecute(projectRef, sprintRef string, req ExecuteRequest) (PromptPreview, error) {
@@ -335,6 +337,13 @@ func (s Service) Execute(ctx context.Context, projectRef, sprintRef string, req 
 	}
 	for _, run := range result.Runtime {
 		_ = s.deleteCompletedSessions(ctx, run)
+	}
+	if allExecuteTasksResolved(state.Tasks) {
+		publications, publishErr := s.publishExecuteStage(ctx, sp, target)
+		result.Publications = append(result.Publications, publications...)
+		if publishErr != nil {
+			return result, publishErr
+		}
 	}
 	return result, nil
 }
@@ -745,4 +754,16 @@ func hasFailedExecuteTask(tasks []ExecuteTaskRecord) bool {
 		}
 	}
 	return false
+}
+
+func allExecuteTasksResolved(tasks []ExecuteTaskRecord) bool {
+	if len(tasks) == 0 {
+		return false
+	}
+	for _, task := range tasks {
+		if task.Status != ExecuteTaskComplete && task.Status != ExecuteTaskDeferred {
+			return false
+		}
+	}
+	return true
 }

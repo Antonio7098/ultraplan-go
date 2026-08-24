@@ -7,7 +7,7 @@ This checklist gates the local Phase 3 CLI and TUI release. It does not publish,
 - Study workflows and governed sprint delivery through `execute -> review -> smoke`.
 - CLI and TUI support integrated `verify`, resumable/focused review, review-gated smoke, status, validation, cancellation, and recovery.
 - Local numeric-loopback browser UI with guarded operations and bounded SSE.
-- No issue management, hosted SaaS, remote/multi-user collaboration, or Git mutation beyond sprint worktree creation.
+- No issue management, hosted SaaS, remote/multi-user collaboration, or Git automation beyond configured stage publication and sprint worktree creation.
 - Runtime integration remains through agentwrap/OpenCode.
 
 ## Offline Gates
@@ -111,7 +111,7 @@ Check:
 - Stable JSON documentation is limited to documented JSON surfaces.
 - Recovery docs describe validation, missing artifacts, failed planning stages, cancellation, stale locks, `--force-unlock`, partial completion, retry/fallback metadata, and atomic write failures.
 - Configuration docs document precedence, schema version rejection, runtime/model/retry/fallback settings, agentwrap/OpenCode mapping, and redaction.
-- Migration docs explain `.ultra/cli` artifact compatibility and explicitly defer implementation, smoke, review, issue, and Git workflows.
+- Migration docs explain `.ultra/cli` artifact compatibility, supported stage publication, and deferred issue and general Git workflows.
 
 ## Security Review
 
@@ -123,7 +123,7 @@ Confirm docs and evidence contain no:
 - full generated report bodies.
 - raw unsafe runtime payloads.
 - unsupported direct OpenCode supervision claims.
-- unsupported Git mutation claims beyond sprint worktree creation.
+- unsupported Git mutation claims beyond configured stage publication and sprint worktree creation.
 
 ## Platform Notes
 

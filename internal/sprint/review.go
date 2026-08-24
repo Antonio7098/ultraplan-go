@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Antonio7098/ultraplan-go/internal/platform/gitpublish"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
@@ -162,6 +163,7 @@ type ReviewResult struct {
 	Resumed            bool                   `json:"resumed,omitempty"`
 	Restarted          bool                   `json:"restarted,omitempty"`
 	Reused             int                    `json:"reused_coverage,omitempty"`
+	Publications       []gitpublish.Result    `json:"publications,omitempty"`
 }
 
 func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) (ReviewManifest, []ValidationFinding, error) {
@@ -627,6 +629,11 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 	result.Artifact = ArtifactRelPath(sp, StageReview)
 	if err := s.saveReviewState(projectRef, sprintRef, result, completed, len(coverage)); err != nil {
 		return result, err
+	}
+	publications, publishErr := s.publishReviewStage(ctx, sp)
+	result.Publications = append(result.Publications, publications...)
+	if publishErr != nil {
+		return result, publishErr
 	}
 	_ = os.RemoveAll(reviewerRoot)
 	_ = now

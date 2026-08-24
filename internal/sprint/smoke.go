@@ -46,6 +46,17 @@ func (s Service) RunSmoke(ctx context.Context, projectRef, sprintRef string, req
 			return result, smokeError("roadmap_reconciliation", "reconciliation", "smoke completed but roadmap.md could not be updated", "Reconcile the sprint status in roadmap.md.", updateErr)
 		}
 	}
+	if result.Status == SmokeCompleted && !result.DiagnosticOnly && result.Artifact != "" {
+		prepared, prepareErr := s.prepareSmokeStatic(projectRef, sprintRef, req)
+		if prepareErr != nil {
+			return result, errors.Join(err, prepareErr)
+		}
+		publications, publishErr := s.publishSmokeStage(ctx, prepared, result)
+		result.Publications = append(result.Publications, publications...)
+		if publishErr != nil {
+			return result, errors.Join(err, publishErr)
+		}
+	}
 	return result, err
 }
 

@@ -77,7 +77,7 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 				return failedOperation(result, e)
 			}
 		case OperationSmokeStart:
-			service := sprint.NewService(root.Path).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env)))
+			service := sprint.NewService(root.Path).WithPublisher(stagePublisher(effective.Config)).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env)))
 			var timeout time.Duration
 			if req.Timeout != "" {
 				timeout, _ = time.ParseDuration(req.Timeout)

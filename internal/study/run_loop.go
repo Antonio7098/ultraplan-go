@@ -244,6 +244,22 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		defer errMu.Unlock()
 		return firstErr
 	}
+	var publicationJobs chan ExecutionResult
+	var publicationDone chan struct{}
+	if s.publisher != nil {
+		publicationJobs = make(chan ExecutionResult, len(state.Tasks))
+		publicationDone = make(chan struct{})
+		go func() {
+			defer close(publicationDone)
+			for execution := range publicationJobs {
+				published, publishErr := s.publishExecution(ctx, execution)
+				if len(published.Publications) > 0 {
+					result.Publications = append(result.Publications, published.Publications...)
+				}
+				recordErr(publishErr)
+			}
+		}()
+	}
 	attempted := map[string]bool{}
 	runTask := func(id string) {
 		if ctx.Err() != nil {
@@ -297,14 +313,14 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		}
 		switch task.Kind {
 		case TaskKindAnalysis:
-			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
+			res, err = s.RunAnalysis(ctx, ExecutionRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRef: task.Source, Model: req.Model, ResumeSession: task.Session, DeferPublication: true, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {
 				res = ExecutionResult{Status: ExecutionStatusRuntimeFailed, TaskKind: TaskKindAnalysis, Study: listing.Study, OutputPath: task.OutputPath, RuntimeError: safeError(err), RuntimeErr: err}
 			}
 		case TaskKindSynthesis:
-			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), Model: req.Model, ResumeSession: task.Session, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
+			res, err = s.Synthesize(ctx, SynthesisRequest{StudyRef: listing.Study.Name, DimensionRef: task.DimensionRef, SourceRefs: selectedSourceNames(listing.Sources), Model: req.Model, ResumeSession: task.Session, DeferPublication: true, OnSession: checkpointSession, OnEvent: func(event runtimeEvent) {
 				emitRuntime(id, event)
 			}})
 			if err != nil {
@@ -317,6 +333,9 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 		diagnostics.sample("runtime.end", id, time.Since(runtimeStarted), err)
 		recordErr(applyExecutionResult(update, id, res))
 		recordErr(recordHistory(id))
+		if res.Status == ExecutionStatusCompleted && publicationJobs != nil {
+			publicationJobs <- res
+		}
 		emitTask(progressEventForExecution(res), id)
 	}
 	done := make(chan struct{}, req.Parallelism)
@@ -428,6 +447,10 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 			emitRetryWait(state, scope, result.StatePath, req.Progress)
 		})
 	}
+	if publicationJobs != nil {
+		close(publicationJobs)
+		<-publicationDone
+	}
 	if err := loadFirstErr(); err != nil {
 		return result, err
 	}
@@ -438,6 +461,15 @@ func (s Service) RunLoop(ctx context.Context, req RunLoopRequest) (out RunLoopRe
 	}
 	if err := SyncRunHistory(listing.Study, state); err != nil {
 		return result, err
+	}
+	if s.publisher != nil {
+		publication, publishErr := s.publishRunLoopState(ctx, listing.Study)
+		if len(publication) > 0 {
+			result.Publications = append(result.Publications, publication...)
+		}
+		if publishErr != nil {
+			return result, publishErr
+		}
 	}
 	result.State = state
 	result.Counts = runLoopCounts(state)

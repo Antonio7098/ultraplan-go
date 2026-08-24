@@ -135,8 +135,9 @@ does not depend on the bounded retained-event tail.
 
 Hosted or LAN/public serving, accounts, authentication, TLS, teams, tenants,
 collaboration, remote workers, browser editing, WebSockets, terminal transport,
-general-purpose issue tracking, automatic fixes, database state, and Git
-mutation remain outside the local web architecture.
+general-purpose issue tracking, automatic fixes, database state, and general
+Git automation remain outside the local web architecture. The shared app
+composition may inject configured stage publication into product services.
 
 ## Grounded Planning And Shared Prompt Boundary
 
@@ -145,6 +146,14 @@ mutation remain outside the local web architecture.
 Reference resolution is repository-contained, symlink-rejecting, regular-file-only, cancellation-aware, and fail-closed. References retain their authored labels, rationale, and symbol metadata while selected ranges from the same file are sorted and merged so source bytes are injected once and each file is scanned once. The complete shared prefix is capped at 256 KiB; overflow is an actionable error, never truncation or omission. Stage suffixes include every available governed input in full and defer context-window enforcement to the selected runtime model and provider. Evidence is marked untrusted, and agents retain permission to inspect additional live source.
 
 The first non-dry-run code-context operation creates a sprint-owned linked Git worktree from the configured target's current `HEAD`. UltraPlan records the source root, baseline commit, branch, worktree path, and creation time in the sprint's `.workspace.json`. The source checkout must be clean. The worktree remains writable during execution, but its assignment never changes implicitly. Later code-context, planning, execute, review, and smoke operations reuse it. A missing or invalid recorded worktree fails closed once the record exists. Existing sprints without a record retain direct-target compatibility until code-context runs again.
+
+## Git stage publication
+
+`internal/platform/gitpublish` owns the Git subprocess boundary for configured post-stage commit and push. Product services decide when a stage has valid canonical output and supply an exact set of owned paths. The publisher resolves the repository and current branch, serializes work by Git common directory, builds the commit from a temporary index, updates the branch only when its parent is unchanged, and reconciles only the published paths in the real index. Unrelated staged and unstaged changes remain untouched.
+
+Study run-loop serializes only terminal state, history, and publication; runtime workers stay parallel. Sprint planning publishes workspace artifacts. Execute publishes the dedicated implementation worktree before its workspace evidence. Smoke may publish manifest-allowlisted harness authoring paths before its workspace summary and roadmap change. Raw smoke evidence remains external. Agents cannot invoke Git mutation, and transport adapters cannot choose publication paths.
+
+Push failures do not rewrite product completion state. They return an operation error while leaving the local commit available for a no-duplicate retry. Publication never runs for dry runs, invalid artifacts, runtime failures, or cancellations.
 
 After code-context validation, UltraPlan may persist a bounded, content-addressed, disposable context pack under `.ultra/cache/sprint-context/`; existing sprints create one lazily on their first runtime composition while prompt previews stay read-only. Its identity is derived only from the exact requirements, exact code-context artifact, and canonical sprint target; it freezes the resolved source bytes so execution edits do not churn the planning prefix. It is an acceleration layer, never provenance or freshness authority: write failure is non-fatal, missing or invalid packs fall back to live resolution, and artifact changes select a different identity without invalidating, rerunning, or reopening completed stages. Exact-match dependency freshness remains disabled.
 

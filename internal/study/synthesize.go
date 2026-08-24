@@ -76,6 +76,9 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 					result.Warnings = append(result.Warnings, err.Error())
 				}
 			}
+			if !req.DeferPublication {
+				return s.publishExecution(ctx, result)
+			}
 			return result, nil
 		}
 		if recoverableRuntimeOutputFailure(runtimeResult) {
@@ -92,6 +95,9 @@ func (s Service) Synthesize(ctx context.Context, req SynthesisRequest) (Executio
 		if err := s.deleteCompletedSessions(ctx, runtimeResult); err != nil {
 			result.Warnings = append(result.Warnings, err.Error())
 		}
+	}
+	if !req.DeferPublication {
+		return s.publishExecution(ctx, result)
 	}
 	return result, nil
 }

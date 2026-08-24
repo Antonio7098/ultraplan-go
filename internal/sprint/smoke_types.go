@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Antonio7098/ultraplan-go/internal/platform/gitpublish"
 )
 
 const StageSmoke PlanningStage = "smoke"
@@ -200,6 +202,7 @@ type SmokeResult struct {
 	DryRun             bool                  `json:"dry_run"`
 	DiagnosticOnly     bool                  `json:"diagnostic_only"`
 	Reconciliation     bool                  `json:"reconciliation_required"`
+	Publications       []gitpublish.Result   `json:"publications,omitempty"`
 }
 
 type SmokeStageState struct {

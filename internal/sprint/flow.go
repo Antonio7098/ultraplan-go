@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	"github.com/Antonio7098/ultraplan-go/internal/platform/gitpublish"
 	"github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
@@ -75,14 +76,15 @@ type FlowProgress struct {
 }
 
 type FlowResult struct {
-	Project  string
-	Sprint   string
-	To       PlanningStage
-	DryRun   bool
-	Message  string
-	Runtime  runtime.Result
-	Stages   []StageState
-	Findings []ValidationFinding
+	Project      string
+	Sprint       string
+	To           PlanningStage
+	DryRun       bool
+	Message      string
+	Runtime      runtime.Result
+	Stages       []StageState
+	Findings     []ValidationFinding
+	Publications []gitpublish.Result
 }
 
 // Flow owns the ordered sprint state machine. Surfaces map requests and render
@@ -143,6 +145,14 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 					}
 				}
 				result = FlowResult{Project: projectRef, Sprint: sprintRef, To: stage, Message: string(stage) + " already complete"}
+				if stage != StageExecute {
+					publications, publishErr := s.publishPlanningStage(ctx, projectRef, sprintRef, stage)
+					result.Publications = append(result.Publications, publications...)
+					if publishErr != nil {
+						emitFlow(req.Progress, FlowProgress{Stage: stage, State: "publish-failed", Message: publishErr.Error()})
+						return result, publishErr
+					}
+				}
 				emitFlow(req.Progress, FlowProgress{Stage: stage, State: "skipped", Message: "already complete"})
 				continue
 			}
@@ -153,6 +163,15 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 		if stageErr != nil {
 			emitFlow(req.Progress, FlowProgress{Stage: stage, State: "failed", Message: "stage failed; inspect validation findings and durable state"})
 			return result, stageErr
+		}
+		if !req.DryRun && stage != StageExecute {
+			emitFlow(req.Progress, FlowProgress{Stage: stage, State: "publishing", Message: "committing completed stage changes"})
+			publications, publishErr := s.publishPlanningStage(ctx, projectRef, sprintRef, stage)
+			result.Publications = append(result.Publications, publications...)
+			if publishErr != nil {
+				emitFlow(req.Progress, FlowProgress{Stage: stage, State: "publish-failed", Message: publishErr.Error()})
+				return result, publishErr
+			}
 		}
 		emitFlow(req.Progress, FlowProgress{Stage: stage, State: "complete", Message: firstNonEmptyString(result.Message, "stage complete")})
 	}
@@ -190,6 +209,15 @@ func (s Service) FlowStage(ctx context.Context, projectRef, sprintRef string, re
 	if err != nil {
 		emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "failed", Message: "stage failed; inspect validation findings and durable state"})
 		return result, err
+	}
+	if !req.DryRun {
+		emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "publishing", Message: "committing completed stage changes"})
+		publications, publishErr := s.publishPlanningStage(ctx, projectRef, sprintRef, req.To)
+		result.Publications = append(result.Publications, publications...)
+		if publishErr != nil {
+			emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "publish-failed", Message: publishErr.Error()})
+			return result, publishErr
+		}
 	}
 	emitFlow(req.Progress, FlowProgress{Stage: req.To, State: "complete", Message: firstNonEmptyString(result.Message, "stage complete")})
 	return result, nil

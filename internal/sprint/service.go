@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Antonio7098/ultraplan-go/internal/platform/gitpublish"
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
@@ -33,6 +34,7 @@ type Service struct {
 	metricsMu         *sync.Mutex
 	statusWrites      bool
 	codeContextTarget func(string) (ExecuteTargetRef, []ValidationFinding)
+	publisher         gitpublish.Publisher
 }
 
 func (s Service) WithReviewConcurrency(n int) Service { s.reviewConcurrency = n; return s }
@@ -47,6 +49,11 @@ func (s Service) WithClock(now func() time.Time) Service {
 
 func (s Service) WithProcessRunner(runner pprocess.Runner) Service {
 	s.processRunner = runner
+	return s
+}
+
+func (s Service) WithPublisher(publisher gitpublish.Publisher) Service {
+	s.publisher = publisher
 	return s
 }
 

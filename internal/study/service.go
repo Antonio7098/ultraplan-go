@@ -3,6 +3,7 @@ package study
 import (
 	"context"
 
+	"github.com/Antonio7098/ultraplan-go/internal/platform/gitpublish"
 	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
@@ -10,6 +11,7 @@ type Service struct {
 	workspaceRoot string
 	runtime       Runtime
 	runtimeConfig runtimepkg.Request
+	publisher     gitpublish.Publisher
 }
 
 type StudyListing struct {
@@ -92,6 +94,12 @@ func WithRuntime(rt Runtime, req runtimepkg.Request) Option {
 	return func(s *Service) {
 		s.runtime = rt
 		s.runtimeConfig = req
+	}
+}
+
+func WithPublisher(publisher gitpublish.Publisher) Option {
+	return func(s *Service) {
+		s.publisher = publisher
 	}
 }
 

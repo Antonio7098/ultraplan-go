@@ -47,7 +47,7 @@ func (s Service) RunAll(ctx context.Context, req RunAllRequest) (RunAllResult, e
 	}
 	result.Counts = countRunAll(result)
 	result.Status = statusRunAll(result, ctx.Err() != nil)
-	return result, nil
+	return s.publishRunAllSummary(ctx, result)
 }
 
 func (s Service) runAllDimensionGroup(ctx context.Context, req RunAllRequest, study Study, dimensions []Dimension, sources []Source) RunAllResult {

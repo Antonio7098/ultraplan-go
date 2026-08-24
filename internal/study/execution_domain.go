@@ -2,6 +2,8 @@ package study
 
 import runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 
+import "github.com/Antonio7098/ultraplan-go/internal/platform/gitpublish"
+
 type TaskKind string
 
 const (
@@ -31,6 +33,7 @@ type ExecutionRequest struct {
 	ResumeSession       *TaskSession
 	OnSession           func(TaskSession)
 	DeferSessionCleanup bool
+	DeferPublication    bool
 }
 
 type ExecutionResult struct {
@@ -53,6 +56,7 @@ type ExecutionResult struct {
 	PreflightResults  []ValidationResult
 	Blockers          []string
 	CleanupSessionIDs []string
+	Publications      []gitpublish.Result
 }
 
 type SynthesisRequest struct {
@@ -66,6 +70,7 @@ type SynthesisRequest struct {
 	ResumeSession       *TaskSession
 	OnSession           func(TaskSession)
 	DeferSessionCleanup bool
+	DeferPublication    bool
 }
 
 type RunAllRequest struct {
@@ -118,6 +123,7 @@ type RunAllResult struct {
 	Warnings      []RunAllWarning
 	SummaryPath   string
 	SummaryResult SummaryResult
+	Publications  []gitpublish.Result
 }
 
 type RunLoopRequest struct {
@@ -137,15 +143,16 @@ type RunLoopRequest struct {
 }
 
 type RunLoopResult struct {
-	Status      RunAllStatus
-	Study       Study
-	Parallelism int
-	State       RunState
-	StatePath   string
-	LockPath    string
-	Counts      RunAllCounts
-	ScopeCounts RunAllCounts
-	Warnings    []RunAllWarning
+	Status       RunAllStatus
+	Study        Study
+	Parallelism  int
+	State        RunState
+	StatePath    string
+	LockPath     string
+	Counts       RunAllCounts
+	ScopeCounts  RunAllCounts
+	Warnings     []RunAllWarning
+	Publications []gitpublish.Result
 }
 
 type RunLoopProgress struct {
