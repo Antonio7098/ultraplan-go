@@ -15,6 +15,7 @@ import (
 	"time"
 
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
 )
 
 func (s Service) RunSmoke(ctx context.Context, projectRef, sprintRef string, req SmokeRequest) (result SmokeResult, err error) {
@@ -34,6 +35,16 @@ func (s Service) RunSmoke(ctx context.Context, projectRef, sprintRef string, req
 	if saveErr := s.saveSmokeAttempt(projectRef, sprintRef, result, err, true); saveErr != nil {
 		stateErr := smokeError("smoke_state_write", "persistence", "terminal smoke state could not be recorded", "Inspect and repair flow-state persistence before retrying.", saveErr)
 		return result, errors.Join(err, stateErr)
+	}
+	if err == nil && result.Status == SmokeCompleted && result.Verdict == SmokePass && !result.DiagnosticOnly && (result.ReviewVerdict == ReviewPass || result.ReviewVerdict == ReviewPassWithFindings) {
+		sp, _, _, resolveErr := s.resolveSprintInputs(projectRef, sprintRef)
+		if resolveErr != nil {
+			return result, smokeError("roadmap_reconciliation", "reconciliation", "smoke completed but the roadmap sprint could not be resolved", "Reconcile the sprint status in roadmap.md.", resolveErr)
+		}
+		roadmapPath := filepath.Join(filepath.Dir(filepath.Dir(sp.Path)), "roadmap.md")
+		if _, updateErr := project.MarkRoadmapSprintDelivered(roadmapPath, sp.Slug); updateErr != nil {
+			return result, smokeError("roadmap_reconciliation", "reconciliation", "smoke completed but roadmap.md could not be updated", "Reconcile the sprint status in roadmap.md.", updateErr)
+		}
 	}
 	return result, err
 }

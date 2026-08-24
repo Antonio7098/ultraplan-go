@@ -100,6 +100,37 @@ func TestParseRoadmapAcceptsStructuredRoadmap(t *testing.T) {
 	}
 }
 
+func TestMarkRoadmapSprintDelivered(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "roadmap.md")
+	if err := os.WriteFile(path, []byte(validRoadmapFixture), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := MarkRoadmapSprintDelivered(path, "02-second")
+	if err != nil || !changed {
+		t.Fatalf("changed=%t err=%v", changed, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roadmap, issues := ParseRoadmap(string(data))
+	if len(issues) != 0 || roadmap.Sprints[1].Status != RoadmapDelivered {
+		t.Fatalf("roadmap=%+v issues=%+v", roadmap, issues)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode=%v", info.Mode().Perm())
+	}
+	changed, err = MarkRoadmapSprintDelivered(path, "02-second")
+	if err != nil || changed {
+		t.Fatalf("idempotent changed=%t err=%v", changed, err)
+	}
+}
+
 func TestParseRoadmapIgnoresFencedContent(t *testing.T) {
 	fenced := "```text\n### Sprint 99: Not A Sprint\n#### Goal\n```\n"
 	roadmap, issues := parseFixture(t, validRoadmapFixture+"\n"+fenced)

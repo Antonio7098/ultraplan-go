@@ -229,6 +229,26 @@ func TestReviewFingerprintIgnoresSmokeOnlyProjectIndexChanges(t *testing.T) {
 	}
 }
 
+func TestReviewFingerprintIgnoresRoadmapLifecycleStatus(t *testing.T) {
+	root, _ := reviewFixture(t)
+	roadmapPath := filepath.Join(root, "projects", "proj", "roadmap.md")
+	roadmap := "# Roadmap\n\n## Phase 1\n\n### Sprint 1: Alpha\n\n> Slug: 01-alpha\n> Status: active\n\n#### Goal\n\nAlpha.\n\n#### Build\n\n- work\n\n#### Acceptance\n\n- [ ] pass\n"
+	writeFileContent(t, filepath.Dir(roadmapPath), roadmap, filepath.Base(roadmapPath))
+	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	before, findings, err := service.PrepareReview("proj", "01", ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare before: err=%v findings=%+v", err, findings)
+	}
+	writeFileContent(t, filepath.Dir(roadmapPath), strings.Replace(roadmap, "> Status: active", "> Status: delivered", 1), filepath.Base(roadmapPath))
+	after, findings, err := service.PrepareReview("proj", "01", ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare after: err=%v findings=%+v", err, findings)
+	}
+	if before.Fingerprint != after.Fingerprint {
+		t.Fatalf("lifecycle-only roadmap change altered review fingerprint: %s != %s", before.Fingerprint, after.Fingerprint)
+	}
+}
+
 func TestReviewResumesValidatedCoverageInFreshSession(t *testing.T) {
 	root, sp := reviewFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())

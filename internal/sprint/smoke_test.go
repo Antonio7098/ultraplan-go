@@ -300,6 +300,27 @@ func TestSmokeAuthoringPathAllowlist(t *testing.T) {
 
 func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing.T) {
 	root, sp := reviewFixture(t)
+	writeFileContent(t, filepath.Join(root, "projects", "proj"), `# Roadmap
+
+## Phase 1: Delivery
+
+### Sprint 1: Alpha
+
+> Slug: 01-alpha
+> Status: active
+
+#### Goal
+
+Complete alpha.
+
+#### Build
+
+- implementation
+
+#### Acceptance
+
+- [ ] smoke passes
+`, "roadmap.md")
 	harness := t.TempDir()
 	writeFileContent(t, harness, "#!/bin/sh\n", "runner")
 	if err := os.Chmod(filepath.Join(harness, "runner"), 0o755); err != nil {
@@ -342,6 +363,14 @@ func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing
 	result, err := service.RunSmoke(context.Background(), "proj", "01", SmokeRequest{})
 	if err != nil || result.Verdict != SmokePass || len(runner.calls) != 2 {
 		t.Fatalf("result=%+v calls=%v err=%v", result, runner.calls, err)
+	}
+	roadmapData, err := os.ReadFile(filepath.Join(root, "projects", "proj", "roadmap.md"))
+	if err != nil || !strings.Contains(string(roadmapData), "> Status: delivered") {
+		t.Fatalf("roadmap was not reconciled: %q err=%v", roadmapData, err)
+	}
+	verification, err := service.VerificationStatus("proj", "01")
+	if err != nil || verification.Assessment != AssessmentPass {
+		t.Fatalf("roadmap reconciliation invalidated verification: assessment=%s err=%v", verification.Assessment, err)
 	}
 	if result.CoverageMapping == nil || !result.CoverageMapping.Complete || result.CoverageMapping.Rationale != "dedicated" || len(result.CoverageMapping.RequiredCoverage) != 1 || len(result.CoverageMapping.Tests) != 1 || result.CoverageMapping.Tests[0].ID != "live" {
 		t.Fatalf("coverage mapping was not retained in result: %+v", result.CoverageMapping)

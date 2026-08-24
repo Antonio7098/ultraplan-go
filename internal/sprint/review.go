@@ -234,6 +234,8 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 		content := string(data)
 		if item.id == "project-index" {
 			content = reviewRelevantProjectIndexContent(content)
+		} else if item.id == "roadmap" {
+			content = reviewRelevantRoadmapContent(content)
 		}
 		manifest.Contents[rel] = content
 		manifest.Inputs = append(manifest.Inputs, reviewInput(item.id, "governed", item.id, rel, content))
@@ -1370,6 +1372,20 @@ func reviewRelevantProjectIndexContent(content string) string {
 		plain := strings.ToLower(strings.ReplaceAll(trimmed, "**", ""))
 		if strings.HasPrefix(plain, "- smoke harness directory:") {
 			lines[i] = ""
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// reviewRelevantRoadmapContent removes sprint lifecycle state from the frozen
+// review view. Delivering a sprint after smoke must not stale the review that
+// authorized that smoke run.
+func reviewRelevantRoadmapContent(content string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(trimmed), "> status:") {
+			lines[i] = "> Status: <lifecycle-status>"
 		}
 	}
 	return strings.Join(lines, "\n")
