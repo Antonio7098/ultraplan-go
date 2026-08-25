@@ -1,0 +1,131 @@
+# Source Analysis: openhands
+
+## Streaming Execution Semantics
+
+### Source Info
+
+| Field | Value |
+|-------|-------|
+| Name | openhands |
+| Path | `sources/agent-harness-study/sources/openhands` |
+| Language / Stack | Python (FastAPI app_server) + TypeScript/React frontend; agent execution delegated to a separate `openhands-sdk`/`agent_server` process that runs inside per-conversation sandboxes |
+| Analyzed | 2026-07-03 |
+
+## Summary
+
+OpenHands has **no token-level LLM streaming in the application server code under analysis**. The app_server (`openhands/app_server/`) treats model output as already-cooked `Event` objects — `MessageEvent`, `ObservationEvent`, `ConversationStateUpdateEvent`, etc. — that arrive in batches via webhook POSTs from the agent_server running inside each sandbox. There is no SSE/WebSocket endpoint exposed by the app_server and no partial-tool-call parser. The only streaming responses that originate from the app_server itself are (1) NDJSON-style task-progress updates during the multi-step `start_app_conversation` flow (`POST /api/v1/app-conversations/stream-start`) and (2) a ZIP byte stream for conversation trajectory export (`GET /api/v1/app-conversations/{id}/trajectory`). Both use `fastapi.responses.StreamingResponse` (`openhands/app_server/app_conversation/app_conversation_router.py:17`, `:989`, `:1598`).
+
+Persistence is event-by-event, file-per-event: each `Event` is serialized as a separate JSON file under the conversation directory (`openhands/app_server/event/event_service_base.py:86-92`, `:190-197`), which is what makes the export ZIP stream possible at all. Streaming output is never partially trusted — events either arrived in full via webhook or not at all; there is no concept of "half a tool call" in this layer. There is no client-driven mid-stream interruption: the only cancellation paths are sandbox-level (`POST /api/v1/sandboxes/{id}/resume`, `OPENHANDS` `app_server/sandbox/sandbox_router.py:95-101`) and webhook-side classification of `'cancel'` in error messages (`openhands/app_server/event_callback/webhook_router.py:83-84`). Failed streams (e.g. Redis lock unavailable during export) fail closed with HTTP 503 (`app_conversation_router.py:1609-1610`) or 409 (`app_conversation_router.py:1607-1608`); no resume mechanism exists for the streaming endpoints themselves — the only retry pattern is the polling-based `_poll_for_title` callback (`openhands/app_server/event_callback/set_title_callback_processor.py:37-79`) that retries 4× with 3 s delays and then leaves the callback active for a future event (`set_title_callback_processor.py:132-138`).
+
+The bulk of LLM token-streaming behavior lives in the separately-installed `openhands.agent_server` package, whose source is not part of this repo — see `openhands/AGENTS.md:262-264` and the `/sockets/events/{conversation_id}` URL pattern built by the frontend at `frontend/src/utils/websocket-url.ts:78-95`. Within the selected source, streaming is therefore a coarse-grained, file-and-task affair, not a token-level pipeline.
+
+## Rating
+
+**5 / 10 — Present but coarse-grained, weakly documented for partial-output semantics, and delegated.**
+
+- (+) Two concrete `StreamingResponse` endpoints with explicit locking and lifecycle hooks (`app_conversation_router.py:981-993`, `live_status_app_conversation_service.py:2394-2421`).
+- (+) Events are persisted atomically as individual JSON files, which gives an at-least-once model for the **batch-arrival** stream (`event_service_base.py:190-197`).
+- (+) Export streaming has explicit fail-closed modes: 409 on duplicate, 503 on lock unavailable, 413 on too many events (`app_conversation_router.py:1605-1616`).
+- (−) No SSE or WebSocket endpoint in the app_server — token streaming is entirely offloaded to the agent_server.
+- (−) No partial-tool-call parser, no partial-message buffer, no cancel-mid-stream handler.
+- (−) The `stream_app_conversation_start` endpoint is **untested** (`tests/unit/app_server/test_app_conversation_router.py` searched; no `stream-app`/`StreamingResponse` test).
+- (−) The README at `openhands/app_server/event/README.md:3,7,20` claims "real-time event streaming capabilities" but the only "streaming" code in this layer is task-progress NDJSON and ZIP export — this is misleading documentation.
+
+## Evidence Collected
+
+| Area | Evidence | File:Line |
+|------|----------|-----------|
+| Token vs batch arrival | Events arrive as a JSON list to webhook POST `/webhooks/events/{conversation_id}`; partial tool calls or token deltas are not represented in this code. | `openhands/app_server/event_callback/webhook_router.py:453-466` |
+| Streaming start-task endpoint | `POST /api/v1/app-conversations/stream-start` returns `StreamingResponse` over `_stream_app_conversation_start`; emits NDJSON `[<task>,<task>,…]` of `AppConversationStartTask` updates (status + detail). | `openhands/app_server/app_conversation/app_conversation_router.py:981-993`, `:1633-1651` |
+| Start-task async generator | `LiveStatusAppConversationService.start_app_conversation` is an async generator that **persists each yielded task** via `save_app_conversation_start_task` before yielding, so partial state is durable mid-stream. | `openhands/app_server/app_conversation/live_status_app_conversation_service.py:300-307`, `:335-343`, `:409-412` |
+| Streaming ZIP export endpoint | `GET /api/v1/app-conversations/{id}/trajectory` returns a `StreamingResponse` of `application/zip` built event-by-event. | `openhands/app_server/app_conversation/app_conversation_router.py:1559-1604` |
+| Per-event streaming ZIP writer | `_StreamingZipBuffer` (custom `io.RawIOBase`) buffers write chunks and lets the service `drain()` after each `zipf.writestr` — incremental emission per event. | `openhands/app_server/app_conversation/live_status_app_conversation_service.py:147-173`, `:2328-2352` |
+| Export lock during stream | Redis lock with TTL 3600 s, refreshed every 30 s by `refresh_lock_periodically` running in an `asyncio.create_task`; `finally` cancels the refresh task and releases the lock. | `openhands/app_server/app_conversation/live_status_app_conversation_service.py:2394-2421`, `openhands/app_server/utils/redis_lock.py:25-53` |
+| Export size cap | `_validate_conversation_export_size` checks `event_service.count_events` against `export_max_events` (default 10000); failures release the lock before raising. | `openhands/app_server/app_conversation/live_status_app_conversation_service.py:2304-2313`, `:2465-2468` |
+| Export error mapping | 404 missing, 409 already-running, 503 lock-unavailable, 413 too-large, 500 other. | `openhands/app_server/app_conversation/app_conversation_router.py:1605-1616` |
+| Non-streaming start variant | `POST /api/v1/app-conversations` reads only the **first** yielded task (`anext(async_iter)`), then spawns `_consume_remaining` as a fire-and-forget `asyncio.create_task` so the rest of the start pipeline still runs to completion. | `openhands/app_server/app_conversation/app_conversation_router.py:363-410`, `:1619-1631` |
+| Event persistence model | Each `Event` is saved as a single JSON file at `{conversation_id.hex}/{event.id.hex}.json` via `run_in_executor`. There is no partial-message buffering — an event is either stored fully or not. | `openhands/app_server/event/event_service_base.py:86-92`, `:190-197` |
+| Event read endpoints | App-server only exposes batch-style event read APIs (`search`, `count`, `batch_get`); no SSE / WebSocket / streaming endpoint on the event router. | `openhands/app_server/event/event_router.py:29-110` |
+| Send-message path | `POST /api/v1/app-conversations/{id}/send-message` is a fire-and-forget POST to the agent_server's `/api/conversations/{id}/events`; no streaming back. Sandbox status gates (RUNNING required, 409/410/503). | `openhands/app_server/app_conversation/app_conversation_router.py:429-590` |
+| Webhook payload contract | The webhook accepts `list[Event]` and `asyncio.gather`s `save_event` for each; analytics + callbacks are dispatched in a background task. | `openhands/app_server/event_callback/webhook_router.py:453-522` |
+| Retry / backoff | `_poll_for_title` retries 4× × 3 s (12 s total) on `httpx.HTTPError`; on exhaustion, the callback is **left active** and re-triggered by the next matching `MessageEvent` (`event_kind = "MessageEvent"`). | `openhands/app_server/event_callback/set_title_callback_processor.py:31-34`, `:52-79`, `:82-153` |
+| Rate limiting | `RateLimitMiddleware` exempts `/assets` and `POST /api/v1/sandboxes/{id}/resume`; uses `Retry-After: 1` on 429. | `openhands/app_server/middleware.py:78-141` |
+| Cache control | `CacheControlMiddleware` sets `no-cache` for everything except `/assets`, so streamed responses cannot be re-served from a stale cache. | `openhands/app_server/middleware.py:59-75` |
+| Cancellation classification | `_classify_error_type` matches `'cancel'` in lowercased error message → `user_cancelled` analytics bucket. No mid-stream handler. | `openhands/app_server/event_callback/webhook_router.py:70-90` |
+| Sandbox pause/resume | `resume_sandbox` exists at the sandbox-service layer (and as `POST /api/v1/sandboxes/{id}/resume`); stream-level resumption is not modeled — pausing the sandbox drops the in-flight request. | `openhands/app_server/sandbox/sandbox_router.py:95-101`, `openhands/app_server/sandbox/process_sandbox_service.py:359-370` |
+| Frontend transport | Frontend connects via native WebSocket to `${base}/sockets/events/{conversationId}` — an agent_server endpoint, not an app_server endpoint. App-server is not in the streaming path at runtime. | `frontend/src/utils/websocket-url.ts:78-95` |
+| Frontend reconnection | `useWebSocket` tracks a `WeakSet<WebSocket>` of "allowed to reconnect" instances; closed sockets only reconnect when explicitly marked. | `frontend/src/hooks/use-websocket.ts:15-160` |
+| Tests for streaming | `test_open_conversation_export_streams_with_lock`, `..._rejects_duplicate_export`, `..._fails_closed_when_lock_unavailable`, `..._proceeds_when_lock_not_required`, `..._rejects_too_many_events` cover the ZIP-export stream; **no tests exist for `stream_app_conversation_start` / `_stream_app_conversation_start`** (searched `test_app_conversation_router.py` for `StreamingResponse`/`stream-app` — 0 matches). | `tests/unit/app_server/test_live_status_app_conversation_service.py:1665-1779`; absence at `tests/unit/app_server/test_app_conversation_router.py` |
+
+## Answers to Dimension Questions
+
+1. **What is emitted while execution is still running?**
+   At the app_server layer: only (a) `AppConversationStartTask` updates with `status` ∈ `{WORKING, WAITING_FOR_SANDBOX, PREPARING_REPOSITORY, RUNNING_SETUP_SCRIPT, SETTING_UP_GIT_HOOKS, SETTING_UP_SKILLS, STARTING_CONVERSATION, READY, ERROR}` and (b) ZIP chunks for export. Each `AppConversationStartTask` is persisted via `app_conversation_start_task_service.save_app_conversation_start_task` *before* being yielded (`live_status_app_conversation_service.py:300-307`), so partial progress survives a client disconnect. Token-level model output is not emitted by the app_server; it is emitted by the agent_server to the WebSocket client directly, and the app_server only learns about finished `Event`s via the `/webhooks/events/{conversation_id}` webhook.
+
+2. **Are partial outputs trusted?**
+   No partial messages or partial tool calls exist in this layer. Events arrive as fully-formed `Event` objects (`webhook_router.py:453-466`); each is persisted as a single JSON file via `event_service.save_event` (`event_service_base.py:190-197`). There is no incremental tool-call parser — the parser lives downstream in the agent_server/SDK and is not in this repo. Trust boundaries are enforced by sandbox `session_api_key` headers on every forward (`app_conversation_router.py:431-435`, `:562-566`) and by webhook `valid_conversation` dependency (`webhook_router.py:457`).
+
+3. **Can a failed stream resume?**
+   No stream-level resume. For the ZIP-export stream, a failed run is detected via the Redis lock (`try_acquire_redis_lock`, `redis_lock.py:25-33`) — the next caller receives `ConversationExportAlreadyRunning` (409) until the lock TTL (default 3600 s, `live_status_app_conversation_service.py:2469-2472`) expires or the original holder releases it. For the start-task stream, there is no resume — but each yielded task is already persisted, so a polling client can call `GET /api/v1/app-conversations/start-tasks/{id}` and replay state. The only place retries actually happen is `_poll_for_title` (4× × 3 s, `set_title_callback_processor.py:52-79`), which is a one-shot HTTP poll, not a streaming retry.
+
+4. **Can a user stop the stream safely?**
+   No client-driven cancellation is wired to the streaming endpoints. The closest analog is the sandbox pause/resume API (`POST /api/v1/sandboxes/{id}/resume`, `sandbox_router.py:95-101`), which controls the entire sandbox (and thus the agent_server inside it). The ZIP-export stream does clean up on disconnect: the `stream()` inner generator's `finally` cancels the lock-refresh task and releases the Redis lock (`live_status_app_conversation_service.py:2409-2419`). For the start-task stream, FastAPI will close the underlying ASGI response and the `_stream_app_conversation_start` generator will be garbage-collected; the underlying `_start_app_conversation` async generator is **not** explicitly cancelled — the in-flight sandbox-creation request continues server-side, which is by design because each task is already persisted.
+
+5. **Does streaming weaken guardrails?**
+   Mostly no, with caveats. Streaming output is not interpretable as commands — the ZIP stream contains only event JSON, not code; the start-task stream contains only `AppConversationStartTask` snapshots. Analytics callbacks fire on `ConversationStateUpdateEvent` with `key='execution_status'` regardless of whether the event arrived via streaming or batch (`webhook_router.py:498-511`). Caveats: (a) the `event_callback_service.execute_callbacks` path runs callbacks in a background `asyncio.create_task` (`webhook_router.py:513-517`), so a misbehaving callback cannot block the stream; (b) cache control is `no-cache` for everything except `/assets` (`middleware.py:70-72`), so streamed responses are not cached and cannot be replayed cross-user.
+
+## Architectural Decisions
+
+- **Stream ownership is split.** LLM token streaming is the agent_server's responsibility; the app_server only handles coarse-grained task/zip streaming. This is a clean separation but means that "real-time event streaming" (claimed in `openhands/app_server/event/README.md:7,20`) is not actually implemented in this repo — the claim refers to the agent_server's `/sockets/events/{conversation_id}` endpoint reachable via WebSocket from the frontend.
+- **Events are append-only and atomic.** Per-event JSON files mean the system never has to reason about "half an event". Cost: a busy conversation produces many small files; `iter_events_for_export` was added as an override to avoid the pagination round-trips that `search_events` would otherwise force (`event_service_base.py:145-156`).
+- **Streaming the ZIP requires a non-seekable in-memory buffer.** `zipfile.ZipFile` defaults to seeking; `_StreamingZipBuffer` exposes only `write`/`tell` so the service can `drain()` after each event write and `yield` to the response (`live_status_app_conversation_service.py:147-173`). This is a deliberate trade-off — it prevents `tell()`-based size hints but is the only way to do true per-event streaming under FastAPI/Starlette.
+- **The lock-refresh pattern decouples maintenance from emission.** `refresh_lock_periodically` runs as `asyncio.create_task` next to the generator, so the main loop is never blocked by lock TTL bookkeeping (`live_status_app_conversation_service.py:2394-2421`, `redis_lock.py:36-53`).
+- **Streaming `start_app_conversation` reuses the batch version.** `POST /stream-start` and `POST /` both call `app_conversation_service.start_app_conversation`, which is itself an async generator (`live_status_app_conversation_service.py:300-307`). The streaming route consumes all events; the batch route takes only `anext(async_iter)` and spawns `_consume_remaining` as a background task (`app_conversation_router.py:380-405`, `:1619-1631`). This is the same shape as a promise/callback split.
+- **Webhooks for inbound, REST for outbound.** The agent_server pushes events to the app_server via webhook; the app_server exposes REST for the frontend. There is no inbound SSE/WebSocket on the app_server, simplifying auth and scaling.
+- **Pending messages decouple user input from agent availability.** `POST /api/v1/conversations/{id}/pending-messages` queues messages server-side (`pending_messages/pending_message_router.py:34-104`) and a flush loop delivers them to the agent_server when the conversation is ready (`live_status_app_conversation_service.py:1977-2006`). Rate-limited to 10 per conversation.
+
+## Notable Patterns
+
+- `_StreamingZipBuffer` as an `io.RawIOBase` shim around a list of chunks (`live_status_app_conversation_service.py:147-173`). Compact and avoids `tell()` issues.
+- Async generators as the universal streaming primitive — `start_app_conversation`, `_stream_conversation_zip`, `iter_events_for_export` all use `async def ... yield` so the same code can power a streaming response or a polling loop.
+- "Save before yield" — every meaningful state transition in the start-task stream is written to the `app_conversation_start_task_service` before being yielded (`live_status_app_conversation_service.py:300-307`), making the stream recoverable by polling.
+- Lock + refresh + release in `try/finally` (`live_status_app_conversation_service.py:2409-2419`), keeping the streaming loop readable while ensuring cleanup.
+- `asyncio.create_task(_consume_remaining(...))` (`app_conversation_router.py:405`) — fire-and-forget completion of an async iterator once the first item has been returned to the client. Requires `set_db_session_keep_open` / `set_httpx_client_keep_open` flags on the request (`app_conversation_router.py:374-376`) so dependencies survive past the response.
+
+## Tradeoffs
+
+- **No token streaming at this layer.** Users see responses only when the agent_server pushes a complete `MessageEvent`. The frontend's "streaming" feel comes from the agent_server's WebSocket, not the app_server.
+- **Coarse-grained cancellation.** You can pause/resume the sandbox but cannot cancel a single in-flight streaming start. The sandbox-level pause drops the agent_server's WebSocket, which the frontend's `useWebSocket` will close but not auto-reconnect without explicit permission (`frontend/src/hooks/use-websocket.ts:28-156`).
+- **Disk fan-out.** Per-event JSON files mean tens of thousands of files for long conversations; mitigated by `iter_events_for_export` skipping pagination (`event_service_base.py:145-156`) but not addressed at the storage level (filesystem layout, compaction, indexing).
+- **Streaming export couples HTTP lifetime to a Redis lock.** A hung client can hold the lock up to the 3600 s TTL; no LRU/keep-alive beyond the 30 s refresh interval (`live_status_app_conversation_service.py:2473-2476`).
+- **`stream_app_conversation_start` is undocumented at the test level.** The route exists and is wired to `StreamingResponse` (`app_conversation_router.py:981-993`) but has zero tests in `tests/unit/app_server/test_app_conversation_router.py`, while every other conversation endpoint has tests.
+- **`event/README.md` overstates capability.** README says "real-time event streaming capabilities" and "real-time streaming capabilities" (`openhands/app_server/event/README.md:3,7,20`) but the event router only exposes `search/count/batch_get` (`event_router.py:29-110`); no SSE endpoint exists.
+
+## Failure Modes / Edge Cases
+
+- **Stream client disconnects mid-export.** The `finally` block in `stream()` cancels the refresh task and releases the Redis lock (`live_status_app_conversation_service.py:2409-2419`). Verified by `test_open_conversation_export_streams_with_lock` asserting `fake_lock.released is True` (`tests/unit/app_server/test_live_status_app_conversation_service.py:1694`).
+- **Duplicate export attempts.** Second caller receives `ConversationExportAlreadyRunning` → 409 (`live_status_app_conversation_service.py:2377-2380`, `app_conversation_router.py:1607-1608`). Lock TTL bounds the staleness window at 3600 s by default.
+- **Redis unavailable, SaaS mode.** Fails closed: `RedisLockUnavailable` is re-raised as `ConversationExportLockUnavailable` → 503 (`live_status_app_conversation_service.py:2365-2369`, `app_conversation_router.py:1609-1610`). In non-SaaS mode (`export_lock_required=False`), export proceeds without locking with a warning log (`live_status_app_conversation_service.py:2370-2375`).
+- **Conversation exceeds `export_max_events`.** Counted via `event_service.count_events` before the streaming starts (`live_status_app_conversation_service.py:2304-2313`); exceeding raises `ConversationExportTooLarge` → 413 (`app_conversation_router.py:1611-1612`).
+- **Webhook callback exceptions.** Caught at the top level of `/webhooks/events/{conversation_id}` and logged; the webhook still returns `Success()` so the agent_server's retry/backoff isn't triggered (`webhook_router.py:519-522`). Risk: silent failures in callbacks.
+- **Sandbox paused while start-task stream is open.** `_get_agent_server_context` returns `None` for `PAUSED` (`app_conversation_router.py:170-172`) and 404 for other non-running states. But the `stream-start` route doesn't gate on sandbox status; the start flow itself waits for the sandbox to be ready (`live_status_app_conversation_service.py:342-343`).
+- **`send-message` to a non-running sandbox.** Returns 409 with a hint to call `/sandboxes/{id}/resume` first (`app_conversation_router.py:521-529`). 410 for archived (sandbox `MISSING`), 503 for `ERROR` or unreachable agent_server.
+- **Title auto-set callback never resolves.** After 4 failed polls × 3 s, the callback is left active (`set_title_callback_processor.py:132-138`), so the next `MessageEvent` re-tries. No upper bound on retries — could accumulate callbacks on long-running conversations.
+
+## Future Considerations
+
+- **Token-streaming proxy in the app_server.** Currently the app_server has no SSE endpoint; if SaaS needs to insert analytics, redaction, or rate-limiting between the agent_server and the frontend, an SSE bridge in the app_server would have to be added (likely under `event_callback/` or a new `sse/` module).
+- **Test coverage for the streaming start-task route.** Adding tests for `_stream_app_conversation_start` mirroring the export tests (lock, duplicate, unavailable, no-lock, too-many) would close a clear gap.
+- **Document the split.** Update `openhands/app_server/event/README.md:3,7,20` to clarify that "real-time streaming" refers to the agent_server's WebSocket and that this layer is webhook-driven.
+- **Webhook retry budget.** Today, callback exceptions are swallowed (`webhook_router.py:519-522`). A bounded retry counter and a dead-letter state on the `EventCallback` model would surface systematic agent_server failures.
+- **Streaming export for very large conversations.** `export_max_events=10000` (`live_status_app_conversation_service.py:223`) is hard-capped; pagination or streaming-only-since-cursor exports would help long trajectories.
+- **Frontend reconnection policy.** `useWebSocket` only reconnects when explicitly allowed (`frontend/src/hooks/use-websocket.ts:28-156`); a documented auto-reconnect-with-backoff policy (e.g. for transient agent_server restarts) would be safer than relying on the user to navigate.
+- **Partial-event handling.** If incremental token/tool-call deltas ever need to enter the app_server, the current per-file event model would have to grow an upsert path so that successive deltas for the same logical `event.id` merge into a single record.
+
+## Questions / Gaps
+
+- **Where exactly does the agent_server's WebSocket live?** It is referenced from the frontend (`frontend/src/utils/websocket-url.ts:78-95`) but not implemented in this source tree — the agent_server code lives in the separately-installed `openhands.agent_server` package, whose source is in the `software-agent-sdk` repo per `openhands/AGENTS.md`. As a result, claims about token-level streaming semantics, partial-tool-call parsing, or SSE reconnection back-off cannot be verified from `sources/openhands/` alone.
+- **Is `stream_app_conversation_start` reachable in production?** No tests, no docs link, no client SDK in this repo references it. The router endpoint exists and is wired (`app_conversation_router.py:981-993`) but its real consumer (frontend? external API?) is not evidenced in this source.
+- **What happens if `_start_app_conversation` raises mid-yield after some tasks were already persisted?** The async generator's first `yield task` is unguarded (`live_status_app_conversation_service.py:335-343`); subsequent yields are inside try-blocks (`live_status_app_conversation_service.py:341-498`), so a raise will leave the task in a `WORKING` state with `status` never set to `ERROR`. No evidence of a cleanup that converts the in-flight task to `ERROR` on uncaught exceptions during `_start_app_conversation`.
+- **Why is `redis_lock.refresh_lock_periodically` a background task with no caller-supervised timeout?** A slow export + an unhealthy network could leak a Redis lock until TTL (`redis_lock.py:36-53`); the `try_acquire_redis_lock`'s `blocking=False` doesn't help if the original holder's connection drops.
+- **Search boundary.** Reviewed: `openhands/app_server/**` (Python), `frontend/src/**` (TypeScript). Not reviewed (out of scope): `openhands/server/**` (deprecated stub at `openhands/server/app.py:1-15`), `frontend/__tests__/**`, `enterprise/**`, `tests/integration/**`. Search terms: `stream`, `chunk`, `partial`, `delta`, `cancel`, `interrupt`, `retry`, `backoff`, `StreamingResponse`, `EventSourceResponse`, `sse`, `webhook`. No matching patterns surfaced in the deprecated server module or in `frontend/src` for server-side streaming primitives (the frontend only consumes the agent_server's WebSocket).

@@ -1,0 +1,127 @@
+# Source Analysis: openhands
+
+## 03.06 — Stuck and Doom-Loop Detection
+
+### Source Info
+
+| Field | Value |
+|-------|-------|
+| Name | openhands |
+| Path | `studies/agent-harness-study/sources/openhands` |
+| Language / Stack | Python 3.12 / FastAPI app server (`openhands/app_server/`); legacy `openhands/server/` is a deprecated re-export shim. Agent runtime (the actual loop) lives in separately-published packages `openhands-sdk`, `openhands-tools`, and `openhands-agent-server` pinned in `pyproject.toml:64-66` |
+| Analyzed | 2026-07-15 |
+
+## Summary
+
+**The openhands source directory under study contains essentially no stuck / doom-loop detection logic of its own.** The active agent loop — including whatever mechanism decides that an agent is "stuck" — runs inside a separate `openhands-agent-server` process deployed as a sandboxed runtime (a Docker container), and is implemented in the externally-pinned `openhands-sdk==1.29.0` package (`sources/openhands/pyproject.toml:64-66`). The agent-server is reached over HTTP via the `agent_server_url` field (`sources/openhands/openhands/app_server/app_conversation/app_conversation_router.py:299`) and proxied through `/api/conversations/...` endpoints.
+
+Within this source, stuck and doom-loop handling is limited to four thin responsibilities, all *consumer-side*:
+
+1. **Configuration pass-through for `max_iterations`.** `ConversationSettings.max_iterations` is the only knob that touches the loop cap, declared in the SDK model and re-exported by `sources/openhands/openhands/app_server/settings/settings_models.py:109` as part of `Settings.conversation_settings`. It flows through `conv_settings.create_request(...)` in `sources/openhands/openhands/app_server/app_conversation/live_status_app_conversation_service.py:1729` and `:1918` and is POSTed to the agent-server. No enforcement or counting happens here.
+2. **Recognition of the `STUCK` terminal status.** `ConversationExecutionStatus` is imported from `openhands.sdk.conversation` (`sources/openhands/openhands/app_server/app_conversation/app_conversation_models.py:24`); `ConversationExecutionStatus.STUCK` is enumerated alongside `ERROR` in the webhook router's error classifier (`sources/openhands/openhands/app_server/event_callback/webhook_router.py:141-144`).
+3. **Analytics / webhook routing of a STUCK event.** When the SDK reports `execution_status = STUCK`, the webhook router fires `track_conversation_errored` (`sources/openhands/openhands/app_server/event_callback/webhook_router.py:146-164`) and records `terminal_state='stuck'`; enterprise integration callback processors (Slack/GitHub/GitLab/Bitbucket) log it but only act on `event.value == 'finished'` (e.g. `sources/openhands/enterprise/integrations/github/github_v1_callback_processor.py:54-59`).
+4. **LLM summarisation condenser as compaction.** `_create_condenser` constructs an `LLMSummarizingCondenser` from the SDK (`sources/openhands/openhands/app_server/app_conversation/app_conversation_service_base.py:578-612`) with `max_size` defaults of 240 and `keep_first=2`; this reduces context size but is not a stuck detector and will erase early tool-call history when it summarises.
+
+There is no `StuckDetector`, `LoopDetector`, or `DoomLoop` class, no recent-tool-call window, no repeated-action threshold, no recent-events ring buffer, no `is_stuck()` predicate, no `LoopInterventionHandler`, and no test in the repository that exercises a doom-loop scenario. `grep -rn` for `stuck`, `doom`, `similar_actions`, `repeat_action`, `loop_detector`, and `is_stuck` returns zero hits in `sources/openhands/openhands/` (the only matches are a `ConversationExecutionStatus.STUCK` enum value and three comment-only mentions of "terminal states: finished, error, stuck" in enterprise callback processors). A `recent_event_window` does not exist either — the app server is event-source-style (`sources/openhands/openhands/app_server/event/event_service.py`) but does not look back over the event stream to detect loops.
+
+Because the actual loop and its detectors live in `openhands-sdk`, this study cannot rate the SDK's implementation directly from this source. What can be rated is the integration boundary: how the source *uses* and *propagates* the STUCK signal, and how it configures the loop cap. On those axes the source is thin, fragile in one specific way (`max_iterations` is silently dropped on SDK versions that don't yet expose it), and observably *not* the place where detection happens.
+
+## Rating
+
+**Score: 2 / 10** — Absent in this source. `max_iterations` is the only knob that touches the loop budget, and the source cannot inspect or intervene in tool-call history (events flow through but the source does not pattern-match on them). The presence of `ConversationExecutionStatus.STUCK` as a recognized terminal status and a webhook that tracks it is the entire detection surface; everything else is delegated to the external `openhands-sdk` package, where this study cannot see the implementation. Per the rubric "1-3 = Absent, implicit, ad-hoc, or unsafe", the source itself sits at the low end — it neither detects, classifies, nor intervenes.
+
+## Evidence Collected
+
+Every entry cites `path/to/file.py:NN` from the selected source.
+
+| Area | Evidence | File:Line |
+|------|----------|-----------|
+| SDK boundary | Agent loop lives in external packages, not this source | `sources/openhands/pyproject.toml:64-66` |
+| SDK boundary | `__init__.py` re-exports and notes namespace extension for SDK packages | `sources/openhands/openhands/__init__.py:1-3` |
+| Loop cap knob | `Conversation settings (max_iterations, confirmation_mode, security_analyzer)` documented in `Settings` | `sources/openhands/openhands/app_server/settings/settings_models.py:109-110` |
+| Loop cap knob | `max_iterations` flows into `ConversationSettings` from the database settings column | `sources/openhands/openhands/app_server/settings/settings_models.py:134-136`, `sources/openhands/openhands/app_server/app_conversation/live_status_app_conversation_service.py:132-135` |
+| Loop cap knob | `conv_settings.create_request(...)` called for LLM and ACP paths | `sources/openhands/openhands/app_server/app_conversation/live_status_app_conversation_service.py:1729`, `:1918` |
+| Loop cap knob | ACP comment: "populate ConversationSettings and delegate to create_request() so that max_iterations, confirmation_mode, and security_analyzer flow through to ACP conversations too" | `sources/openhands/openhands/app_server/app_conversation/live_status_app_conversation_service.py:1900-1902` |
+| Loop cap knob | Enterprise DB column for user/org `max_iterations` default | `sources/openhands/enterprise/migrations/versions/089_create_org_tables.py:68,146` |
+| Loop cap knob | Legacy config template default `max_iterations = 500` | `sources/openhands/config.template.toml:56` |
+| STUCK terminal status | `ConversationExecutionStatus.STUCK` recognised as error-class terminal | `sources/openhands/openhands/app_server/event_callback/webhook_router.py:141-144` |
+| STUCK terminal status | `execution_status` modelled on `AppConversation` | `sources/openhands/openhands/app_server/app_conversation/app_conversation_models.py:174-180` |
+| STUCK terminal status | Imported from `openhands.sdk.conversation` (external) | `sources/openhands/openhands/app_server/app_conversation/app_conversation_models.py:24`, `sources/openhands/openhands/app_server/event_callback/webhook_router.py:56` |
+| STUCK analytics | `_track_conversation_terminal` fires `track_conversation_errored` with `terminal_state='stuck'` | `sources/openhands/openhands/app_server/event_callback/webhook_router.py:111-164` |
+| STUCK analytics | Event catalogue lists `conversation errored` as "error or stuck state" | `sources/openhands/openhands/analytics/EVENTS.md:25` |
+| STUCK propagation | GitHub callback logs "ALL terminal states ... finished, error, stuck" but only acts on `event.value == 'finished'` | `sources/openhands/enterprise/integrations/github/github_v1_callback_processor.py:54-59` |
+| STUCK propagation | GitLab callback same pattern | `sources/openhands/enterprise/integrations/gitlab/gitlab_v1_callback_processor.py:54-59` |
+| STUCK propagation | Slack callback same pattern | `sources/openhands/enterprise/integrations/slack/slack_v1_callback_processor.py:52-57` |
+| STUCK propagation | Bitbucket + Jira + Jira-DC + Bitbucket-DC callbacks mirror the same pattern | `sources/openhands/enterprise/integrations/bitbucket/bitbucket_v1_callback_processor.py:51-58`, `sources/openhands/enterprise/integrations/jira/jira_v1_callback_processor.py:51-58`, `sources/openhands/enterprise/integrations/jira_dc/jira_dc_v1_callback_processor.py:59-67`, `sources/openhands/enterprise/integrations/bitbucket_data_center/bitbucket_dc_v1_callback_processor.py:51-58` |
+| Compaction (not detection) | `LLMSummarizingCondenser` created with SDK defaults `max_size=240, keep_first=2` | `sources/openhands/openhands/app_server/app_conversation/app_conversation_service_base.py:578-612` |
+| Compaction (not detection) | Condenser LLM `usage_id` set to `condenser` / `planning_condenser` so metrics separate the summarisation spend | `sources/openhands/openhands/app_server/app_conversation/app_conversation_service_base.py:598-603` |
+| Absence proof | `grep -rn` for `StuckDetector`, `LoopDetector`, `DoomLoop`, `is_stuck`, `similar_actions`, `repeat_action` returns 0 hits under `sources/openhands/openhands/` | (negative result — searched `*.py` recursively) |
+| Absence proof | No tests cover the STUCK terminal status | `sources/openhands/tests/unit/app_server/test_webhook_router_auto_title.py:89,271`, `sources/openhands/tests/unit/app_server/test_webhook_router_parent_conversation.py:94,435` only mock `RUNNING` / `DELETING` |
+| Absence proof | Maintenance task "stuck" is unrelated — it is about maintenance cron jobs in WORKING, not the agent | `sources/openhands/enterprise/server/maintenance_task_processor/README.md:204` |
+| Loosely-related UI state | Comment "look stuck on 'Loading'" refers to UI loading, not agent stuck detection | `sources/openhands/tests/unit/app_server/test_live_status_app_conversation_service.py:3447` |
+
+## Answers to Dimension Questions
+
+1. **What stuck patterns are detected?** No pattern detection exists in this source. The only signal handled is the boolean `execution_status == STUCK` arriving as a `ConversationStateUpdateEvent` from the external SDK; whether the SDK detects "same tool called N times in a row", "alternating A/B pattern", "no-progress monologue", "repeated error", or some other heuristic cannot be answered from this source. The webhook router treats STUCK identically to ERROR for analytics routing (`sources/openhands/openhands/app_server/event_callback/webhook_router.py:141-164`), so even on the consumer side there is no distinction between "loop" and "crash".
+
+2. **How far back does detection look?** Unknown in this source. The webhook router pulls a single `last_error` value via `for ev in events` (`sources/openhands/openhands/app_server/event_callback/webhook_router.py:149-151`) when classifying error type, but this is post-mortem error-message inspection for analytics, not a loop-detection window. The event service is event-sourced (`sources/openhands/openhands/app_server/event/event_service.py`) but does not scan event history for repeated patterns anywhere in this source.
+
+3. **Does compaction erase loop evidence?** Conditionally yes. `LLMSummarizingCondenser` is the only compaction path configured (`sources/openhands/openhands/app_server/app_conversation/app_conversation_service_base.py:594-612`); SDK default `max_size=240, keep_first=2` means the first two events are preserved verbatim and everything else is summarised. If the SDK's stuck detector looks at a tail window larger than `keep_first + (max_size - 2)` events, the condenser will have erased the relevant history before detection runs. This is a generic LLM-summarisation compaction, not a loop-aware one — there is no special preservation of tool-call digests.
+
+4. **What intervention happens?** When `execution_status == STUCK`:
+   - Webhook router fires `conversation_errored` analytics event with `terminal_state='stuck'` and a classified error type (`sources/openhands/openhands/app_server/event_callback/webhook_router.py:141-164`).
+   - No automatic retry, no hint, no replan, no escalation, no compaction trigger, and no user-facing nudge is issued from this source. The conversation simply enters terminal state STUCK and the user sees it as a stopped/error conversation in the UI.
+   - Enterprise integration callback processors log the STUCK event but only post results when `event.value == 'finished'` (e.g. `sources/openhands/enterprise/integrations/github/github_v1_callback_processor.py:58-59`), so a stuck conversation is silently dropped from the integration surface — there is no PR comment or Slack message telling the user "your agent got stuck".
+
+5. **Are false positives possible?** From this source's perspective: no detection = no detection-driven false positives. The only false-positive vector is the `max_iterations` ceiling, which is a hard cap — at worst the conversation stops one iteration early. False *negatives* are the entire problem and are wholly inherited from the SDK, which this source cannot audit.
+
+## Architectural Decisions
+
+- **Loop logic is fully delegated to the SDK/agent-server split.** `sources/openhands/openhands/__init__.py:1-3` and `sources/openhands/pyproject.toml:64-66` make this explicit: `openhands-sdk`, `openhands-tools`, and `openhands-agent-server` are separately-installed top-level `openhands.*` namespaces. This source has no choice but to communicate with the loop over HTTP and treat `ConversationStateUpdateEvent(execution_status=...)` as the loop's only outward signal. The decision buys separation of concerns but means anything that requires looking inside the event stream — repeated-tool-call detection, error-rate spikes, alternating patterns — cannot be implemented here without changing the SDK contract.
+- **`STUCK` is a first-class terminal status, but the app server treats it as `ERROR`.** `sources/openhands/openhands/app_server/event_callback/webhook_router.py:141-164` lumps STUCK and ERROR into one branch. This is a deliberate simplification: from the user's billing and integration perspective, both are non-finished terminal states. The trade-off is loss of fidelity in analytics — operators cannot separate "ran out of iterations" from "the model API returned 401" from "the agent emitted the same tool call 40 times".
+- **Hard ceiling via `max_iterations`, not soft detection.** The only knob is a count limit declared by `ConversationSettings` and forwarded via `create_request` (`sources/openhands/openhands/app_server/app_conversation/live_status_app_conversation_service.py:1729,1918`). The config template defaults to `max_iterations = 500` (`sources/openhands/config.template.toml:56`), and the database persists user/org-level overrides (`sources/openhands/enterprise/migrations/versions/089_create_org_tables.py:68,146`). There is no per-conversation knob exposed in the source that would let the SDK know to be stricter about loop patterns vs. turn budget.
+- **Compaction is LLM-summarisation, not loop-aware.** The chosen `LLMSummarizingCondenser` (defaults `max_size=240, keep_first=2`, `sources/openhands/openhands/app_server/app_conversation/app_conversation_service_base.py:594-612`) is the SDK's general-purpose context shrinker. It does not preserve a tool-call digest or maintain a separate "recent actions" buffer; it summarises old events into a single replacement message.
+
+## Notable Patterns
+
+- **Event-source consumption without pattern matching.** `sources/openhands/openhands/app_server/event/event_service.py` and `sources/openhands/openhands/app_server/event_callback/webhook_router.py` consume `ConversationStateUpdateEvent` streams but only inspect specific keys (`execution_status`, `last_error`, title, etc.). The pattern is "react to terminal state", not "scan history for anomalies".
+- **Per-conversation/SDK LLM `usage_id` separation.** Both the agent LLM and the condenser LLM carry distinct `usage_id` values (`sources/openhands/openhands/app_server/app_conversation/app_conversation_service_base.py:598-603`) so cost telemetry can attribute summarisation spend separately. This is an observability pattern, not a stuck-detection one — but it means the cost of a doom loop is at least measurable.
+- **Laminar trace attribution for stuck conversations.** `sources/openhands/openhands/app_server/app_conversation/live_status_app_conversation_service.py:1717-1730` and `:1913-1918` inject `user_id` (preferring email) so SDK Laminar traces are attributable. A stuck conversation therefore leaves a trace, even though the source itself does not detect the loop.
+- **Discriminated `AgentBase` union with both `Agent` and `ACPAgent`.** `sources/openhands/tests/unit/app_server/test_live_status_app_conversation_service.py:3440-3450` is a regression test for URL routing when both agent kinds run side-by-side. Relevant here only because it means stuck detection (if implemented in the SDK) must cover both code paths, and this source does nothing to enforce that parity.
+
+## Tradeoffs
+
+- **Delegating loop detection to the SDK gives separation of concerns but loses in-source observability.** Operators looking at `sources/openhands/openhands/app_server/event_callback/webhook_router.py` cannot tell whether a conversation stopped because of a doom loop or because the model errored — both produce the same `conversation_errored` event with the same `terminal_state='stuck'` or `'error'` string. Without dashboard differentiation, dashboards will conflate two very different failure modes.
+- **`max_iterations` as the only ceiling.** It is a hard counter; it cannot distinguish "doing the same thing 30 times" from "doing 30 different things that all fail". The cost of a 500-iteration doom loop is the same as the cost of a 500-iteration legitimate exploration, from the source's perspective.
+- **Compact via LLM summarisation is expensive.** Each condensation is an LLM call, which is itself a loop-step (`sources/openhands/openhands/app_server/app_conversation/app_conversation_service_base.py:578-612`). In a doom-loop scenario the condenser will fire, eat an iteration, and may not stop the loop on its own — it merely keeps context under a budget. There is no explicit "stop after N condensations" guard.
+- **Integration callback processors swallow stuck events.** Slack/GitHub/GitLab/Bitbucket/Jira processors all log STUCK but only post when `event.value == 'finished'` (`sources/openhands/enterprise/integrations/github/github_v1_callback_processor.py:58`). The user gets no callback that their integration-triggered conversation is stuck — they have to check the OpenHands UI. This is a deliberate "no false positives in user channels" choice, but it does mean 20 useless turns happen silently from the integration's point of view.
+
+## Failure Modes / Edge Cases
+
+- **Forwards-compat fragility around `user_id`.** `sources/openhands/openhands/app_server/app_conversation/live_status_app_conversation_service.py:422-430` admits that `user_id` is "silently dropped by pydantic on SDK versions that don't yet expose the field" and is injected into the JSON body as a forward-compatible fallback. The same fragility applies to `max_iterations` if the SDK ever renames or relocates the field — `create_request()` would silently drop it and the agent would run unbounded.
+- **Condenser keeps `keep_first=2` events verbatim.** This is fine for system messages but if a doom loop happens to start on event 3, the early evidence survives condensation; if it starts on event 30, condensation may have already wiped the relevant tool-call history before the stuck detector sees it.
+- **Webhook classifier uses substring matching on `error_message`** (`sources/openhands/openhands/app_server/event_callback/webhook_router.py:65-87`) — `budget`, `timeout`, `cancel`, `model`, `llm`, `api key`, `rate limit`, `authentication`, otherwise `runtime_error`. A loop that ended without an error message (e.g. `ConversationStateUpdateEvent(key='last_error')` not emitted) is classified as `unknown`, and `budget_exceeded` only triggers if `error_message` literally contains "budget".
+- **STUCK conversations leave no integration trace.** Slack/GitHub callbacks skip non-finished events (`sources/openhands/enterprise/integrations/github/github_v1_callback_processor.py:58`), so a stuck PR-resolver conversation leaves the GitHub issue open with no signal. Operators have to check the OpenHands UI manually.
+- **Maintenance-task "stuck" is unrelated and can confuse operators** (`sources/openhands/enterprise/server/maintenance_task_processor/README.md:204`). Two completely different "stuck" concepts coexist in the same enterprise deployment: maintenance-cron stuck-in-WORKING, and agent STUCK. They share a keyword but nothing else.
+- **`max_iterations` has no per-step or per-tool-call breakdown.** If the SDK raises the loop cap to 500 but the user budget is hit at iteration 50, the conversation terminates for the wrong reason from the user's perspective.
+
+## Future Considerations
+
+- **Expose a `loop_evidence` summary event from the SDK.** If the SDK reports *why* it marked a conversation STUCK (e.g. `last_error='Same tool called N times in last M events'`), the webhook router could fire a distinct analytics event (`conversation_stuck_loop`) instead of overloading `conversation_errored`. This requires SDK-side cooperation; the consumer-side `_classify_error_type` (`sources/openhands/openhands/app_server/event_callback/webhook_router.py:65-87`) could trivially be extended to add a `loop` category if the SDK surfaces the signal.
+- **Per-conversation `soft_cap` knob.** Today `max_iterations` is the only loop cap. A second field (e.g. `stuck_detection_window: int = 8`) configured in `ConversationSettings` (`sources/openhands/openhands/app_server/settings/settings_models.py:32-40`) could let users tune detection sensitivity without changing the hard cap.
+- **Surface STUCK on integration channels.** Slack/GitHub processors currently swallow non-finished events (`sources/openhands/enterprise/integrations/github/github_v1_callback_processor.py:58`). A "your agent got stuck, here's why" reply on the triggering issue/comment would close the user-feedback loop for doom loops.
+- **Condenser that preserves a tool-call digest.** `LLMSummarizingCondenser` with `keep_first=2` (`sources/openhands/openhands/app_server/app_conversation/app_conversation_service_base.py:594`) loses all but the first two events. A custom condenser that maintains a small ring buffer of recent tool calls (separate from the message history) would let the SDK stuck detector run on uncorrupted evidence regardless of how aggressive summarisation is.
+- **Differentiate STUCK from ERROR in dashboard analytics.** Today both go to the same `conversation_errored` event (`sources/openhands/openhands/app_server/event_callback/webhook_router.py:141-164`). Splitting them lets operators measure the doom-loop rate specifically.
+
+## Questions / Gaps
+
+- **What patterns does the SDK's stuck detector actually look for?** This source provides zero evidence. The implementation lives in `openhands-sdk==1.29.0` (`sources/openhands/pyproject.toml:64`) which is an external dependency and out of scope. Without access to that code (or its compiled bytecode in this environment) we cannot answer "repeated tool calls?", "alternating patterns?", "no-progress monologues?", or "recent-event window size".
+- **What is the default `max_iterations` in the SDK?** This source defaults via `ConversationSettings()` instantiation (`sources/openhands/openhands/app_server/settings/settings_models.py:135`) with no override; the SDK's default is therefore authoritative. The legacy config template shows `500` (`sources/openhands/config.template.toml:56`) but that is for the V0 configuration path, not the V1 settings model used in this source.
+- **How does the SDK's stuck detector interact with the condenser?** The condenser is configured to keep `keep_first=2` events verbatim and summarise the rest (`sources/openhands/openhands/app_server/app_conversation/app_conversation_service_base.py:594`). Whether the SDK detector reads pre- or post-condensation events is invisible from this source.
+- **Is there any retry / escalation after STUCK?** No evidence in this source. The webhook router fires one analytics event and the conversation is terminal (`sources/openhands/openhands/app_server/event_callback/webhook_router.py:146-164`). Whether the SDK offers a resume mechanism cannot be answered here.
+- **What false-positive rate does the SDK detector have?** Not answerable from this source. The only counterfactual would be load-testing the SDK directly.
+- **Is there a max-iteration override at the conversation start that bypasses user settings?** `conv_settings.create_request(...)` (`sources/openhands/openhands/app_server/app_conversation/live_status_app_conversation_service.py:1729`) is a single call site; no override or safety net is applied after it, so whatever the SDK receives is the SDK's problem.
+
+---
+
+Generated by `dimensions/03.06-stuck-and-doom-loop-detection.md` against `openhands`.

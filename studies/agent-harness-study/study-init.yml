@@ -1,0 +1,1405 @@
+name: agent-harness-study
+description: >
+  Comprehensive architecture study of agent harness frameworks and runtimes.
+  Covers 24 study areas decomposed into 129 focused dimensions across execution
+  semantics, state, agent loops, tools, memory, planning, tool execution, security,
+  governance, traceability, context, prompts, failure, supervision, coordination,
+  artifacts, isolation, evals, standards, economics, extensibility, org architecture,
+  and autonomy.
+
+dimensions:
+  # 01. Execution Semantics
+  - number: "01.01"
+    name: execution-model-taxonomy
+    title: Execution Model Taxonomy
+    purpose: Identify the fundamental execution model underlying the runtime.
+  - number: "01.02"
+    name: control-flow-ownership
+    title: Control-Flow Ownership
+    purpose: Understand who owns control flow in the system.
+  - number: "01.03"
+    name: step-turn-task-atomicity
+    title: Step, Turn, and Task Atomicity
+    purpose: Define the smallest meaningful unit of execution.
+  - number: "01.04"
+    name: termination-and-loop-bounds
+    title: Termination and Loop Bounds
+    purpose: Analyze how the system stops and avoids infinite loops.
+  - number: "01.05"
+    name: pause-resume-interrupt-semantics
+    title: Pause, Resume, and Interrupt Semantics
+    purpose: Study whether execution can stop safely and resume later.
+  - number: "01.06"
+    name: scheduling-and-trigger-semantics
+    title: Scheduling and Trigger Semantics
+    purpose: Analyze what triggers execution and how scheduled work differs.
+  - number: "01.07"
+    name: concurrency-and-parallel-advancement
+    title: Concurrency and Parallel Advancement
+    purpose: Study whether multiple steps, tools, or agents can advance at once.
+  - number: "01.08"
+    name: streaming-execution-semantics
+    title: Streaming Execution Semantics
+    purpose: Analyze how streaming affects state, safety, and user experience.
+  - number: "01.09"
+    name: delivery-guarantees-idempotency
+    title: Delivery Guarantees and Idempotency
+    purpose: Study execution delivery semantics across subsystems.
+  - number: "01.10"
+    name: replay-and-determinism
+    title: Replay and Determinism in Execution
+    purpose: Understand whether execution can be replayed deterministically.
+  - number: "01.11"
+    name: terminal-outcome-arbitration
+    title: Terminal Outcome Arbitration
+    purpose: Study how competing terminal signals resolve to one authoritative outcome.
+  - number: "01.12"
+    name: run-identity-execution-correlation
+    title: Run Identity and Execution Correlation
+    purpose: Study how run identity is created, scoped, correlated, and kept semantically opaque.
+  - number: "01.13"
+    name: transition-linearization-publication-semantics
+    title: Transition Linearization and Publication Semantics
+    purpose: Study when a lifecycle transition and all of its observable facts become authoritative.
+  - number: "01.14"
+    name: cancellation-acceptance-acknowledgement-semantics
+    title: Cancellation Acceptance and Acknowledgement Semantics
+    purpose: Distinguish cancellation request, acceptance, propagation, acknowledgement, and terminal resolution.
+  - number: "01.15"
+    name: time-semantics-clock-ownership
+    title: Time Semantics and Clock Ownership
+    purpose: Study occurrence time, commit time, monotonic duration, deadlines, and clock ownership.
+
+  # 02. State Model
+  - number: "02.01"
+    name: state-taxonomy-and-ownership
+    title: State Taxonomy and Ownership
+    purpose: Classify every kind of state and identify ownership.
+  - number: "02.02"
+    name: snapshot-and-checkpoint-architecture
+    title: Snapshot and Checkpoint Architecture
+    purpose: Study how the system captures point-in-time execution state.
+  - number: "02.03"
+    name: event-sourcing-and-replay-state
+    title: Event Sourcing and Replay State
+    purpose: Analyze whether state is derived from an append-only event log.
+  - number: "02.04"
+    name: mutation-discipline-and-state-transitions
+    title: Mutation Discipline and State Transitions
+    purpose: Study how state changes are controlled.
+  - number: "02.05"
+    name: persistence-durability-tiers
+    title: Persistence Durability Tiers
+    purpose: Determine which state survives process and machine death.
+  - number: "02.06"
+    name: schema-versioning-and-migration
+    title: Schema Versioning and Migration
+    purpose: Analyze how persisted state evolves over time.
+  - number: "02.07"
+    name: session-thread-user-boundaries
+    title: Session, Thread, and User Boundaries
+    purpose: Study how state is scoped across users and sessions.
+  - number: "02.08"
+    name: crash-recovery-and-reconstruction
+    title: Crash Recovery and Reconstruction
+    purpose: Study what the system does after a crash or restart.
+  - number: "02.09"
+    name: state-pruning-compaction-retention
+    title: State Pruning, Compaction, and Retention
+    purpose: Analyze how the system prevents unbounded state growth.
+
+  # 03. Agent Loop Design
+  - number: "03.01"
+    name: llm-turn-loop-structure
+    title: LLM Turn Loop Structure
+    purpose: Understand the basic model-call loop structure.
+  - number: "03.02"
+    name: reason-act-observe-cadence
+    title: Reason/Act/Observe Cadence
+    purpose: Study whether the system follows ReAct-style reasoning and execution.
+  - number: "03.03"
+    name: tool-calling-roundtrip-control
+    title: Tool-Calling Roundtrip Control
+    purpose: Analyze how tool calls are detected, executed, and returned.
+  - number: "03.04"
+    name: planner-executor-separation
+    title: Planner/Executor Separation
+    purpose: Study whether planning is separate from execution.
+  - number: "03.05"
+    name: reflection-reask-self-correction
+    title: Reflection, ReAsk, and Self-Correction Loops
+    purpose: Analyze how the agent responds to malformed outputs or failed validation.
+  - number: "03.06"
+    name: stuck-doom-loop-detection
+    title: Stuck and Doom-Loop Detection
+    purpose: Study whether the agent detects non-progress before hard limits.
+  - number: "03.07"
+    name: context-refresh-inside-loop
+    title: Context Refresh Inside the Loop
+    purpose: Analyze how the loop manages changing context.
+  - number: "03.08"
+    name: subagent-forked-loop-design
+    title: Subagent and Forked-Loop Design
+    purpose: Study whether one agent can delegate to another loop.
+  - number: "03.09"
+    name: completion-and-finalization-semantics
+    title: Completion and Finalization Semantics
+    purpose: Study how the system decides an agent has finished.
+
+  # 04. Tool System
+  - number: "04.01"
+    name: tool-definition-and-registration
+    title: Tool Definition and Registration
+    purpose: Study how tools are declared, named, and registered.
+  - number: "04.02"
+    name: tool-schema-generation-validation
+    title: Tool Schema Generation and Validation
+    purpose: Analyze how tool argument schemas are generated and validated.
+  - number: "04.03"
+    name: tool-catalog-discovery-routing
+    title: Tool Catalog, Discovery, and Routing
+    purpose: Study how the system decides which tools are available.
+  - number: "04.04"
+    name: tool-context-dependency-injection
+    title: Tool Context and Dependency Injection
+    purpose: Analyze how tools receive runtime context.
+  - number: "04.05"
+    name: tool-permissions-approval-metadata
+    title: Tool Permissions and Approval Metadata
+    purpose: Study how tools declare risk and require approval.
+  - number: "04.06"
+    name: tool-result-contract-error-envelope
+    title: Tool Result Contract and Error Envelope
+    purpose: Analyze how tool outputs and errors are represented.
+  - number: "04.07"
+    name: external-tool-protocols-mcp
+    title: External Tool Protocols and MCP Integration
+    purpose: Study whether tools can be provided by external servers.
+  - number: "04.08"
+    name: agent-as-tool-composition
+    title: Agent-as-Tool and Workflow-as-Tool Composition
+    purpose: Study whether higher-level capabilities can be composed as tools.
+
+  # 05. Memory Model
+  - number: "05.01"
+    name: short-term-conversation-memory
+    title: Short-Term Conversation Memory
+    purpose: Analyze how recent conversation history is stored and passed to the model.
+  - number: "05.02"
+    name: working-memory-scratchpad
+    title: Working Memory and Scratchpad
+    purpose: Study whether the agent has temporary working memory.
+  - number: "05.03"
+    name: long-term-user-project-domain-memory
+    title: Long-Term User, Project, and Domain Memory
+    purpose: Study persistent memory across sessions.
+  - number: "05.04"
+    name: retrieval-augmented-memory
+    title: Retrieval-Augmented Memory
+    purpose: Analyze retrieval over documents and prior messages.
+  - number: "05.05"
+    name: memory-write-policy
+    title: Memory Write Policy
+    purpose: Study when the system decides to store new memory.
+  - number: "05.06"
+    name: memory-compression-summarization
+    title: Memory Compression and Summarization
+    purpose: Analyze how long histories are compressed into durable summaries.
+  - number: "05.07"
+    name: memory-privacy-scope-deletion
+    title: Memory Privacy, Scope, and Deletion
+    purpose: Study how memory handles sensitive information and boundaries.
+  - number: "05.08"
+    name: memory-evaluation-freshness
+    title: Memory Evaluation and Freshness
+    purpose: Analyze how the system measures memory quality.
+
+  # 06. Planning Architecture
+  - number: "06.01"
+    name: planning-location-responsibility
+    title: Planning Location and Responsibility
+    purpose: Study where planning happens in the system.
+  - number: "06.02"
+    name: task-decomposition-representation
+    title: Task Decomposition Representation
+    purpose: Analyze how tasks are broken into subtasks.
+  - number: "06.03"
+    name: plan-lifecycle-and-revision
+    title: Plan Lifecycle and Revision
+    purpose: Study how plans are created, updated, and completed.
+  - number: "06.04"
+    name: planner-executor-contract
+    title: Planner/Executor Contract
+    purpose: Study the boundary between deciding and doing.
+  - number: "06.05"
+    name: objective-progress-tracking
+    title: Objective and Progress Tracking
+    purpose: Analyze how systems track progress toward goals.
+  - number: "06.06"
+    name: search-backtracking-alternatives
+    title: Search, Backtracking, and Alternative Plans
+    purpose: Study whether the system can explore multiple paths.
+  - number: "06.07"
+    name: plan-observability-evaluation
+    title: Plan Observability and Evaluation
+    purpose: Analyze how planning quality is traced and evaluated.
+
+  # 07. Tool Execution Model
+  - number: "07.01"
+    name: tool-scheduling-and-dispatch
+    title: Tool Scheduling and Dispatch
+    purpose: Study how validated tool calls become running work.
+  - number: "07.02"
+    name: sequential-vs-parallel-tool-execution
+    title: Sequential vs Parallel Tool Execution
+    purpose: Analyze when tools run one-at-a-time vs concurrently.
+  - number: "07.03"
+    name: idempotency-and-retry-semantics
+    title: Idempotency and Retry Semantics
+    purpose: Study how tool retries avoid repeating dangerous side effects.
+  - number: "07.04"
+    name: timeouts-and-cancellation
+    title: Timeouts and Cancellation
+    purpose: Analyze whether slow or stuck tools can be stopped cleanly.
+  - number: "07.05"
+    name: resource-locking-and-isolation
+    title: Resource Locking and Isolation
+    purpose: Study how shared resources are protected during tool execution.
+  - number: "07.06"
+    name: side-effect-ledger-transaction-boundaries
+    title: Side-Effect Ledger and Transaction Boundaries
+    purpose: Study whether side effects are recorded and compensated.
+  - number: "07.07"
+    name: tool-output-streaming
+    title: Tool Output Streaming
+    purpose: Analyze whether long-running tools can stream progress.
+  - number: "07.08"
+    name: tool-failure-escalation
+    title: Tool Failure Escalation
+    purpose: Study how tool failures propagate through the system.
+  - number: "07.09"
+    name: cleanup-resource-finalization-semantics
+    title: Cleanup and Resource Finalization Semantics
+    purpose: Study cleanup ownership, deadlines, failure, cancellation, and effects on terminal outcomes.
+
+  # 08. Capability Security Model
+  - number: "08.01"
+    name: capability-model-trust-boundaries
+    title: Capability Model and Trust Boundaries
+    purpose: Identify what the agent is allowed to access.
+  - number: "08.02"
+    name: permission-policy-approval-gates
+    title: Permission Policy and Approval Gates
+    purpose: Study how sensitive operations are gated.
+  - number: "08.03"
+    name: secrets-identity-environment
+    title: Secrets, Identity, and Environment Handling
+    purpose: Analyze how tools access credentials and identities.
+  - number: "08.04"
+    name: security-auditability
+    title: Security Auditability
+    purpose: Study whether sensitive actions are traceable and reviewable.
+
+  # 09. Governance Surface
+  - number: "09.01"
+    name: policy-injection-points
+    title: Policy Injection Points
+    purpose: Study where governance rules enter the system.
+  - number: "09.02"
+    name: risk-taxonomy-control-mapping
+    title: Risk Taxonomy and Control Mapping
+    purpose: Study whether risks are named, categorized, and mapped to controls.
+  - number: "09.03"
+    name: governance-ux-operator-workflow
+    title: Governance UX and Operator Workflow
+    purpose: Study whether governance is usable by humans.
+  - number: "09.04"
+    name: governance-evidence-generation
+    title: Governance Evidence Generation
+    purpose: Study whether the system can produce audit artifacts.
+
+  # 10. Traceability Model
+  - number: "10.01"
+    name: span-hierarchy-run-tree
+    title: Span Hierarchy and Run Tree
+    purpose: Study whether runs, turns, and calls appear in a coherent trace tree.
+  - number: "10.02"
+    name: event-schema-lifecycle-events
+    title: Event Schema and Lifecycle Events
+    purpose: Study whether lifecycle events are typed, ordered, and timestamped.
+  - number: "10.03"
+    name: causal-links-lineage
+    title: Causal Links and Lineage
+    purpose: Study whether outputs can be traced back to prompts and context.
+  - number: "10.04"
+    name: export-interoperability-observability
+    title: Export, Interoperability, and Observability Backends
+    purpose: Study whether traces can flow to external backends.
+  - number: "10.05"
+    name: event-retention-observer-delivery-backpressure
+    title: Event Retention, Observer Delivery, and Backpressure
+    purpose: Study retained event replay and non-blocking delivery to multiple observers.
+  - number: "10.06"
+    name: observer-cursor-subscription-lifecycle
+    title: Observer Cursor and Subscription Lifecycle
+    purpose: Study cursor validity, replay boundaries, subscription races, abandonment, and completion.
+
+  # 11. Context Engineering
+  - number: "11.01"
+    name: context-selection-policy
+    title: Context Selection Policy
+    purpose: Study how the system decides what enters the model context.
+  - number: "11.02"
+    name: token-budgeting-and-compression
+    title: Token Budgeting and Compression
+    purpose: Study summarization and budget-aware assembly.
+  - number: "11.03"
+    name: repository-workspace-context-maps
+    title: Repository and Workspace Context Maps
+    purpose: Study repo maps, file selection, and workspace summaries.
+  - number: "11.04"
+    name: context-provenance-integrity
+    title: Context Provenance and Integrity
+    purpose: Study whether context retains source, freshness, and trust level.
+
+  # 12. Prompt Lifecycle
+  - number: "12.01"
+    name: prompt-storage-versioning
+    title: Prompt Storage and Versioning
+    purpose: Study whether prompts are versioned and stored in a registry.
+  - number: "12.02"
+    name: prompt-templating-variable-contracts
+    title: Prompt Templating and Variable Contracts
+    purpose: Study template engines and variable validation.
+  - number: "12.03"
+    name: prompt-evaluation-experiments
+    title: Prompt Evaluation and Experiments
+    purpose: Study datasets, experiments, and model/prompt comparison.
+  - number: "12.04"
+    name: prompt-rollback-change-control
+    title: Prompt Rollback and Change Control
+    purpose: Study how prompt changes are reviewed and deployed.
+
+  # 13. Failure Philosophy
+  - number: "13.01"
+    name: error-taxonomy
+    title: Error Taxonomy
+    purpose: Study whether errors are classified by source and type.
+  - number: "13.02"
+    name: retry-fallback-degraded-mode
+    title: Retry, Fallback, and Degraded Mode
+    purpose: Study retry policies and degraded behavior.
+  - number: "13.03"
+    name: failure-visibility
+    title: Failure Visibility
+    purpose: Study whether failures are visible at the right level.
+  - number: "13.04"
+    name: recovery-vs-escalation
+    title: Recovery vs Escalation
+    purpose: Study when the system retries, asks for help, or stops.
+  - number: "13.05"
+    name: panic-invariant-runtime-fault-boundaries
+    title: Panic, Invariant, and Runtime Fault Boundaries
+    purpose: Study how work panics, runtime defects, and invariant violations are separated and reported.
+
+  # 14. Human Supervision Model
+  - number: "14.01"
+    name: human-in-the-loop-trigger-policy
+    title: Human-in-the-Loop Trigger Policy
+    purpose: Study what triggers human review.
+  - number: "14.02"
+    name: approval-session-design
+    title: Approval Session Design
+    purpose: Study how approval is requested, persisted, and audited.
+  - number: "14.03"
+    name: human-intervention-takeover
+    title: Human Intervention and Takeover
+    purpose: Study whether humans can edit state and provide feedback.
+
+  # 15. Multi-Agent Coordination
+  - number: "15.01"
+    name: coordination-topology
+    title: Coordination Topology
+    purpose: Study whether coordination is supervisor-worker or peer-to-peer.
+  - number: "15.02"
+    name: message-routing-termination
+    title: Message Routing and Termination
+    purpose: Study routing rules, handoff semantics, and deadlock prevention.
+  - number: "15.03"
+    name: shared-state-conflict-resolution
+    title: Shared State and Conflict Resolution
+    purpose: Study how agents share state and resolve conflicts.
+
+  # 16. Artifact Model
+  - number: "16.01"
+    name: artifact-lifecycle
+    title: Artifact Lifecycle
+    purpose: Study how artifacts are created, stored, versioned, and retired.
+  - number: "16.02"
+    name: diff-review-rollback
+    title: Diff, Review, and Rollback
+    purpose: Study whether artifacts can be compared, reverted, and approved.
+  - number: "16.03"
+    name: artifact-provenance-reproducibility
+    title: Artifact Provenance and Reproducibility
+    purpose: Study whether artifacts can be traced back to their inputs.
+
+  # 17. Runtime Isolation
+  - number: "17.01"
+    name: sandbox-boundary
+    title: Sandbox Boundary
+    purpose: Study where execution happens and what boundaries exist.
+  - number: "17.02"
+    name: filesystem-network-process-controls
+    title: Filesystem, Network, and Process Controls
+    purpose: Study filesystem mounts, network policy, and process limits.
+  - number: "17.03"
+    name: isolation-observability-escape-handling
+    title: Isolation Observability and Escape Handling
+    purpose: Study whether sandbox actions are logged and escapes handled.
+
+  # 18. Evaluation Architecture
+  - number: "18.01"
+    name: dataset-golden-task-management
+    title: Dataset and Golden Task Management
+    purpose: Study dataset versioning and benchmark reproducibility.
+  - number: "18.02"
+    name: trajectory-evaluation
+    title: Trajectory Evaluation
+    purpose: Study whether intermediate reasoning and tool choices are evaluated.
+  - number: "18.03"
+    name: regression-gating-ci-integration
+    title: Regression Gating and CI Integration
+    purpose: Study whether evals run in CI and block regressions.
+  - number: "18.04"
+    name: cost-latency-quality-evaluation
+    title: Cost, Latency, and Quality Evaluation
+    purpose: Study whether evals include token cost and economic tradeoffs.
+  - number: "18.05"
+    name: lifecycle-concurrency-invariant-verification
+    title: Lifecycle and Concurrency Invariant Verification
+    purpose: Study how lifecycle and concurrency invariants are proven under adverse interleavings.
+  - number: "18.06"
+    name: leak-quiescence-verification
+    title: Leak and Quiescence Verification
+    purpose: Study how completed runs prove that owned tasks, observers, timers, processes, and references are released.
+
+  # 19. Open Standards Strategy
+  - number: "19.01"
+    name: protocol-compatibility
+    title: Protocol Compatibility
+    purpose: Study support for MCP, OpenAPI, and OpenTelemetry.
+  - number: "19.02"
+    name: portable-trace-eval-prompt-schemas
+    title: Portable Trace, Eval, and Prompt Schemas
+    purpose: Study whether schemas can move between platforms.
+  - number: "19.03"
+    name: adapter-interop-boundary-design
+    title: Adapter and Interop Boundary Design
+    purpose: Study whether standards are core abstractions or afterthoughts.
+
+  # 20. Runtime Economics
+  - number: "20.01"
+    name: token-cost-accounting
+    title: Token and Cost Accounting
+    purpose: Study whether token usage and costs are tracked.
+  - number: "20.02"
+    name: caching-batching-reuse
+    title: Caching, Batching, and Reuse
+    purpose: Study prompt caching and response reuse.
+  - number: "20.03"
+    name: quality-cost-routing
+    title: Quality-Cost Routing
+    purpose: Study whether models are selected based on cost and quality.
+
+  # 21. Extensibility
+  - number: "21.01"
+    name: plugin-extension-points
+    title: Plugin and Extension Points
+    purpose: Study where third parties can extend the system.
+  - number: "21.02"
+    name: provider-backend-adapters
+    title: Provider and Backend Adapters
+    purpose: Study whether models, stores, and backends are swappable.
+  - number: "21.03"
+    name: extension-compatibility-testing
+    title: Extension Compatibility Testing
+    purpose: Study whether extension contracts have conformance tests.
+
+  # 22. Organizational Architecture
+  - number: "22.01"
+    name: package-module-boundaries
+    title: Package and Module Boundaries
+    purpose: Study whether runtime, tools, and evals are cleanly separated.
+  - number: "22.02"
+    name: configuration-deployment-shape
+    title: Configuration and Deployment Shape
+    purpose: Study config layering and deployment modes.
+  - number: "22.03"
+    name: docs-examples-contributor-workflow
+    title: Docs, Examples, and Contributor Workflow
+    purpose: Study whether the repo teaches contributors how to extend safely.
+
+  # 23. Philosophy of Autonomy
+  - number: "23.01"
+    name: autonomy-boundary
+    title: Autonomy Boundary
+    purpose: Study what the system believes agents should do autonomously.
+  - number: "23.02"
+    name: persistence-vs-escalation-philosophy
+    title: Persistence vs Escalation Philosophy
+    purpose: Study whether the agent keeps trying or asks for help.
+  - number: "23.03"
+    name: responsibility-accountability-model
+    title: Responsibility and Accountability Model
+    purpose: Study where responsibility belongs in the system.
+
+  # 24. API and Interface Design
+  - number: "24.01"
+    name: public-api-surface
+    title: Public API Surface
+    purpose: Study the explicit public API exposed to developers, operators, and extension authors.
+  - number: "24.02"
+    name: interface-contract-design
+    title: Interface Contract Design
+    purpose: Study how contracts between runtimes, agents, tools, providers, stores, and hosts are defined and validated.
+  - number: "24.03"
+    name: api-versioning-compatibility
+    title: API Versioning and Compatibility
+    purpose: Study how public APIs, schemas, protocols, and extension points evolve without breaking users.
+  - number: "24.04"
+    name: embedding-and-host-integration-ergonomics
+    title: Embedding and Host Integration Ergonomics
+    purpose: Study how easily the harness can be embedded into another application, service, CLI, workflow engine, or platform.
+
+sources:
+  - repo: langchain-ai/langgraph
+    name: langgraph
+    description: Best reference for durable execution, checkpoints, interrupts, state graphs
+    url: https://github.com/langchain-ai/langgraph
+    applicable_dimensions:
+      - "01.01"
+      - "01.02"
+      - "01.03"
+      - "01.04"
+      - "01.05"
+      - "01.06"
+      - "01.07"
+      - "01.08"
+      - "01.09"
+      - "01.10"
+      - "02.01"
+      - "02.02"
+      - "02.03"
+      - "02.04"
+      - "02.05"
+      - "02.06"
+      - "02.07"
+      - "02.08"
+      - "02.09"
+      - "03.01"
+      - "03.02"
+      - "03.03"
+      - "03.04"
+      - "03.05"
+      - "03.06"
+      - "03.07"
+      - "03.08"
+      - "03.09"
+      - "04.01"
+      - "04.02"
+      - "04.03"
+      - "04.04"
+      - "04.05"
+      - "04.06"
+      - "04.07"
+      - "04.08"
+      - "05.01"
+      - "05.02"
+      - "05.04"
+      - "05.06"
+      - "06.01"
+      - "06.02"
+      - "06.03"
+      - "06.04"
+      - "06.05"
+      - "06.06"
+      - "06.07"
+      - "07.01"
+      - "07.02"
+      - "07.03"
+      - "07.04"
+      - "07.05"
+      - "07.07"
+      - "07.08"
+      - "10.01"
+      - "10.02"
+      - "10.03"
+      - "11.01"
+      - "11.02"
+      - "11.03"
+      - "11.04"
+      - "12.01"
+      - "12.02"
+      - "12.03"
+      - "13.01"
+      - "13.02"
+      - "13.03"
+      - "13.04"
+      - "14.01"
+      - "14.02"
+      - "14.03"
+      - "15.01"
+      - "15.02"
+      - "15.03"
+      - "16.01"
+      - "16.02"
+      - "16.03"
+      - "18.01"
+      - "18.02"
+      - "18.03"
+      - "19.01"
+      - "19.02"
+      - "19.03"
+      - "20.01"
+      - "20.02"
+      - "20.03"
+      - "21.01"
+      - "21.02"
+      - "21.03"
+      - "22.01"
+      - "22.02"
+      - "22.03"
+      - "23.01"
+      - "23.02"
+      - "23.03"
+      - "24.01"
+      - "24.02"
+      - "24.03"
+      - "24.04"
+  - repo: temporalio/temporal
+    name: temporal
+    description: Gold standard for workflow durability and replay
+    url: https://github.com/temporalio/temporal
+    applicable_dimensions:
+      - "01.01"
+      - "01.02"
+      - "01.03"
+      - "01.04"
+      - "01.05"
+      - "01.06"
+      - "01.07"
+      - "01.08"
+      - "01.09"
+      - "01.10"
+      - "02.01"
+      - "02.02"
+      - "02.03"
+      - "02.04"
+      - "02.05"
+      - "02.06"
+      - "02.07"
+      - "02.08"
+      - "02.09"
+      - "06.03"
+      - "06.05"
+      - "07.01"
+      - "07.02"
+      - "07.03"
+      - "07.04"
+      - "07.05"
+      - "07.06"
+      - "07.07"
+      - "07.08"
+      - "08.01"
+      - "08.02"
+      - "08.03"
+      - "08.04"
+      - "10.01"
+      - "10.02"
+      - "10.03"
+      - "10.04"
+      - "13.01"
+      - "13.02"
+      - "13.03"
+      - "13.04"
+      - "14.03"
+      - "16.01"
+      - "16.03"
+      - "17.02"
+      - "17.03"
+      - "18.03"
+      - "19.01"
+      - "19.03"
+      - "21.01"
+      - "21.02"
+      - "21.03"
+      - "22.01"
+      - "22.02"
+      - "22.03"
+      - "23.02"
+      - "24.01"
+      - "24.02"
+      - "24.03"
+      - "24.04"
+  - repo: openai/openai-agents-python
+    name: openai-agents-sdk
+    description: Modern agent runtime with tracing, handoffs, guardrails
+    url: https://github.com/openai/openai-agents-python
+    applicable_dimensions:
+      - "01.01"
+      - "01.02"
+      - "01.03"
+      - "01.04"
+      - "01.07"
+      - "01.08"
+      - "03.01"
+      - "03.02"
+      - "03.03"
+      - "03.04"
+      - "03.05"
+      - "03.06"
+      - "03.07"
+      - "03.08"
+      - "03.09"
+      - "04.01"
+      - "04.02"
+      - "04.03"
+      - "04.04"
+      - "04.05"
+      - "04.06"
+      - "04.07"
+      - "04.08"
+      - "05.01"
+      - "05.02"
+      - "06.01"
+      - "06.02"
+      - "06.03"
+      - "06.04"
+      - "06.05"
+      - "06.07"
+      - "07.01"
+      - "07.02"
+      - "07.04"
+      - "07.07"
+      - "07.08"
+      - "08.01"
+      - "08.02"
+      - "08.03"
+      - "08.04"
+      - "09.01"
+      - "09.02"
+      - "09.03"
+      - "09.04"
+      - "10.01"
+      - "10.02"
+      - "10.03"
+      - "10.04"
+      - "11.01"
+      - "11.02"
+      - "11.04"
+      - "12.01"
+      - "12.02"
+      - "12.03"
+      - "13.01"
+      - "13.02"
+      - "13.03"
+      - "13.04"
+      - "14.01"
+      - "14.02"
+      - "14.03"
+      - "15.01"
+      - "15.02"
+      - "15.03"
+      - "18.01"
+      - "18.02"
+      - "18.04"
+      - "19.01"
+      - "19.02"
+      - "19.03"
+      - "20.01"
+      - "20.02"
+      - "20.03"
+      - "21.01"
+      - "21.02"
+      - "21.03"
+      - "22.01"
+      - "22.02"
+      - "22.03"
+      - "23.01"
+      - "23.02"
+      - "23.03"
+      - "24.01"
+      - "24.02"
+      - "24.03"
+      - "24.04"
+  - repo: All-Hands-AI/OpenHands
+    name: openhands
+    description: Best coding-agent architecture study
+    url: https://github.com/All-Hands-AI/OpenHands
+    applicable_dimensions:
+      - "01.01"
+      - "01.02"
+      - "01.03"
+      - "01.04"
+      - "01.05"
+      - "01.06"
+      - "01.07"
+      - "01.08"
+      - "01.09"
+      - "02.01"
+      - "02.02"
+      - "02.04"
+      - "02.05"
+      - "02.07"
+      - "02.08"
+      - "02.09"
+      - "03.01"
+      - "03.02"
+      - "03.03"
+      - "03.04"
+      - "03.05"
+      - "03.06"
+      - "03.07"
+      - "03.08"
+      - "03.09"
+      - "04.01"
+      - "04.02"
+      - "04.03"
+      - "04.04"
+      - "04.05"
+      - "04.06"
+      - "04.07"
+      - "04.08"
+      - "05.01"
+      - "05.02"
+      - "05.03"
+      - "05.04"
+      - "05.05"
+      - "05.06"
+      - "05.07"
+      - "06.01"
+      - "06.02"
+      - "06.03"
+      - "06.04"
+      - "06.05"
+      - "06.06"
+      - "06.07"
+      - "07.01"
+      - "07.02"
+      - "07.03"
+      - "07.04"
+      - "07.05"
+      - "07.06"
+      - "07.07"
+      - "07.08"
+      - "08.01"
+      - "08.02"
+      - "08.03"
+      - "08.04"
+      - "09.01"
+      - "09.02"
+      - "09.03"
+      - "09.04"
+      - "10.01"
+      - "10.02"
+      - "10.03"
+      - "10.04"
+      - "11.01"
+      - "11.02"
+      - "11.03"
+      - "11.04"
+      - "12.01"
+      - "12.02"
+      - "12.03"
+      - "13.01"
+      - "13.02"
+      - "13.03"
+      - "13.04"
+      - "14.01"
+      - "14.02"
+      - "14.03"
+      - "15.01"
+      - "15.02"
+      - "15.03"
+      - "16.01"
+      - "16.02"
+      - "16.03"
+      - "17.01"
+      - "17.02"
+      - "17.03"
+      - "18.01"
+      - "18.02"
+      - "18.03"
+      - "18.04"
+      - "19.01"
+      - "19.02"
+      - "19.03"
+      - "20.01"
+      - "20.02"
+      - "20.03"
+      - "21.01"
+      - "21.02"
+      - "21.03"
+      - "22.01"
+      - "22.02"
+      - "22.03"
+      - "23.01"
+      - "23.02"
+      - "23.03"
+      - "24.01"
+      - "24.02"
+      - "24.03"
+      - "24.04"
+  - repo: pydantic/pydantic-ai
+    name: pydantic-ai
+    description: Type-system-centric agent design with validated structured outputs
+    url: https://github.com/pydantic/pydantic-ai
+    applicable_dimensions:
+      - "01.01"
+      - "01.02"
+      - "01.03"
+      - "01.04"
+      - "01.07"
+      - "01.08"
+      - "03.01"
+      - "03.02"
+      - "03.03"
+      - "03.04"
+      - "03.05"
+      - "03.06"
+      - "03.07"
+      - "03.08"
+      - "03.09"
+      - "04.01"
+      - "04.02"
+      - "04.03"
+      - "04.04"
+      - "04.05"
+      - "04.06"
+      - "04.07"
+      - "04.08"
+      - "05.01"
+      - "05.02"
+      - "05.04"
+      - "06.01"
+      - "06.02"
+      - "06.03"
+      - "06.04"
+      - "06.05"
+      - "06.07"
+      - "07.01"
+      - "07.02"
+      - "07.03"
+      - "07.04"
+      - "07.07"
+      - "07.08"
+      - "10.01"
+      - "10.02"
+      - "10.03"
+      - "11.01"
+      - "11.02"
+      - "11.04"
+      - "12.01"
+      - "12.02"
+      - "12.03"
+      - "13.01"
+      - "13.02"
+      - "13.03"
+      - "13.04"
+      - "15.01"
+      - "15.02"
+      - "15.03"
+      - "18.01"
+      - "18.02"
+      - "18.04"
+      - "19.01"
+      - "19.02"
+      - "19.03"
+      - "20.01"
+      - "20.02"
+      - "20.03"
+      - "21.01"
+      - "21.02"
+      - "21.03"
+      - "22.01"
+      - "22.02"
+      - "22.03"
+      - "23.01"
+      - "23.03"
+      - "24.01"
+      - "24.02"
+      - "24.03"
+      - "24.04"
+  - repo: letta-ai/letta
+    name: letta
+    description: Memory-first agent architecture (formerly MemGPT)
+    url: https://github.com/letta-ai/letta
+    applicable_dimensions:
+      - "01.01"
+      - "01.02"
+      - "01.03"
+      - "01.04"
+      - "01.05"
+      - "02.01"
+      - "02.02"
+      - "02.04"
+      - "02.05"
+      - "02.06"
+      - "02.07"
+      - "02.08"
+      - "02.09"
+      - "03.01"
+      - "03.02"
+      - "03.03"
+      - "03.05"
+      - "03.06"
+      - "03.07"
+      - "03.09"
+      - "04.01"
+      - "04.02"
+      - "04.03"
+      - "04.04"
+      - "04.06"
+      - "05.01"
+      - "05.02"
+      - "05.03"
+      - "05.04"
+      - "05.05"
+      - "05.06"
+      - "05.07"
+      - "05.08"
+      - "06.01"
+      - "06.03"
+      - "06.05"
+      - "07.01"
+      - "07.04"
+      - "08.01"
+      - "08.03"
+      - "08.04"
+      - "10.01"
+      - "10.02"
+      - "10.03"
+      - "11.01"
+      - "11.02"
+      - "11.04"
+      - "12.01"
+      - "12.02"
+      - "13.01"
+      - "13.02"
+      - "13.03"
+      - "13.04"
+      - "14.03"
+      - "18.01"
+      - "18.02"
+      - "19.01"
+      - "19.03"
+      - "21.01"
+      - "21.02"
+      - "21.03"
+      - "22.01"
+      - "22.02"
+      - "22.03"
+      - "23.01"
+      - "23.02"
+      - "23.03"
+      - "24.01"
+      - "24.02"
+      - "24.03"
+      - "24.04"
+  - repo: crewAIInc/crewAI
+    name: crewai
+    description: Influential multi-agent design with role-based delegation
+    url: https://github.com/crewAIInc/crewAI
+    applicable_dimensions:
+      - "01.01"
+      - "01.02"
+      - "01.03"
+      - "01.04"
+      - "01.06"
+      - "01.07"
+      - "01.08"
+      - "03.01"
+      - "03.02"
+      - "03.03"
+      - "03.04"
+      - "03.05"
+      - "03.06"
+      - "03.07"
+      - "03.08"
+      - "03.09"
+      - "04.01"
+      - "04.02"
+      - "04.03"
+      - "04.04"
+      - "04.05"
+      - "04.06"
+      - "04.07"
+      - "04.08"
+      - "05.01"
+      - "05.02"
+      - "05.03"
+      - "05.04"
+      - "05.05"
+      - "05.06"
+      - "05.07"
+      - "06.01"
+      - "06.02"
+      - "06.03"
+      - "06.04"
+      - "06.05"
+      - "06.06"
+      - "06.07"
+      - "07.01"
+      - "07.02"
+      - "07.03"
+      - "07.04"
+      - "07.07"
+      - "07.08"
+      - "10.01"
+      - "10.02"
+      - "11.01"
+      - "11.02"
+      - "11.04"
+      - "12.01"
+      - "12.02"
+      - "12.03"
+      - "13.01"
+      - "13.02"
+      - "13.03"
+      - "13.04"
+      - "14.01"
+      - "14.02"
+      - "14.03"
+      - "15.01"
+      - "15.02"
+      - "15.03"
+      - "18.01"
+      - "18.02"
+      - "18.04"
+      - "19.01"
+      - "19.03"
+      - "20.01"
+      - "20.02"
+      - "20.03"
+      - "21.01"
+      - "21.02"
+      - "21.03"
+      - "22.01"
+      - "22.02"
+      - "22.03"
+      - "23.01"
+      - "23.02"
+      - "23.03"
+      - "24.01"
+      - "24.02"
+      - "24.03"
+      - "24.04"
+  - repo: langfuse/langfuse
+    name: langfuse
+    description: Observability and evaluation reference platform
+    url: https://github.com/langfuse/langfuse
+    applicable_dimensions:
+      - "02.01"
+      - "02.05"
+      - "02.06"
+      - "02.07"
+      - "02.09"
+      - "08.01"
+      - "08.02"
+      - "08.03"
+      - "08.04"
+      - "09.01"
+      - "09.02"
+      - "09.03"
+      - "09.04"
+      - "10.01"
+      - "10.02"
+      - "10.03"
+      - "10.04"
+      - "11.04"
+      - "12.01"
+      - "12.02"
+      - "12.03"
+      - "12.04"
+      - "13.01"
+      - "13.02"
+      - "13.03"
+      - "18.01"
+      - "18.02"
+      - "18.03"
+      - "18.04"
+      - "19.01"
+      - "19.02"
+      - "19.03"
+      - "20.01"
+      - "20.02"
+      - "20.03"
+      - "21.01"
+      - "21.02"
+      - "21.03"
+      - "22.01"
+      - "22.02"
+      - "22.03"
+      - "24.01"
+      - "24.02"
+      - "24.03"
+      - "24.04"
+  - repo: microsoft/agent-framework
+    name: agent-framework
+    description: Microsoft's strategic enterprise agent framework
+    url: https://github.com/microsoft/agent-framework
+    applicable_dimensions:
+      - "01.01"
+      - "01.02"
+      - "01.03"
+      - "01.04"
+      - "01.05"
+      - "01.06"
+      - "01.07"
+      - "01.08"
+      - "01.09"
+      - "02.01"
+      - "02.02"
+      - "02.04"
+      - "02.05"
+      - "02.06"
+      - "02.07"
+      - "02.08"
+      - "02.09"
+      - "03.01"
+      - "03.02"
+      - "03.03"
+      - "03.04"
+      - "03.05"
+      - "03.06"
+      - "03.07"
+      - "03.08"
+      - "03.09"
+      - "04.01"
+      - "04.02"
+      - "04.03"
+      - "04.04"
+      - "04.05"
+      - "04.06"
+      - "04.07"
+      - "04.08"
+      - "05.01"
+      - "05.02"
+      - "05.03"
+      - "05.04"
+      - "05.05"
+      - "05.06"
+      - "05.07"
+      - "06.01"
+      - "06.02"
+      - "06.03"
+      - "06.04"
+      - "06.05"
+      - "06.06"
+      - "06.07"
+      - "07.01"
+      - "07.02"
+      - "07.03"
+      - "07.04"
+      - "07.05"
+      - "07.06"
+      - "07.07"
+      - "07.08"
+      - "08.01"
+      - "08.02"
+      - "08.03"
+      - "08.04"
+      - "09.01"
+      - "09.02"
+      - "09.03"
+      - "09.04"
+      - "10.01"
+      - "10.02"
+      - "10.03"
+      - "10.04"
+      - "11.01"
+      - "11.02"
+      - "11.03"
+      - "11.04"
+      - "12.01"
+      - "12.02"
+      - "12.03"
+      - "12.04"
+      - "13.01"
+      - "13.02"
+      - "13.03"
+      - "13.04"
+      - "14.01"
+      - "14.02"
+      - "14.03"
+      - "15.01"
+      - "15.02"
+      - "15.03"
+      - "16.01"
+      - "16.02"
+      - "16.03"
+      - "17.01"
+      - "17.02"
+      - "17.03"
+      - "18.01"
+      - "18.02"
+      - "18.03"
+      - "18.04"
+      - "19.01"
+      - "19.02"
+      - "19.03"
+      - "20.01"
+      - "20.02"
+      - "20.03"
+      - "21.01"
+      - "21.02"
+      - "21.03"
+      - "22.01"
+      - "22.02"
+      - "22.03"
+      - "23.01"
+      - "23.02"
+      - "23.03"
+      - "24.01"
+      - "24.02"
+      - "24.03"
+      - "24.04"
+  - repo: open-policy-agent/opa
+    name: opa
+    description: Best-in-class policy engine for authorization
+    url: https://github.com/open-policy-agent/opa
+    applicable_dimensions:
+      - "04.02"
+      - "04.05"
+      - "08.01"
+      - "08.02"
+      - "08.03"
+      - "08.04"
+      - "09.01"
+      - "09.02"
+      - "09.03"
+      - "09.04"
+      - "10.02"
+      - "10.03"
+      - "11.04"
+      - "13.01"
+      - "13.02"
+      - "13.03"
+      - "13.04"
+      - "17.01"
+      - "17.02"
+      - "17.03"
+      - "18.03"
+      - "19.01"
+      - "19.03"
+      - "21.01"
+      - "21.02"
+      - "21.03"
+      - "22.01"
+      - "22.02"
+      - "22.03"
+      - "24.01"
+      - "24.02"
+      - "24.03"
+      - "24.04"

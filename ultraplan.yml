@@ -1,0 +1,42 @@
+version: 1
+runtime:
+  default: opencode
+models:
+  default: openrouter/stealth/ox-alpha
+  primary: openrouter/stealth/ox-alpha
+  backup: openrouter/stealth/ox-alpha
+execution:
+  default_variant: high
+  default_parallel: 5
+  default_timeout: 12m
+  default_retries: 1
+planning:
+  requirements_model: openai/gpt-5.6-sol
+  requirements_variant: high
+  code_context_model: openai/gpt-5.6-sol
+  code_context_variant: low
+  sprint_index_model: openai/gpt-5.6-sol
+  sprint_index_variant: high
+  technical_handbook_model: openai/gpt-5.6-sol
+  technical_handbook_variant: high
+  area_reasoning_model: openai/gpt-5.6-sol
+  area_reasoning_variant: high
+  reasoning_model: openai/gpt-5.6-sol
+  reasoning_variant: high
+  plan_model: openai/gpt-5.6-sol
+  plan_variant: high
+  review_model: openrouter/stealth/ox-alpha
+  smoke_model: openai/gpt-5.6-sol
+  smoke_variant: low
+  execute_model: openai/gpt-5.6-sol
+  execute_variant: high
+logging:
+  format: text
+  level: debug
+agentwrap:
+  executable: opencode
+  permission_default: allow
+  required_health:
+    - runtime_available
+    - structured_output
+    - workdir

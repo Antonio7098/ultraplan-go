@@ -1,0 +1,160 @@
+# Source Analysis: agent-framework
+
+## Tool Schema Generation and Validation
+
+### Source Info
+
+| Field | Value |
+|-------|-------|
+| Name | agent-framework |
+| Path | `studies/agent-harness-study/sources/agent-framework` |
+| Language / Stack | .NET 8/9+ + Python (>=3.10) — schema generation relies on `Microsoft.Extensions.AI.AIFunctionFactory` and Pydantic `model_json_schema()` |
+| Analyzed | 2026-07-22 |
+
+## Summary
+
+Agent Framework exposes tools through two parallel schema pipelines:
+
+- **Python core** generates JSON Schema via Pydantic. `@tool` inspects the wrapped callable, builds a Pydantic input model with `pydantic.create_model` (`python/packages/core/agent_framework/_tools.py:484-514`), and exposes `parameters()` returning `input_model.model_json_schema()` (`_tools.py:783-804`). Each `FunctionTool` carries a cached `_input_schema_cached` plus a richer `to_json_schema_spec()` wire form (`_tools.py:869-882`). The framework ships a custom JSON-schema argument validator `_validate_arguments_against_schema` (`_tools.py:1097-1144`) plus a per-type matcher `_matches_json_schema_type` (`_tools.py:1076-1094`) that the function-invocation layer runs before invoking the tool. Declarative agent definitions use `FunctionTool.to_json_schema_spec()` for provider export.
+- **.NET core** delegates JSON-Schema production to `Microsoft.Extensions.AI.AIFunctionFactory.Create(...)`, which reflects on `[Description]`-annotated delegate parameters and emits a `JsonElement` schema on `AIFunction.JsonSchema` (used at e.g. `dotnet/src/Microsoft.Agents.AI/Skills/Programmatic/AgentInlineSkillScript.cs:46`, `dotnet/src/Microsoft.Agents.AI.Tools.Shell/LocalShellExecutor.cs:340-359`, `dotnet/src/Microsoft.Agents.AI/Harness/FileAccess/FileAccessProvider.cs:305-310`). When an externally-supplied schema is available, `AIFunctionFactory.CreateDeclaration(name, description, jsonSchema)` wraps it as a non-invocable declaration (e.g. `dotnet/src/Microsoft.Agents.AI.Declarative/Extensions/FunctionToolExtensions.cs:41-44`, `dotnet/src/Microsoft.Agents.AI.AGUI/Shared/AIToolExtensions.cs:50-53`). Provider-specific packaging (OpenAI Chat Completions, OpenAI Responses, Foundry Responses) reads `AIFunction.JsonSchema` and `Description` directly when emitting the wire payload (e.g. `dotnet/src/Microsoft.Agents.AI.Hosting.OpenAI/ChatCompletions/Converters/ChatClientAgentRunOptionsConverter.cs:64-78`, `dotnet/src/Microsoft.Agents.AI.Foundry/FoundryPromptAgentConverter.cs:126-136`). Foundry enables strict mode by default (`FoundryPromptAgentConverter.cs:131-135`).
+
+Validation before execution is **explicit and runtime-driven**. The Python function-invocation layer calls `_validate_arguments_against_schema` (`_tools.py:1097`) on every call, raising `TypeError` for missing required fields, unexpected properties (`additionalProperties: false`), bad enum values, and primitive type mismatches. The .NET side relies on `Microsoft.Extensions.AI.FunctionInvokingChatClient` (external) for argument validation; the framework's local touch points only check for missing parameters inside wrapper delegates (e.g. `dotnet/src/Microsoft.Agents.AI.Hyperlight/Internal/ExecuteCodeFunction.cs:66-81`) and normalize via `NormalizePortableValues` (`dotnet/src/Microsoft.Agents.AI.Workflows.Declarative/Kit/PortableValueExtensions.cs:28-94`). Tool-approval is the main interposition hook: `ApprovalRequiredAIFunction` (`dotnet/src/Microsoft.Agents.AI.Tools.Shell/DockerShellExecutor.cs:266-293`, `LocalShellExecutor.cs:328-361`) wraps the schema-producing AIFunction and surfaces `ToolApprovalRequestContent` for user confirmation before arguments are sent to the tool.
+
+Invalid-argument correction is **provider-defined**, not framework-defined. The framework does not inject a recovery turn or a re-prompt on its own; it surfaces the exception in the chat response (`FunctionResultContent`) and lets the LLM self-correct on the next iteration. The .NET `ChatClientAgent` and the Python `FunctionInvocationLayer` rely on the model's tool-calling loop to retry with corrected arguments. Failures from `_validate_arguments_against_schema` surface as `TypeError` from the tool layer.
+
+Provider portability is achieved by passing the JSON schema through unchanged. The Python side emits `{"type": "function", "function": {...}}` (OpenAI-compatible) via `to_json_schema_spec` (`_tools.py:869-882`). The .NET side uses `AIFunction.JsonSchema` as a raw `JsonElement` and lets each provider serialization layer copy it into the request shape (`FunctionDefinition.Parameters` at `dotnet/src/Microsoft.Agents.AI.Hosting.OpenAI/ChatCompletions/Models/Tool.cs:65-70`; Foundry `ResponseTool.CreateFunctionTool(..., function.JsonSchema.ToString(), strictModeEnabled: true, ...)` at `FoundryPromptAgentConverter.cs:131-135`). The Anthropic, GitHub Copilot, and A2A stacks just forward `IList<AITool>` to their respective `IChatClient` factories and trust the chat client's own schema mapping (`dotnet/src/Microsoft.Agents.AI.Anthropic/AnthropicClientExtensions.cs:58-62`).
+
+## Rating
+
+**7/10**
+
+Rationale:
+
+- **Strengths**
+  - **Dual-stack generation with single source of truth per stack.** Python generates from the function signature (Pydantic); .NET generates from `[Description]`-annotated delegates (MEAI). Both caches (`_input_schema_cached`, `AIFunction.JsonSchema`) are exposed read-only and reused across the run.
+  - **First-class schema-on-the-wire objects.** `FunctionTool.to_json_schema_spec()` and `AIFunction.JsonSchema` make schema forwarding a one-line operation, and tests assert round-trip preservation (`dotnet/tests/Microsoft.Agents.AI.AGUI.UnitTests/AIToolExtensionsTests.cs:193-215`).
+  - **Strict mode and portability defaults exist.** Foundry defaults to `strictModeEnabled: true` (`FoundryPromptAgentConverter.cs:131-135`); OpenAI Hosting carries a `strict` flag on `FunctionDefinition` (`Tool.cs:78-80`); structured output wraps non-object schemas in an outer `{type:"object",properties:{data:...},additionalProperties:false,required:["data"]}` (`dotnet/src/Shared/StructuredOutput/StructuredOutputSchemaUtilities.cs:25-54`).
+  - **Validation is explicit and unit-tested.** `_validate_arguments_against_schema` covers required fields, `additionalProperties: false`, enum membership, single-type and union-type primitive checks (`_tools.py:1097-1144`).
+  - **Custom schema sources are honored.** Declarative tools accept a JSON schema from `RecordDataType.GetSchema()` (`RecordDataTypeExtensions.cs:41-54`) and inline-script tools reuse the Pydantic/MEAI-generated schema; fallback schemas like `{"type":"object","properties":{},"additionalProperties":false}` and `{"type":"array","items":{"type":"string"}}` are explicit (`FunctionToolExtensions.cs:60`, `AgentFileSkillScript.cs:69-73`).
+- **Limitations**
+  - **Argument validation lives outside the framework for .NET.** The .NET code does not call MEAI's `FunctionInvokingChatClient` validation directly; it sets up `ChatOptions.Tools` and lets the chat-client decorator handle parsing. A custom AIFunction that bypasses `FunctionInvokingChatClient` (e.g. `dotnet/src/Microsoft.Agents.AI.Hyperlight/Internal/ToolBridge.cs:37-44`) has to write its own missing-parameter check (`ExecuteCodeFunction.cs:66-81`).
+  - **Strict mode is not universal.** Only Foundry turns it on by default (`FoundryPromptAgentConverter.cs:134`). The OpenAI hosting layer surfaces a `strict` boolean but does not set it (`Tool.cs:78-80`).
+  - **Descriptions are advisory, not enforced.** All evidence (e.g. `_tools.py:783-804`, `LocalShellExecutor.cs:340-359`) shows that `Description` becomes a model-facing hint but is not surfaced to the model as a `required`/default-`null` schema attribute unless the user's Pydantic/MEAI configuration supplies it. Per-property `required` is automatic only for non-default Python parameters (`_tools.py:484-514`).
+  - **Defaults rely on the host language.** A `def f(x: int = 5)` in Python and an `[Description] string x = "5"` in C# produce different schema `default` values; Agent Framework neither standardizes defaults nor warns when a parameter has both a default and a Pydantic-required marker.
+  - **No correction / re-prompt loop.** `_validate_arguments_against_schema` raises `TypeError`, and the .NET wrappers raise `ArgumentException`; the framework does not intercept the failure and send a corrective message. The model is expected to retry on its own.
+  - **The agent-framework source code does not own the schema generator.** Schema generation in .NET is delegated to `Microsoft.Extensions.AI.AIFunctionFactory`, an external NuGet. Future changes to MEAI's schema emitter (type mapping, `$ref` reuse, `additionalProperties: false` policy) will silently change Agent Framework behavior.
+
+## Evidence Collected
+
+Every entry cites a file with line numbers from inside the selected source.
+
+| Area | Evidence | File:Line |
+|------|----------|-----------|
+| Python: Pydantic-based schema from function signature | `_resolve_input_model` builds a Pydantic model via `pydantic.create_model` from `inspect.signature` + `typing.get_type_hints`; skips `self`, `cls`, `*args`, `**kwargs`, and any `FunctionInvocationContext` parameter | `python/packages/core/agent_framework/_tools.py:484-514` |
+| Python: cached JSON schema accessor | `def _input_schema(self) -> dict[str, Any]:` returns `self.input_model.model_json_schema()` with a per-instance cache | `python/packages/core/agent_framework/_tools.py:783-804` |
+| Python: explicit-schema short-circuit | When caller supplies a JSON-schema dict, the schema is stored verbatim and Pydantic generation is bypassed | `python/packages/core/agent_framework/_tools.py:386-397, 795-804` |
+| Python: `Annotated[T, "description"]` becomes `Field(description=...)` | `_parse_annotation` | `python/packages/core/agent_framework/_tools.py:1043-1073` |
+| Python: OpenAI-compatible wire format | `to_json_schema_spec()` emits `{"type":"function","function":{"name","description","parameters"}}` | `python/packages/core/agent_framework/_tools.py:869-882` |
+| Python: schema validator | `_validate_arguments_against_schema` validates required fields, `additionalProperties:false`, enum, primitive type, union type | `python/packages/core/agent_framework/_tools.py:1097-1144` |
+| Python: type matcher | `_matches_json_schema_type` handles string / integer / number / boolean / array / object / null | `python/packages/core/agent_framework/_tools.py:1076-1094` |
+| Python: pre-invocation validation entry point (declared) | `validate_inputs=True` parameter on `FunctionTool.__call__` / `invoke` | `python/packages/core/agent_framework/_tools.py:556-595` |
+| .NET: MEAI-driven schema generation from `[Description]`-annotated delegates | `AIFunctionFactory.Create(method, new AIFunctionFactoryOptions { Name, Description })` produces an `AIFunction` whose `JsonSchema` is reflected by MEAI | `dotnet/src/Microsoft.Agents.AI/Skills/Programmatic/AgentInlineSkillScript.cs:45-47` |
+| .NET: same pattern reused by tools | `LocalShellExecutor.AsAIFunction` wraps a delegate and exposes `JsonSchema` from the inner AIFunction | `dotnet/src/Microsoft.Agents.AI.Tools.Shell/LocalShellExecutor.cs:340-361` |
+| .NET: same pattern in harness providers | `FileAccessProvider.CreateTools` builds six `AIFunctionFactory.Create(...)` tools with `SerializerOptions = AgentJsonUtilities.DefaultOptions` | `dotnet/src/Microsoft.Agents.AI/Harness/FileAccess/FileAccessProvider.cs:296-311` |
+| .NET: same pattern in harness agent mode | `AgentModeProvider.CreateTools` builds `mode_set`/`mode_get` via `AIFunctionFactory.Create` | `dotnet/src/Microsoft.Agents.AI/Harness/AgentMode/AgentModeProvider.cs:249-280` |
+| .NET: same pattern in harness background agents | `BackgroundAgentsProvider` builds six `AIFunctionFactory.Create(...)` tools | `dotnet/src/Microsoft.Agents.AI/Harness/BackgroundAgents/BackgroundAgentsProvider.cs:222-471` |
+| .NET: declaration-only tool from external JSON Schema | `AIFunctionFactory.CreateDeclaration(name, description, jsonSchema)` | `dotnet/src/Microsoft.Agents.AI.Declarative/Extensions/FunctionToolExtensions.cs:41-44` |
+| .NET: default schema fallback for missing declarative schema | `{"type":"object","properties":{},"additionalProperties":false}` | `dotnet/src/Microsoft.Agents.AI.Declarative/Extensions/FunctionToolExtensions.cs:60` |
+| .NET: AG-UI tool bridge (declaration-only round-trip) | `AIToolExtensions.AsAITools` and `AsAGUITools` map `AIFunctionDeclaration.JsonSchema` ↔ `AGUITool.Parameters` | `dotnet/src/Microsoft.Agents.AI.AGUI/Shared/AIToolExtensions.cs:14-56` |
+| .NET: OpenAI Chat Completions wire model accepts raw JSON Schema | `FunctionDefinition.Parameters` is `JsonElement?` | `dotnet/src/Microsoft.Agents.AI.Hosting.OpenAI/ChatCompletions/Models/Tool.cs:65-70` |
+| .NET: OpenAI Chat Completions supports strict flag | `FunctionDefinition.Strict` is a nullable bool | `dotnet/src/Microsoft.Agents.AI.Hosting.OpenAI/ChatCompletions/Models/Tool.cs:78-80` |
+| .NET: OpenAI hosting builds an AITool from incoming HTTP schema | `ToAITool` calls `AIFunctionFactory.CreateDeclaration(name, description, parameters ?? {})` | `dotnet/src/Microsoft.Agents.AI.Hosting.OpenAI/ChatCompletions/Converters/ChatClientAgentRunOptionsConverter.cs:64-78` |
+| .NET: Foundry strict-mode default for synthesized prompt agents | `ResponseTool.CreateFunctionTool(name, BinaryData.FromString(function.JsonSchema.ToString() ?? "{}"), strictModeEnabled: true, description)` | `dotnet/src/Microsoft.Agents.AI.Foundry/FoundryPromptAgentConverter.cs:126-136` |
+| .NET: Foundry evaluation uses tool schema directly | `WireToolDefinition { Name, Description, Parameters = t.JsonSchema }` | `dotnet/src/Microsoft.Agents.AI.Foundry/Evaluation/FoundryEvalConverter.cs:134-144` |
+| .NET: Foundry eval wire shape | `WireToolDefinition` (parameters serialized as object via `JsonSchema`) | `dotnet/src/Microsoft.Agents.AI.Foundry/Evaluation/FoundryEvalWireModels.cs:113-123` |
+| .NET: structured output wraps non-object schemas | `WrapNonObjectSchema` injects `{type:"object",properties:{data:...},additionalProperties:false,required:["data"]}` envelope | `dotnet/src/Shared/StructuredOutput/StructuredOutputSchemaUtilities.cs:25-54` |
+| .NET: structured output deserializer unwraps `data` | `UnwrapResponseData` strips the wrapper before deserializing | `dotnet/src/Shared/StructuredOutput/StructuredOutputSchemaUtilities.cs:61-72` |
+| .NET: declarative schema builder for `RecordDataType` | `RecordDataTypeExtensions.GetSchema` builds `{type:"object",properties:{...},additionalProperties:false}` | `dotnet/src/Microsoft.Agents.AI.Declarative/Extensions/RecordDataTypeExtensions.cs:41-54` |
+| .NET: declarative property schema mapping | `BuildPropertySchema` maps `StringDataType`/`NumberDataType`/`BooleanDataType`/`DateTimeDataType`/etc. to JSON-schema primitives with format hints | `dotnet/src/Microsoft.Agents.AI.Declarative/Extensions/PropertyInfoExtensions.cs:31-95` |
+| .NET: tools require approval via AIFunction wrapper | `ApprovalRequiredAIFunction(fn)` (MEAI), wrapped after `AIFunctionFactory.Create` | `dotnet/src/Microsoft.Agents.AI.Tools.Shell/LocalShellExecutor.cs:361` |
+| .NET: docker shell tools require approval | `requireApproval ? new ApprovalRequiredAIFunction(fn) : fn` | `dotnet/src/Microsoft.Agents.AI.Tools.Shell/DockerShellExecutor.cs:266-293` |
+| .NET: file-access tools require approval | All six `AIFunctionFactory.Create` tools wrapped with `ApprovalRequiredAIFunction` | `dotnet/src/Microsoft.Agents.AI/Harness/FileAccess/FileAccessProvider.cs:305-310` |
+| .NET: harness approval dispatcher | `ToolApprovalAgent` decorator wraps the agent and emits `ToolApprovalRequestContent` | `dotnet/src/Microsoft.Agents.AI/Harness/ToolApproval/ToolApprovalAgent.cs` |
+| .NET: tool-approval uses `FunctionCallContent` with the schema-bearing function map | `WorkflowRunner.InvokeFunctionAsync` resolves by name and invokes | `dotnet/src/Shared/Workflows/Execution/WorkflowRunner.cs:342-349` |
+| .NET: explicit parameter-name normalization on function call | `NormalizePortableValues` flattens `PortableValue` graphs into `Dictionary<string, object?>` for `AIFunctionArguments` | `dotnet/src/Microsoft.Agents.AI.Workflows.Declarative/Kit/PortableValueExtensions.cs:28-94` |
+| .NET: harness adapter that invokes a tool with raw arguments | `ToolBridge.InvokeAsync(tool, argsJson)` | `dotnet/src/Microsoft.Agents.AI.Hyperlight/Internal/ToolBridge.cs:37-44` |
+| .NET: wrapper AIFunction with hand-written schema | `Hyperlight.Internal.ExecuteCodeFunction` exposes a hand-coded `JsonElement` schema and parses `code` itself | `dotnet/src/Microsoft.Agents.AI.Hyperlight/Internal/ExecuteCodeFunction.cs:22-84` |
+| .NET: hand-coded schema for file-based skill scripts | `{"type":"array","items":{"type":"string"}}` cached as `s_defaultSchema` | `dotnet/src/Microsoft.Agents.AI/Skills/File/AgentFileSkillScript.cs:22-73` |
+| .NET: workflow declarative approval surfaces | `InvokeFunctionToolExecutor` constructs `ToolApprovalRequestContent(requestId, functionCall)` and halts via `ExternalInputRequest` | `dotnet/src/Microsoft.Agents.AI.Workflows.Declarative/ObjectModel/InvokeFunctionToolExecutor.cs:80-113` |
+| .NET: GitHub Copilot filters to `AIFunctionDeclaration` | `GetSessionConfig` selects tools that surface `JsonSchema` (declarations and full AIFunctions) | `dotnet/src/Microsoft.Agents.AI.GitHub.Copilot/GitHubCopilotAgent.cs:420-431` |
+| .NET: MCP wrapper exposes server-supplied schema unchanged | `ConsentAwareMcpClientAIFunction.JsonSchema => this._inner.JsonSchema` | `dotnet/src/Microsoft.Agents.AI.Foundry.Hosting/ConsentAwareMcpClientAIFunction.cs:43` |
+| .NET: MCP task-aware wrapper exposes schema unchanged | `TaskAwareMcpClientAIFunction.JsonSchema => this._inner.JsonSchema` | `dotnet/src/Microsoft.Agents.AI.Mcp/TaskAwareMcpClientAIFunction.cs:66` |
+| .NET: skills expose `ParametersSchema` directly | `AgentInlineSkillScript.ParametersSchema => this._function.JsonSchema` | `dotnet/src/Microsoft.Agents.AI/Skills/Programmatic/AgentInlineSkillScript.cs:79` |
+| .NET: tests assert `JsonSchema` is round-tripped across declarations | `RoundTrip_AIFunctionToAGUIToolBackToDeclaration_PreservesMetadata` | `dotnet/tests/Microsoft.Agents.AI.AGUI.UnitTests/AIToolExtensionsTests.cs:193-215` |
+| .NET: tests assert MCP wrapper exposes `JsonSchema` | `TaskAwareMcpClientAIFunctionTests` (helper tools constructed via `McpServerTool.Create`) | `dotnet/tests/Microsoft.Agents.AI.Mcp.UnitTests/TaskAwareMcpClientAIFunctionTests.cs:17-67` |
+
+## Answers to Dimension Questions
+
+1. **Are schemas generated or handwritten?** Mostly generated. Python uses Pydantic via `pydantic.create_model` (`_tools.py:484-514`); .NET uses MEAI's `AIFunctionFactory.Create` reflecting on `[Description]`-annotated delegates (e.g. `LocalShellExecutor.cs:340-359`). Hand-written schemas exist for special cases: Hyperlight's `execute_code` (`ExecuteCodeFunction.cs:22-34`), file-based skill scripts (`AgentFileSkillScript.cs:22-73`), and the AG-UI / OpenAI hosting `{"type":"object","properties":{},"additionalProperties":false}` fallback (`FunctionToolExtensions.cs:60`).
+2. **Are descriptions useful?** Yes, by convention. The Python side maps `Annotated[T, "..."]` to `Field(description=...)` (`_tools.py:1043-1073`), and the .NET side reads `[Description("...")]` from delegates. There is no enforcement that every parameter has a description; tools with missing descriptions simply emit an absent schema property.
+3. **Is validation strict?** Python enforces `required`, `additionalProperties: false`, enum membership, primitive type, and union type via `_validate_arguments_against_schema` (`_tools.py:1097-1144`). .NET does not validate inside the framework; MEAI's `FunctionInvokingChatClient` parses and binds arguments, and individual wrappers (e.g. `ExecuteCodeFunction.cs:66-81`) only verify presence of a single argument.
+4. **Are defaults handled clearly?** Defaults flow through from the host language. Python relies on Pydantic's default handling via `pydantic.create_model` and `Annotated[T, Field(default=...)]` (no explicit framework code). .NET relies on `[DefaultValue]`-style metadata via the wrapped AIFunction; the framework does not annotate defaults explicitly. Tool authors must use the host language's native mechanisms.
+5. **Are schemas portable across providers?** Yes. Both stacks surface JSON Schema as a plain `dict`/`JsonElement` and let each provider's serialization layer copy it verbatim. Provider-specific extras (e.g. `strict: true` in Foundry `FoundryPromptAgentConverter.cs:134`, `strict` flag in OpenAI Hosting `Tool.cs:78-80`) are opt-in and orthogonal. The schema itself never gets rewritten.
+
+## Architectural Decisions
+
+- **Single source of truth for schemas per stack.** Python pins on Pydantic, .NET pins on MEAI. Cross-provider portability is preserved by treating the schema as a transparent `JsonElement` / `dict` payload that is forwarded, never regenerated.
+- **Tools are not validated before they reach the LLM.** The framework assumes the developer declares tools correctly. There is no up-front lint or `pydantic.compile_json_schema` round-trip check at registration time.
+- **Validation is a function-invocation concern, not a registration concern.** Python validates on each call (`_validate_arguments_against_schema`); .NET delegates to MEAI's `FunctionInvokingChatClient`. The framework does not run validation when a tool is added to `ChatOptions.Tools`.
+- **Schemas are passed by reference, not by value.** `AIFunction.JsonSchema` is the schema — every provider reads the same object. There is no per-provider transformation step; only the wrapper objects differ (`FunctionDefinition`, `ResponseTool`, `AGUITool`, `WireToolDefinition`, etc.).
+- **Custom AIFunctions can override `JsonSchema` directly.** `Hyperlight.Internal.ExecuteCodeFunction` exposes a hand-coded schema (`ExecuteCodeFunction.cs:22-34`) instead of going through `AIFunctionFactory`. This is the documented escape hatch when the MEAI reflection output is wrong.
+- **Tool approval is a wrapper, not a schema change.** `ApprovalRequiredAIFunction` adds a layer that returns `ToolApprovalRequestContent` instead of invoking the underlying tool, but the wrapped function's schema and name are unchanged (`LocalShellExecutor.cs:361`).
+- **Structured output envelopes are provider-neutral.** Non-object schemas are wrapped in a `{data: ...}` object so all current LLM providers (which require object-rooted schemas) can be targeted uniformly (`StructuredOutputSchemaUtilities.cs:25-54`).
+
+## Notable Patterns
+
+- **MEAI `AIFunction` is the .NET tool primitive.** `AIFunction.Name`, `AIFunction.Description`, `AIFunction.JsonSchema`, `AIFunction.JsonSerializerOptions`, `AIFunction.ReturnJsonSchema`, and `AIFunction.GetService<T>()` are used everywhere; the framework rarely subclasses `AIFunction` and instead composes (e.g. `DelegatingAIFunction`, `ApprovalRequiredAIFunction`).
+- **Pydantic `model_json_schema()` is the Python tool primitive.** `_input_schema_cached` is invalidated only on construction (`_tools.py:386-397`), so schema is computed once and reused.
+- **Round-trip JSON Schema.** AG-UI's `AIToolExtensions.AsAGUITools` and `AsAITools` show the framework's commit to schema preservation through wire serialization (declaration → `AGUITool.Parameters: JsonElement` → declaration) (`AIToolExtensions.cs:14-56`).
+- **Declarative agents reuse Pydantic/JsonElement graph for nested records.** `RecordDataTypeExtensions.GetSchema` recursively serializes nested records (`RecordDataTypeExtensions.cs:41-54`) and tables (`PropertyInfoExtensions.cs:72-81`) into JSON Schema.
+- **Strict mode is a per-provider knob.** Foundry turns it on by default (`FoundryPromptAgentConverter.cs:131-135`); OpenAI Hosting exposes it without setting it (`Tool.cs:78-80`); other providers inherit whatever the chat-client decorator emits.
+
+## Tradeoffs
+
+- **Schema accuracy vs flexibility.** The framework trades full control of schema generation for ergonomics: Python authors get a Pydantic-driven schema "for free" but cannot easily add custom JSON-Schema keywords (`$comment`, `examples`, `patternProperties`, `oneOf` discriminators) without overriding `to_json_schema_spec()`. The .NET side similarly delegates to MEAI; complex shapes require overriding `JsonSchema` directly (the Hyperlight pattern, `ExecuteCodeFunction.cs:57`).
+- **Validation strictness vs simplicity.** Python's `_validate_arguments_against_schema` only checks the **primitive** types in the schema; it does not validate `$ref` resolution, `oneOf`/`anyOf` discriminators, or `pattern` constraints. This avoids the cost of a full JSON Schema evaluator while keeping the most common error classes (missing field, wrong type, unexpected property) covered.
+- **Provider parity vs strict mode.** Foundry defaults to `strictModeEnabled: true` (`FoundryPromptAgentConverter.cs:134`), but other stacks leave strict mode opt-in. This means the same tool can be more permissive on OpenAI Responses than on Foundry Responses — a portability hazard for schemas that rely on strict semantics (e.g. exact enum values).
+- **Hand-written vs generated schemas.** Some tools hand-write their schema (Hyperlight `execute_code`, `AgentFileSkillScript`); others rely on Pydantic/MEAI. The trade-off is maintainability (auto-updates with parameter changes) vs expressiveness (any JSON-Schema construct can be expressed).
+- **Approval gate vs eager invocation.** Wrapping with `ApprovalRequiredAIFunction` keeps the schema identical but adds a confirmation step before execution. This is the framework's only schema-level interposition hook on the .NET side.
+
+## Failure Modes / Edge Cases
+
+- **Missing parameter.** Python raises `TypeError("Missing required argument(s) for '{tool_name}': ...")` (`_tools.py:1108-1109`); the .NET wrappers like `Hyperlight.Internal.ExecuteCodeFunction` raise `ArgumentException("Missing required parameter 'code'.", nameof(arguments))` (`ExecuteCodeFunction.cs:67-68`). Both surface to the chat response as a `FunctionResultContent` with the error text, and rely on the LLM to retry.
+- **Wrong type.** Python's `_validate_arguments_against_schema` raises `TypeError("Invalid type for '{field_name}' in '{tool_name}': expected {schema_type}, got {actual_type_name}")` (`_tools.py:1131-1132`). .NET relies on MEAI's deserialization; an unsuccessful bind surfaces as an exception during invocation.
+- **Unexpected field when `additionalProperties: false`.** Python raises `TypeError("Unexpected argument(s) for '{tool_name}': ...")` (`_tools.py:1115`); .NET does not enforce.
+- **No `JsonSchema` returned.** Some tools (e.g. MCP server tools with no advertised schema, or `AdditionalProperties`-only schema) yield an empty `JsonElement`. The framework surfaces these to the model unchanged. `McpClientTool` returns whatever the MCP server publishes (`ConsentAwareMcpClientAIFunction.cs:43`).
+- **Strict mode failures.** With Foundry's `strictModeEnabled: true`, the wire schema must conform to the strict subset of JSON Schema; an incompatible schema (e.g. containing `oneOf` at the root) will be rejected by the provider, not the framework.
+- **No automatic retry / correction turn.** The framework does not inject a corrective user message when validation fails; the LLM decides whether to retry. (No evidence found of a framework-owned retry path; relies on `FunctionInvokingChatClient` defaults and on the provider's function-calling loop.)
+- **Tool name collisions across providers.** When multiple AIFunctions with the same name appear in `ChatOptions.Tools`, the framework relies on each chat client to build its own tool map; collisions are not deduplicated by Agent Framework. (No evidence found in this source for a global uniqueness check.)
+
+## Future Considerations
+
+- **Custom JSON-Schema keywords.** Both stacks offer no first-class API for adding `examples`, `deprecated`, `readOnly`, `writeOnly`, `patternProperties`, `minLength`, etc. Authors must override `to_json_schema_spec()` (Python) or `JsonSchema` (a custom `AIFunction` subclass in .NET) to express them.
+- **Schema versioning.** When a tool's signature changes, the cached schema (`_input_schema_cached` in Python; `AIFunction.JsonSchema` in .NET) is invalidated only at object construction. Long-lived processes that recreate tools mid-run could ship inconsistent schemas to the model across turns.
+- **Cross-provider strict parity.** Foundry defaults to strict mode (`FoundryPromptAgentConverter.cs:134`); OpenAI Hosting and Responses expose `strict` but do not default it. Aligning the defaults would reduce portability surprises.
+- **Validation depth.** Python's `_validate_arguments_against_schema` covers primitives, enums, and `additionalProperties`, but not `$ref`, `allOf`, `oneOf`, `anyOf`, or `pattern`. A full JSON-Schema evaluator (or selection of one as a default) would catch more errors before they reach the tool body.
+- **Correction loop.** When a tool raises `TypeError` / `ArgumentException`, the framework does not transform the exception into a corrective message. Adding a `FunctionResultContent` rewriter that injects "the argument `X` was of the wrong type; please supply a `<expected type>`" would reduce user-visible failures.
+- **Native AOT and trimming.** The Python side has nothing to do here. The .NET side leans on source-generated `JsonSerializerContext` (`AgentAbstractionsJsonUtilities.cs:73-89`, `OpenAIHostingJsonUtilities.cs:43-157`, `dotnet/src/Microsoft.Agents.AI/AgentJsonUtilities.cs:63-108`) for transport, but the JSON Schema itself is still produced by reflection-based `AIFunctionFactory`. Trimming-sensitive consumers may need to fall back to hand-written schemas or to explicit `AIFunctionFactory.CreateDeclaration` for hot-path tools.
+
+## Questions / Gaps
+
+- **What is the exact JSON Schema that `Microsoft.Extensions.AI.AIFunctionFactory` emits for a `[Description]`-annotated delegate?** No source evidence found inside `agent-framework`; the generator lives in the external `Microsoft.Extensions.AI` NuGet. Indirect evidence (`AIFunction.JsonSchema` consumers passing the schema through unchanged) suggests the emitted schema is OpenAI-compatible, but `additionalProperties: false`, `required`, and `$ref` reuse cannot be confirmed from this source.
+- **Does `FunctionInvokingChatClient` validate arguments against the JSON Schema before invocation, or only against the .NET parameter types?** No source evidence found inside `agent-framework`; this would require inspecting the MEAI package.
+- **What is the provider-specific behavior of `strict: true` for non-strict-compatible schemas?** No source evidence found inside `agent-framework`; the framework just emits the flag and lets the provider reject.
+- **How does the Python layer detect and recover from schema mismatches between model output and declared schema?** No source evidence found; `_validate_arguments_against_schema` raises `TypeError`, but there is no framework-side recovery turn. Recovery appears to be the LLM's responsibility.
+- **Does the .NET layer ever modify `JsonSchema` before passing it to a provider?** No source evidence found; every consumer (`FoundryPromptAgentConverter.cs:131-135`, `FoundryEvalConverter.cs:134-144`, `AIToolExtensions.cs:32`, `Tool.cs:65-70`) reads `function.JsonSchema` and passes it through verbatim.
+- **Is there a test that asserts `_validate_arguments_against_schema` is called on every invocation?** No source evidence found inside this source; tests for `_validate_arguments_against_schema` exist but a per-invocation call-site test was not located.
+
+---
+
+Generated by `dimensions/04.02-tool-schema-generation-and-validation.md` against `agent-framework`.
