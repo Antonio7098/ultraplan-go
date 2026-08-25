@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -257,5 +258,112 @@ run_control:
 				t.Fatal("expected run-control validation error")
 			}
 		})
+	}
+}
+
+func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
+	effective, err := Load(LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(QAConfigFields()) != 28 {
+		t.Fatalf("QA field count = %d", len(QAConfigFields()))
+	}
+	for _, field := range QAConfigFields() {
+		if effective.Sources[field] != "default" {
+			t.Fatalf("source for %s = %q", field, effective.Sources[field])
+		}
+	}
+
+	for name, mutate := range map[string]func(*QA){
+		"changed paths":           func(q *QA) { q.ChangedPaths = 513 },
+		"primary shards":          func(q *QA) { q.PrimaryShards = 33 },
+		"boundary shards":         func(q *QA) { q.BoundaryShards = 9 },
+		"follow-up shards":        func(q *QA) { q.FollowUpShards = 5 },
+		"total shards":            func(q *QA) { q.TotalShards = 45 },
+		"pending entries":         func(q *QA) { q.PendingEntries = 45 },
+		"changed paths per shard": func(q *QA) { q.ChangedPathsPerShard = 65 },
+		"context paths per shard": func(q *QA) { q.ContextPathsPerShard = 129 },
+		"context expansions":      func(q *QA) { q.ContextExpansions = 5 },
+		"paths per expansion":     func(q *QA) { q.PathsPerExpansion = 33 },
+		"behavioral concerns":     func(q *QA) { q.BehavioralConcernsPerShard = 25 },
+		"theories":                func(q *QA) { q.TheoriesPerShard = 25 },
+		"iterations":              func(q *QA) { q.IterationsPerAttempt = 9 },
+		"commands":                func(q *QA) { q.CommandsPerAttempt = 17 },
+		"retries":                 func(q *QA) { q.RuntimeRetries = 3 },
+		"concurrency":             func(q *QA) { q.ConcurrentInvestigators = 9 },
+		"command timeout":         func(q *QA) { q.CommandTimeout = "11m" },
+		"shard timeout":           func(q *QA) { q.ShardTimeout = "31m" },
+		"run timeout":             func(q *QA) { q.RunTimeout = "91m" },
+		"cleanup timeout":         func(q *QA) { q.CleanupTimeout = "31s" },
+		"command output":          func(q *QA) { q.CommandOutputBytes = (512 << 10) + 1 },
+		"shard output":            func(q *QA) { q.ShardOutputBytes = (2 << 20) + 1 },
+		"prompt":                  func(q *QA) { q.PromptBytes = (1 << 20) + 1 },
+		"progress":                func(q *QA) { q.RecentProgress = 201 },
+		"retention":               func(q *QA) { q.RetainedAttempts = 9 },
+		"state":                   func(q *QA) { q.StateBytes = (128 << 20) + 1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := Defaults()
+			mutate(&config.QA)
+			if err := Validate(config); err == nil {
+				t.Fatal("expected QA maximum validation error")
+			}
+		})
+	}
+	config := Defaults()
+	config.QA.CommandsPerAttempt = 0
+	if err := Validate(config); err == nil {
+		t.Fatal("zero QA limit accepted")
+	}
+	config = Defaults()
+	config.QA.CommandsPerAttempt = -1
+	if err := Validate(config); err == nil {
+		t.Fatal("negative QA limit accepted")
+	}
+}
+
+func TestQAConfigRejectsMalformedEnvironmentValuesWithoutClaimingEnvSource(t *testing.T) {
+	effective, err := Load(LoadOptions{Env: func(key string) string {
+		if key == "ULTRAPLAN_QA_PRIMARY_SHARDS" {
+			return "not-a-number"
+		}
+		return ""
+	}})
+	if err == nil || !strings.Contains(err.Error(), "ULTRAPLAN_QA_PRIMARY_SHARDS") || !strings.Contains(err.Error(), "must be an integer") {
+		t.Fatalf("malformed QA environment value error = %v", err)
+	}
+	if effective.Sources["qa.primary_shards"] != "default" {
+		t.Fatalf("failed override claimed source %q", effective.Sources["qa.primary_shards"])
+	}
+}
+
+func TestQAConfigUnknownFieldIsReportedBeforeValueParsing(t *testing.T) {
+	config := Defaults()
+	err := setField(&config, "qa.concurrent_investigator", "high")
+	if err == nil || !strings.Contains(err.Error(), "unknown config field") || strings.Contains(err.Error(), "must be an integer") {
+		t.Fatalf("unknown QA field error = %v", err)
+	}
+}
+
+func TestQAConfigWorkspaceAndEnvironmentPrecedence(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ultraplan.yml"), []byte("version: 1\nqa:\n  model: workspace/qa\n  concurrent_investigators: 2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	effective, err := Load(LoadOptions{WorkspaceRoot: root, Env: func(key string) string {
+		if key == "ULTRAPLAN_QA_CONCURRENT_INVESTIGATORS" {
+			return "1"
+		}
+		return ""
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.Config.QA.Model != "workspace/qa" || effective.Sources["qa.model"] != "workspace" {
+		t.Fatalf("QA model/source = %q/%q", effective.Config.QA.Model, effective.Sources["qa.model"])
+	}
+	if effective.Config.QA.ConcurrentInvestigators != 1 || effective.Sources["qa.concurrent_investigators"] != "env" {
+		t.Fatalf("QA concurrency/source = %d/%q", effective.Config.QA.ConcurrentInvestigators, effective.Sources["qa.concurrent_investigators"])
 	}
 }

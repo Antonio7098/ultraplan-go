@@ -46,6 +46,11 @@ func TestBrowserOperationKindContract(t *testing.T) {
 		{"smoke-start", app.OperationSmokeStart, projectScope},
 		{"verify-dry-run", app.OperationVerifyDryRun, projectScope},
 		{"verify-start", app.OperationVerifyStart, projectScope},
+		{"qa-status", app.OperationQAStatus, projectScope},
+		{"qa-dry-run", app.OperationQADryRun, projectScope},
+		{"qa-start", app.OperationQAStart, projectScope},
+		{"qa-resume", app.OperationQAResume, projectScope},
+		{"qa-recover", app.OperationQARecover, projectScope},
 		{"study-start", app.OperationStudyStart, studyScope},
 		{"study-resume", app.OperationStudyResume, studyScope},
 		{"study-cancel", app.OperationStudyCancel, studyScope},
@@ -55,6 +60,27 @@ func TestBrowserOperationKindContract(t *testing.T) {
 			req, err := mapOperationRequest(operationSpecRequest{Kind: tc.kind, Scope: tc.scope})
 			if err != nil || req.Kind != tc.want {
 				t.Fatalf("kind=%q mapped=%q err=%v", tc.kind, req.Kind, err)
+			}
+		})
+	}
+}
+
+func TestBrowserQAOperationContractAllowsOnlyMapOwnedShard(t *testing.T) {
+	scope := operationScopeRequest{Project: "alpha", Sprint: "36-read-only-qa"}
+	shard := "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa"
+	request, err := mapOperationRequest(operationSpecRequest{Kind: "qa-start", Scope: scope, Options: operationOptionsRequest{Shard: shard}})
+	if err != nil || request.Kind != app.OperationQAStart || request.Task != shard {
+		t.Fatalf("focused QA request=%+v err=%v", request, err)
+	}
+	for name, spec := range map[string]operationSpecRequest{
+		"caller model":   {Kind: "qa-start", Scope: scope, Options: operationOptionsRequest{Model: "caller/model"}},
+		"caller task":    {Kind: "qa-start", Scope: scope, Options: operationOptionsRequest{Task: "arbitrary"}},
+		"status shard":   {Kind: "qa-status", Scope: scope, Options: operationOptionsRequest{Shard: shard}},
+		"recovery shard": {Kind: "qa-recover", Scope: scope, Options: operationOptionsRequest{Shard: shard}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := mapOperationRequest(spec); err == nil {
+				t.Fatal("unsafe QA options accepted")
 			}
 		})
 	}

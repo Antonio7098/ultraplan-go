@@ -2,7 +2,20 @@
   "use strict";
   const runtime = window.UltraPlan;
   if (!runtime) return;
+  function options(form) {
+    const result = {};
+    const selectedStage = form.elements?.stage?.value || form.dataset.stage;
+    if (selectedStage) result.to_stage = selectedStage;
+    const selectedModel = form.elements?.model?.value;
+    if (selectedModel) result.model = selectedModel;
+    const selectedParallelism = form.elements?.parallelism?.value || form.dataset.parallelism;
+    if (selectedParallelism) result.parallelism = Number(selectedParallelism);
+    const selectedShard = form.elements?.shard?.value;
+    if (selectedShard) result.shard = selectedShard;
+    return result;
+  }
   window.UltraPlanOperations = Object.freeze({
+    options,
     async command(path, payload, method = "POST") {
       const csrfMeta = document.querySelector('meta[name="ultraplan-csrf"]');
       let csrf = csrfMeta?.content || "";

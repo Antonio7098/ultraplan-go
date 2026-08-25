@@ -20,21 +20,26 @@ import (
 )
 
 type Service struct {
-	root              string
-	store             FSStore
-	now               func() time.Time
-	runtime           Runtime
-	runtimeConfig     pruntime.Request
-	runtimeProgress   func(RuntimeProgress)
-	stageRuntime      map[PlanningStage]StageRuntime
-	reviewConcurrency int
-	processRunner     pprocess.Runner
-	smokeSettings     SmokeSettings
-	mutations         *sync.Map
-	metricsMu         *sync.Mutex
-	statusWrites      bool
-	codeContextTarget func(string) (ExecuteTargetRef, []ValidationFinding)
-	publisher         gitpublish.Publisher
+	root                string
+	store               FSStore
+	now                 func() time.Time
+	runtime             Runtime
+	runtimeConfig       pruntime.Request
+	runtimeProgress     func(RuntimeProgress)
+	stageRuntime        map[PlanningStage]StageRuntime
+	verificationRuntime map[VerificationPhase]StageRuntime
+	qaSettings          QASettings
+	qaSettingsErr       error
+	qaWriterFence       func(QAWriterToken) error
+	qaMapFence          func(QAMap) error
+	reviewConcurrency   int
+	processRunner       pprocess.Runner
+	smokeSettings       SmokeSettings
+	mutations           *sync.Map
+	metricsMu           *sync.Mutex
+	statusWrites        bool
+	codeContextTarget   func(string) (ExecuteTargetRef, []ValidationFinding)
+	publisher           gitpublish.Publisher
 }
 
 func (s Service) WithReviewConcurrency(n int) Service { s.reviewConcurrency = n; return s }
@@ -128,10 +133,60 @@ func (s Service) WithRuntimeProgress(progress func(RuntimeProgress)) Service {
 
 func (s Service) WithStageRuntime(overrides map[PlanningStage]StageRuntime) Service {
 	s.stageRuntime = map[PlanningStage]StageRuntime{}
+	if s.verificationRuntime == nil {
+		s.verificationRuntime = map[VerificationPhase]StageRuntime{}
+	}
 	for stage, override := range overrides {
+		if phase, ok := verificationPhaseForStage(stage); ok {
+			s.verificationRuntime[phase] = override
+			continue
+		}
 		s.stageRuntime[stage] = override
 	}
 	return s
+}
+
+func (s Service) WithVerificationRuntime(overrides map[VerificationPhase]StageRuntime) Service {
+	s.verificationRuntime = make(map[VerificationPhase]StageRuntime, len(overrides))
+	for phase, override := range overrides {
+		s.verificationRuntime[phase] = override
+	}
+	return s
+}
+
+// WithQASettings freezes the validated effective QA policy on the service
+// value. It does not construct a runtime, acquire ownership, or write state.
+func (s Service) WithQASettings(settings QASettings) Service {
+	s.qaSettings = settings
+	s.qaSettingsErr = ValidateQASettings(settings)
+	return s
+}
+
+// WithQAWriterFence installs the durable run-ownership check used before each
+// QA publication. Callers that own run control should compare all token fields
+// against the currently claimed operation.
+func (s Service) WithQAWriterFence(fence func(QAWriterToken) error) Service {
+	s.qaWriterFence = fence
+	return s
+}
+
+// WithQAMapFence installs the governed-input check used immediately before
+// investigator work and publication. Production callers normally use the
+// service's deterministic map rebuild; tests and alternate stores can supply
+// the same boundary without mutating Service internals.
+func (s Service) WithQAMapFence(fence func(QAMap) error) Service {
+	s.qaMapFence = fence
+	return s
+}
+
+func (s Service) effectiveQASettings() (QASettings, error) {
+	if s.qaSettingsErr != nil {
+		return QASettings{}, s.qaSettingsErr
+	}
+	if strings.TrimSpace(s.qaSettings.Runtime.Model) == "" {
+		return QASettings{}, fmt.Errorf("QA settings are not configured")
+	}
+	return s.qaSettings, nil
 }
 
 // withStageOverrides returns a service copy whose stage runtime map is merged
@@ -160,6 +215,15 @@ func (s Service) withStageOverrides(overrides map[PlanningStage]StageRuntime) Se
 	}
 	s.stageRuntime = merged
 	return s
+}
+
+func (s Service) runtimeForStage(stage PlanningStage) (StageRuntime, bool) {
+	if phase, ok := verificationPhaseForStage(stage); ok {
+		runtime, found := s.verificationRuntime[phase]
+		return runtime, found
+	}
+	runtime, found := s.stageRuntime[stage]
+	return runtime, found
 }
 
 func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
@@ -201,6 +265,7 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 	if stateLoaded {
 		refreshed.Review = state.Review
 		refreshed.Smoke = state.Smoke
+		refreshed.QA = state.QA
 		if refreshed.Review != nil && refreshed.Review.Fingerprint != "" {
 			manifest, reviewFindings, reviewErr := s.PrepareReview(projectRef, sprintRef, ReviewRequest{})
 			refreshed.Review.Stale = reviewErr != nil || len(reviewFindings) > 0 || (strictCompletedReviewSnapshotFreshness && manifest.Fingerprint != refreshed.Review.Fingerprint)
@@ -274,6 +339,7 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 		ReviewPath:                ArtifactRelPath(sp, StageReview),
 		Smoke:                     refreshed.Smoke,
 		SmokePath:                 ArtifactRelPath(sp, StageSmoke),
+		QA:                        refreshed.QA,
 		Verification:              verification,
 	}, nil
 }
@@ -1059,6 +1125,13 @@ func (s Service) runtimeRequest(prompt string, metadata map[string]string) prunt
 	req.WorkDir = s.root
 	req.Metadata = cloneMetadata(req.Metadata, metadata)
 	stage := strings.TrimSpace(metadata["stage"])
+	promptKind := stage
+	if stage == string(VerificationPhaseQA) {
+		promptKind += ".investigator"
+		if role := strings.TrimSpace(metadata["role"]); role != "" {
+			promptKind = stage + "." + role
+		}
+	}
 	project := strings.TrimSpace(metadata["project"])
 	sprint := strings.TrimSpace(metadata["sprint"])
 	storeOwner := strings.Join([]string{"sprint", project, sprint, stage, strings.TrimSpace(metadata["task"]), strings.TrimSpace(metadata["coverage"]), strings.TrimSpace(metadata["area"])}, ":")
@@ -1067,11 +1140,11 @@ func (s Service) runtimeRequest(prompt string, metadata map[string]string) prunt
 	sum := sha256.Sum256([]byte(prompt))
 	checksum := hex.EncodeToString(sum[:])
 	req.PromptRef = pruntime.PromptReference{
-		ID:        "sprint." + stage,
+		ID:        "sprint." + promptKind,
 		Version:   "1",
 		OwnerKind: "sprint",
 		OwnerID:   project + "/" + sprint,
-		Purpose:   stage,
+		Purpose:   promptKind,
 		Checksum:  checksum,
 	}
 	if req.TraceID == "" {
@@ -1096,7 +1169,7 @@ func (s Service) runtimeRequest(prompt string, metadata map[string]string) prunt
 		if len(contract.Optional) > 0 {
 			req.Metadata["prompt_optional_inputs"] = strings.Join(contract.Optional, ",")
 		}
-		if override, ok := s.stageRuntime[stage]; ok {
+		if override, ok := s.runtimeForStage(stage); ok {
 			if override.Model != "" {
 				req.Provider, req.Model = splitProviderModel(override.Model)
 			}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,8 +60,11 @@ func runSprint(deps dependencies, args []string) error {
 		case "execute":
 			_, err := deps.stdout.Write([]byte(sprintExecuteHelp()))
 			return err
-		case "review":
+		case "review", "conformance-review":
 			_, err := deps.stdout.Write([]byte(sprintReviewHelp()))
+			return err
+		case "qa":
+			_, err := deps.stdout.Write([]byte(sprintQAHelp()))
 			return err
 		}
 	}
@@ -68,7 +72,10 @@ func runSprint(deps dependencies, args []string) error {
 		if len(args) == 2 {
 			return classified(ExitUsage, "sprint: expected '<project> <sprint> status'")
 		}
-		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|metrics|validate|prompt|flow|execute|review|smoke|verify>'")
+		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|metrics|validate|prompt|flow|execute|review|conformance-review|qa|smoke|verify>'")
+	}
+	if args[2] == "conformance-review" {
+		args[2] = "review"
 	}
 	root, err := discoverWorkspace(deps)
 	if err != nil {
@@ -359,6 +366,104 @@ func runSprint(deps dependencies, args []string) error {
 			return mapSprintError("sprint.execute", err)
 		}
 		return nil
+	case "qa":
+		qa, settingsErr := qaSettings(effective)
+		if settingsErr != nil {
+			return classified(ExitConfig, "qa.config: %w", settingsErr)
+		}
+		qaService := service.WithQASettings(qa)
+		qaCommand, parseErr := parseSprintQAArgs(args[3:])
+		if parseErr != nil {
+			return classified(ExitUsage, "sprint.qa: %w", parseErr)
+		}
+		operationStatus := "ok"
+		var qaResult QAResult
+		var runErr error
+		switch qaCommand.Action {
+		case "map":
+			mapped, mapErr := qaService.QAMap(args[0], args[1])
+			runErr = mapErr
+			if mapErr == nil {
+				qaResult = qaMapProjection(mapped.Map)
+			}
+		case "status":
+			snapshot, statusErr := qaService.QAStatus(args[0], args[1])
+			runErr = statusErr
+			if statusErr == nil {
+				qaResult = qaSnapshotProjection(snapshot)
+			}
+		case "recover":
+			snapshot, recoverErr := qaService.RecoverQA(deps.ctx, args[0], args[1])
+			runErr = recoverErr
+			if recoverErr == nil {
+				qaResult = qaSnapshotProjection(snapshot)
+			}
+		case "cancel":
+			repository, _, repositoryErr := runRepository(deps)
+			if repositoryErr != nil {
+				runErr = repositoryErr
+				break
+			}
+			useCases := dashboardUseCases{root: root.Path, qaSettings: qa, runs: repositoryRunUseCases{repository: repository}}
+			cancelled, cancelErr := useCases.CancelQA(deps.ctx, QARequest{Project: args[0], Sprint: args[1], RunID: qaCommand.RunID})
+			runErr = cancelErr
+			qaResult = cancelled.QA
+			if cancelErr == nil {
+				qaResult.NextAction = fmt.Sprintf("cancellation requested=%t run=%s; %s", cancelled.Requested, cancelled.Run.RunID, qaResult.NextAction)
+			}
+		case "run", "resume":
+			kind := OperationQAStart
+			if qaCommand.Action == "resume" {
+				kind = OperationQAResume
+			}
+			durable, durableErr := beginDurableCLICommand(deps, OperationRequest{Kind: kind, Project: args[0], Sprint: args[1], Task: qaCommand.Shard})
+			if durableErr != nil {
+				runErr = durableErr
+				break
+			}
+			token, fence, ownershipErr := durable.QAWriterToken()
+			if ownershipErr != nil {
+				runErr = finishDurableCLICommand(durable, ownershipErr)
+				break
+			}
+			runtimeService, serviceErr := sprintRuntimeService(deps, root)
+			if serviceErr != nil {
+				runErr = finishDurableCLICommand(durable, serviceErr)
+				break
+			}
+			runtimeService = runtimeService.WithQAWriterFence(fence)
+			_, qaErr := runtimeService.RunQA(durable.Context(), args[0], args[1], sprint.QARunRequest{Resume: qaCommand.Action == "resume", FocusShard: qaCommand.Shard, WriterToken: token, Progress: func(progress sprint.QAProgress) {
+				fmt.Fprintf(deps.stderr, "[qa] %s %d/%d", progress.Phase, progress.Completed, progress.Total)
+				if progress.ShardID != "" {
+					fmt.Fprintf(deps.stderr, " %s", progress.ShardID)
+				}
+				fmt.Fprintf(deps.stderr, ": %s\n", config.RedactValue("qa.progress", progress.Message))
+			}})
+			runErr = finishDurableCLICommand(durable, qaErr)
+			snapshot, statusErr := runtimeService.QAStatus(args[0], args[1])
+			if statusErr == nil {
+				qaResult = qaSnapshotProjection(snapshot)
+			} else {
+				runErr = errors.Join(runErr, statusErr)
+			}
+		}
+		if runErr != nil {
+			operationStatus = "failed"
+		}
+		qaResult = (dashboardUseCases{root: root.Path, qaSettings: qa, readOnly: true}).withQAConformanceReview(QARequest{Project: args[0], Sprint: args[1]}, qaResult)
+		if qaCommand.JSON {
+			payload := map[string]any{"schema_version": 1, "operation": "sprint.qa", "status": operationStatus, "result": qaResult}
+			if runErr != nil {
+				payload["error"] = stableQACommandError(mapQACommandError(runErr), runErr, qaResult)
+			}
+			_ = json.NewEncoder(deps.stdout).Encode(payload)
+		} else {
+			renderSprintQA(deps, qaResult)
+		}
+		if runErr != nil {
+			return mapQACommandError(runErr)
+		}
+		return nil
 	case "review":
 		req, jsonOut, err := parseSprintReviewArgs(args[3:])
 		if err != nil {
@@ -369,7 +474,7 @@ func runSprint(deps dependencies, args []string) error {
 		var durable *durableCLICommand
 		if !req.DryRun {
 			req.Progress = func(progress sprint.ReviewProgress) {
-				fmt.Fprintf(deps.stderr, "[sprint] review coverage %d/%d", progress.Completed, progress.Total)
+				fmt.Fprintf(deps.stderr, "[sprint] Conformance Review coverage %d/%d", progress.Completed, progress.Total)
 				if progress.CoverageID != "" {
 					fmt.Fprintf(deps.stderr, " %s", progress.CoverageID)
 				}
@@ -473,6 +578,106 @@ func stripFlag(args []string, flag string) ([]string, bool) {
 	return out, found
 }
 
+type sprintQACommand struct {
+	Action string
+	Shard  string
+	RunID  string
+	JSON   bool
+}
+
+func parseSprintQAArgs(args []string) (sprintQACommand, error) {
+	command := sprintQACommand{Action: "run"}
+	if len(args) > 0 {
+		switch args[0] {
+		case "status", "resume", "cancel", "recover":
+			command.Action = args[0]
+			args = args[1:]
+		}
+	}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--dry-run":
+			if command.Action != "run" {
+				return command, fmt.Errorf("--dry-run cannot be combined with %s", command.Action)
+			}
+			command.Action = "map"
+		case "--json":
+			command.JSON = true
+		case "--shard":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return command, errors.New("--shard requires a map-owned shard ID")
+			}
+			command.Shard = args[i+1]
+			i++
+		case "--run":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return command, errors.New("--run requires a durable run ID")
+			}
+			command.RunID = args[i+1]
+			i++
+		default:
+			return command, fmt.Errorf("unknown QA argument %q", args[i])
+		}
+	}
+	switch command.Action {
+	case "run", "resume":
+		if command.RunID != "" {
+			return command, errors.New("--run is valid only with qa cancel")
+		}
+	case "cancel":
+		if command.RunID == "" {
+			return command, errors.New("qa cancel requires --run")
+		}
+		if command.Shard != "" {
+			return command, errors.New("qa cancel does not accept --shard")
+		}
+	case "map", "status", "recover":
+		if command.Shard != "" || command.RunID != "" {
+			return command, fmt.Errorf("qa %s does not accept --shard or --run", command.Action)
+		}
+	}
+	return command, nil
+}
+
+func renderSprintQA(deps dependencies, result QAResult) {
+	if result.Phase == string(sprint.QAPhaseCompleted) {
+		fmt.Fprintln(deps.stdout, "Read-only QA completed")
+	} else {
+		fmt.Fprintln(deps.stdout, "Read-only QA")
+	}
+	fmt.Fprintf(deps.stdout, "  sprint: %s/%s\n  phase: %s\n  fresh: %t\n", result.Project, result.Sprint, result.Phase, result.Fresh)
+	fmt.Fprintf(deps.stdout, "  Conformance Review: status=%s verdict=%s fresh=%t\n", result.ConformanceReviewStatus, result.ConformanceReviewVerdict, result.ConformanceReviewFresh)
+	fmt.Fprintf(deps.stdout, "  coverage: %d/%d changed paths\n  shards: %d/%d\n", result.CoveredPaths, result.ChangedPaths, result.CompletedShards, result.TotalShards)
+	for _, outcome := range []string{"confirmed", "refuted", "invalid", "inconclusive", "blocked", "cross_shard", "not_applicable"} {
+		if count := result.OutcomeTotals[outcome]; count > 0 {
+			fmt.Fprintf(deps.stdout, "  theories.%s: %d\n", outcome, count)
+		}
+	}
+	if result.Blocker != nil {
+		fmt.Fprintf(deps.stdout, "  blocker: %s (%s)\n", result.Blocker.Summary, result.Blocker.Category)
+	}
+	fmt.Fprintf(deps.stdout, "  next: %s\n", result.NextAction)
+}
+
+func mapQACommandError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		code := "qa.cancelled"
+		if errors.Is(err, context.DeadlineExceeded) {
+			code = "qa.deadline_exceeded"
+		}
+		return classedError{class: ExitPartial, code: code, err: fmt.Errorf("sprint.qa: %w", err)}
+	}
+	if typed, ok := sprint.AsQAError(err); ok {
+		class := ExitValidation
+		switch typed.Category {
+		case sprint.QAErrorRuntimeUnavailable, sprint.QAErrorPersistenceFailure:
+			class = ExitRuntime
+		}
+		return classedError{class: class, code: "qa." + string(typed.Category), err: fmt.Errorf("sprint.qa: %w", err)}
+	}
+	return mapSprintError("sprint.qa", err)
+}
+
 func runSprintFlow(ctx context.Context, service sprint.Service, projectRef, sprintRef string, req sprint.FlowRequest) (sprint.FlowResult, error) {
 	return service.Flow(ctx, projectRef, sprintRef, req)
 }
@@ -498,7 +703,87 @@ func sprintRuntimeService(deps dependencies, root workspace.Root, observers ...f
 	if len(observers) > 0 {
 		progress = observers[0]
 	}
-	return sprint.NewService(root.Path).WithRuntime(controlled, req).WithPublisher(stagePublisher(effective.Config)).WithRuntimeProgress(progress).WithStageRuntime(planningStageRuntime(effective.Config)).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env))), nil
+	qa, err := qaSettings(effective)
+	if err != nil {
+		return sprint.Service{}, classified(ExitConfig, "qa.config: %w", err)
+	}
+	return sprint.NewService(root.Path).WithRuntime(controlled, req).WithPublisher(stagePublisher(effective.Config)).WithRuntimeProgress(progress).WithStageRuntime(planningStageRuntime(effective.Config)).WithQASettings(qa).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env))), nil
+}
+
+func qaSettings(effective config.Effective) (sprint.QASettings, error) {
+	c := effective.Config.QA
+	model := strings.TrimSpace(c.Model)
+	modelSource := effective.Sources["qa.model"]
+	if model == "" {
+		model = strings.TrimSpace(effective.Config.Planning.ReviewModel)
+		modelSource = effective.Sources["planning.review_model"]
+	}
+	if model == "" {
+		model = strings.TrimSpace(effective.Config.Planning.PlanModel)
+		modelSource = effective.Sources["planning.plan_model"]
+	}
+	if model == "" {
+		model = strings.TrimSpace(effective.Config.Models.Default)
+		modelSource = effective.Sources["models.default"]
+	}
+	variant := strings.TrimSpace(c.Variant)
+	variantSource := effective.Sources["qa.variant"]
+	if variant == "" {
+		variant = strings.TrimSpace(effective.Config.Execution.DefaultVariant)
+		variantSource = effective.Sources["execution.default_variant"]
+	}
+	parseDuration := func(field, value string) (time.Duration, error) {
+		duration, parseErr := time.ParseDuration(value)
+		if parseErr != nil {
+			return 0, fmt.Errorf("%s: %w", field, parseErr)
+		}
+		return duration, nil
+	}
+	commandTimeout, err := parseDuration("qa.command_timeout", c.CommandTimeout)
+	if err != nil {
+		return sprint.QASettings{}, err
+	}
+	shardTimeout, err := parseDuration("qa.shard_timeout", c.ShardTimeout)
+	if err != nil {
+		return sprint.QASettings{}, err
+	}
+	runTimeout, err := parseDuration("qa.run_timeout", c.RunTimeout)
+	if err != nil {
+		return sprint.QASettings{}, err
+	}
+	cleanupTimeout, err := parseDuration("qa.cleanup_timeout", c.CleanupTimeout)
+	if err != nil {
+		return sprint.QASettings{}, err
+	}
+	sources := make([]sprint.QAEffectiveSource, 0, len(config.QAConfigFields()))
+	for _, field := range config.QAConfigFields() {
+		source := effective.Sources[field]
+		if field == "qa.model" {
+			source = modelSource
+		}
+		if field == "qa.variant" {
+			source = variantSource
+		}
+		sources = append(sources, sprint.QAEffectiveSource{Field: field, Source: source})
+	}
+	sort.Slice(sources, func(i, j int) bool { return sources[i].Field < sources[j].Field })
+	settings := sprint.QASettings{Runtime: sprint.StageRuntime{Model: model, Variant: variant}, Sources: sources, Budgets: sprint.QABudgets{
+		ChangedPaths: c.ChangedPaths, PrimaryShards: c.PrimaryShards, BoundaryShards: c.BoundaryShards,
+		FollowUpShards: c.FollowUpShards, TotalShards: c.TotalShards, PendingEntries: c.PendingEntries,
+		ChangedPathsPerShard: c.ChangedPathsPerShard, ContextPathsPerShard: c.ContextPathsPerShard,
+		ContextExpansions: c.ContextExpansions, PathsPerExpansion: c.PathsPerExpansion,
+		BehavioralConcernsPerShard: c.BehavioralConcernsPerShard, TheoriesPerShard: c.TheoriesPerShard,
+		IterationsPerAttempt: c.IterationsPerAttempt, CommandsPerAttempt: c.CommandsPerAttempt,
+		RuntimeRetries: c.RuntimeRetries, ConcurrentInvestigators: c.ConcurrentInvestigators,
+		CommandTimeout: commandTimeout, ShardTimeout: shardTimeout, RunTimeout: runTimeout,
+		CleanupTimeout: cleanupTimeout, CommandOutputBytes: c.CommandOutputBytes,
+		ShardOutputBytes: c.ShardOutputBytes, PromptBytes: c.PromptBytes,
+		RecentProgress: c.RecentProgress, RetainedAttempts: c.RetainedAttempts, StateBytes: c.StateBytes,
+	}}
+	if err := sprint.ValidateQASettings(settings); err != nil {
+		return sprint.QASettings{}, err
+	}
+	return settings, nil
 }
 
 func renderSprintFlowProgress(deps dependencies) func(sprint.FlowProgress) {
@@ -977,7 +1262,7 @@ func renderSprintStatus(deps dependencies, status sprint.StatusSummary) {
 			fmt.Fprintf(deps.stdout, "  %s: %d\n", state, counts[state])
 		}
 	}
-	fmt.Fprintln(deps.stdout, "Review:")
+	fmt.Fprintln(deps.stdout, "Conformance Review:")
 	fmt.Fprintf(deps.stdout, "  artifact: %s\n", status.ReviewPath)
 	if status.Review == nil {
 		fmt.Fprintln(deps.stdout, "  status: not started")
@@ -1117,7 +1402,7 @@ func renderSprintExecute(deps dependencies, result sprint.ExecuteResult) {
 }
 
 func renderSprintReview(deps dependencies, result sprint.ReviewResult) {
-	fmt.Fprintf(deps.stdout, "Project: %s\nSprint: %s\nReview status: %s\nVerdict: %s\nFingerprint: %s\n", result.Project, result.Sprint, result.Status, result.Verdict, result.Fingerprint)
+	fmt.Fprintf(deps.stdout, "Project: %s\nSprint: %s\nConformance Review status: %s\nVerdict: %s\nFingerprint: %s\n", result.Project, result.Sprint, result.Status, result.Verdict, result.Fingerprint)
 	if result.DryRun {
 		fmt.Fprintln(deps.stdout, "Dry run: true")
 		fmt.Fprintln(deps.stdout, result.Prompt)
@@ -1136,7 +1421,7 @@ func renderSprintReview(deps dependencies, result sprint.ReviewResult) {
 
 func renderSprintSmoke(deps dependencies, result sprint.SmokeResult) {
 	fmt.Fprintf(deps.stdout, "Project: %s\nSprint: %s\nSmoke status: %s\nVerdict: %s\n", result.Project, result.Sprint, result.Status, result.Verdict)
-	fmt.Fprintf(deps.stdout, "Review gate: %s fingerprint=%s override=%t\n", result.ReviewVerdict, result.ReviewFingerprint, result.ReviewOverride)
+	fmt.Fprintf(deps.stdout, "Conformance Review gate: %s fingerprint=%s override=%t\n", result.ReviewVerdict, result.ReviewFingerprint, result.ReviewOverride)
 	fmt.Fprintf(deps.stdout, "Harness: %s protocol=%s\nScope: %s %s\nRationale: %s\n", result.Harness, result.Protocol, result.ScopeKind, result.Scope, result.ScopeRationale)
 	if result.AuthorRunID != "" {
 		fmt.Fprintf(deps.stdout, "Smoke author: %s model=%s changed=%d\n", result.AuthorRunID, result.AuthorModel, len(result.AuthorChangedPaths))
@@ -1184,6 +1469,28 @@ func stableCommandError(err error) map[string]string {
 	return map[string]string{"code": code, "message": displaySafe(err.Error()), "recovery": "Inspect stderr and sprint status, repair the reported cause, then retry."}
 }
 
+func stableQACommandError(mapped, cause error, result QAResult) map[string]any {
+	base := stableCommandError(mapped)
+	out := map[string]any{
+		"code": base["code"], "message": base["message"], "recovery": base["recovery"],
+		"severity": "error", "operation": "sprint.qa", "component": "sprint",
+	}
+	if typed, ok := sprint.AsQAError(cause); ok {
+		out["category"] = string(typed.Category)
+		out["recovery"] = typed.Recovery
+		out["retryable"] = typed.Category == sprint.QAErrorConflict || typed.Category == sprint.QAErrorRuntimeUnavailable
+	}
+	if result.RunID != "" {
+		out["correlation_id"] = result.RunID
+	} else if result.OperationalAttemptID != "" {
+		out["correlation_id"] = result.OperationalAttemptID
+	}
+	if !result.UpdatedAt.IsZero() {
+		out["timestamp"] = result.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return out
+}
+
 func sprintHelp() string {
 	return `ultraplan sprint
 
@@ -1223,6 +1530,12 @@ Usage:
   ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
   ultraplan sprint <project> <sprint> execute --task <id> --defer --reason <text>
   ultraplan sprint <project> <sprint> review [--restart] [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
+  ultraplan sprint <project> <sprint> conformance-review [same flags as review]
+  ultraplan sprint <project> <sprint> qa [--dry-run] [--shard <map-owned-id>] [--json]
+  ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
+  ultraplan sprint <project> <sprint> qa status [--json]
+  ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
+  ultraplan sprint <project> <sprint> qa recover [--json]
   ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
   ultraplan sprint <project> <sprint> verify [--to review|smoke] [--focus-review <id>] [--restart-review] [--level <id>|--suite <id>|--test <id>] [--yes] [--json]
   execute <project> <sprint> is available as the sprint execute action above.
@@ -1234,12 +1547,14 @@ Commands:
   <project> <sprint> prompt <stage>    Print a runtime-free stage prompt preview.
   <project> <sprint> flow --to <stage> Run or preview sprint planning and execute flow.
   <project> <sprint> execute           Execute validated plan tasks through the generic runtime boundary.
-  <project> <sprint> review            Run bounded read-only reviewers and atomically write review.md.
+  <project> <sprint> review            Run Conformance Review and atomically write review.md.
+  <project> <sprint> conformance-review  Compatibility alias for the exact review handler.
+  <project> <sprint> qa                Map, run, resume, inspect, cancel, or recover read-only QA.
   <project> <sprint> smoke             Run the cataloged external harness and atomically write smoke.md.
   <project> <sprint> verify            Run the shared execute-evidence -> review -> smoke transition.
 
 Scope:
-  Supports governed planning, controlled execute, automated review, and review-gated smoke. It does not run issue tracking, Git mutation, hosted/browser, or cross-sprint scheduling workflows.
+  Supports governed planning, controlled execute, Conformance Review, read-only QA, and review-gated smoke. It does not run issue tracking, Git mutation, hosted/browser, or cross-sprint scheduling workflows.
 `
 }
 
@@ -1270,7 +1585,22 @@ func sprintReviewHelp() string {
 Usage:
   ultraplan sprint <project> <sprint> review [--focus <coverage-id>] [--restart] [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
 
-Runs bounded read-only reviewers. Compatible interrupted attempts resume validated coverage and retained OpenCode sessions by default. --restart discards the resumable attempt and starts every reviewer in a fresh session. A focused rerun requires complete same-fingerprint retained coverage and promotes only a fully validated canonical review.
+Runs bounded read-only Conformance Review workers. Compatible interrupted attempts resume validated coverage and retained OpenCode sessions by default. --restart discards the resumable attempt and starts every worker in a fresh session. A focused rerun requires complete same-fingerprint retained coverage and promotes only a fully validated canonical review. The conformance-review alias invokes this exact handler and preserves review.md, sprint.review JSON, verdicts, and exits.
+`
+}
+
+func sprintQAHelp() string {
+	return `ultraplan sprint <project> <sprint> qa
+
+Usage:
+  ultraplan sprint <project> <sprint> qa --dry-run [--json]
+  ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>] [--json]
+  ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
+  ultraplan sprint <project> <sprint> qa status [--json]
+  ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
+  ultraplan sprint <project> <sprint> qa recover [--json]
+
+Builds a deterministic map and runs bounded read-only investigators after current execute and Conformance Review evidence. Start and resume are durably accepted before runtime work. Status and dry-run are read-only; recovery is runtime-free and may reconcile detailed QA state. A focused shard must be owned by the current map. Completed means bounded investigation ended, not that QA passed, and QA never changes the independent Conformance Review verdict.
 `
 }
 

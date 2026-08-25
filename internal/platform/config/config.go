@@ -16,6 +16,7 @@ type Config struct {
 	Models     Models     `json:"models"`
 	Execution  Execution  `json:"execution"`
 	Planning   Planning   `json:"planning"`
+	QA         QA         `json:"qa"`
 	Smoke      Smoke      `json:"smoke"`
 	Git        Git        `json:"git"`
 	RunControl RunControl `json:"run_control"`
@@ -117,7 +118,7 @@ type EnvOverride struct {
 }
 
 func EnvOverrides() []EnvOverride {
-	return []EnvOverride{
+	overrides := []EnvOverride{
 		{Key: "ULTRAPLAN_RUNTIME_DEFAULT", Field: "runtime.default"},
 		{Key: "ULTRAPLAN_MODEL_DEFAULT", Field: "models.default"},
 		{Key: "ULTRAPLAN_MODEL_PRIMARY", Field: "models.primary"},
@@ -146,11 +147,13 @@ func EnvOverrides() []EnvOverride {
 		{Key: "ULTRAPLAN_AGENTWRAP_SANDBOX", Field: "agentwrap.sandbox"},
 		{Key: "ULTRAPLAN_AGENTWRAP_PERMISSION_MODE", Field: "agentwrap.permission_mode"},
 	}
+	return append(overrides, qaEnvOverrides()...)
 }
 
 func Load(opts LoadOptions) (Effective, error) {
 	e := Effective{Config: Defaults(), Sources: map[string]string{}}
-	for _, field := range []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.code_context_model", "planning.code_context_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "planning.execute_model", "planning.execute_variant", "planning.review_model", "planning.review_variant", "planning.smoke_model", "planning.smoke_variant", "smoke.discovery_timeout", "smoke.run_timeout", "smoke.stdout_limit", "smoke.stderr_limit", "smoke.cleanup_grace", "smoke.environment", "git.stage_completion", "git.remote", "git.push_timeout", "run_control.full_history", "run_control.tombstone_history", "run_control.workspace_quota_bytes", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"} {
+	fields := []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.code_context_model", "planning.code_context_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "planning.execute_model", "planning.execute_variant", "planning.review_model", "planning.review_variant", "planning.smoke_model", "planning.smoke_variant", "smoke.discovery_timeout", "smoke.run_timeout", "smoke.stdout_limit", "smoke.stderr_limit", "smoke.cleanup_grace", "smoke.environment", "git.stage_completion", "git.remote", "git.push_timeout", "run_control.full_history", "run_control.tombstone_history", "run_control.workspace_quota_bytes", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"}
+	for _, field := range append(fields, qaConfigFields()...) {
 		e.Sources[field] = "default"
 	}
 	if opts.WorkspaceRoot != "" {
@@ -158,7 +161,9 @@ func Load(opts LoadOptions) (Effective, error) {
 			return e, err
 		}
 	}
-	applyEnv(&e, opts.Env)
+	if err := applyEnv(&e, opts.Env); err != nil {
+		return e, err
+	}
 	if opts.CLI.LogFormat != nil {
 		e.Config.Logging.Format = *opts.CLI.LogFormat
 		e.Sources["logging.format"] = "cli"
@@ -180,6 +185,7 @@ func Defaults() Config {
 		Models:     Models{Default: "provider/model", Primary: "provider/model", Backup: "provider/model"},
 		Execution:  Execution{DefaultVariant: "high", DefaultParallel: 3, DefaultTimeout: "30m", DefaultRetries: 3},
 		Planning:   Planning{},
+		QA:         DefaultQA(),
 		Smoke:      Smoke{DiscoveryTimeout: "30s", RunTimeout: "30m", StdoutLimit: 4 << 20, StderrLimit: 1 << 20, CleanupGrace: "5s", Environment: []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"}},
 		Git:        Git{StageCompletion: "off", Remote: "origin", PushTimeout: "2m"},
 		RunControl: RunControl{FullHistory: "168h", TombstoneHistory: "720h", WorkspaceQuota: 512 << 20},
@@ -266,19 +272,25 @@ func leadingWhitespace(raw string) int {
 	return len(raw) - len(strings.TrimLeft(raw, " \t"))
 }
 
-func applyEnv(e *Effective, env func(string) string) {
+func applyEnv(e *Effective, env func(string) string) error {
 	if env == nil {
-		return
+		return nil
 	}
 	for _, override := range EnvOverrides() {
 		if value := env(override.Key); value != "" {
-			_ = setField(&e.Config, override.Field, value)
+			if err := setField(&e.Config, override.Field, value); err != nil {
+				return fmt.Errorf("environment %s: %w", override.Key, err)
+			}
 			e.Sources[override.Field] = "env"
 		}
 	}
+	return nil
 }
 
 func setField(c *Config, field, value string) error {
+	if handled, err := setQAField(&c.QA, field, value); handled || err != nil {
+		return err
+	}
 	switch field {
 	case "version":
 		n, err := strconv.Atoi(value)
@@ -430,6 +442,9 @@ func Validate(c Config) error {
 	}
 	if c.Execution.DefaultRetries < 0 {
 		return fmt.Errorf("execution.default_retries: must not be negative")
+	}
+	if err := validateQA(c.QA); err != nil {
+		return err
 	}
 	d, err := time.ParseDuration(c.Execution.DefaultTimeout)
 	if err != nil || d <= 0 {

@@ -131,6 +131,29 @@ an author-attributed protected write and any out-of-allowlist harness mutation
 remain hard failures. Attribution observes the live runtime event callback and
 does not depend on the bounded retained-event tail.
 
+## Read-only QA verification phase
+
+`VerificationPhase` is independent from `PlanningStage`. It names `conformance-review`, `qa`, and the reserved future `repair` phase without inserting QA into planning order or changing `StageReview`, `StageSmoke`, `review.md`, or `smoke.md`. Human interfaces say Conformance Review; the `review` machine identity remains authoritative.
+
+Four authorities remain separate:
+
+- governed project and sprint artifacts plus implementation content are product inputs;
+- `internal/sprint` owns deterministic QA maps, shards, theories, synthesis, and detailed filesystem state;
+- `internal/runcontrol` owns operational acceptance, leases, fencing, cancellation, events, and terminal arbitration;
+- `internal/app` owns typed projections and operation preparation consumed by CLI, TUI, and web.
+
+The detailed state root is `projects/<project>/sprints/<sprint>/verification/`. `state.json` is the current pointer; immutable `attempts/<qa-v1-attempt-id>/map.json`, per-shard JSON, and `synthesis.json` retain bounded evidence. Records are strict schema v1, private, path-contained, digest-checked, and atomically written. Publication writes referenced records first, then `state.json`, then the bounded `flow-state.json` summary. The flow summary never stores theories or attempt history. Recovery may reconcile a validated terminal pointer and summary but never fabricates runtime completion.
+
+Mapping normalizes governed input traces, current execute changed paths, current Conformance Review evidence, target/Git identity, boundaries, risks, the approved-check catalog, effective policy, and every numeric limit. IDs use the local `qa-v1` namespace and are deterministic only within this schema and sprint scope. Every changed path has exactly one primary owner; boundary overlap is explicit and bounded.
+
+Runtime QA starts only after durable acceptance and owner claim. The app converts the accepted run fence into an opaque sprint writer token, and every product-state publication revalidates it. Investigators run with `read_only`, restricted permissions, required permission capability, default deny, and path rules limited to assigned changed/context files. They cannot choose commands. Approved checks use a closed descriptor catalog with explicit executable, argv, cwd, environment-name allowlist, timeout, output limit, and fingerprint; shell wrappers, Git, interpreters, redirection, and write modes are rejected.
+
+Each attempt compares the full implementation/Git identity immediately before and after runtime work, records contained symlink identity, and rebuilds the deterministic map before promotion to detect governed-input, review, policy, catalog, or target drift. Fixed workers and bounded queues enforce concurrency; cancellation stops admission and preserves already validated terminal shards. Resume reuses only current completed or blocked product records with a new durable owner. It never adopts processes, goroutines, or provider sessions.
+
+Final synthesis is pure over validated current shards. It retains all outcome classes, deduplicates equivalent theories, preserves contradictions and cross-shard interactions, and proposes at most the configured parent-linked follow-ups. `completed` means the bounded investigation ended. Synthesis has no issue, repair, patch, generated-check, `qa.md`, or Conformance Review verdict authority.
+
+The dependency direction remains `internal/web` → `internal/app` → `internal/sprint`; web does not import sprint, inspect verification files, build prompts, invoke runtimes, or decide outcomes.
+
 ## Deferred Phase 4 Capabilities
 
 Hosted or LAN/public serving, accounts, authentication, TLS, teams, tenants,

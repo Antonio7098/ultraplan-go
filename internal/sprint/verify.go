@@ -351,6 +351,13 @@ func targetIdentity(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	rootInfo, err := os.Lstat(root)
+	if err != nil {
+		return "", err
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("target root must not be a symlink")
+	}
 	paths := []string{}
 	head := "non-git"
 	gitRootOK := false
@@ -404,10 +411,15 @@ func targetIdentity(root string) (string, error) {
 			return "", statErr
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
+			linkValue, linkErr := os.Readlink(full)
+			if linkErr != nil {
+				return "", linkErr
+			}
 			target, linkErr := filepath.EvalSymlinks(full)
 			if linkErr != nil || !inside(root, target) {
 				return "", fmt.Errorf("target symlink escapes or is unreadable: %s", rel)
 			}
+			fmt.Fprintf(h, "%s\x00symlink=%s\n", rel, filepath.ToSlash(linkValue))
 			info, statErr = os.Stat(target)
 			if statErr != nil {
 				return "", statErr

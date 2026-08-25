@@ -1,0 +1,826 @@
+package sprint
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+)
+
+type QARunRequest struct {
+	Resume      bool
+	FocusShard  string
+	WriterToken QAWriterToken
+	Progress    func(QAProgress)
+}
+
+type QAProgress struct {
+	Phase      QAPhaseStatus `json:"phase"`
+	ShardID    string        `json:"shard_id,omitempty"`
+	ShardKind  QAShardKind   `json:"shard_kind,omitempty"`
+	ShardPhase QAPhaseStatus `json:"shard_phase,omitempty"`
+	Event      string        `json:"event"`
+	Completed  int           `json:"completed"`
+	Total      int           `json:"total"`
+	Message    string        `json:"message"`
+}
+
+type QARunResult struct {
+	Project   string      `json:"project"`
+	Sprint    string      `json:"sprint"`
+	State     QAState     `json:"state"`
+	Map       QAMap       `json:"map"`
+	Shards    []QAShard   `json:"shards"`
+	Synthesis QASynthesis `json:"synthesis"`
+}
+
+type QASnapshot struct {
+	State     QAState      `json:"state"`
+	Map       *QAMap       `json:"map,omitempty"`
+	Shards    []QAShard    `json:"shards,omitempty"`
+	Synthesis *QASynthesis `json:"synthesis,omitempty"`
+}
+
+// QAStatus reads the authoritative QA pointer and its referenced records. It
+// never constructs a runtime or repairs state as a side effect.
+func (s Service) QAStatus(projectRef, sprintRef string) (QASnapshot, error) {
+	sp, err := s.resolveMutationSprint(projectRef, sprintRef)
+	if err != nil {
+		return QASnapshot{}, err
+	}
+	store := NewQAStore(s.root, sp)
+	state, err := store.LoadState()
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return QASnapshot{State: QAState{SchemaVersion: QASchemaVersion, Project: sp.Project, Sprint: sp.Slug, Phase: QAPhaseMissing, Freshness: QAFreshness{Current: false, Reasons: []string{"no QA attempt has been persisted"}}, NextAction: "Run qa --dry-run to inspect the current deterministic map."}}, nil
+		}
+		return QASnapshot{}, err
+	}
+	snapshot := QASnapshot{State: state}
+	if state.Map != nil {
+		qaMap, loadErr := store.LoadMap(state.CurrentAttemptID)
+		if loadErr != nil {
+			return QASnapshot{}, loadErr
+		}
+		snapshot.Map = &qaMap
+		for _, planned := range qaMap.Shards {
+			loaded, shardErr := store.LoadShard(state.CurrentAttemptID, planned.ID)
+			if shardErr != nil {
+				return QASnapshot{}, shardErr
+			}
+			snapshot.Shards = append(snapshot.Shards, loaded)
+		}
+	}
+	if state.Synthesis != nil {
+		budgets := MaximumQABudgets()
+		if snapshot.Map != nil {
+			budgets = snapshot.Map.Budgets
+		}
+		synthesis, loadErr := store.LoadSynthesis(state.CurrentAttemptID, budgets)
+		if loadErr != nil {
+			return QASnapshot{}, loadErr
+		}
+		snapshot.Synthesis = &synthesis
+		for _, follow := range synthesis.FollowUpShards {
+			loaded, shardErr := store.LoadShard(state.CurrentAttemptID, follow.ID)
+			if shardErr == nil {
+				snapshot.Shards = append(snapshot.Shards, loaded)
+			}
+		}
+	}
+	sort.Slice(snapshot.Shards, func(i, j int) bool { return snapshot.Shards[i].ID < snapshot.Shards[j].ID })
+	return snapshot, nil
+}
+
+func (s Service) QAShard(projectRef, sprintRef, shardID string) (QAShard, error) {
+	snapshot, err := s.QAStatus(projectRef, sprintRef)
+	if err != nil {
+		return QAShard{}, err
+	}
+	for _, shard := range snapshot.Shards {
+		if shard.ID == shardID {
+			return shard, nil
+		}
+	}
+	return QAShard{}, NewQAError(QAErrorInvalidState, "read shard", "shard is not owned by the current QA attempt", nil)
+}
+
+func (s Service) QATheory(projectRef, sprintRef, theoryID string) (QATheory, error) {
+	snapshot, err := s.QAStatus(projectRef, sprintRef)
+	if err != nil {
+		return QATheory{}, err
+	}
+	for _, shard := range snapshot.Shards {
+		for _, theory := range shard.Theories {
+			if theory.ID == theoryID {
+				return theory, nil
+			}
+		}
+	}
+	return QATheory{}, NewQAError(QAErrorInvalidState, "read theory", "theory is not owned by the current QA attempt", nil)
+}
+
+// RecoverQA reconciles an abandoned or stale QA pointer without creating a
+// runtime or adopting any prior worker or session.
+func (s Service) RecoverQA(ctx context.Context, projectRef, sprintRef string) (QASnapshot, error) {
+	lockedCtx, release, err := s.acquireMutationContext(ctx, projectRef, sprintRef)
+	if err != nil {
+		return QASnapshot{}, err
+	}
+	defer release()
+	_ = lockedCtx
+	sp, err := s.resolveMutationSprint(projectRef, sprintRef)
+	if err != nil {
+		return QASnapshot{}, err
+	}
+	store := NewQAStore(s.root, sp)
+	state, err := store.LoadState()
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return s.QAStatus(projectRef, sprintRef)
+		}
+		return QASnapshot{}, err
+	}
+	flow, err := LoadFlowState(s.root, sp)
+	if err != nil {
+		return QASnapshot{}, err
+	}
+	now := s.now().UTC()
+	changed := false
+	statePath, pathErr := store.StatePath()
+	if pathErr != nil {
+		return QASnapshot{}, pathErr
+	}
+	stateDigest, digestErr := hashFile(statePath)
+	if digestErr != nil {
+		return QASnapshot{}, NewQAError(QAErrorPersistenceFailure, "recover", "cannot fingerprint QA state", digestErr)
+	}
+	expectedSummary := qaFlowSummary(state, stateDigest, sp)
+	if flow.QA == nil || *flow.QA != *expectedSummary {
+		changed = true
+	}
+	switch state.Phase {
+	case QAPhaseQueued, QAPhaseRunning, QAPhaseSynthesizing:
+		changed = true
+		state.Phase = QAPhaseInterrupted
+		state.Run.Lifecycle = QARunTerminal
+		state.Run.TerminalResult = QATerminalInterrupted
+		state.Blocker = &QABlocker{Category: QAErrorConflict, Scope: "attempt", Summary: "the prior process stopped while QA work was active", NextAction: "Run qa resume to continue current valid shards with a new owner."}
+		state.NextAction = state.Blocker.NextAction
+	case QAPhaseMapped:
+		changed = true
+		state.Phase = QAPhaseInterrupted
+		state.NextAction = "Run qa resume to claim and execute the mapped shards."
+	}
+	if current, mapErr := s.QAMap(projectRef, sprintRef); mapErr != nil || current.Map.SemanticAttemptID != state.CurrentAttemptID {
+		changed = true
+		state.Phase = QAPhaseStale
+		state.Freshness.Current = false
+		state.Freshness.Reasons = []string{"governed QA inputs no longer match the retained semantic attempt"}
+		state.NextAction = "Run qa --dry-run, then start a new QA attempt from the current map."
+	}
+	if !changed {
+		return s.QAStatus(projectRef, sprintRef)
+	}
+	state.UpdatedAt = now
+	if err := store.SaveRecoveredState(state, flow); err != nil {
+		return QASnapshot{}, err
+	}
+	settings, settingsErr := s.effectiveQASettings()
+	if settingsErr == nil {
+		if err := store.PruneAttempts(state.CurrentAttemptID, settings.Budgets.RetainedAttempts); err != nil {
+			return QASnapshot{}, err
+		}
+	}
+	return s.QAStatus(projectRef, sprintRef)
+}
+
+type qaInvestigatorOutput struct {
+	SchemaVersion int                    `json:"schema_version"`
+	Theories      []qaInvestigatorTheory `json:"theories"`
+	Evidence      []QAEvidenceSummary    `json:"evidence,omitempty"`
+	Context       []QAContextRequest     `json:"context_requests,omitempty"`
+	Checks        []QAApprovedCheckRef   `json:"check_requests,omitempty"`
+}
+
+type qaInvestigatorTheory struct {
+	Claim                 string          `json:"claim"`
+	Basis                 string          `json:"basis"`
+	VerificationSurface   string          `json:"verification_surface"`
+	ExpectationRefs       []string        `json:"expectation_refs"`
+	SeverityIfConfirmed   string          `json:"severity_if_confirmed"`
+	ConfirmationCondition string          `json:"confirmation_condition"`
+	RefutationCondition   string          `json:"refutation_condition"`
+	InconclusiveCondition string          `json:"inconclusive_condition"`
+	SafeEvidenceStrategy  string          `json:"safe_evidence_strategy"`
+	Outcome               QATheoryOutcome `json:"outcome"`
+	OutcomeReason         string          `json:"outcome_reason"`
+}
+
+type qaShardResult struct {
+	shard QAShard
+	err   error
+}
+
+// RunQA owns one bounded read-only investigation attempt. Mapping stays pure;
+// this method starts persistence and runtimes only after a valid writer token
+// and the sprint mutation lease have both been acquired.
+func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QARunRequest) (QARunResult, error) {
+	if s.runtime == nil {
+		return QARunResult{}, NewQAError(QAErrorRuntimeUnavailable, "run", "a QA runtime is required", nil)
+	}
+	if err := req.WriterToken.Validate(); err != nil {
+		return QARunResult{}, NewQAError(QAErrorConflict, "run", err.Error(), err)
+	}
+	settings, err := s.effectiveQASettings()
+	if err != nil {
+		return QARunResult{}, NewQAError(QAErrorInvalidState, "run", "effective QA settings are invalid", err)
+	}
+	req.Progress = boundedQAProgress(req.Progress, settings.Budgets.RecentProgress)
+	lockedCtx, release, err := s.acquireMutationContext(ctx, projectRef, sprintRef)
+	if err != nil {
+		return QARunResult{}, err
+	}
+	defer release()
+	sp, err := s.resolveMutationSprint(projectRef, sprintRef)
+	if err != nil {
+		return QARunResult{}, err
+	}
+	fence := s.qaWriterFence
+	if fence == nil {
+		expected := req.WriterToken
+		fence = func(got QAWriterToken) error {
+			if got != expected {
+				return errors.New("writer token does not own this QA invocation")
+			}
+			return nil
+		}
+	}
+	store := NewQAStore(s.root, sp).WithWriterFence(fence)
+	if err := store.PruneAttempts("", settings.Budgets.RetainedAttempts); err != nil {
+		return QARunResult{}, err
+	}
+	if used, sizeErr := store.VerificationBytes(); sizeErr != nil {
+		return QARunResult{}, sizeErr
+	} else if used > int64(settings.Budgets.StateBytes) {
+		return QARunResult{}, NewQAError(QAErrorBudgetExhausted, "run", "retained QA state exceeds the configured state budget", nil)
+	}
+	mapResult, err := s.QAMap(projectRef, sprintRef)
+	if err != nil {
+		return QARunResult{}, err
+	}
+	manifest, findings, err := s.PrepareReview(projectRef, sprintRef, ReviewRequest{})
+	if err != nil || len(findings) > 0 {
+		return QARunResult{}, NewQAError(QAErrorStaleInput, "run", "cannot resolve the current governed target", err)
+	}
+	flow, err := LoadFlowState(s.root, sp)
+	if err != nil {
+		return QARunResult{}, NewQAError(QAErrorInvalidState, "run", "flow state is unavailable", err)
+	}
+	state, shards, err := s.prepareQAAttempt(store, flow, mapResult.Map, req, settings)
+	if err != nil {
+		return QARunResult{}, err
+	}
+	emitQA(req.Progress, QAProgress{Phase: QAPhaseQueued, Event: "shards_queued", Completed: state.CompletedShards, Total: state.TotalShards, Message: "QA shards queued"})
+
+	runCtx, cancel := context.WithTimeout(lockedCtx, settings.Budgets.RunTimeout)
+	defer cancel()
+	state.Phase = QAPhaseRunning
+	state.Run.Lifecycle = QARunActive
+	state.NextAction = "Wait for the bounded read-only investigators."
+	state.UpdatedAt = s.now().UTC()
+	if err := store.Publish(QAPublication{State: state, Flow: flow}, req.WriterToken); err != nil {
+		return QARunResult{}, err
+	}
+	emitQA(req.Progress, QAProgress{Phase: QAPhaseRunning, Event: "investigation_started", Completed: state.CompletedShards, Total: state.TotalShards, Message: "QA investigation started"})
+	shards, state, runErr := s.runQAShardBatch(runCtx, store, flow, mapResult.Map, manifest.Target, shards, state, req)
+	if runErr != nil {
+		state = terminalQAState(state, runErr, s.now().UTC())
+		if publishErr := store.Publish(QAPublication{State: state, Flow: flow}, req.WriterToken); publishErr != nil {
+			return QARunResult{}, errors.Join(runErr, publishErr)
+		}
+		return QARunResult{Project: sp.Project, Sprint: sp.Slug, State: state, Map: mapResult.Map, Shards: shards}, runErr
+	}
+
+	state.Phase = QAPhaseSynthesizing
+	state.NextAction = "Synthesize the retained shard outcomes."
+	state.UpdatedAt = s.now().UTC()
+	if err := store.Publish(QAPublication{State: state, Flow: flow}, req.WriterToken); err != nil {
+		return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
+	}
+	emitQA(req.Progress, QAProgress{Phase: QAPhaseSynthesizing, Event: "synthesis_started", Completed: state.CompletedShards, Total: state.TotalShards, Message: "QA synthesis started"})
+	synthesis, err := SynthesizeQA(mapResult.Map, shards)
+	if err != nil {
+		return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
+	}
+	if len(synthesis.FollowUpShards) > 0 {
+		follow := append([]QAShard(nil), synthesis.FollowUpShards...)
+		state.TotalShards += len(follow)
+		shards = append(shards, follow...)
+		shards, state, runErr = s.runQAShardBatch(runCtx, store, flow, mapResult.Map, manifest.Target, shards, state, req)
+		if runErr != nil {
+			state = terminalQAState(state, runErr, s.now().UTC())
+			if publishErr := store.Publish(QAPublication{State: state, Flow: flow}, req.WriterToken); publishErr != nil {
+				return QARunResult{}, errors.Join(runErr, publishErr)
+			}
+			return QARunResult{Project: sp.Project, Sprint: sp.Slug, State: state, Map: mapResult.Map, Shards: shards}, runErr
+		}
+		synthesis, err = SynthesizeQA(mapResult.Map, shards)
+		if err != nil {
+			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
+		}
+	}
+	if err := hydrateQASynthesisFollowUps(&synthesis, shards); err != nil {
+		return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
+	}
+	state.OutcomeCounts = cloneQAOutcomeCounts(synthesis.OutcomeCounts)
+	state.Phase = QAPhaseCompleted
+	state.Run.Lifecycle = QARunTerminal
+	state.Run.TerminalResult = QATerminalCompleted
+	state.NextAction = synthesis.NextAction
+	state.UpdatedAt = s.now().UTC()
+	if err := store.Publish(QAPublication{Shards: shards, Synthesis: &synthesis, State: state, Flow: flow}, req.WriterToken); err != nil {
+		return QARunResult{}, err
+	}
+	loaded, err := store.LoadState()
+	if err != nil {
+		return QARunResult{}, err
+	}
+	emitQA(req.Progress, QAProgress{Phase: loaded.Phase, Event: "investigation_complete", Completed: loaded.CompletedShards, Total: loaded.TotalShards, Message: "QA investigation complete"})
+	return QARunResult{Project: sp.Project, Sprint: sp.Slug, State: loaded, Map: mapResult.Map, Shards: shards, Synthesis: synthesis}, nil
+}
+
+func (s Service) publishTerminalQAFailure(store QAStore, flow FlowState, qaMap QAMap, shards []QAShard, state QAState, token QAWriterToken, runErr error) (QARunResult, error) {
+	state = terminalQAState(state, runErr, s.now().UTC())
+	if publishErr := store.Publish(QAPublication{State: state, Flow: flow}, token); publishErr != nil {
+		return QARunResult{Project: qaMap.Project, Sprint: qaMap.Sprint, State: state, Map: qaMap, Shards: shards}, errors.Join(runErr, publishErr)
+	}
+	return QARunResult{Project: qaMap.Project, Sprint: qaMap.Sprint, State: state, Map: qaMap, Shards: shards}, runErr
+}
+
+func hydrateQASynthesisFollowUps(synthesis *QASynthesis, shards []QAShard) error {
+	byID := make(map[string]QAShard, len(shards))
+	for _, shard := range shards {
+		byID[shard.ID] = shard
+	}
+	for i := range synthesis.FollowUpShards {
+		current, ok := byID[synthesis.FollowUpShards[i].ID]
+		if !ok || (current.Phase != QAPhaseCompleted && current.Phase != QAPhaseBlocked) {
+			return NewQAError(QAErrorInvalidState, "synthesize", "a proposed follow-up shard did not reach a retained terminal state", nil)
+		}
+		synthesis.FollowUpShards[i] = current
+	}
+	return nil
+}
+
+func (s Service) prepareQAAttempt(store QAStore, flow FlowState, qaMap QAMap, req QARunRequest, settings QASettings) (QAState, []QAShard, error) {
+	now := s.now().UTC()
+	if req.Resume {
+		prior, err := store.LoadState()
+		if err == nil && prior.CurrentAttemptID == qaMap.SemanticAttemptID && prior.Map != nil {
+			shards := append([]QAShard(nil), qaMap.Shards...)
+			for i := range shards {
+				loaded, loadErr := store.LoadShard(qaMap.SemanticAttemptID, shards[i].ID)
+				if loadErr == nil && (loaded.Phase == QAPhaseCompleted || loaded.Phase == QAPhaseBlocked) {
+					shards[i] = loaded
+				}
+			}
+			prior.Run = qaRunCorrelation(req.WriterToken, QARunClaimed)
+			prior.Phase = QAPhaseQueued
+			prior.Blocker = nil
+			prior.Cancellation = QACancellation{}
+			prior.CompletedShards = countTerminalQAShards(shards)
+			prior.TotalShards = len(shards)
+			prior.NextAction = "Resume incomplete shards from the current semantic attempt."
+			prior.UpdatedAt = now
+			if err := store.Publish(QAPublication{State: prior, Flow: flow}, req.WriterToken); err != nil {
+				return QAState{}, nil, err
+			}
+			return prior, shards, nil
+		}
+	}
+	state := QAState{SchemaVersion: QASchemaVersion, Project: qaMap.Project, Sprint: qaMap.Sprint, Phase: QAPhaseMapped,
+		Freshness:        QAFreshness{Current: true, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint, ReviewFingerprint: qaMap.ReviewFingerprint, PolicyFingerprint: qaMap.PolicyFingerprint},
+		CurrentAttemptID: qaMap.SemanticAttemptID, CompletedShards: countTerminalQAShards(qaMap.Shards), TotalShards: len(qaMap.Shards), Run: qaRunCorrelation(req.WriterToken, QARunClaimed), NextAction: "Run the mapped read-only QA shards.", UpdatedAt: now}
+	shards := append([]QAShard(nil), qaMap.Shards...)
+	if err := store.Publish(QAPublication{Map: &qaMap, Shards: shards, State: state, Flow: flow}, req.WriterToken); err != nil {
+		return QAState{}, nil, err
+	}
+	loaded, err := store.LoadState()
+	if err != nil {
+		return QAState{}, nil, err
+	}
+	if err := store.PruneAttempts(qaMap.SemanticAttemptID, settings.Budgets.RetainedAttempts); err != nil {
+		return QAState{}, nil, err
+	}
+	return loaded, shards, nil
+}
+
+func (s Service) runQAShardBatch(ctx context.Context, store QAStore, flow FlowState, qaMap QAMap, target string, shards []QAShard, state QAState, req QARunRequest) ([]QAShard, QAState, error) {
+	batchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	abortResults := make(chan struct{})
+	indices := make([]int, 0, len(shards))
+	for i := range shards {
+		if shards[i].Phase == QAPhaseCompleted || shards[i].Phase == QAPhaseBlocked {
+			continue
+		}
+		if req.FocusShard != "" && shards[i].ID != req.FocusShard {
+			continue
+		}
+		indices = append(indices, i)
+	}
+	if req.FocusShard != "" && len(indices) == 0 {
+		return shards, state, NewQAError(QAErrorInvalidState, "run", "focused shard is absent or already terminal", nil)
+	}
+	workers := qaMap.Budgets.ConcurrentInvestigators
+	if workers > len(indices) {
+		workers = len(indices)
+	}
+	if workers == 0 {
+		return shards, state, nil
+	}
+	jobs := make(chan int, workers)
+	results := make(chan qaShardResult, workers)
+	var group sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			for index := range jobs {
+				shard, err := s.runOneQAShardSafely(batchCtx, qaMap, shards[index], target, req.WriterToken)
+				select {
+				case results <- qaShardResult{shard: shard, err: err}:
+				case <-abortResults:
+					return
+				}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, index := range indices {
+			select {
+			case jobs <- index:
+			case <-batchCtx.Done():
+				return
+			}
+		}
+	}()
+	go func() {
+		group.Wait()
+		close(results)
+	}()
+	byID := make(map[string]int, len(shards))
+	for i := range shards {
+		byID[shards[i].ID] = i
+	}
+	var publishErr error
+	for result := range results {
+		if publishErr != nil {
+			continue
+		}
+		index := byID[result.shard.ID]
+		if result.err != nil {
+			switch {
+			case errors.Is(result.err, context.Canceled):
+				result.shard.Phase = QAPhaseCancelled
+			case errors.Is(result.err, context.DeadlineExceeded):
+				result.shard.Phase = QAPhaseInterrupted
+			default:
+				result.shard.Phase = QAPhaseBlocked
+			}
+			result.shard.Blocker = qaBlocker(result.err, result.shard.ID)
+		}
+		shards[index] = result.shard
+		state.CompletedShards = countTerminalQAShards(shards)
+		state.UpdatedAt = s.now().UTC()
+		if err := store.Publish(QAPublication{Shards: []QAShard{result.shard}, State: state, Flow: flow}, req.WriterToken); err != nil {
+			publishErr = err
+			close(abortResults)
+			cancel()
+			continue
+		}
+		emitQA(req.Progress, QAProgress{Phase: state.Phase, ShardID: result.shard.ID, ShardKind: result.shard.Kind, ShardPhase: result.shard.Phase, Event: "shard_terminal", Completed: state.CompletedShards, Total: state.TotalShards, Message: "QA shard reached a terminal state"})
+	}
+	if publishErr != nil {
+		return shards, state, publishErr
+	}
+	if err := ctx.Err(); err != nil {
+		return shards, state, err
+	}
+	return shards, state, nil
+}
+
+func (s Service) runOneQAShardSafely(ctx context.Context, qaMap QAMap, shard QAShard, target string, token QAWriterToken) (result QAShard, err error) {
+	result = shard
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = NewQAError(QAErrorRuntimeUnavailable, "investigate shard", "investigator runtime panicked", fmt.Errorf("panic: %v", recovered))
+		}
+	}()
+	return s.runOneQAShard(ctx, qaMap, shard, target, token)
+}
+
+func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, target string, token QAWriterToken) (QAShard, error) {
+	if err := s.validateCurrentQAMap(qaMap); err != nil {
+		return shard, err
+	}
+	request, err := s.QAInvestigatorRequest(qaMap, shard, target)
+	if err != nil {
+		return shard, err
+	}
+	request.Metadata["operation"] = "qa-investigate"
+	request.Metadata["task"] = shard.ID
+	request.Metadata["operational_attempt"] = token.OperationalAttemptID
+	var (
+		result  pruntime.Result
+		attempt QAInvestigatorAttempt
+	)
+	for number := 1; number <= qaMap.Budgets.RuntimeRetries+1; number++ {
+		before, identityErr := targetIdentity(target)
+		if identityErr != nil || before != qaMap.ImplementationFingerprint {
+			return shard, NewQAError(QAErrorStaleInput, "investigate shard", "implementation identity no longer matches the QA map", identityErr)
+		}
+		started := s.now().UTC()
+		var runErr error
+		result, runErr = s.runtime.StartRun(ctx, request)
+		completed := s.now().UTC()
+		after, afterErr := targetIdentity(target)
+		attempt = QAInvestigatorAttempt{ID: fmt.Sprintf("%s/%s/%d", token.OperationalAttemptID, shard.ID, number), Number: number, StartedAt: started, CompletedAt: &completed, ImplementationBefore: before, ImplementationAfter: after, Usage: qaUsageSummary(result.Usage)}
+		if result.EstimatedCost != nil {
+			attempt.EstimatedCost = &QACostSummary{Amount: result.EstimatedCost.Amount, Currency: result.EstimatedCost.Currency, Estimate: result.EstimatedCost.Estimate}
+		}
+		if afterErr != nil || after != before {
+			attempt.StopReason = "implementation identity drift"
+			shard.Attempts = append(shard.Attempts, attempt)
+			return shard, NewQAError(QAErrorPermissionDenied, "investigate shard", "implementation identity changed during read-only investigation", afterErr)
+		}
+		if currentErr := s.validateCurrentQAMap(qaMap); currentErr != nil {
+			attempt.StopReason = "governed input drift"
+			shard.Attempts = append(shard.Attempts, attempt)
+			return shard, currentErr
+		}
+		if result.Permissions.Mode != "restricted" || result.Permissions.Default != "deny" || result.Permissions.UnsupportedCount != 0 {
+			attempt.StopReason = "permission enforcement unavailable"
+			shard.Attempts = append(shard.Attempts, attempt)
+			return shard, NewQAError(QAErrorPermissionDenied, "investigate shard", "runtime did not enforce restricted default-deny permissions", nil)
+		}
+		if runErr == nil {
+			if result.Usage.TurnsKnown && result.Usage.Turns > int64(qaMap.Budgets.IterationsPerAttempt) {
+				attempt.StopReason = "investigator iteration limit exceeded"
+				shard.Attempts = append(shard.Attempts, attempt)
+				return shard, NewQAError(QAErrorBudgetExhausted, "investigate shard", fmt.Sprintf("investigator used %d turns; limit is %d", result.Usage.Turns, qaMap.Budgets.IterationsPerAttempt), nil)
+			}
+			attempt.StopReason = "terminal investigator output accepted"
+			break
+		}
+		attempt.FailureKind, attempt.Retryable = classifyQARuntimeFailure(result, runErr)
+		attempt.StopReason = "runtime attempt failed"
+		shard.Attempts = append(shard.Attempts, attempt)
+		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+			return shard, runErr
+		}
+		if !attempt.Retryable {
+			return shard, NewQAError(QAErrorRuntimeUnavailable, "investigate shard", "runtime failure is not retryable", runErr)
+		}
+		if number > qaMap.Budgets.RuntimeRetries {
+			return shard, NewQAError(QAErrorBudgetExhausted, "investigate shard", fmt.Sprintf("runtime retry limit exhausted after %d attempts", number), runErr)
+		}
+	}
+	output, err := decodeQAInvestigatorOutput(result, qaMap.Budgets.ShardOutputBytes)
+	if err != nil {
+		return shard, err
+	}
+	if len(output.Theories) > qaMap.Budgets.TheoriesPerShard || len(output.Context) > qaMap.Budgets.ContextExpansions || len(output.Checks) > qaMap.Budgets.CommandsPerAttempt {
+		return shard, NewQAError(QAErrorBudgetExhausted, "investigate shard", "investigator output exceeds map-owned limits", nil)
+	}
+	attempt.ContextRequests = append([]QAContextRequest(nil), output.Context...)
+	attempt.Evidence = append([]QAEvidenceSummary(nil), output.Evidence...)
+	for _, contextRequest := range attempt.ContextRequests {
+		if contextRequest.Approved {
+			return shard, NewQAError(QAErrorPermissionDenied, "investigate shard", "runtime cannot self-approve context expansion", nil)
+		}
+		if len(contextRequest.Paths) > qaMap.Budgets.PathsPerExpansion {
+			return shard, NewQAError(QAErrorBudgetExhausted, "investigate shard", "context request exceeds path limit", nil)
+		}
+		for _, path := range contextRequest.Paths {
+			if err := validateQAPath(path); err != nil {
+				return shard, NewQAError(QAErrorPermissionDenied, "investigate shard", err.Error(), err)
+			}
+		}
+	}
+	checks, err := ApprovedQAChecks(target, qaMap.Coverage.ChangedPaths, qaMap.Budgets)
+	if err != nil {
+		return shard, err
+	}
+	checkByID := map[string]QACheckDescriptor{}
+	for _, descriptor := range checks {
+		checkByID[descriptor.ID] = descriptor
+	}
+	for _, requested := range output.Checks {
+		descriptor, ok := checkByID[requested.ID]
+		if !ok {
+			return shard, NewQAError(QAErrorPermissionDenied, "investigate shard", "runtime requested a check outside the map-owned catalog", nil)
+		}
+		summary, checkErr := s.RunApprovedQACheck(ctx, qaMap, descriptor, requested)
+		attempt.Commands = append(attempt.Commands, summary)
+		if checkErr != nil {
+			return shard, checkErr
+		}
+	}
+	theories := make([]QATheory, 0, len(output.Theories))
+	for _, draft := range output.Theories {
+		identity := QATheoryIdentity{Claim: draft.Claim, Basis: draft.Basis, VerificationSurface: draft.VerificationSurface, ExpectationRefs: normalizeQAStrings(draft.ExpectationRefs)}
+		id, idErr := NewQATheoryID(qaMap.Project, qaMap.Sprint, shard.ID, identity)
+		if idErr != nil {
+			return shard, idErr
+		}
+		theory := QATheory{SchemaVersion: QASchemaVersion, ID: id, ShardID: shard.ID, Claim: draft.Claim, Basis: draft.Basis, VerificationSurface: draft.VerificationSurface, ExpectationRefs: identity.ExpectationRefs, SeverityIfConfirmed: draft.SeverityIfConfirmed, ConfirmationCondition: draft.ConfirmationCondition, RefutationCondition: draft.RefutationCondition, InconclusiveCondition: draft.InconclusiveCondition, SafeEvidenceStrategy: draft.SafeEvidenceStrategy, ImplementationFingerprint: attempt.ImplementationBefore, AttemptHistory: append(append([]QAInvestigatorAttempt(nil), shard.Attempts...), attempt), Evidence: append([]QAEvidenceSummary(nil), output.Evidence...), Outcome: draft.Outcome, OutcomeReason: draft.OutcomeReason}
+		if err := ValidateQATheory(theory); err != nil {
+			return shard, NewQAError(QAErrorInvalidState, "investigate shard", err.Error(), err)
+		}
+		theories = append(theories, theory)
+	}
+	if len(theories) == 0 {
+		return shard, NewQAError(QAErrorInvalidState, "investigate shard", "investigator returned no falsifiable theories", nil)
+	}
+	if err := s.validateCurrentQAMap(qaMap); err != nil {
+		return shard, err
+	}
+	sort.Slice(theories, func(i, j int) bool { return theories[i].ID < theories[j].ID })
+	shard.Attempts = append(shard.Attempts, attempt)
+	shard.Theories = theories
+	shard.Phase = QAPhaseCompleted
+	shard.Blocker = nil
+	return shard, nil
+}
+
+func (s Service) validateCurrentQAMap(expected QAMap) error {
+	if s.qaMapFence != nil {
+		if err := s.qaMapFence(expected); err != nil {
+			return NewQAError(QAErrorStaleInput, "investigate shard", "governed QA inputs changed during investigation", err)
+		}
+		return nil
+	}
+	current, err := s.QAMap(expected.Project, expected.Sprint)
+	if err != nil {
+		return NewQAError(QAErrorStaleInput, "investigate shard", "cannot revalidate governed QA inputs", err)
+	}
+	if current.Map.ID != expected.ID {
+		return NewQAError(QAErrorStaleInput, "investigate shard", "governed QA inputs changed during investigation", nil)
+	}
+	return nil
+}
+
+func decodeQAInvestigatorOutput(result pruntime.Result, limit int) (qaInvestigatorOutput, error) {
+	content := result.TerminalOutput
+	if content == "" {
+		for i := len(result.Events) - 1; i >= 0; i-- {
+			if value, ok := result.Events[i].Payload["content"].(string); ok && value != "" {
+				content = value
+				break
+			}
+		}
+	}
+	if len(content) == 0 || len(content) > limit {
+		return qaInvestigatorOutput{}, NewQAError(QAErrorBudgetExhausted, "decode investigator", "terminal output is empty or exceeds the shard output limit", nil)
+	}
+	decoder := json.NewDecoder(bytes.NewBufferString(content))
+	decoder.DisallowUnknownFields()
+	var output qaInvestigatorOutput
+	if err := decoder.Decode(&output); err != nil {
+		return qaInvestigatorOutput{}, NewQAError(QAErrorInvalidState, "decode investigator", "terminal output is not one strict QA JSON object", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return qaInvestigatorOutput{}, NewQAError(QAErrorInvalidState, "decode investigator", "terminal output has trailing JSON", err)
+	}
+	if output.SchemaVersion != QASchemaVersion {
+		return qaInvestigatorOutput{}, NewQAError(QAErrorUnknownSchema, "decode investigator", fmt.Sprintf("unsupported investigator schema version %d", output.SchemaVersion), nil)
+	}
+	return output, nil
+}
+
+func terminalQAState(state QAState, err error, now time.Time) QAState {
+	state.Run.Lifecycle = QARunTerminal
+	state.UpdatedAt = now
+	state.Blocker = qaBlocker(err, "attempt")
+	state.NextAction = state.Blocker.NextAction
+	switch {
+	case errors.Is(err, context.Canceled):
+		state.Phase = QAPhaseCancelled
+		state.Run.TerminalResult = QATerminalCancelled
+		state.Cancellation = QACancellation{Requested: true, Scope: "attempt", Reason: "context cancelled", At: &now}
+	case errors.Is(err, context.DeadlineExceeded):
+		state.Phase = QAPhaseInterrupted
+		state.Run.TerminalResult = QATerminalInterrupted
+	default:
+		state.Phase = QAPhaseBlocked
+		state.Run.TerminalResult = QATerminalBlocked
+	}
+	return state
+}
+
+func qaRunCorrelation(token QAWriterToken, lifecycle QARunLifecycle) QARunCorrelation {
+	return QARunCorrelation{Lifecycle: lifecycle, RunID: token.RunID, OperationalAttemptID: token.OperationalAttemptID, FencingGeneration: token.FencingGeneration}
+}
+
+func qaBlocker(err error, scope string) *QABlocker {
+	if errors.Is(err, context.Canceled) {
+		return &QABlocker{Category: QAErrorConflict, Scope: scope, Summary: "read-only QA was cancelled", NextAction: "Run qa resume to continue incomplete current shards with a new durable owner."}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &QABlocker{Category: QAErrorBudgetExhausted, Scope: scope, Summary: "read-only QA exhausted its wall-clock limit", NextAction: "Inspect retained shard outcomes, then run qa resume if the current inputs are unchanged."}
+	}
+	category := QAErrorRuntimeUnavailable
+	next := qaRecovery(category)
+	summary := err.Error()
+	if typed, ok := AsQAError(err); ok {
+		category = typed.Category
+		next = typed.Recovery
+		summary = typed.Detail
+	}
+	return &QABlocker{Category: category, Scope: scope, Summary: summary, NextAction: next}
+}
+
+func countTerminalQAShards(shards []QAShard) int {
+	total := 0
+	for _, shard := range shards {
+		if shard.Phase == QAPhaseCompleted || shard.Phase == QAPhaseBlocked {
+			total++
+		}
+	}
+	return total
+}
+
+func cloneQAOutcomeCounts(input map[QATheoryOutcome]int) map[QATheoryOutcome]int {
+	result := make(map[QATheoryOutcome]int, len(input))
+	for outcome, count := range input {
+		result[outcome] = count
+	}
+	return result
+}
+
+func emitQA(progress func(QAProgress), event QAProgress) {
+	if progress != nil {
+		progress(event)
+	}
+}
+
+func boundedQAProgress(progress func(QAProgress), limit int) func(QAProgress) {
+	if progress == nil || limit <= 0 {
+		return progress
+	}
+	var mu sync.Mutex
+	emitted := 0
+	return func(event QAProgress) {
+		mu.Lock()
+		defer mu.Unlock()
+		if emitted >= limit {
+			return
+		}
+		emitted++
+		progress(event)
+	}
+}
+
+func qaUsageSummary(usage pruntime.Usage) QAUsageSummary {
+	return QAUsageSummary{
+		InputTokensKnown: usage.InputTokensKnown, InputTokens: usage.InputTokens,
+		OutputTokensKnown: usage.OutputTokensKnown, OutputTokens: usage.OutputTokens,
+		TotalTokensKnown: usage.TotalTokensKnown, TotalTokens: usage.TotalTokens,
+		ReasoningTokensKnown: usage.ReasoningTokensKnown, ReasoningTokens: usage.ReasoningTokens,
+		CacheReadTokensKnown: usage.CacheReadTokensKnown, CacheReadTokens: usage.CacheReadTokens,
+		CacheWriteTokensKnown: usage.CacheWriteTokensKnown, CacheWriteTokens: usage.CacheWriteTokens,
+		TurnsKnown: usage.TurnsKnown, Turns: usage.Turns,
+	}
+}
+
+func classifyQARuntimeFailure(result pruntime.Result, err error) (string, bool) {
+	if errors.Is(err, context.Canceled) {
+		return "cancelled", false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "deadline_exceeded", false
+	}
+	if result.Error == nil || strings.TrimSpace(result.Error.Category) == "" {
+		return "runtime_error", true
+	}
+	kind := strings.ToLower(strings.TrimSpace(result.Error.Category))
+	switch kind {
+	case "validation", "invalid_input", "permission_denied", "configuration", "unsupported":
+		return kind, false
+	default:
+		return kind, true
+	}
+}

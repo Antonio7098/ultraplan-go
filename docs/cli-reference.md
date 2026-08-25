@@ -335,13 +335,67 @@ After the runtime returns, UltraPlan validates the reason, preserves the task's 
 ultraplan sprint <project> <sprint> review [--focus <coverage-id>] [--restart] [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
 ```
 
-Runs bounded read-only conformance reviewers and atomically writes `review.md`. Compatible interrupted attempts resume validated coverage and retained OpenCode sessions. Use `--restart` to discard the resumable attempt and start fresh. A focused rerun promotes only when all other coverage can be retained from the same current fingerprint.
+Runs bounded read-only Conformance Review workers and atomically writes `review.md`. `conformance-review` is an exact alias for this handler; the command name, `review.md`, verdicts, JSON operation name, and exits remain compatible. Compatible interrupted attempts resume validated coverage and retained OpenCode sessions. Use `--restart` to discard the resumable attempt and start fresh. A focused rerun promotes only when all other coverage can be retained from the same current fingerprint.
 
 Example:
 
 ```bash
 ultraplan sprint ultraplan-go 28-review-to-smoke-flow review --focus architecture --json
 ```
+
+### `ultraplan sprint <project> <sprint> qa`
+
+```text
+ultraplan sprint <project> <sprint> qa --dry-run [--json]
+ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>] [--json]
+ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
+ultraplan sprint <project> <sprint> qa status [--json]
+ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
+ultraplan sprint <project> <sprint> qa recover [--json]
+```
+
+`--dry-run` creates the byte-stable current map without a runtime, durable acceptance, or state write. Start and resume require current execute and Conformance Review evidence, accept and claim a durable run before child work, and optionally focus one current map-owned shard. Commands, paths, permissions, fingerprints, IDs, prompts, and theory content are product-owned. There are no caller flags for model or budgets. Workspace configuration may select the model and lower product limits.
+
+`status` is read-only. `cancel` sends an explicit request through durable run control; closing a terminal or browser session does not cancel work. `recover` is runtime-free but may reconcile an interrupted/stale pointer, digest, bounded flow summary, or retention state. Resume always creates a new durable owner and never adopts an old runtime session.
+
+Text says `Read-only QA completed` when bounded work ends. This is not a pass verdict. Theory outcomes are `confirmed`, `refuted`, `invalid`, `inconclusive`, `blocked`, `cross_shard`, and `not_applicable`; none is automatically an issue. QA cannot change the separate Conformance Review verdict.
+
+With `--json`, success or failure is one object with `schema_version: 1`, `operation: "sprint.qa"`, `status`, `result`, and an optional stable `error`. The result carries phase and freshness separately from run lifecycle, cancellation, terminal result, Conformance Review status/verdict/freshness, fingerprints, coverage, effective limits, bounded shards, outcome totals, blocker, and next action. Usage errors use exit 2, configuration errors 3, validation/stale/policy errors 5, runtime or persistence failures 6, and cancellation or deadline partial results 8.
+
+QA configuration uses normal precedence: product default, `ultraplan.yml`, then environment. Invalid workspace or environment values stop configuration loading. Integer limits and durations must be positive and cannot exceed the listed hard maximum. A default equal to its maximum can still be lowered.
+
+| `qa` key | Environment | Default | Hard maximum |
+| --- | --- | ---: | ---: |
+| `model` | `ULTRAPLAN_QA_MODEL` | review, plan, then default-model fallback | not numeric |
+| `variant` | `ULTRAPLAN_QA_VARIANT` | `execution.default_variant` | not numeric |
+| `changed_paths` | `ULTRAPLAN_QA_CHANGED_PATHS` | 512 | 512 |
+| `primary_shards` | `ULTRAPLAN_QA_PRIMARY_SHARDS` | 32 | 32 |
+| `boundary_shards` | `ULTRAPLAN_QA_BOUNDARY_SHARDS` | 8 | 8 |
+| `follow_up_shards` | `ULTRAPLAN_QA_FOLLOW_UP_SHARDS` | 4 | 4 |
+| `total_shards` | `ULTRAPLAN_QA_TOTAL_SHARDS` | 44 | 44 |
+| `pending_entries` | `ULTRAPLAN_QA_PENDING_ENTRIES` | 44 | 44 |
+| `changed_paths_per_shard` | `ULTRAPLAN_QA_CHANGED_PATHS_PER_SHARD` | 32 | 64 |
+| `context_paths_per_shard` | `ULTRAPLAN_QA_CONTEXT_PATHS_PER_SHARD` | 64 | 128 |
+| `context_expansions` | `ULTRAPLAN_QA_CONTEXT_EXPANSIONS` | 2 | 4 |
+| `paths_per_expansion` | `ULTRAPLAN_QA_PATHS_PER_EXPANSION` | 16 | 32 |
+| `behavioral_concerns_per_shard` | `ULTRAPLAN_QA_BEHAVIORAL_CONCERNS_PER_SHARD` | 12 | 24 |
+| `theories_per_shard` | `ULTRAPLAN_QA_THEORIES_PER_SHARD` | 12 | 24 |
+| `iterations_per_attempt` | `ULTRAPLAN_QA_ITERATIONS_PER_ATTEMPT` | 4 | 8 |
+| `commands_per_attempt` | `ULTRAPLAN_QA_COMMANDS_PER_ATTEMPT` | 8 | 16 |
+| `runtime_retries` | `ULTRAPLAN_QA_RUNTIME_RETRIES` | 1 | 2 |
+| `concurrent_investigators` | `ULTRAPLAN_QA_CONCURRENT_INVESTIGATORS` | 3 | 8 |
+| `command_timeout` | `ULTRAPLAN_QA_COMMAND_TIMEOUT` | 5m | 10m |
+| `shard_timeout` | `ULTRAPLAN_QA_SHARD_TIMEOUT` | 20m | 30m |
+| `run_timeout` | `ULTRAPLAN_QA_RUN_TIMEOUT` | 60m | 90m |
+| `cleanup_timeout` | `ULTRAPLAN_QA_CLEANUP_TIMEOUT` | 30s | 30s |
+| `command_output_bytes` | `ULTRAPLAN_QA_COMMAND_OUTPUT_BYTES` | 262144 | 524288 |
+| `shard_output_bytes` | `ULTRAPLAN_QA_SHARD_OUTPUT_BYTES` | 1048576 | 2097152 |
+| `prompt_bytes` | `ULTRAPLAN_QA_PROMPT_BYTES` | 524288 | 1048576 |
+| `recent_progress` | `ULTRAPLAN_QA_RECENT_PROGRESS` | 100 | 200 |
+| `retained_attempts` | `ULTRAPLAN_QA_RETAINED_ATTEMPTS` | 8 | 8 |
+| `state_bytes` | `ULTRAPLAN_QA_STATE_BYTES` | 134217728 | 134217728 |
+
+`qa.model` falls back to `planning.review_model`, then `planning.plan_model`, then `models.default`. `qa.variant` falls back to `execution.default_variant`. Model changes can alter cost, latency, and investigator behavior. They change the policy fingerprint, make retained QA state stale, and require a fresh dry-run before another start. Restore the prior model value to roll back, then rebuild the map so the recorded policy matches the actual request.
 
 ### `ultraplan sprint <project> <sprint> smoke`
 
@@ -428,12 +482,13 @@ The compatibility-sensitive JSON surfaces in this release are:
 - `code --json` deterministic extraction result
 - `sprint <project> <sprint> status --json`
 - `sprint <project> <sprint> review --json`
+- `sprint <project> <sprint> qa --json`
 - `sprint <project> <sprint> smoke --json`
 - `sprint <project> <sprint> verify --json`
 
 The Phase 3 field-level compatibility contract is documented in [Phase 3 JSON Schemas](phase3-json-schemas.md).
 
-Sprint `status --json`, `review --json`, and `smoke --json` also expose schema-versioned envelopes. Other text output is intended for humans unless explicitly promoted to stable JSON.
+Sprint `status --json`, `review --json`, `qa --json`, and `smoke --json` also expose schema-versioned envelopes. Other text output is intended for humans unless explicitly promoted to stable JSON.
 ## Durable run commands
 
 All commands operate on the selected workspace (`--workspace` or normal

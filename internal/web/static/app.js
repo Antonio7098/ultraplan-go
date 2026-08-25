@@ -632,13 +632,17 @@
     if (form.dataset.project) scope.project = form.dataset.project;
     if (form.dataset.sprint) scope.sprint = form.dataset.sprint;
     if (form.dataset.study) scope.study = form.dataset.study;
-    const options = {};
-    const selectedStage = form.elements?.stage?.value || form.dataset.stage;
-    if (selectedStage) options.to_stage = selectedStage;
-    const selectedModel = form.elements?.model?.value;
-    if (selectedModel) options.model = selectedModel;
-    const selectedParallelism = form.elements?.parallelism?.value || form.dataset.parallelism;
-    if (selectedParallelism) options.parallelism = Number(selectedParallelism);
+    const options = window.UltraPlanOperations?.options(form) || {};
+    if (!window.UltraPlanOperations) {
+      const selectedStage = form.elements?.stage?.value || form.dataset.stage;
+      if (selectedStage) options.to_stage = selectedStage;
+      const selectedModel = form.elements?.model?.value;
+      if (selectedModel) options.model = selectedModel;
+      const selectedParallelism = form.elements?.parallelism?.value || form.dataset.parallelism;
+      if (selectedParallelism) options.parallelism = Number(selectedParallelism);
+      const selectedShard = form.elements?.shard?.value;
+      if (selectedShard) options.shard = selectedShard;
+    }
     return {kind: submitter?.dataset.operationKind || form.dataset.operationKind, scope, options};
   }
 
@@ -1210,6 +1214,7 @@
     const labels = {started: "Agent started", completed: "Report completed", failed: "Agent failed", waiting: "Waiting to retry", cancelled: "Cancelled", validating: "Validating report"};
     if (labels[event.stage]) return labels[event.stage];
     if (event.stage === "runtime" && payload.action) return humanizeRunText(payload.action);
+    if (payload.action) return humanizeRunText(payload.action);
     return event.stage ? humanizeRunText(event.stage) : humanizeRunText(event.type || "event");
   };
   const runAgentStatusFor = (event) => {
@@ -1553,14 +1558,50 @@
       stage: item.dataset.runStage,
       task: item.dataset.runTask,
       committed_at: item.dataset.runTime,
-      payload: {type: item.dataset.runTypeDetail, phase_state: item.dataset.runPhaseState, summary: item.dataset.runSummary, action: item.dataset.runAction, reason: item.dataset.runReason, kind: item.dataset.runKind, tool: item.dataset.runTool, tool_call_id: item.dataset.runToolCallId, tool_status: item.dataset.runToolStatus, tool_arguments: item.dataset.runToolArguments, tool_result: item.dataset.runToolResult, tool_error: item.dataset.runToolError}
-    };
-    ingestRunJourneyEvent(event);
-    if (event.task) ingestRunEvent(event);
+      payload: {type: item.dataset.runTypeDetail, phase_state: item.dataset.runPhaseState, summary: item.dataset.runSummary, state: item.dataset.runState, action: item.dataset.runAction, reason: item.dataset.runReason, count: item.dataset.runCount, kind: item.dataset.runKind, tool: item.dataset.runTool, tool_call_id: item.dataset.runToolCallId, tool_status: item.dataset.runToolStatus, tool_arguments: item.dataset.runToolArguments, tool_result: item.dataset.runToolResult, tool_error: item.dataset.runToolError}
+	};
+	ingestRunJourneyEvent(event);
+	if (event.task) ingestRunEvent(event);
   }
   renderRunJourney();
   renderAgentGrid();
   runAgentsLive = true;
+
+  let qaCockpitRefreshTimer;
+  let qaCockpitRefreshing = false;
+  const refreshQAObservation = async () => {
+    const currentCockpit = document.querySelector("[data-qa-cockpit]");
+    if (!currentCockpit || qaCockpitRefreshing) return;
+    if (currentCockpit.contains(document.activeElement)) {
+      qaCockpitRefreshTimer = window.setTimeout(refreshQAObservation, 800);
+      return;
+    }
+    qaCockpitRefreshing = true;
+    currentCockpit.setAttribute("aria-busy", "true");
+    const openDetails = new Set(Array.from(currentCockpit.querySelectorAll("details[open][id]"), (item) => item.id));
+    try {
+      const response = await fetch(window.location.href, {headers: {Accept: "text/html"}, cache: "no-store"});
+      if (!response.ok) throw new Error("QA observation unavailable");
+      const documentCopy = new DOMParser().parseFromString(await response.text(), "text/html");
+      const nextCockpit = documentCopy.querySelector("[data-qa-cockpit]");
+      const nextRunState = documentCopy.querySelector("[data-run-id]");
+      if (!nextCockpit) throw new Error("QA observation missing");
+      for (const id of openDetails) nextCockpit.querySelector(`#${CSS.escape(id)}`)?.setAttribute("open", "");
+      currentCockpit.replaceWith(nextCockpit);
+      const currentRunState = document.querySelector("[data-run-id]");
+      if (currentRunState && nextRunState) currentRunState.replaceWith(nextRunState);
+    } catch (_) {
+      currentCockpit.removeAttribute("aria-busy");
+      setDurableLive("Committed events are live; the QA snapshot refresh failed and will retry on the next event.");
+    } finally {
+      qaCockpitRefreshing = false;
+    }
+  };
+  const scheduleQAObservationRefresh = () => {
+    if (!document.querySelector("[data-qa-cockpit]")) return;
+    if (qaCockpitRefreshTimer) window.clearTimeout(qaCockpitRefreshTimer);
+    qaCockpitRefreshTimer = window.setTimeout(refreshQAObservation, 500);
+  };
 
   const appendDurableEvent = (event) => {
     ingestRunJourneyEvent(event);
@@ -1581,9 +1622,9 @@
       item.append(detail);
     }
     const payload = event.payload || {};
-    item.dataset.runTypeDetail = payload.type || "";
-    item.dataset.runPhaseState = payload.phase_state || "";
-    for (const value of [payload.kind ? `kind=${payload.kind}` : "", payload.tool_name || payload.tool ? `tool=${payload.tool_name || payload.tool}` : "", payload.tool_status ? `status=${payload.tool_status}` : "", payload.tool_call_id ? `call=${payload.tool_call_id}` : ""]) {
+	item.dataset.runTypeDetail = payload.type || "";
+	item.dataset.runPhaseState = payload.phase_state || "";
+	for (const value of [payload.action ? `action=${payload.action}` : "", payload.reason ? `result=${payload.reason}` : "", payload.count ? `progress=${payload.count}` : "", payload.kind ? `kind=${payload.kind}` : "", payload.tool_name || payload.tool ? `tool=${payload.tool_name || payload.tool}` : "", payload.tool_status ? `status=${payload.tool_status}` : "", payload.tool_call_id ? `call=${payload.tool_call_id}` : ""]) {
       if (!value) continue;
       const meta = document.createElement("small");
       meta.textContent = ` ${value}`;
@@ -1595,8 +1636,8 @@
       detail.className = payload.summary ? "run-event-summary" : "run-event-detail";
       detail.textContent = detailText;
       item.append(detail);
-    }
-    appendToolObservation(item, payload);
+	}
+	appendToolObservation(item, payload);
     if (event.omission) {
       const omission = document.createElement("p");
       omission.textContent = `Omitted ${event.omission.count || 0} detail item(s): ${event.omission.reason || "bounded history"}`;
@@ -1609,6 +1650,7 @@
       pruned = true;
     }
     if (pruned) setDurableLive("Live — the page retains the newest 500 rows; repository history is unchanged.");
+    scheduleQAObservationRefresh();
   };
   const stopDurableFollow = () => {
     durableStream?.close();
@@ -1697,6 +1739,7 @@
     if (stream) stream.close();
     stopDurableFollow();
     if (durableLiveTimer) window.clearTimeout(durableLiveTimer);
+    if (qaCockpitRefreshTimer) window.clearTimeout(qaCockpitRefreshTimer);
     if (reviewTimer) clearInterval(reviewTimer);
   });
 })();

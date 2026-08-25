@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ type SprintSummary struct {
 	Execute           ExecuteSummary
 	Review            ReviewSummary
 	Smoke             SmokeSummary
+	QA                QAResult
 	Findings          []DisplayFinding
 	Artifacts         []DisplayArtifact
 	RefreshMayWrite   bool
@@ -61,6 +63,270 @@ type SmokeSummary struct {
 	Issues                       []sprint.SmokeIssue
 	Override                     *sprint.DiagnosticOverride
 	CoverageMapping              *sprint.SmokeCoverageMapping
+}
+
+// QAUseCases is the adapter-independent QA boundary. Its DTOs contain bounded
+// product facts and never expose verification persistence records directly.
+type QAUseCases interface {
+	QAQueries
+	RunQA(context.Context, QARequest, func(OperationEvent)) (QAResult, error)
+	ResumeQA(context.Context, QARequest, func(OperationEvent)) (QAResult, error)
+	CancelQA(context.Context, QARequest) (QACancelResult, error)
+	RecoverQA(context.Context, QARequest) (QAResult, error)
+}
+
+type QAQueries interface {
+	QAMap(context.Context, QARequest) (QAResult, error)
+	QAStatus(context.Context, QARequest) (QAResult, error)
+	QAShard(context.Context, QARequest) (QAShardResult, error)
+	QATheory(context.Context, QARequest) (QATheoryResult, error)
+	QASynthesis(context.Context, QARequest) (QASynthesisResult, error)
+}
+
+type QARequest struct {
+	Project string
+	Sprint  string
+	Shard   string
+	Theory  string
+	RunID   string
+}
+
+type QAResult struct {
+	SchemaVersion                int                        `json:"schema_version"`
+	Project                      string                     `json:"project"`
+	Sprint                       string                     `json:"sprint"`
+	Phase                        string                     `json:"phase"`
+	Fresh                        bool                       `json:"fresh"`
+	FreshnessReasons             []string                   `json:"freshness_reasons,omitempty"`
+	AttemptID                    string                     `json:"attempt_id,omitempty"`
+	RunID                        string                     `json:"run_id,omitempty"`
+	OperationalAttemptID         string                     `json:"operational_attempt_id,omitempty"`
+	FencingGeneration            uint64                     `json:"fencing_generation,omitempty"`
+	RunLifecycle                 string                     `json:"run_lifecycle,omitempty"`
+	TerminalResult               string                     `json:"terminal_result,omitempty"`
+	GovernedInputFingerprint     string                     `json:"governed_input_fingerprint,omitempty"`
+	ImplementationFingerprint    string                     `json:"implementation_fingerprint,omitempty"`
+	ReviewFingerprint            string                     `json:"review_fingerprint,omitempty"`
+	ConformanceReviewStatus      string                     `json:"conformance_review_status,omitempty"`
+	ConformanceReviewVerdict     string                     `json:"conformance_review_verdict,omitempty"`
+	ConformanceReviewFresh       bool                       `json:"conformance_review_fresh"`
+	ConformanceReviewUnavailable bool                       `json:"conformance_review_unavailable,omitempty"`
+	ConformanceReviewDiagnostic  string                     `json:"conformance_review_diagnostic,omitempty"`
+	MapFingerprint               string                     `json:"map_fingerprint,omitempty"`
+	PolicyFingerprint            string                     `json:"policy_fingerprint,omitempty"`
+	CheckCatalogFingerprint      string                     `json:"check_catalog_fingerprint,omitempty"`
+	UpdatedAt                    time.Time                  `json:"updated_at,omitempty"`
+	MapRecord                    *QAArtifactRefSummary      `json:"map_record,omitempty"`
+	SynthesisRecord              *QAArtifactRefSummary      `json:"synthesis_record,omitempty"`
+	EffectiveSources             []QAEffectiveSourceSummary `json:"effective_sources,omitempty"`
+	Target                       QATargetIdentitySummary    `json:"target"`
+	Coverage                     QACoverageSummary          `json:"coverage"`
+	InputRefs                    []QAArtifactRefSummary     `json:"input_refs,omitempty"`
+	Limits                       QALimitsSummary            `json:"limits"`
+	ChangedPaths                 int                        `json:"changed_paths"`
+	CoveredPaths                 int                        `json:"covered_paths"`
+	CompletedShards              int                        `json:"completed_shards"`
+	TotalShards                  int                        `json:"total_shards"`
+	OutcomeTotals                map[string]int             `json:"outcome_totals,omitempty"`
+	Shards                       []QAShardSummary           `json:"shards"`
+	Blocker                      *QABlockerSummary          `json:"blocker,omitempty"`
+	Cancellation                 QACancellationSummary      `json:"cancellation"`
+	NextAction                   string                     `json:"next_action"`
+}
+
+type QAArtifactRefSummary struct {
+	Path   string `json:"path"`
+	Digest string `json:"digest"`
+}
+
+type QAEffectiveSourceSummary struct {
+	Field  string `json:"field"`
+	Source string `json:"source"`
+}
+
+type QATargetIdentitySummary struct {
+	Fingerprint string            `json:"fingerprint"`
+	GitHead     string            `json:"git_head,omitempty"`
+	GitIndex    string            `json:"git_index,omitempty"`
+	GitWorktree string            `json:"git_worktree,omitempty"`
+	Categories  map[string]string `json:"categories,omitempty"`
+}
+
+type QACoverageSummary struct {
+	ChangedPaths     []string            `json:"changed_paths,omitempty"`
+	PrimaryOwners    map[string]string   `json:"primary_owners,omitempty"`
+	BoundaryOverlaps map[string][]string `json:"boundary_overlaps,omitempty"`
+	BlockedPaths     []string            `json:"blocked_paths,omitempty"`
+}
+
+type QALimitsSummary struct {
+	ChangedPaths               int    `json:"changed_paths"`
+	TotalShards                int    `json:"total_shards"`
+	PendingEntries             int    `json:"pending_entries"`
+	ChangedPathsPerShard       int    `json:"changed_paths_per_shard"`
+	ContextPathsPerShard       int    `json:"context_paths_per_shard"`
+	ContextExpansions          int    `json:"context_expansions"`
+	PathsPerExpansion          int    `json:"paths_per_expansion"`
+	BehavioralConcernsPerShard int    `json:"behavioral_concerns_per_shard"`
+	TheoriesPerShard           int    `json:"theories_per_shard"`
+	IterationsPerAttempt       int    `json:"iterations_per_attempt"`
+	CommandsPerAttempt         int    `json:"commands_per_attempt"`
+	RuntimeRetries             int    `json:"runtime_retries"`
+	ConcurrentInvestigators    int    `json:"concurrent_investigators"`
+	CommandTimeout             string `json:"command_timeout"`
+	ShardTimeout               string `json:"shard_timeout"`
+	RunTimeout                 string `json:"run_timeout"`
+	CleanupTimeout             string `json:"cleanup_timeout"`
+	CommandOutputBytes         int    `json:"command_output_bytes"`
+	ShardOutputBytes           int    `json:"shard_output_bytes"`
+	PromptBytes                int    `json:"prompt_bytes"`
+	FollowUpShards             int    `json:"follow_up_shards"`
+}
+
+type QAShardSummary struct {
+	ID                 string                         `json:"id"`
+	AttemptID          string                         `json:"attempt_id,omitempty"`
+	Kind               string                         `json:"kind"`
+	Title              string                         `json:"title"`
+	Phase              string                         `json:"phase"`
+	ChangedPaths       []string                       `json:"changed_paths,omitempty"`
+	ContextPaths       []string                       `json:"context_paths,omitempty"`
+	OverlapPaths       []string                       `json:"overlap_paths,omitempty"`
+	BoundaryReason     string                         `json:"boundary_reason,omitempty"`
+	BehavioralConcerns []string                       `json:"behavioral_concerns,omitempty"`
+	ExpectationRefs    []string                       `json:"expectation_refs,omitempty"`
+	RiskTags           []string                       `json:"risk_tags,omitempty"`
+	ApprovedChecks     []QAApprovedCheckSummary       `json:"approved_checks,omitempty"`
+	ParentTheoryIDs    []string                       `json:"parent_theory_ids,omitempty"`
+	Attempts           []QAInvestigatorAttemptSummary `json:"attempts,omitempty"`
+	TheoryCount        int                            `json:"theory_count"`
+	Theories           []QATheorySummary              `json:"theories,omitempty"`
+	Blocker            *QABlockerSummary              `json:"blocker,omitempty"`
+}
+
+type QAApprovedCheckSummary struct {
+	ID          string `json:"id"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+type QAEvidenceSummary struct {
+	Kind         string   `json:"kind"`
+	Summary      string   `json:"summary"`
+	Paths        []string `json:"paths,omitempty"`
+	CheckID      string   `json:"check_id,omitempty"`
+	OutputDigest string   `json:"output_digest,omitempty"`
+}
+
+type QAContextRequestSummary struct {
+	ID           string   `json:"id"`
+	Paths        []string `json:"paths"`
+	Reason       string   `json:"reason"`
+	Approved     bool     `json:"approved"`
+	DeniedReason string   `json:"denied_reason,omitempty"`
+}
+
+type QACommandSummary struct {
+	CheckID               string `json:"check_id"`
+	DescriptorFingerprint string `json:"descriptor_fingerprint"`
+	ExitCode              int    `json:"exit_code"`
+	Duration              string `json:"duration"`
+	StdoutDigest          string `json:"stdout_digest,omitempty"`
+	StderrDigest          string `json:"stderr_digest,omitempty"`
+	OutputBytes           int    `json:"output_bytes"`
+	Truncated             bool   `json:"truncated"`
+}
+
+type QAInvestigatorAttemptSummary struct {
+	ID                   string                    `json:"id"`
+	Number               int                       `json:"number"`
+	StartedAt            time.Time                 `json:"started_at"`
+	CompletedAt          *time.Time                `json:"completed_at,omitempty"`
+	Duration             string                    `json:"duration,omitempty"`
+	ImplementationBefore string                    `json:"implementation_before"`
+	ImplementationAfter  string                    `json:"implementation_after,omitempty"`
+	ContextRequests      []QAContextRequestSummary `json:"context_requests,omitempty"`
+	Commands             []QACommandSummary        `json:"commands,omitempty"`
+	Evidence             []QAEvidenceSummary       `json:"evidence,omitempty"`
+	Usage                sprint.QAUsageSummary     `json:"usage"`
+	EstimatedCost        *sprint.QACostSummary     `json:"estimated_cost,omitempty"`
+	FailureKind          string                    `json:"failure_kind,omitempty"`
+	Retryable            bool                      `json:"retryable,omitempty"`
+	StopReason           string                    `json:"stop_reason,omitempty"`
+}
+
+type QABlockerSummary struct {
+	Category   string `json:"category"`
+	Scope      string `json:"scope"`
+	Summary    string `json:"summary"`
+	NextAction string `json:"next_action"`
+}
+
+type QACancellationSummary struct {
+	Requested bool       `json:"requested"`
+	Scope     string     `json:"scope,omitempty"`
+	ShardID   string     `json:"shard_id,omitempty"`
+	Reason    string     `json:"reason,omitempty"`
+	At        *time.Time `json:"at,omitempty"`
+}
+
+type QAShardResult struct {
+	QAResult
+	Shard    QAShardSummary    `json:"shard"`
+	Theories []QATheorySummary `json:"theories"`
+}
+
+type QATheorySummary struct {
+	ID                        string                         `json:"id"`
+	ShardID                   string                         `json:"shard_id"`
+	Claim                     string                         `json:"claim"`
+	Basis                     string                         `json:"basis"`
+	VerificationSurface       string                         `json:"verification_surface"`
+	ExpectationRefs           []string                       `json:"expectation_refs"`
+	SeverityIfConfirmed       string                         `json:"severity_if_confirmed"`
+	ConfirmationCondition     string                         `json:"confirmation_condition"`
+	RefutationCondition       string                         `json:"refutation_condition"`
+	InconclusiveCondition     string                         `json:"inconclusive_condition"`
+	SafeEvidenceStrategy      string                         `json:"safe_evidence_strategy"`
+	ImplementationFingerprint string                         `json:"implementation_fingerprint"`
+	AttemptHistory            []QAInvestigatorAttemptSummary `json:"attempt_history,omitempty"`
+	Evidence                  []QAEvidenceSummary            `json:"evidence,omitempty"`
+	Outcome                   string                         `json:"outcome"`
+	OutcomeReason             string                         `json:"outcome_reason"`
+}
+
+type QATheoryResult struct {
+	QAResult
+	Theory QATheorySummary `json:"theory"`
+}
+
+type QASynthesisResult struct {
+	QAResult
+	ID             string               `json:"id,omitempty"`
+	MapID          string               `json:"map_id,omitempty"`
+	NextAction     string               `json:"synthesis_next_action,omitempty"`
+	TheoryIDs      []string             `json:"theory_ids"`
+	Challenges     []QAChallengeSummary `json:"challenges,omitempty"`
+	OutcomeTotals  map[string]int       `json:"synthesis_outcome_totals,omitempty"`
+	Deduplicated   map[string][]string  `json:"deduplicated,omitempty"`
+	Contradictions [][]string           `json:"contradictions,omitempty"`
+	Interactions   []string             `json:"interactions,omitempty"`
+	Blockers       []QABlockerSummary   `json:"blockers,omitempty"`
+	FollowUpShards []QAShardSummary     `json:"follow_up_shards"`
+}
+
+type QAChallengeSummary struct {
+	ID                   string   `json:"id"`
+	TheoryIDs            []string `json:"theory_ids"`
+	Claim                string   `json:"claim"`
+	Basis                string   `json:"basis"`
+	SafeEvidenceStrategy string   `json:"safe_evidence_strategy"`
+	EvidenceRefs         []string `json:"evidence_refs,omitempty"`
+}
+
+type QACancelResult struct {
+	Run       RunSnapshot `json:"run"`
+	Requested bool        `json:"requested"`
+	QA        QAResult    `json:"qa"`
 }
 
 type StageSummary struct {
@@ -115,6 +381,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 			}
 			status, err := service.Status(p.Name, sp.Slug)
 			if err != nil {
+				qaGuidance := "Inspect sprint status and the detailed QA state before running QA recovery."
 				out = append(out, SprintSummary{
 					Project:           p.Name,
 					Slug:              sp.Slug,
@@ -136,9 +403,29 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 						{Label: "run-state", Path: sprint.ExecuteRunStateRelPath(sp), Kind: "json"},
 					},
 					Execute: ExecuteSummary{Message: "execute status unavailable because sprint status failed"},
+					QA:      QAResult{SchemaVersion: 1, Project: p.Name, Sprint: sp.Slug, Phase: string(sprint.QAPhaseInvalid), FreshnessReasons: []string{"sprint.status_unavailable"}, Blocker: &QABlockerSummary{Category: "qa.invalid_state", Scope: "state", Summary: "QA status is unavailable because sprint status could not be loaded.", NextAction: qaGuidance}, NextAction: qaGuidance},
 				})
 				continue
 			}
+			qaSummary := QAResult{SchemaVersion: 1, Project: p.Name, Sprint: sp.Slug, Phase: string(sprint.QAPhaseMissing), NextAction: "Run a QA dry run to inspect the current map."}
+			if qaSnapshot, qaErr := service.QAStatus(p.Name, sp.Slug); qaErr == nil {
+				qaSummary = qaSnapshotProjection(qaSnapshot)
+			} else {
+				mapped := mapQAUseCaseError(qaErr)
+				code := "qa.invalid_state"
+				message := "The QA state cannot be read."
+				guidance := "Inspect the detailed QA state and run explicit QA recovery."
+				if typed, ok := AsQAUseCaseError(mapped); ok {
+					code, message, guidance = typed.Code, typed.Message, typed.Guidance
+				}
+				qaSummary.Phase = string(sprint.QAPhaseInvalid)
+				qaSummary.FreshnessReasons = []string{code}
+				qaSummary.Blocker = &QABlockerSummary{Category: code, Scope: "state", Summary: message, NextAction: guidance}
+				qaSummary.NextAction = guidance
+			}
+			qaSummary.ConformanceReviewStatus = string(status.Verification.Review.ExecutionStatus)
+			qaSummary.ConformanceReviewVerdict = string(status.Verification.Review.Verdict)
+			qaSummary.ConformanceReviewFresh = status.Verification.Review.Fresh
 			review := summarizeReview(status.Review)
 			manifest, _, manifestErr := service.PrepareReview(p.Name, sp.Slug, sprint.ReviewRequest{})
 			if manifestErr == nil {
@@ -170,6 +457,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				Execute:           summarizeExecute(status.ExecuteState),
 				Review:            review,
 				Smoke:             summarizeSmoke(status.Smoke),
+				QA:                qaSummary,
 				Assessment:        string(status.Verification.Assessment),
 				NextAction:        status.Verification.NextAction,
 			}
@@ -311,6 +599,324 @@ func summarizeReview(state *sprint.ReviewStageState) ReviewSummary {
 		summary.StartedAt = &started
 	}
 	return summary
+}
+
+func (u dashboardUseCases) QAMap(ctx context.Context, req QARequest) (QAResult, error) {
+	if err := ctx.Err(); err != nil {
+		return QAResult{}, err
+	}
+	result, err := u.sprintService().QAMap(req.Project, req.Sprint)
+	if err != nil {
+		return QAResult{}, mapQAUseCaseError(err)
+	}
+	return u.withQAConformanceReview(req, qaMapProjection(result.Map)), nil
+}
+
+func (u dashboardUseCases) QAStatus(ctx context.Context, req QARequest) (QAResult, error) {
+	if err := ctx.Err(); err != nil {
+		return QAResult{}, err
+	}
+	snapshot, err := u.sprintService().QAStatus(req.Project, req.Sprint)
+	if err != nil {
+		return QAResult{}, mapQAUseCaseError(err)
+	}
+	return u.withQAConformanceReview(req, qaSnapshotProjection(snapshot)), nil
+}
+
+func (u dashboardUseCases) QAShard(ctx context.Context, req QARequest) (QAShardResult, error) {
+	status, err := u.QAStatus(ctx, req)
+	if err != nil {
+		return QAShardResult{}, err
+	}
+	shard, err := u.sprintService().QAShard(req.Project, req.Sprint, req.Shard)
+	if err != nil {
+		return QAShardResult{}, mapQAUseCaseError(err)
+	}
+	result := QAShardResult{QAResult: status, Shard: qaShardProjection(shard)}
+	for _, theory := range shard.Theories {
+		result.Theories = append(result.Theories, qaTheoryProjection(theory))
+	}
+	if len(result.Theories) > 24 {
+		result.Theories = result.Theories[:24]
+	}
+	return result, nil
+}
+
+func (u dashboardUseCases) QATheory(ctx context.Context, req QARequest) (QATheoryResult, error) {
+	status, err := u.QAStatus(ctx, req)
+	if err != nil {
+		return QATheoryResult{}, err
+	}
+	theory, err := u.sprintService().QATheory(req.Project, req.Sprint, req.Theory)
+	if err != nil {
+		return QATheoryResult{}, mapQAUseCaseError(err)
+	}
+	return QATheoryResult{QAResult: status, Theory: qaTheoryProjection(theory)}, nil
+}
+
+func (u dashboardUseCases) QASynthesis(ctx context.Context, req QARequest) (QASynthesisResult, error) {
+	status, err := u.QAStatus(ctx, req)
+	if err != nil {
+		return QASynthesisResult{}, err
+	}
+	snapshot, err := u.sprintService().QAStatus(req.Project, req.Sprint)
+	if err != nil {
+		return QASynthesisResult{}, mapQAUseCaseError(err)
+	}
+	result := QASynthesisResult{QAResult: status}
+	if snapshot.Synthesis == nil {
+		return result, nil
+	}
+	result.ID, result.MapID, result.NextAction = snapshot.Synthesis.ID, snapshot.Synthesis.MapID, snapshot.Synthesis.NextAction
+	result.TheoryIDs = append([]string(nil), snapshot.Synthesis.TheoryIDs...)
+	for _, challenge := range snapshot.Synthesis.Challenges {
+		result.Challenges = append(result.Challenges, QAChallengeSummary{ID: challenge.ID, TheoryIDs: append([]string(nil), challenge.TheoryIDs...), Claim: displaySafe(challenge.Claim), Basis: displaySafe(challenge.Basis), SafeEvidenceStrategy: displaySafe(challenge.SafeEvidenceStrategy), EvidenceRefs: append([]string(nil), challenge.EvidenceRefs...)})
+	}
+	result.OutcomeTotals = qaOutcomeProjection(snapshot.Synthesis.OutcomeCounts)
+	result.Deduplicated = make(map[string][]string, len(snapshot.Synthesis.Deduplicated))
+	for key, ids := range snapshot.Synthesis.Deduplicated {
+		result.Deduplicated[key] = append([]string(nil), ids...)
+	}
+	for _, group := range snapshot.Synthesis.Contradictions {
+		result.Contradictions = append(result.Contradictions, append([]string(nil), group...))
+	}
+	result.Interactions = append([]string(nil), snapshot.Synthesis.Interactions...)
+	for i := range snapshot.Synthesis.Blockers {
+		if blocker := qaBlockerProjection(&snapshot.Synthesis.Blockers[i]); blocker != nil {
+			result.Blockers = append(result.Blockers, *blocker)
+		}
+	}
+	for _, shard := range snapshot.Synthesis.FollowUpShards {
+		result.FollowUpShards = append(result.FollowUpShards, qaShardProjection(shard))
+	}
+	return result, nil
+}
+
+func (u dashboardUseCases) RunQA(ctx context.Context, req QARequest, emit func(OperationEvent)) (QAResult, error) {
+	return u.runQA(ctx, req, false, emit)
+}
+
+func (u dashboardUseCases) ResumeQA(ctx context.Context, req QARequest, emit func(OperationEvent)) (QAResult, error) {
+	return u.runQA(ctx, req, true, emit)
+}
+
+func (u dashboardUseCases) runQA(ctx context.Context, req QARequest, resume bool, emit func(OperationEvent)) (QAResult, error) {
+	if u.runner == nil {
+		return QAResult{}, ErrWebUnavailable
+	}
+	kind := OperationQAStart
+	if resume {
+		kind = OperationQAResume
+	}
+	_, runErr := u.runner(ctx, OperationRequest{Kind: kind, Project: req.Project, Sprint: req.Sprint, Task: req.Shard}, emit)
+	status, statusErr := u.QAStatus(context.WithoutCancel(ctx), req)
+	return status, errors.Join(runErr, statusErr)
+}
+
+func (u dashboardUseCases) CancelQA(ctx context.Context, req QARequest) (QACancelResult, error) {
+	if u.runs == nil {
+		return QACancelResult{}, ErrWebUnavailable
+	}
+	runID := RunID(req.RunID)
+	if err := runID.Validate(); err != nil {
+		return QACancelResult{}, err
+	}
+	current, err := u.runs.Run(ctx, runID)
+	if err != nil {
+		return QACancelResult{}, err
+	}
+	if current.Target.Project != req.Project || current.Target.Sprint != req.Sprint || (current.Target.Operation != string(OperationQAStart) && current.Target.Operation != string(OperationQAResume)) {
+		return QACancelResult{}, fmt.Errorf("QA run does not belong to the selected sprint")
+	}
+	run, requested, err := u.runs.CancelRun(ctx, runID, "read-only QA cancellation requested")
+	if err != nil {
+		return QACancelResult{}, err
+	}
+	status, statusErr := u.QAStatus(ctx, req)
+	return QACancelResult{Run: run, Requested: requested, QA: status}, statusErr
+}
+
+func (u dashboardUseCases) RecoverQA(ctx context.Context, req QARequest) (QAResult, error) {
+	snapshot, err := u.sprintService().RecoverQA(ctx, req.Project, req.Sprint)
+	if err != nil {
+		return QAResult{}, mapQAUseCaseError(err)
+	}
+	return u.withQAConformanceReview(req, qaSnapshotProjection(snapshot)), nil
+}
+
+func (u dashboardUseCases) withQAConformanceReview(req QARequest, result QAResult) QAResult {
+	status, err := u.sprintService().WithoutStatusWrites().Status(req.Project, req.Sprint)
+	if err != nil {
+		result.ConformanceReviewUnavailable = true
+		result.ConformanceReviewDiagnostic = "Conformance Review status is unavailable. Inspect sprint status before relying on QA freshness."
+		return result
+	}
+	result.ConformanceReviewStatus = string(status.Verification.Review.ExecutionStatus)
+	result.ConformanceReviewVerdict = string(status.Verification.Review.Verdict)
+	result.ConformanceReviewFresh = status.Verification.Review.Fresh
+	return result
+}
+
+func qaMapProjection(qaMap sprint.QAMap) QAResult {
+	result := QAResult{SchemaVersion: 1, Project: qaMap.Project, Sprint: qaMap.Sprint, Phase: string(sprint.QAPhaseMapped), Fresh: true, AttemptID: qaMap.SemanticAttemptID, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint, ReviewFingerprint: qaMap.ReviewFingerprint, MapFingerprint: qaMap.ID, PolicyFingerprint: qaMap.PolicyFingerprint, CheckCatalogFingerprint: qaMap.CheckCatalogFingerprint, EffectiveSources: qaEffectiveSourcesProjection(qaMap.EffectiveSources), Target: qaTargetProjection(qaMap.Target), Coverage: qaCoverageProjection(qaMap.Coverage), InputRefs: qaArtifactRefsProjection(qaMap.InputRefs), Limits: qaLimitsProjection(qaMap.Budgets), ChangedPaths: len(qaMap.Coverage.ChangedPaths), CoveredPaths: len(qaMap.Coverage.PrimaryOwners), TotalShards: len(qaMap.Shards), NextAction: "Start read-only QA from this current deterministic map."}
+	for _, shard := range qaMap.Shards {
+		result.Shards = append(result.Shards, qaShardProjection(shard))
+	}
+	if max := sprint.MaximumQABudgets().TotalShards; len(result.Shards) > max {
+		result.Shards = result.Shards[:max]
+	}
+	return result
+}
+
+func qaSnapshotProjection(snapshot sprint.QASnapshot) QAResult {
+	state := snapshot.State
+	result := QAResult{SchemaVersion: state.SchemaVersion, Project: state.Project, Sprint: state.Sprint, Phase: string(state.Phase), Fresh: state.Freshness.Current, FreshnessReasons: qaDisplayStrings(state.Freshness.Reasons), AttemptID: state.CurrentAttemptID, RunID: state.Run.RunID, OperationalAttemptID: state.Run.OperationalAttemptID, FencingGeneration: state.Run.FencingGeneration, RunLifecycle: string(state.Run.Lifecycle), TerminalResult: string(state.Run.TerminalResult), GovernedInputFingerprint: state.Freshness.GovernedInputFingerprint, ImplementationFingerprint: state.Freshness.ImplementationFingerprint, ReviewFingerprint: state.Freshness.ReviewFingerprint, PolicyFingerprint: state.Freshness.PolicyFingerprint, UpdatedAt: state.UpdatedAt, MapRecord: qaArtifactRefProjection(state.Map), SynthesisRecord: qaArtifactRefProjection(state.Synthesis), CompletedShards: state.CompletedShards, TotalShards: state.TotalShards, OutcomeTotals: qaOutcomeProjection(state.OutcomeCounts), Blocker: qaBlockerProjection(state.Blocker), Cancellation: QACancellationSummary{Requested: state.Cancellation.Requested, Scope: displaySafe(state.Cancellation.Scope), ShardID: state.Cancellation.ShardID, Reason: displaySafe(state.Cancellation.Reason), At: state.Cancellation.At}, NextAction: displaySafe(state.NextAction)}
+	if snapshot.Map != nil {
+		result.MapFingerprint = snapshot.Map.ID
+		result.CheckCatalogFingerprint = snapshot.Map.CheckCatalogFingerprint
+		result.EffectiveSources = qaEffectiveSourcesProjection(snapshot.Map.EffectiveSources)
+		result.Target = qaTargetProjection(snapshot.Map.Target)
+		result.Coverage = qaCoverageProjection(snapshot.Map.Coverage)
+		result.InputRefs = qaArtifactRefsProjection(snapshot.Map.InputRefs)
+		result.Limits = qaLimitsProjection(snapshot.Map.Budgets)
+		result.ChangedPaths = len(snapshot.Map.Coverage.ChangedPaths)
+		result.CoveredPaths = len(snapshot.Map.Coverage.PrimaryOwners)
+	}
+	for _, shard := range snapshot.Shards {
+		result.Shards = append(result.Shards, qaShardProjection(shard))
+	}
+	return result
+}
+
+func qaArtifactRefProjection(ref *sprint.QAArtifactRef) *QAArtifactRefSummary {
+	if ref == nil {
+		return nil
+	}
+	return &QAArtifactRefSummary{Path: displaySafe(ref.Path), Digest: ref.Digest}
+}
+
+func qaArtifactRefsProjection(refs []sprint.QAArtifactRef) []QAArtifactRefSummary {
+	result := make([]QAArtifactRefSummary, 0, len(refs))
+	for i := range refs {
+		if ref := qaArtifactRefProjection(&refs[i]); ref != nil {
+			result = append(result, *ref)
+		}
+	}
+	return result
+}
+
+func qaEffectiveSourcesProjection(sources []sprint.QAEffectiveSource) []QAEffectiveSourceSummary {
+	result := make([]QAEffectiveSourceSummary, 0, len(sources))
+	for _, source := range sources {
+		result = append(result, QAEffectiveSourceSummary{Field: displaySafe(source.Field), Source: displaySafe(source.Source)})
+	}
+	return result
+}
+
+func qaTargetProjection(target sprint.QATargetIdentity) QATargetIdentitySummary {
+	result := QATargetIdentitySummary{Fingerprint: target.Fingerprint, GitHead: target.GitHead, GitIndex: target.GitIndex, GitWorktree: target.GitWorktree, Categories: make(map[string]string, len(target.Categories))}
+	for key, value := range target.Categories {
+		result.Categories[displaySafe(key)] = displaySafe(value)
+	}
+	return result
+}
+
+func qaCoverageProjection(coverage sprint.QACoverage) QACoverageSummary {
+	result := QACoverageSummary{ChangedPaths: qaDisplayStrings(coverage.ChangedPaths), PrimaryOwners: make(map[string]string, len(coverage.PrimaryOwners)), BoundaryOverlaps: make(map[string][]string, len(coverage.BoundaryOverlaps)), BlockedPaths: qaDisplayStrings(coverage.BlockedPaths)}
+	for path, owner := range coverage.PrimaryOwners {
+		result.PrimaryOwners[displaySafe(path)] = owner
+	}
+	for path, owners := range coverage.BoundaryOverlaps {
+		result.BoundaryOverlaps[displaySafe(path)] = append([]string(nil), owners...)
+	}
+	return result
+}
+
+func qaLimitsProjection(b sprint.QABudgets) QALimitsSummary {
+	return QALimitsSummary{
+		ChangedPaths: b.ChangedPaths, TotalShards: b.TotalShards, PendingEntries: b.PendingEntries,
+		ChangedPathsPerShard: b.ChangedPathsPerShard, ContextPathsPerShard: b.ContextPathsPerShard,
+		ContextExpansions: b.ContextExpansions, PathsPerExpansion: b.PathsPerExpansion,
+		BehavioralConcernsPerShard: b.BehavioralConcernsPerShard, TheoriesPerShard: b.TheoriesPerShard,
+		IterationsPerAttempt: b.IterationsPerAttempt, CommandsPerAttempt: b.CommandsPerAttempt,
+		RuntimeRetries: b.RuntimeRetries, ConcurrentInvestigators: b.ConcurrentInvestigators,
+		CommandTimeout: b.CommandTimeout.String(), ShardTimeout: b.ShardTimeout.String(),
+		RunTimeout: b.RunTimeout.String(), CleanupTimeout: b.CleanupTimeout.String(),
+		CommandOutputBytes: b.CommandOutputBytes, ShardOutputBytes: b.ShardOutputBytes,
+		PromptBytes: b.PromptBytes, FollowUpShards: b.FollowUpShards,
+	}
+}
+
+func qaShardProjection(shard sprint.QAShard) QAShardSummary {
+	result := QAShardSummary{ID: shard.ID, AttemptID: shard.AttemptID, Kind: string(shard.Kind), Title: displaySafe(shard.Title), Phase: string(shard.Phase), ChangedPaths: qaDisplayStrings(shard.ChangedPaths), ContextPaths: qaDisplayStrings(shard.ContextPaths), OverlapPaths: qaDisplayStrings(shard.OverlapPaths), BoundaryReason: displaySafe(shard.BoundaryReason), BehavioralConcerns: qaDisplayStrings(shard.BehavioralConcerns), ExpectationRefs: qaDisplayStrings(shard.ExpectationRefs), RiskTags: qaDisplayStrings(shard.RiskTags), ParentTheoryIDs: append([]string(nil), shard.ParentTheoryIDs...), TheoryCount: len(shard.Theories), Blocker: qaBlockerProjection(shard.Blocker)}
+	for _, check := range shard.ApprovedChecks {
+		result.ApprovedChecks = append(result.ApprovedChecks, QAApprovedCheckSummary{ID: check.ID, Fingerprint: check.Fingerprint})
+	}
+	for _, attempt := range shard.Attempts {
+		result.Attempts = append(result.Attempts, qaAttemptProjection(attempt))
+	}
+	for _, theory := range shard.Theories {
+		result.Theories = append(result.Theories, qaTheoryProjection(theory))
+		if len(result.Theories) == 24 {
+			break
+		}
+	}
+	return result
+}
+
+func qaTheoryProjection(theory sprint.QATheory) QATheorySummary {
+	result := QATheorySummary{ID: theory.ID, ShardID: theory.ShardID, Claim: displaySafe(theory.Claim), Basis: displaySafe(theory.Basis), VerificationSurface: displaySafe(theory.VerificationSurface), ExpectationRefs: qaDisplayStrings(theory.ExpectationRefs), SeverityIfConfirmed: displaySafe(theory.SeverityIfConfirmed), ConfirmationCondition: displaySafe(theory.ConfirmationCondition), RefutationCondition: displaySafe(theory.RefutationCondition), InconclusiveCondition: displaySafe(theory.InconclusiveCondition), SafeEvidenceStrategy: displaySafe(theory.SafeEvidenceStrategy), ImplementationFingerprint: theory.ImplementationFingerprint, Outcome: string(theory.Outcome), OutcomeReason: displaySafe(theory.OutcomeReason)}
+	for _, attempt := range theory.AttemptHistory {
+		result.AttemptHistory = append(result.AttemptHistory, qaAttemptProjection(attempt))
+	}
+	for _, evidence := range theory.Evidence {
+		result.Evidence = append(result.Evidence, qaEvidenceProjection(evidence))
+	}
+	return result
+}
+
+func qaAttemptProjection(attempt sprint.QAInvestigatorAttempt) QAInvestigatorAttemptSummary {
+	result := QAInvestigatorAttemptSummary{ID: attempt.ID, Number: attempt.Number, StartedAt: attempt.StartedAt, CompletedAt: attempt.CompletedAt, ImplementationBefore: attempt.ImplementationBefore, ImplementationAfter: attempt.ImplementationAfter, Usage: attempt.Usage, EstimatedCost: attempt.EstimatedCost, FailureKind: displaySafe(attempt.FailureKind), Retryable: attempt.Retryable, StopReason: displaySafe(attempt.StopReason)}
+	if attempt.CompletedAt != nil && !attempt.StartedAt.IsZero() {
+		result.Duration = attempt.CompletedAt.Sub(attempt.StartedAt).Round(time.Millisecond).String()
+	}
+	for _, request := range attempt.ContextRequests {
+		result.ContextRequests = append(result.ContextRequests, QAContextRequestSummary{ID: request.ID, Paths: qaDisplayStrings(request.Paths), Reason: displaySafe(request.Reason), Approved: request.Approved, DeniedReason: displaySafe(request.DeniedReason)})
+	}
+	for _, command := range attempt.Commands {
+		result.Commands = append(result.Commands, QACommandSummary{CheckID: command.CheckID, DescriptorFingerprint: command.DescriptorFingerprint, ExitCode: command.ExitCode, Duration: command.Duration.Round(time.Millisecond).String(), StdoutDigest: command.StdoutDigest, StderrDigest: command.StderrDigest, OutputBytes: command.OutputBytes, Truncated: command.Truncated})
+	}
+	for _, evidence := range attempt.Evidence {
+		result.Evidence = append(result.Evidence, qaEvidenceProjection(evidence))
+	}
+	return result
+}
+
+func qaEvidenceProjection(evidence sprint.QAEvidenceSummary) QAEvidenceSummary {
+	return QAEvidenceSummary{Kind: displaySafe(evidence.Kind), Summary: displaySafe(evidence.Summary), Paths: qaDisplayStrings(evidence.Paths), CheckID: evidence.CheckID, OutputDigest: evidence.OutputDigest}
+}
+
+func qaDisplayStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		result = append(result, displaySafe(value))
+	}
+	return result
+}
+
+func qaBlockerProjection(blocker *sprint.QABlocker) *QABlockerSummary {
+	if blocker == nil {
+		return nil
+	}
+	return &QABlockerSummary{Category: string(blocker.Category), Scope: displaySafe(blocker.Scope), Summary: displaySafe(blocker.Summary), NextAction: displaySafe(blocker.NextAction)}
+}
+
+func qaOutcomeProjection(values map[sprint.QATheoryOutcome]int) map[string]int {
+	result := make(map[string]int, len(values))
+	for outcome, count := range values {
+		result[string(outcome)] = count
+	}
+	return result
 }
 
 func summarizeReviewers(state *sprint.ReviewStageState, coverage []sprint.ReviewInput) []ReviewItemSummary {

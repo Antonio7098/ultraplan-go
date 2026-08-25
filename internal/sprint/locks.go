@@ -73,6 +73,28 @@ func (s Service) ReconcileInterruptedMutation(ctx context.Context, projectRef, s
 			}
 			changed = true
 		}
+		qaStore := NewQAStore(s.root, sp)
+		if qaPath, pathErr := qaStore.StatePath(); pathErr == nil {
+			if _, statErr := os.Lstat(qaPath); statErr == nil {
+				qaState, qaErr := qaStore.LoadState()
+				if qaErr != nil {
+					return false, qaErr
+				}
+				switch qaState.Phase {
+				case QAPhaseQueued, QAPhaseRunning, QAPhaseSynthesizing:
+					qaState.Phase = QAPhaseInterrupted
+					qaState.Run.Lifecycle = QARunTerminal
+					qaState.Run.TerminalResult = QATerminalInterrupted
+					qaState.Blocker = &QABlocker{Category: QAErrorConflict, Scope: "attempt", Summary: "the prior QA owner stopped before recording a terminal result", NextAction: "Run qa recover, then qa resume with a new durable owner."}
+					qaState.NextAction = qaState.Blocker.NextAction
+					qaState.UpdatedAt = now
+					if err := qaStore.SaveRecoveredState(qaState, flow); err != nil {
+						return false, err
+					}
+					changed = true
+				}
+			}
+		}
 	} else if !errors.Is(flowErr, ErrFlowStateMissing) && !legacyFlowState(s.root, sp) {
 		return false, flowErr
 	}

@@ -201,13 +201,16 @@ func derefTime(value *time.Time) time.Time {
 func SaveFlowState(root string, s Sprint, state FlowState) error {
 	// Planning-stage refreshes must not erase the last complete verification
 	// evidence. Explicit stage writers load and replace their own record.
-	if state.Review == nil || state.Smoke == nil {
+	if state.Review == nil || state.Smoke == nil || state.QA == nil {
 		if prior, err := LoadFlowState(root, s); err == nil {
 			if state.Review == nil {
 				state.Review = prior.Review
 			}
 			if state.Smoke == nil {
 				state.Smoke = prior.Smoke
+			}
+			if state.QA == nil {
+				state.QA = prior.QA
 			}
 		} else if !errors.Is(err, ErrFlowStateMissing) {
 			return err
@@ -354,6 +357,28 @@ func ValidateFlowState(root string, s Sprint, state FlowState, path string) erro
 		if err := validateSmokeStageState(root, s, *state.Smoke, path); err != nil {
 			return err
 		}
+	}
+	if state.QA != nil {
+		if err := validateQAFlowSummary(root, s, *state.QA, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateQAFlowSummary(root string, s Sprint, summary QAFlowSummary, path string) error {
+	if !containsQAPhase(summary.Phase) || summary.CompletedShards < 0 || summary.TotalShards < 0 || summary.CompletedShards > summary.TotalShards || summary.Confirmed < 0 || summary.Blocked < 0 {
+		return fmt.Errorf("%w: %s: invalid QA summary", ErrFlowStateMalformed, path)
+	}
+	if summary.StatePath == "" || !validFingerprint(summary.StateDigest) || strings.TrimSpace(summary.NextAction) == "" {
+		return fmt.Errorf("%w: %s: incomplete QA summary pointer", ErrFlowStateMalformed, path)
+	}
+	resolved, err := resolveSprintContained(root, s, summary.StatePath)
+	if err != nil || filepath.Base(resolved) != "state.json" || filepath.Base(filepath.Dir(resolved)) != "verification" {
+		return fmt.Errorf("%w: %s: unsafe QA summary pointer", ErrFlowStateMalformed, path)
+	}
+	if summary.CurrentAttemptID != "" && !validQAID(summary.CurrentAttemptID) {
+		return fmt.Errorf("%w: %s: invalid QA summary attempt ID", ErrFlowStateMalformed, path)
 	}
 	return nil
 }

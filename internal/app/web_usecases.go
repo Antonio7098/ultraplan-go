@@ -141,6 +141,7 @@ type WebUseCaseOptions struct {
 	StageRuntime      map[sprint.PlanningStage]sprint.StageRuntime
 	ReviewConcurrency int
 	SmokeSettings     sprint.SmokeSettings
+	QASettings        sprint.QASettings
 	Runner            func(context.Context, OperationRequest, func(OperationEvent)) (OperationResult, error)
 	RunControl        RunUseCases
 	DurableOperations DurableOperationManager
@@ -224,6 +225,7 @@ type WebSprintResult struct {
 	Execute           ExecuteSummary
 	Review            ReviewSummary
 	Smoke             SmokeSummary
+	QA                QAResult
 	Findings          []DisplayFinding
 	Artifacts         []WebArtifactLink
 	Overview          string
@@ -423,6 +425,7 @@ func NewWebUseCases(root string, opts WebUseCaseOptions) WebUseCases {
 			stageRuntime:      opts.StageRuntime,
 			reviewConcurrency: opts.ReviewConcurrency,
 			smokeSettings:     opts.SmokeSettings,
+			qaSettings:        opts.QASettings,
 			readOnly:          true,
 			runner:            opts.Runner,
 		},
@@ -443,6 +446,34 @@ func (u *webUseCases) AcceptOperation(ctx context.Context, confirmation Confirma
 		return AcceptedOperation{}, ErrWebUnavailable
 	}
 	return u.durable.AcceptOperation(ctx, confirmation, digest)
+}
+
+func (u *webUseCases) QAMap(ctx context.Context, req QARequest) (QAResult, error) {
+	return u.dashboard.QAMap(ctx, req)
+}
+func (u *webUseCases) QAStatus(ctx context.Context, req QARequest) (QAResult, error) {
+	return u.dashboard.QAStatus(ctx, req)
+}
+func (u *webUseCases) QAShard(ctx context.Context, req QARequest) (QAShardResult, error) {
+	return u.dashboard.QAShard(ctx, req)
+}
+func (u *webUseCases) QATheory(ctx context.Context, req QARequest) (QATheoryResult, error) {
+	return u.dashboard.QATheory(ctx, req)
+}
+func (u *webUseCases) QASynthesis(ctx context.Context, req QARequest) (QASynthesisResult, error) {
+	return u.dashboard.QASynthesis(ctx, req)
+}
+func (u *webUseCases) RunQA(ctx context.Context, req QARequest, emit func(OperationEvent)) (QAResult, error) {
+	return u.dashboard.RunQA(ctx, req, emit)
+}
+func (u *webUseCases) ResumeQA(ctx context.Context, req QARequest, emit func(OperationEvent)) (QAResult, error) {
+	return u.dashboard.ResumeQA(ctx, req, emit)
+}
+func (u *webUseCases) CancelQA(ctx context.Context, req QARequest) (QACancelResult, error) {
+	return u.dashboard.CancelQA(ctx, req)
+}
+func (u *webUseCases) RecoverQA(ctx context.Context, req QARequest) (QAResult, error) {
+	return u.dashboard.RecoverQA(ctx, req)
 }
 
 func (u *webUseCases) FinishOperation(ctx context.Context, runID string, state OperationState, runErr error) error {
@@ -810,7 +841,7 @@ func (u *webUseCases) PromptBundle(ctx context.Context, project, slug, stageName
 		result.Scope = "One session for the ordered task queue"
 		preview, err = service.PromptExecute(project, slug, sprint.ExecuteRequest{})
 	case sprint.StageReview:
-		result.Scope = "Review manifest preview; reviewer suffixes vary"
+		result.Scope = "Conformance Review manifest preview; worker suffixes vary"
 		preview, err = service.PromptReview(project, slug, sprint.ReviewRequest{})
 	case sprint.StageSmoke:
 		result.Scope = "Prepared after smoke harness discovery"
@@ -1367,6 +1398,7 @@ func (u *webUseCases) webSprint(item SprintSummary) WebSprintResult {
 		Execute:    item.Execute,
 		Review:     item.Review,
 		Smoke:      item.Smoke,
+		QA:         item.QA,
 		Findings:   findings,
 		Artifacts:  u.webArtifacts(item.Artifacts),
 	}

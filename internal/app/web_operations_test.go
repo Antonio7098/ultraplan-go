@@ -145,6 +145,29 @@ func TestWebCleanupUncertaintyDelegatesToStudyOwner(t *testing.T) {
 	}
 }
 
+func TestQAOperationPreparationRejectsEveryCallerOwnedControl(t *testing.T) {
+	u := dashboardUseCases{}
+	base := OperationRequest{Kind: OperationQAStart, Project: "alpha", Sprint: "36-read-only-qa"}
+	for name, mutate := range map[string]func(*OperationRequest){
+		"stage":       func(req *OperationRequest) { req.Stage = "qa" },
+		"model":       func(req *OperationRequest) { req.Model = "caller/model" },
+		"timeout":     func(req *OperationRequest) { req.Timeout = "1h" },
+		"parallelism": func(req *OperationRequest) { req.Parallelism = 2 },
+		"sources":     func(req *OperationRequest) { req.Sources = []string{"caller"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := base
+			mutate(&candidate)
+			if _, err := u.PrepareOperation(context.Background(), candidate); err == nil {
+				t.Fatal("caller-owned QA control was accepted")
+			}
+		})
+	}
+	if _, err := u.PrepareOperation(context.Background(), OperationRequest{Kind: OperationQAStatus, Project: "alpha", Sprint: "36-read-only-qa", Task: "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa"}); err == nil {
+		t.Fatal("QA status accepted a focused shard")
+	}
+}
+
 func operationTree(t *testing.T, root string) []string {
 	t.Helper()
 	var paths []string

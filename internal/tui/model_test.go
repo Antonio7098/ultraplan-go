@@ -73,16 +73,21 @@ func TestSprintNavigationExposesAllSprintOperations(t *testing.T) {
 	for _, item := range items {
 		labels[item.Label] = true
 	}
-	for _, want := range []string{"Sprint Status", "Review", "Validate review", "Preview review Prompt", "Review Status", "Review Dry Run", "Run/Resume Review [RUNTIME]", "Restart Review [RUNTIME]"} {
+	for _, want := range []string{"Sprint Status", "Conformance Review", "Validate Conformance Review", "Preview Conformance Review Prompt", "Conformance Review Status", "Conformance Review Dry Run", "Run/Resume Conformance Review [RUNTIME]", "Restart Conformance Review [RUNTIME]", "QA"} {
 		if !labels[want] {
 			t.Fatalf("missing review navigation %q", want)
 		}
 	}
-	for _, stage := range []string{"requirements", "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "execute", "review"} {
+	for _, stage := range []string{"requirements", "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "execute"} {
 		for _, want := range []string{"Validate " + stage, "Preview " + stage + " Prompt", "Dry Run Flow to " + stage, "Run Flow to " + stage + " [RUNTIME]"} {
 			if !labels[want] {
 				t.Fatalf("missing %q", want)
 			}
+		}
+	}
+	for _, want := range []string{"Validate Conformance Review", "Preview Conformance Review Prompt", "Dry Run Flow to Conformance Review", "Run Flow to Conformance Review [RUNTIME]"} {
+		if !labels[want] {
+			t.Fatalf("missing %q", want)
 		}
 	}
 	assertSprintOperation := func(label string, kind app.OperationKind, stage string) {
@@ -99,7 +104,45 @@ func TestSprintNavigationExposesAllSprintOperations(t *testing.T) {
 	}
 	assertSprintOperation("Sprint Status", app.OperationSprintStatus, "")
 	assertSprintOperation("Dry Run Flow to requirements", app.OperationFlowDryRun, "requirements")
-	assertSprintOperation("Run Flow to review [RUNTIME]", app.OperationFlow, "review")
+	assertSprintOperation("Run Flow to Conformance Review [RUNTIME]", app.OperationFlow, "review")
+}
+
+func TestQANavigationAndFocusedTheoryUseOneBoundedProjection(t *testing.T) {
+	data := fixtureDashboard()
+	shardID := "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa"
+	theoryID := "qa-v1-theory-bbbbbbbbbbbbbbbbbbbbbbbb"
+	theory := app.QATheorySummary{ID: theoryID, ShardID: shardID, Claim: "the branch rejects valid input", Basis: "changed conditional", Outcome: "refuted", OutcomeReason: "the valid case is retained"}
+	data.Sprints[0].QA = app.QAResult{SchemaVersion: 1, Project: "alpha", Sprint: "01", Phase: "completed", Fresh: true, RunID: "run_qa", ConformanceReviewStatus: "completed", ConformanceReviewVerdict: "pass_with_findings", ConformanceReviewFresh: true, ChangedPaths: 1, CoveredPaths: 1, CompletedShards: 1, TotalShards: 1, Shards: []app.QAShardSummary{{ID: shardID, Kind: "primary", Title: "Branch behavior", Phase: "completed", TheoryCount: 1, Theories: []app.QATheorySummary{theory}}}, NextAction: "Inspect retained outcomes."}
+
+	model := NewModel(&fakeUseCases{})
+	model.Data = data
+	model.Routes = []Route{{Kind: RouteSprintQA, Project: "alpha", Sprint: "01"}}
+	items := model.navItems()
+	for _, want := range []string{"QA Status", "QA Dry Run", "Start QA [RUNTIME]", "Resume QA [RUNTIME]", "Recover QA", "View QA durable run  run_qa", "Branch behavior  completed"} {
+		found := false
+		for _, item := range items {
+			found = found || item.Label == want
+		}
+		if !found {
+			t.Fatalf("QA navigation missing %q: %+v", want, items)
+		}
+	}
+	model.Routes = []Route{{Kind: RouteSprintQAShard, Project: "alpha", Sprint: "01", Shard: shardID}}
+	items = model.navItems()
+	if len(items) != 3 || items[2].Route == nil || items[2].Route.Kind != RouteSprintQATheory || items[2].Route.Theory != theoryID {
+		t.Fatalf("focused shard navigation = %+v", items)
+	}
+	model.Routes = []Route{{Kind: RouteSprintQATheory, Project: "alpha", Sprint: "01", Shard: shardID, Theory: theoryID}}
+	var summary strings.Builder
+	renderRouteSummary(&summary, model)
+	for _, want := range []string{"Read-only QA completed", "Conformance Review: status=completed verdict=pass_with_findings fresh=true", "Focused theory: " + theoryID, "Outcome: refuted", "Inspect retained outcomes."} {
+		if !strings.Contains(summary.String(), want) {
+			t.Fatalf("QA theory summary missing %q:\n%s", want, summary.String())
+		}
+	}
+	if strings.Contains(summary.String(), "QA passed") || strings.Contains(summary.String(), "Issues") {
+		t.Fatalf("QA summary promoted a verdict or issue:\n%s", summary.String())
+	}
 }
 
 func TestOperationViewRendersSprintFindings(t *testing.T) {

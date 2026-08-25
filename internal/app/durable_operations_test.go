@@ -39,6 +39,27 @@ func TestDurableOperationAcceptsBeforeExecutionRecordsEventsAndFinishes(t *testi
 	if snapshot.Lifecycle != runcontrol.LifecycleRunning || snapshot.Target.Operation != string(OperationExecuteStart) || snapshot.CurrentAttemptID == "" {
 		t.Fatalf("accepted snapshot=%+v", snapshot)
 	}
+	token, fence, err := qaOwnershipFromContext(accepted.Context)
+	if err != nil || token.RunID != accepted.RunID || token.OperationalAttemptID != string(snapshot.CurrentAttemptID) || token.FencingGeneration == 0 {
+		t.Fatalf("QA ownership token=%+v err=%v", token, err)
+	}
+	if err := fence(token); err != nil {
+		t.Fatalf("current QA fence rejected: %v", err)
+	}
+	cancelledContext, cancel := context.WithCancel(accepted.Context)
+	cancel()
+	_, cleanupFence, err := qaOwnershipFromContext(cancelledContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupFence(token); err != nil {
+		t.Fatalf("current QA fence rejected during bounded cancellation cleanup: %v", err)
+	}
+	stale := token
+	stale.FencingGeneration++
+	if err := fence(stale); err == nil {
+		t.Fatal("stale QA fence accepted")
+	}
 	committed, err := manager.RecordOperationEvent(ctx, accepted.RunID, OperationEvent{State: OperationRunning, Stage: "execute", Task: "task-1", Message: "not stored", PhaseState: "checking", SafeSummary: "Checking prerequisites", Completed: 1, Total: 2, EventType: "tool.completed", EventKind: "tool", Tool: "bash"})
 	if err != nil || !committed {
 		t.Fatalf("committed=%v err=%v", committed, err)

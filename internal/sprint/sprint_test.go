@@ -1,8 +1,10 @@
 package sprint
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,6 +146,33 @@ func TestFlowStateStrictLoadingAndAtomicWritePreservesPrior(t *testing.T) {
 	}
 	if string(after) != string(original) {
 		t.Fatalf("prior state was not preserved")
+	}
+}
+
+func TestLegacyV2ReaderClassifiesPublishedQASummaryAsMalformed(t *testing.T) {
+	state := FlowState{SchemaVersion: FlowStateSchemaVersion, Project: "proj", Sprint: "01-alpha", UpdatedAt: time.Now().UTC(), Stages: []StageState{}, QA: &QAFlowSummary{Phase: QAPhaseMissing, StatePath: "projects/proj/sprints/01-alpha/verification/state.json", StateDigest: strings.Repeat("a", 64), NextAction: "Run QA."}}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacyV2 struct {
+		SchemaVersion int               `json:"schemaVersion"`
+		Project       string            `json:"project"`
+		Sprint        string            `json:"sprint"`
+		UpdatedAt     time.Time         `json:"updatedAt"`
+		Stages        []StageState      `json:"stages"`
+		Review        *ReviewStageState `json:"review,omitempty"`
+		Smoke         *SmokeStageState  `json:"smoke,omitempty"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	decodeErr := decoder.Decode(&legacyV2)
+	if decodeErr == nil || !strings.Contains(decodeErr.Error(), `unknown field "qa"`) {
+		t.Fatalf("legacy v2 decode error = %v", decodeErr)
+	}
+	classified := fmt.Errorf("%w: %v", ErrFlowStateMalformed, decodeErr)
+	if !errors.Is(classified, ErrFlowStateMalformed) || errors.Is(classified, ErrFlowStateUnsupported) {
+		t.Fatalf("legacy v2 category = %v", classified)
 	}
 }
 

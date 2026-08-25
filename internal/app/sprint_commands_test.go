@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,8 @@ func TestSprintHelpIsRegistered(t *testing.T) {
 		{"sprint", "proj", "01", "metrics", "--help"},
 		{"sprint", "proj", "01", "execute", "--help"},
 		{"sprint", "proj", "01", "review", "--help"},
+		{"sprint", "proj", "01", "conformance-review", "--help"},
+		{"sprint", "proj", "01", "qa", "--help"},
 	} {
 		stdout, stderr, status = runForTest(args)
 		if status != ExitOK || stderr != "" {
@@ -41,6 +44,15 @@ func TestSprintHelpIsRegistered(t *testing.T) {
 		if len(args) > 3 && args[2] == "01" && args[3] == "review" {
 			assertContains(t, stdout, "--focus <coverage-id>")
 		}
+		if len(args) > 3 && args[2] == "01" && args[3] == "qa" {
+			assertContains(t, stdout, "qa recover")
+			assertContains(t, stdout, "Completed means bounded investigation ended")
+		}
+	}
+	reviewHelp, _, _ := runForTest([]string{"sprint", "proj", "01", "review", "--help"})
+	aliasHelp, _, _ := runForTest([]string{"sprint", "proj", "01", "conformance-review", "--help"})
+	if reviewHelp != aliasHelp {
+		t.Fatal("conformance-review help did not use the exact review handler")
 	}
 }
 
@@ -131,6 +143,71 @@ func TestSprintFailureJSONIsOneStructuredDocument(t *testing.T) {
 		if args[5] == "verify" && payload["error"] == nil {
 			t.Fatalf("verify failure omitted structured error: %#v", payload)
 		}
+	}
+}
+
+func TestSprintQAJSONFailureUsesStableEnvelopeAndCategory(t *testing.T) {
+	dir := initializedWorkspace(t)
+	writeCommandSprintProject(t, dir, "proj", "01-alpha")
+	stdout, _, status := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "qa", "status", "--json"})
+	if status != ExitOK {
+		t.Fatalf("status=%d stdout=%s", status, stdout)
+	}
+	decoder := json.NewDecoder(strings.NewReader(stdout))
+	var payload struct {
+		SchemaVersion int            `json:"schema_version"`
+		Operation     string         `json:"operation"`
+		Status        string         `json:"status"`
+		Result        map[string]any `json:"result"`
+		Error         struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := decoder.Decode(&payload); err != nil {
+		t.Fatalf("invalid QA envelope: %v\n%s", err, stdout)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err == nil {
+		t.Fatalf("QA envelope has trailing output: %s", stdout)
+	}
+	if payload.SchemaVersion != 1 || payload.Operation != "sprint.qa" || payload.Status != "ok" || payload.Result == nil || payload.Error.Code != "" {
+		t.Fatalf("QA envelope = %+v", payload)
+	}
+
+	base := filepath.Join(dir, "projects", "proj", "sprints", "01-alpha")
+	writeFixtureFileContent(t, base, `{broken`, "verification", "state.json")
+	stdout, _, status = runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "qa", "status", "--json"})
+	if status != ExitValidation || !strings.Contains(stdout, `"status":"failed"`) || !strings.Contains(stdout, `"code":"qa.invalid_state"`) {
+		t.Fatalf("invalid-state status=%d stdout=%s", status, stdout)
+	}
+	for _, field := range []string{`"category":"invalid_state"`, `"retryable":false`, `"severity":"error"`, `"operation":"sprint.qa"`, `"component":"sprint"`} {
+		if !strings.Contains(stdout, field) {
+			t.Fatalf("QA failure envelope missing %s: %s", field, stdout)
+		}
+	}
+}
+
+func TestQACommandErrorClassesAndStableCodes(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		exit int
+		code string
+	}{
+		{name: "runtime", err: sprint.NewQAError(sprint.QAErrorRuntimeUnavailable, "run", "offline", nil), exit: ExitRuntime, code: "qa.runtime_unavailable"},
+		{name: "validation", err: sprint.NewQAError(sprint.QAErrorStaleInput, "map", "stale", nil), exit: ExitValidation, code: "qa.stale_input"},
+		{name: "partial", err: context.Canceled, exit: ExitPartial, code: "qa.cancelled"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mapped := mapQACommandError(test.err)
+			var classed classedError
+			if !errors.As(mapped, &classed) || classed.class != test.exit {
+				t.Fatalf("mapped error = %v", mapped)
+			}
+			if got := stableCommandError(mapped)["code"]; got != test.code {
+				t.Fatalf("stable code = %q, want %q", got, test.code)
+			}
+		})
 	}
 }
 
@@ -557,6 +634,37 @@ func TestParseSprintReviewArgs(t *testing.T) {
 	}
 }
 
+func TestParseSprintQAArgsUsesOnlyPublicBoundedControls(t *testing.T) {
+	for _, test := range []struct {
+		args   []string
+		action string
+		shard  string
+		runID  string
+	}{
+		{args: []string{"--dry-run", "--json"}, action: "map"},
+		{args: []string{"--shard", "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa", "--json"}, action: "run", shard: "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa"},
+		{args: []string{"resume", "--shard", "qa-v1-shard-bbbbbbbbbbbbbbbbbbbbbbbb"}, action: "resume", shard: "qa-v1-shard-bbbbbbbbbbbbbbbbbbbbbbbb"},
+		{args: []string{"status"}, action: "status"},
+		{args: []string{"recover"}, action: "recover"},
+		{args: []string{"cancel", "--run", "run_01JTEST0000000000000000000"}, action: "cancel", runID: "run_01JTEST0000000000000000000"},
+	} {
+		command, err := parseSprintQAArgs(test.args)
+		if err != nil || command.Action != test.action || command.Shard != test.shard || command.RunID != test.runID {
+			t.Fatalf("args=%v command=%+v err=%v", test.args, command, err)
+		}
+	}
+	for _, args := range [][]string{{"resume", "--dry-run"}, {"status", "--shard", "id"}, {"cancel"}, {"--model", "openai/qa"}, {"--budget", "99"}, {"--command", "go test"}, {"--path", "internal"}, {"--restart"}} {
+		if _, err := parseSprintQAArgs(args); err == nil {
+			t.Fatalf("unsafe or unsupported args accepted: %v", args)
+		}
+	}
+	for _, want := range []string{"conformance-review", "qa [--dry-run]", "qa resume", "qa cancel", "read-only QA"} {
+		if !strings.Contains(sprintHelp(), want) {
+			t.Fatalf("help missing %q", want)
+		}
+	}
+}
+
 func TestParseSprintFlowCodeContextOverrides(t *testing.T) {
 	req, err := parseSprintFlowArgs([]string{"--to", "code-context", "--dry-run", "--model", "vendor/context", "--variant", "max"})
 	if err != nil || req.To != sprint.StageCodeContext || !req.DryRun || req.ModelOverride != "vendor/context" || req.VariantOverride != "max" {
@@ -580,6 +688,51 @@ func TestPlanningStageRuntimeCodeContextFallback(t *testing.T) {
 	runtime = planningStageRuntime(c)[sprint.StageCodeContext]
 	if runtime.Model != "stage/context" || runtime.Variant != "max" {
 		t.Fatalf("stage runtime = %+v", runtime)
+	}
+}
+
+func TestQASettingsUseDedicatedModelAndKeepEveryEffectiveSource(t *testing.T) {
+	effective := config.Effective{Config: config.Defaults(), Sources: map[string]string{}}
+	for _, field := range config.QAConfigFields() {
+		effective.Sources[field] = "default"
+	}
+	effective.Config.QA.Model = "openai/qa"
+	effective.Config.QA.Variant = "medium"
+	effective.Sources["qa.model"] = "workspace"
+	effective.Sources["qa.variant"] = "workspace"
+	settings, err := qaSettings(effective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Runtime.Model != "openai/qa" || settings.Runtime.Variant != "medium" {
+		t.Fatalf("QA runtime = %+v", settings.Runtime)
+	}
+	if len(settings.Sources) != len(config.QAConfigFields()) {
+		t.Fatalf("QA sources = %d", len(settings.Sources))
+	}
+	if settings.Budgets != sprint.DefaultQABudgets() {
+		t.Fatalf("QA budget drift: got %+v want %+v", settings.Budgets, sprint.DefaultQABudgets())
+	}
+}
+
+func TestQASettingsModelFallbackIsExplicit(t *testing.T) {
+	effective := config.Effective{Config: config.Defaults(), Sources: map[string]string{}}
+	for _, field := range config.QAConfigFields() {
+		effective.Sources[field] = "default"
+	}
+	effective.Sources["models.default"] = "default"
+	effective.Sources["execution.default_variant"] = "default"
+	settings, err := qaSettings(effective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Runtime.Model != effective.Config.Models.Default || settings.Runtime.Variant != effective.Config.Execution.DefaultVariant {
+		t.Fatalf("QA fallback runtime = %+v", settings.Runtime)
+	}
+	for _, source := range settings.Sources {
+		if source.Field == "qa.model" && source.Source != "default" {
+			t.Fatalf("QA model source = %q", source.Source)
+		}
 	}
 }
 

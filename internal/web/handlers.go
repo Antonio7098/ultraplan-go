@@ -155,6 +155,7 @@ type sprintDTO struct {
 	Execute    executeDTO    `json:"execute"`
 	Review     reviewDTO     `json:"review"`
 	Smoke      smokeDTO      `json:"smoke"`
+	QA         app.QAResult  `json:"qa"`
 	Findings   []findingDTO  `json:"findings"`
 	Artifacts  []artifactDTO `json:"artifacts"`
 }
@@ -370,6 +371,11 @@ type pageModel struct {
 	NextEventsURL     string
 	RunFilters        runPageFilters
 	Page              string
+	QAInsights        *runQAInsightsView
+	SurfaceContract   template.HTML
+	QA                *app.QAResult
+	QAShard           *app.QAShardResult
+	QATheory          *app.QATheoryResult
 }
 
 type projectRoadmapPreview struct {
@@ -497,6 +503,12 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			page = "workflow"
 		}
 		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: sprintPageTitle(page) + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Page: page})
+	case "sprint_qa":
+		h.handleSprintQAPage(w, r, match.params[0], match.params[1], "", "")
+	case "sprint_qa_shard":
+		h.handleSprintQAPage(w, r, match.params[0], match.params[1], match.params[2], "")
+	case "sprint_qa_theory":
+		h.handleSprintQAPage(w, r, match.params[0], match.params[1], "", match.params[2])
 	case "sprint_artifact":
 		result, err := h.queries.Sprint(r.Context(), match.params[0], match.params[1])
 		if err != nil {
@@ -630,6 +642,16 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			return
 		}
 		h.writeSuccess(w, r, http.StatusOK, mapSprint(result), nil)
+	case "api_sprint_qa":
+		h.handleSprintQA(w, r, match.params[0], match.params[1])
+	case "api_sprint_qa_map":
+		h.handleSprintQAMap(w, r, match.params[0], match.params[1])
+	case "api_sprint_qa_shard":
+		h.handleSprintQAShard(w, r, match.params[0], match.params[1], match.params[2])
+	case "api_sprint_qa_theory":
+		h.handleSprintQATheory(w, r, match.params[0], match.params[1], match.params[2])
+	case "api_sprint_qa_synthesis":
+		h.handleSprintQASynthesis(w, r, match.params[0], match.params[1])
 	case "api_models":
 		queries, ok := h.queries.(app.WebModelQueries)
 		if !ok {
@@ -977,6 +999,21 @@ func validOpaqueRef(value string) bool {
 
 func (h *handler) handleQueryError(w http.ResponseWriter, r *http.Request, apiRoute bool, err error) {
 	status, code, message := http.StatusInternalServerError, "internal_error", "The request could not be completed."
+	if qaErr, ok := app.AsQAUseCaseError(err); ok {
+		status, code, message = http.StatusUnprocessableEntity, qaErr.Code, qaErr.Message
+		switch qaErr.Code {
+		case "qa.conflict":
+			status = http.StatusConflict
+		case "qa.persistence_failure", "qa.runtime_unavailable":
+			status = http.StatusServiceUnavailable
+		}
+		if apiRoute {
+			h.writeQAError(w, r, status, qaErr)
+		} else {
+			h.writeRouteError(w, r, false, status, code, message)
+		}
+		return
+	}
 	switch {
 	case errors.Is(err, app.ErrWebNotFound):
 		status, code, message = http.StatusNotFound, "not_found", "The requested resource was not found."
@@ -984,6 +1021,12 @@ func (h *handler) handleQueryError(w http.ResponseWriter, r *http.Request, apiRo
 		status, code, message = http.StatusServiceUnavailable, "unavailable", "The service is unavailable."
 	}
 	h.writeRouteError(w, r, apiRoute, status, code, message)
+}
+
+func (h *handler) writeQAError(w http.ResponseWriter, r *http.Request, status int, qaErr *app.QAUseCaseError) {
+	meta := responseMeta{APIVersion: "v1", RequestID: requestID(r.Context()), GeneratedAt: h.now().UTC().Format(time.RFC3339Nano)}
+	details := map[string]any{"category": qaErr.Category, "operation": qaErr.Operation, "guidance": qaErr.Guidance, "component": "sprint", "correlation_id": meta.RequestID}
+	writeJSON(w, status, errorEnvelope{Error: errorBody{Code: qaErr.Code, Message: qaErr.Message, Retryable: qaErr.Retryable, Details: details}, Meta: meta})
 }
 
 func (h *handler) writeRouteError(w http.ResponseWriter, r *http.Request, apiRoute bool, status int, code, message string) {
@@ -1104,6 +1147,7 @@ func mapSprint(item app.WebSprintResult) sprintDTO {
 		Execute:  executeDTO{Available: item.Execute.Available, Total: item.Execute.Total, Pending: item.Execute.Pending, Running: item.Execute.Running, Complete: item.Execute.Complete, Failed: item.Execute.Failed, Cancelled: item.Execute.Cancelled},
 		Review:   reviewDTO{Available: item.Review.Available, Status: item.Review.Status, Verdict: item.Review.Verdict, Stale: item.Review.Stale, Completed: item.Review.Completed, Total: item.Review.Total, Pending: item.Review.Pending, Running: item.Review.Running, Failed: item.Review.Failed, Reviewers: reviewers, StartedAt: item.Review.StartedAt},
 		Smoke:    smokeDTO{Available: item.Smoke.Available, Status: item.Smoke.Status, Verdict: item.Smoke.Verdict, Stale: item.Smoke.Stale, RunID: item.Smoke.RunID},
+		QA:       item.QA,
 		Findings: mapFindings(item.Findings), Artifacts: mapArtifacts(item.Artifacts),
 	}
 }

@@ -91,6 +91,11 @@ const (
 	OperationSmokeStart    OperationKind = "smoke-start"
 	OperationVerifyDryRun  OperationKind = "verify-dry-run"
 	OperationVerifyStart   OperationKind = "verify-start"
+	OperationQAStatus      OperationKind = "qa-status"
+	OperationQADryRun      OperationKind = "qa-dry-run"
+	OperationQAStart       OperationKind = "qa-start"
+	OperationQAResume      OperationKind = "qa-resume"
+	OperationQARecover     OperationKind = "qa-recover"
 	OperationStudyStart    OperationKind = "study-start"
 	OperationStudyResume   OperationKind = "study-resume"
 	OperationStudyCancel   OperationKind = "study-cancel"
@@ -212,17 +217,51 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	if err := validateOperationScope(req); err != nil {
 		return Confirmation{}, err
 	}
+	if err := validateQAOperationRequest(req); err != nil {
+		return Confirmation{}, err
+	}
 	if (req.Kind == OperationReviewStart || req.Kind == OperationReviewDryRun) && req.Parallelism <= 0 {
 		req.Parallelism = u.reviewConcurrency
 	}
 	c := Confirmation{Request: req, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study), Permission: "workspace policy enforced"}
 	switch req.Kind {
-	case OperationValidate, OperationPrompt, OperationFlowDryRun, OperationStageDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus, OperationSmokeStatus:
+	case OperationValidate, OperationPrompt, OperationFlowDryRun, OperationStageDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus, OperationSmokeStatus, OperationQAStatus:
 		c.Scope = []string{req.Stage}
 		c.Warning = "runtime-free; no runtime-backed writes"
+	case OperationQADryRun:
+		mapped, err := u.QAMap(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
+		if err != nil {
+			return c, err
+		}
+		c.Scope = []string{fmt.Sprintf("deterministic map %s", mapped.MapFingerprint), fmt.Sprintf("%d changed paths in %d bounded shards", mapped.ChangedPaths, mapped.TotalShards)}
+		c.Warning = "RUNTIME-FREE; TARGET AND GOVERNED INPUTS READ-ONLY; NO QA STATE WRITE"
+	case OperationQAStart, OperationQAResume:
+		mapped, err := u.QAMap(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
+		if err != nil {
+			return c, err
+		}
+		if req.Task != "" {
+			owned := false
+			for _, shard := range mapped.Shards {
+				owned = owned || shard.ID == req.Task
+			}
+			if !owned {
+				return c, fmt.Errorf("selected QA shard is not owned by the current map")
+			}
+		}
+		c.Runtime, c.Mutates = true, true
+		c.Scope = []string{fmt.Sprintf("deterministic map %s", mapped.MapFingerprint), fmt.Sprintf("bounded concurrency and %d total shards", mapped.TotalShards)}
+		if req.Task != "" {
+			c.Scope = append(c.Scope, "map-owned shard "+req.Task)
+		}
+		c.Warning = "RUNTIME + PRIVATE QA STATE WRITE; IMPLEMENTATION TARGET READ-ONLY"
+	case OperationQARecover:
+		c.Mutates = true
+		c.Scope = []string{"QA pointer, digest, interrupted ownership, flow summary, and retention reconciliation"}
+		c.Warning = "RUNTIME-FREE QA RECOVERY; NO CHILD WORK"
 	case OperationSprintStatus:
 		c.Mutates = true
-		c.Scope = []string{"all sprint stages", "execute and review state"}
+		c.Scope = []string{"all sprint stages", "execute and Conformance Review state"}
 		c.Warning = "RUNTIME-FREE; MAY REFRESH FLOW-STATE.JSON"
 	case OperationFlow:
 		c.Runtime = true
@@ -242,9 +281,9 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	case OperationReviewStart:
 		c.Runtime = true
 		c.Mutates = true
-		c.Scope = []string{"one read-only reviewer per selected contract plus handbook", fmt.Sprintf("bounded parallelism: %d", req.Parallelism)}
+		c.Scope = []string{"one read-only Conformance Review worker per selected contract plus handbook", fmt.Sprintf("bounded parallelism: %d", req.Parallelism)}
 		if req.RestartReview {
-			c.Scope = append(c.Scope, "discard resumable review checkpoints and start fresh sessions")
+			c.Scope = append(c.Scope, "discard resumable Conformance Review checkpoints and start fresh sessions")
 		}
 		c.Warning = "RUNTIME + REVIEW ARTIFACT WRITE (TARGET READ-ONLY)"
 	case OperationSmokeDryRun, OperationSmokeStart:
@@ -258,7 +297,7 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Warning = "EXTERNAL HARNESS + SMOKE ARTIFACT WRITE; RAW EVIDENCE REMAINS EXTERNAL"
 	case OperationVerifyDryRun, OperationVerifyStart:
 		c.Runtime, c.Mutates = true, req.Kind == OperationVerifyStart
-		c.Scope = []string{"complete execute evidence", "current review", "review-gated containing smoke scope"}
+		c.Scope = []string{"complete execute evidence", "current Conformance Review", "Conformance Review-gated containing smoke scope"}
 		if req.ForceReview {
 			c.Scope = append(c.Scope, "DIAGNOSTIC OVERRIDE: "+req.OverrideRationale)
 		}
@@ -317,6 +356,21 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	c.InputFingerprint = fingerprint
 	c.Request.ExpectedFingerprint = fingerprint
 	return c, nil
+}
+
+func validateQAOperationRequest(req OperationRequest) error {
+	switch req.Kind {
+	case OperationQAStatus, OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover:
+	default:
+		return nil
+	}
+	if req.Study != "" || req.Stage != "" || req.Model != "" || req.Level != "" || req.Suite != "" || req.Test != "" || req.Timeout != "" || req.ForceReview || req.RestartReview || req.OverrideRationale != "" || len(req.ReviewFocus) > 0 || len(req.Sources) > 0 || len(req.Dimensions) > 0 || req.Parallelism != 0 {
+		return fmt.Errorf("QA operations accept only project, sprint, and a map-owned shard")
+	}
+	if req.Task != "" && req.Kind != OperationQAStart && req.Kind != OperationQAResume {
+		return fmt.Errorf("QA shard is valid only for start or resume")
+	}
+	return nil
 }
 
 func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationRequest, emit func(OperationEvent)) (OperationResult, error) {
@@ -430,6 +484,26 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 		}
 		result.Message = fmt.Sprintf("%s %s: %s", r.ScopeKind, r.Scope, r.ScopeRationale)
 		result.Content, result.Truncated = boundContent(sprint.RenderSmoke(r))
+	case OperationQAStatus:
+		qa, err := u.QAStatus(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Message = fmt.Sprintf("phase=%s fresh=%t shards=%d/%d next=%s", qa.Phase, qa.Fresh, qa.CompletedShards, qa.TotalShards, qa.NextAction)
+	case OperationQADryRun:
+		qa, err := u.QAMap(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		data, _ := json.MarshalIndent(qa, "", "  ")
+		result.Content, result.Truncated = boundContent(string(data))
+		result.Message = "read-only QA map ready"
+	case OperationQARecover:
+		qa, err := u.RecoverQA(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Message = fmt.Sprintf("phase=%s next=%s", qa.Phase, qa.NextAction)
 	case OperationVerifyDryRun:
 		r, err := ss.Verify(ctx, req.Project, req.Sprint, sprint.VerifyRequest{To: sprint.PlanningStage(req.Stage), DryRun: true, Review: sprint.ReviewRequest{DryRun: true, Focus: req.ReviewFocus, Restart: req.RestartReview}, Smoke: sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, ForceReview: req.ForceReview, OverrideConfirmed: req.ForceReview, OverrideRationale: req.OverrideRationale, DryRun: true}})
 		if err != nil {
@@ -520,6 +594,9 @@ func operationPrerequisites(req OperationRequest) []string {
 	if req.Kind == OperationExecuteStart || req.Kind == OperationExecuteResume {
 		prerequisites = append(prerequisites, "validated plan", "approved target implementation directory")
 	}
+	if req.Kind == OperationQAStart || req.Kind == OperationQAResume || req.Kind == OperationQADryRun || req.Kind == OperationQARecover {
+		prerequisites = append(prerequisites, "complete execute evidence", "current Conformance Review", "approved read-only target")
+	}
 	return prerequisites
 }
 
@@ -535,6 +612,8 @@ func operationRuntimeIdentity(req OperationRequest, stages map[sprint.PlanningSt
 		stage = sprint.StageReview
 	case OperationSmokeStart, OperationVerifyStart:
 		stage = sprint.StageSmoke
+	case OperationQAStart, OperationQAResume:
+		return "configured QA runtime"
 	}
 	if runtime, ok := stages[stage]; ok && (runtime.Model != "" || runtime.Variant != "") {
 		return strings.TrimSpace(runtime.Model + " variant=" + runtime.Variant)
@@ -558,6 +637,15 @@ func governedOperationInputs(req OperationRequest) []string {
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "technical-handbook.md")),
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "reasoning.md")),
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "plan.md")),
+		}
+		switch req.Kind {
+		case OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover, OperationQAStatus:
+			inputs = append(inputs,
+				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "execute.md")),
+				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, ".run-state.json")),
+				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "review.md")),
+				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "flow-state.json")),
+			)
 		}
 		return append([]string{"ultraplan.yml"}, inputs...)
 	}
@@ -672,6 +760,22 @@ func failedOperation(r OperationResult, err error) (OperationResult, error) {
 		code, category, guidance = smokeErr.Code, smokeErr.Category, smokeErr.Guidance
 		r.Message = operationFailureMessage(category)
 		r.Error = &OperationError{Code: code, Category: category, Operation: "smoke", Component: "sprint", Message: r.Message, Cause: cause, Guidance: guidance, Retryable: category == "process" || category == "timeout"}
+		return r, err
+	}
+	if qaErr, ok := sprint.AsQAError(err); ok {
+		category = string(qaErr.Category)
+		code = "qa." + category
+		guidance = qaErr.Recovery
+		switch qaErr.Category {
+		case sprint.QAErrorRuntimeUnavailable, sprint.QAErrorPersistenceFailure:
+			category = "runtime"
+		case sprint.QAErrorConflict:
+			category = "concurrency"
+		default:
+			category = "validation"
+		}
+		r.Message = operationFailureMessage(category)
+		r.Error = &OperationError{Code: code, Category: category, Operation: "qa", Component: "sprint", Message: r.Message, Cause: cause, Guidance: guidance, Retryable: qaErr.Category == sprint.QAErrorRuntimeUnavailable || qaErr.Category == sprint.QAErrorConflict}
 		return r, err
 	}
 	var projectRef project.RefError

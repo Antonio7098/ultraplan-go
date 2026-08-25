@@ -42,6 +42,10 @@ func runServe(deps dependencies, args []string) error {
 	if err != nil {
 		return err
 	}
+	qa, err := qaSettings(effective)
+	if err != nil {
+		return classified(ExitConfig, "qa.config: %w", err)
+	}
 	rt, err := studyRuntimeFactory(effective.Config)
 	if err != nil {
 		return classified(ExitRuntime, "runtime.init: %w", err)
@@ -53,6 +57,7 @@ func runServe(deps dependencies, args []string) error {
 		root: root.Path, stageRuntime: planningStageRuntime(effective.Config),
 		reviewConcurrency: effective.Config.Execution.DefaultParallel,
 		smokeSettings:     smokeSettings(effective, envLookup(deps.env)), readOnly: true,
+		qaSettings: qa,
 	}
 	if errors.Is(deps.ctx.Err(), context.Canceled) {
 		return nil
@@ -70,6 +75,7 @@ func runServe(deps dependencies, args []string) error {
 		StageRuntime:      planningStageRuntime(effective.Config),
 		ReviewConcurrency: effective.Config.Execution.DefaultParallel,
 		SmokeSettings:     smokeSettings(effective, envLookup(deps.env)),
+		QASettings:        qa,
 		Runner:            sharedOperationRunner(deps, root, effective, dashboard),
 		RunControl:        repositoryRunUseCases{repository: repository},
 		DurableOperations: newDurableOperationManager(repository, deps.runControl.owner),
