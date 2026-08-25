@@ -178,6 +178,25 @@ UltraPlan writes durable state and generated artifacts loudly. If a write fails:
 3. Avoid manually editing run-state files unless directed by a focused remediation.
 4. Re-run validation after filesystem issues are fixed.
 
+## Read-only QA recovery
+
+Start with `ultraplan sprint <project> <sprint> qa status --json` and inspect its phase, freshness reasons, map and implementation fingerprints, durable run correlation, blocker, cancellation, terminal result, and next action. Do not infer QA success from a run event or infer Conformance Review success from QA.
+
+- `missing`: use `qa --dry-run`; recovery is a runtime-free no-op.
+- `queued`, `running`, or `synthesizing` after process loss: run `qa recover`. It records `interrupted`, reconciles the bounded flow summary, and directs runtime work to `qa resume`.
+- `stale`: inputs, implementation, Conformance Review evidence, policy, check catalog, limits, or selected shard no longer match. Run a new dry-run and start; never reuse stale outcomes as current.
+- `invalid` or `unknown_schema`: stop. Keep the private state unchanged, use a compatible binary or documented migration, and do not hand-edit version or digest fields.
+- `cancelled` or wall-clock exhaustion: completed promoted shards remain inspectable. Resume only if status says the semantic attempt is current.
+- `cleanup_uncertain` or persistence failure: inspect the durable run and filesystem health, restore reliable local persistence, then recover. Do not claim completion.
+
+Detailed records live under `projects/<project>/sprints/<sprint>/verification/` with mode 0700 directories and 0600 files. `state.json` points to digest-checked records beneath `attempts/<qa-v1-attempt-id>/`. A missing reference, digest mismatch, unsafe mode, symlink, path escape, malformed/trailing JSON, or unknown major version fails closed. Recovery can republish a previously validated terminal state to fix its `flow-state.json` summary; it never rebuilds missing theory evidence or adopts a worker.
+
+Every resume accepts and claims a new durable run and fencing generation. A stale writer cannot publish. Cancellation cleanup uses a separate bounded context so the current owner can record truthful terminal state even after the work context is cancelled. If owner identity is lost, wait for run-control reconciliation and resume; never reuse a process or provider session.
+
+Retention keeps at most eight semantic attempts by default, including the current protected attempt, and the detailed-state hard budget is 128 MiB. Normal start/recovery prunes only validated attempt directories in deterministic order. If quota is exhausted, preserve the current attempt, remove unrelated external files first, and use normal recovery; do not delete `state.json` or a referenced current directory manually.
+
+A gated real-runtime QA run that cannot meet runtime, current evidence, local-filesystem, browser, or Git prerequisites is `blocked`. Record the missing prerequisite; fake-runtime tests do not satisfy the dogfood gate.
+
 ## Unsafe Data Handling
 
 Do not paste provider tokens, full environment dumps, full prompts, full generated report bodies, or raw unsafe runtime payloads into issue reports or release evidence. Use redacted command summaries and artifact paths.

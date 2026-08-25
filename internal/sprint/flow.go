@@ -88,6 +88,15 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 				return FlowResult{}, validateErr
 			}
 			if valid {
+				if stage == StageCodeContext {
+					sp, inputs, _, resolveErr := s.resolveSprintInputs(projectRef, sprintRef)
+					if resolveErr != nil {
+						return FlowResult{}, resolveErr
+					}
+					if _, findings := s.resolveSprintTarget(sp, inputs.ProjectIndex, true); len(findings) > 0 {
+						return FlowResult{Project: sp.Project, Sprint: sp.Slug, To: stage, Findings: findings}, fmt.Errorf("code-context sprint workspace creation failed")
+					}
+				}
 				if stage != StageExecute {
 					if sp, _, _, resolveErr := s.resolveSprintInputs(projectRef, sprintRef); resolveErr == nil {
 						_ = clearPlanningStageSession(sp, stage)

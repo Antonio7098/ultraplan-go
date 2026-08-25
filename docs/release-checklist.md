@@ -125,6 +125,21 @@ Confirm docs and evidence contain no:
 - unsupported direct OpenCode supervision claims.
 - unsupported automatic Git mutation claims.
 
+## Read-only QA gates
+
+- Two unchanged `qa --dry-run --json` executions have byte-identical normalized map payloads, IDs, ordering, budgets, and fingerprints.
+- Every changed path has exactly one primary owner; unknown paths block; boundary overlap and follow-up parent links stay within frozen limits.
+- Strict state tests cover unknown versions/fields, trailing JSON, private modes, containment and symlink escape, digest mismatch, atomic failure, pointer-last ordering, stale fencing, retention, quota, recovery, and prior-state preservation.
+- Runtime-policy tests prove restricted read-only/default-deny translation, required permission capability, assigned path rules, unsupported-enforcement rejection, no shell/Git/interpreter/write/cache commands, bounded environment names, output/time limits, target and governed-input drift detection, and no child after acceptance failure.
+- Scheduler tests cover fixed concurrency, queue bounds, retry exhaustion, cancellation before admission and while active, timeout, terminal promotion ordering, resume without worker adoption, restart interruption, and runtime-free recovery.
+- Theory/synthesis tests cover every outcome, falsifiable fields, negative retention, deterministic deduplication, contradictions, interactions, blockers, stale input, and bounded follow-ups with no issues, repairs, patches, generated checks, `qa.md`, or verdict promotion.
+- CLI text/JSON, TUI, browser HTML/JSON, app DTOs, and durable run detail agree on fingerprints, coverage, shard progress, outcomes, synthesis, blocker, cancellation, terminal result, and next action. HTML remains complete without JavaScript and escapes hostile retained text.
+- `review` and `conformance-review` invoke the same capability. `review`, `review.md`, existing JSON fields, verdict rules, smoke behavior, and planning-stage order remain compatible while human labels say Conformance Review.
+- Focused race checks pass with `go test -race ./internal/sprint ./internal/app ./internal/tui ./internal/web`; the full `go test -race ./...` gate also passes.
+- `go test ./...`, `go vet ./...`, `go build ./cmd/ultraplan`, and `git diff --check` pass with retained evidence.
+- Real-runtime dogfood records two stable maps, read-only shard/synthesis state, durable progress, explicit cancellation/recovery, and clean content plus Git identity. Missing prerequisites are recorded as blocked and do not satisfy the gate.
+- Sprint 37 evidence production/smoke integration/adjudication/issues and Sprint 38 repair remain explicitly deferred.
+
 ## Platform Notes
 
 Linux and macOS binaries are local release artifacts. macOS binaries are cross-compiled, unsigned, and unnotarized. Users may need to handle local OS trust prompts. No installer packages are produced by this checklist.

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "project": "alpha",
+  "sprint": "30-web",
+  "phase": "completed",
+  "fresh": true,
+  "attempt_id": "qa-v1-attempt-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "run_id": "run_qa_canonical",
+  "operational_attempt_id": "attempt_qa_canonical",
+  "run_lifecycle": "terminal",
+  "terminal_result": "completed",
+  "governed_input_fingerprint": "governed-canonical",
+  "implementation_fingerprint": "implementation-canonical",
+  "review_fingerprint": "review-canonical",
+  "conformance_review_status": "completed",
+  "conformance_review_verdict": "pass_with_findings",
+  "conformance_review_fresh": true,
+  "map_fingerprint": "qa-v1-map-bbbbbbbbbbbbbbbbbbbbbbbb",
+  "policy_fingerprint": "policy-canonical",
+  "changed_paths": 2,
+  "covered_paths": 2,
+  "completed_shards": 1,
+  "total_shards": 1,
+  "outcome_totals": {
+    "refuted": 1
+  },
+  "shards": [
+    {
+      "id": "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa",
+      "kind": "primary",
+      "title": "API boundary",
+      "phase": "completed",
+      "theory_count": 1,
+      "theories": [
+        {
+          "id": "qa-v1-theory-bbbbbbbbbbbbbbbbbbbbbbbb",
+          "shard_id": "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa",
+          "claim": "valid input remains accepted",
+          "basis": "the changed request branch",
+          "outcome": "refuted",
+          "outcome_reason": "the canonical fixture accepts the input"
+        }
+      ]
+    }
+  ],
+  "cancellation": {
+    "requested": false
+  },
+  "next_action": "Inspect retained outcomes."
+}

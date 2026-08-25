@@ -354,7 +354,7 @@ func renderRouteSummary(b *strings.Builder, m Model) {
 			return
 		}
 		fmt.Fprintln(b, "Verification summary")
-		fmt.Fprintf(b, "  Review: %s verdict=%s stale=%t evidence=%s\n", sprint.Review.Status, sprint.Review.Verdict, sprint.Review.Stale, sprint.Review.Artifact)
+		fmt.Fprintf(b, "  Conformance Review: %s verdict=%s stale=%t evidence=%s\n", sprint.Review.Status, sprint.Review.Verdict, sprint.Review.Stale, sprint.Review.Artifact)
 		for _, reason := range sprint.Review.FreshnessReasons {
 			fmt.Fprintf(b, "    Reason: %s\n", reason)
 		}
@@ -366,6 +366,10 @@ func renderRouteSummary(b *strings.Builder, m Model) {
 			fmt.Fprintf(b, "    Diagnostic override: %s\n", sprint.Smoke.Override.Rationale)
 		}
 		fmt.Fprintf(b, "  Overall: %s\n  Next: %s\n\n", sprint.Assessment, sprint.NextAction)
+		return
+	}
+	if route.Kind == RouteSprintQA || route.Kind == RouteSprintQAShard || route.Kind == RouteSprintQATheory {
+		renderSprintQAView(b, m, route)
 		return
 	}
 	if route.Kind != RouteStudy {

@@ -93,6 +93,21 @@ ultraplan config show --json
 
 The default runtime is `opencode` through agentwrap. Runtime/provider secrets should stay in runtime-native environment or provider config, not in `ultraplan.yml`.
 
+Read-only QA has a lower-only workspace policy. This example selects its model and reduces concurrency without granting any new command, path, or write authority:
+
+```yaml
+qa:
+  model: openai/gpt-5.6
+  variant: medium
+  concurrent_investigators: 2
+  runtime_retries: 1
+  run_timeout: 45m
+```
+
+Environment overrides use the same names with an `ULTRAPLAN_QA_` prefix, such as `ULTRAPLAN_QA_MODEL`, `ULTRAPLAN_QA_CONCURRENT_INVESTIGATORS`, and `ULTRAPLAN_QA_RUN_TIMEOUT`. Precedence is product default, workspace file, then environment. Invalid values fail startup. See the QA configuration table in the CLI reference for every key, default, and maximum.
+
+If `qa.model` is empty, UltraPlan uses `planning.review_model`, then `planning.plan_model`, then `models.default`. The QA variant falls back to `execution.default_variant`. A model or limit change updates the policy fingerprint and makes retained QA state stale. Run `qa --dry-run` again before starting work. Larger models and higher limits can increase latency and provider cost, even though the product maxima still apply.
+
 ## 4. Check Health
 
 Run:
@@ -301,6 +316,39 @@ ultraplan sprint <project> <sprint> validate smoke
 `verify` requires complete execute evidence, obtains or reuses a current review, then applies the smoke gate. Interrupted reviews resume validated coverage and retained OpenCode sessions by default. Use `review --restart` or `verify --restart-review` when you intentionally want fresh sessions; a restart cannot be combined with focused review.
 
 The smoke preview shows the review gate, sufficient scope, prerequisites, duration/cost class where supplied, safe argv, and external evidence roots. `--force-review` additionally requires `--override-reason` and is diagnostic-only after a current failed/blocked review; it cannot override stale or malformed review evidence or improve the overall assessment. Raw harness evidence stays in its `runs/` and `issues/` directories, while the sprint stores only `smoke.md` and flow state.
+
+### Run read-only QA
+
+Conformance Review is the existing analytical review capability. Its compatible command remains `review`; `conformance-review` invokes the same handler. Read-only QA is a later, separate diagnostic phase and never replaces that verdict.
+
+Preview the deterministic map before spending runtime work:
+
+```bash
+ultraplan sprint <project> <sprint> qa --dry-run
+ultraplan sprint <project> <sprint> qa --dry-run --json
+```
+
+The map shows changed-path coverage, primary and boundary shards, fingerprints, approved existing checks, and effective limits. Every changed path must have one primary owner. A missing or stale execute record, Conformance Review record, governed input, target identity, or unknown changed path blocks mapping instead of broadening scope.
+
+Use `ultraplan config show` to confirm the effective QA model, limits, and source of each value. There are no request flags for these settings. `ultraplan.yml` and `ULTRAPLAN_QA_*` may only lower numeric and duration limits from the product maxima documented in the CLI reference.
+
+Run all current shards or one map-owned shard, then inspect status:
+
+```bash
+ultraplan sprint <project> <sprint> qa
+ultraplan sprint <project> <sprint> qa --shard qa-v1-shard-...
+ultraplan sprint <project> <sprint> qa status
+```
+
+Investigators can only read assigned paths and request bounded context or approved non-mutating checks. They cannot create tests, fixtures, probes, patches, issues, or repairs. A theory is a falsifiable diagnostic record: `confirmed` supports its claim, `refuted` rejects it, `invalid` means the claim contract failed, `inconclusive` lacks safe evidence, `blocked` records a prerequisite or policy stop, `cross_shard` needs bounded interaction work, and `not_applicable` records that the claim does not apply. Negative outcomes remain visible.
+
+Cancellation is explicit and uses the durable run ID shown by status and run inspection:
+
+```bash
+ultraplan sprint <project> <sprint> qa cancel --run run_...
+```
+
+After cancellation, timeout, restart, or restored runtime availability, first inspect status. Use `qa recover` to reconcile runtime-free state and `qa resume` to claim incomplete current work with a new durable owner. Completed current shards are retained; changed map or input fingerprints make the attempt stale and require a new dry-run/start. `Read-only QA completed` means all admitted bounded work ended, not “QA passed,” and it cannot upgrade a failed or blocked Conformance Review.
 
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`. A project may override only the area-reasoning prompt, final-reasoning prompt, and final-reasoning template. Project status reports which source is effective.
 

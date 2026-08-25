@@ -135,6 +135,9 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 		}
 	}
 	operationsJS := request(h, http.MethodGet, "/static/js/operations.js", nil).Body.String()
+	if !strings.Contains(operationsJS, "result.shard = selectedShard") {
+		t.Fatal("modular operation serializer does not preserve the map-owned QA shard option")
+	}
 	for _, want := range []string{"body.error?.details?.reason", "body.error?.details?.guidance"} {
 		if !strings.Contains(operationsJS, want) {
 			t.Fatalf("operation JavaScript missing safe error detail %q", want)
@@ -286,7 +289,7 @@ func TestSprintRunOnlyExposesFlowToStageAction(t *testing.T) {
 
 func TestSprintRunShowsReviewerStatusGridInRunningReviewStage(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, want := range []string{`data-review-status`, `data-activity-panel`, `class="activity-summary"`, `id="activity-time"`, `id="activity-agents"`, `id="activity-actions"`, `id="activity-tools"`, `id="latest-event"`, `class="event-log"`, `id="event-log-count"`, `class="reviewer-grid"`, `id="review-count-complete"`, `id="review-count-running"`, `id="review-count-pending"`, `id="review-count-failed"`, `id="reviewer-result-dialog"`, "Durable progress and reviewer transitions appear below", "Security contract", "API contract", "Technical handbook"} {
+	for _, want := range []string{`data-review-status`, `data-activity-panel`, `class="activity-summary"`, `id="activity-time"`, `id="activity-agents"`, `id="activity-actions"`, `id="activity-tools"`, `id="latest-event"`, `class="event-log"`, `id="event-log-count"`, `class="reviewer-grid"`, `id="review-count-complete"`, `id="review-count-running"`, `id="review-count-pending"`, `id="review-count-failed"`, `id="reviewer-result-dialog"`, "This Conformance Review is running", "Durable progress and worker transitions appear below", "Security contract", "API contract", "Technical handbook"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("running review stage is missing reviewer UI %q", want)
 		}

@@ -10,6 +10,7 @@ type Redacted struct {
 	Models     Models            `json:"models"`
 	Execution  Execution         `json:"execution"`
 	Planning   Planning          `json:"planning"`
+	QA         QA                `json:"qa"`
 	Smoke      Smoke             `json:"smoke"`
 	RunControl RunControl        `json:"run_control"`
 	Logging    Logging           `json:"logging"`
@@ -18,7 +19,9 @@ type Redacted struct {
 }
 
 func Redact(e Effective) Redacted {
-	return Redacted{Version: e.Config.Version, Runtime: e.Config.Runtime, Models: redactModels(e.Config.Models), Execution: e.Config.Execution, Planning: redactPlanning(e.Config.Planning), Smoke: e.Config.Smoke, RunControl: e.Config.RunControl, Logging: e.Config.Logging, Agentwrap: redactAgentwrap(e.Config.Agentwrap), Sources: e.Sources}
+	qa := e.Config.QA
+	qa.Model = RedactValue("qa.model", qa.Model)
+	return Redacted{Version: e.Config.Version, Runtime: e.Config.Runtime, Models: redactModels(e.Config.Models), Execution: e.Config.Execution, Planning: redactPlanning(e.Config.Planning), QA: qa, Smoke: e.Config.Smoke, RunControl: e.Config.RunControl, Logging: e.Config.Logging, Agentwrap: redactAgentwrap(e.Config.Agentwrap), Sources: e.Sources}
 }
 
 func Sensitive(key, value string) bool {

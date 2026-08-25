@@ -1,12 +1,16 @@
 package sprint
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
+const ApprovedExecuteTargetPath = "/home/antonioborgerees/coding/ultraplan/ultraplan-go"
+
 func TestResolveExecuteTarget(t *testing.T) {
-	target, findings := ResolveExecuteTarget(testProjectIndex())
+	target, findings := ResolveExecuteTarget("/workspace", testProjectIndex())
 	if len(findings) != 0 {
 		t.Fatalf("findings = %+v", findings)
 	}
@@ -15,15 +19,30 @@ func TestResolveExecuteTarget(t *testing.T) {
 	}
 }
 
-func TestResolveExecuteTargetRejectsMissingRelativeAndAlternateTargets(t *testing.T) {
+func TestResolveExecuteTargetSupportsWorkspaceRelativePaths(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	targetRoot := filepath.Join(filepath.Dir(workspaceRoot), "project-source")
+	if err := os.MkdirAll(targetRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(workspaceRoot, targetRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, findings := ResolveExecuteTarget(workspaceRoot, "- **Target Implementation Directory:** `"+relative+"`\n")
+	if len(findings) != 0 || target.Path != targetRoot || target.Source != "project-index.md" {
+		t.Fatalf("target=%+v findings=%+v", target, findings)
+	}
+}
+
+func TestResolveExecuteTargetRejectsMissingAndUnavailableTargets(t *testing.T) {
 	cases := map[string]string{
-		"missing":   "# Project Index\n",
-		"relative":  "- **Target Implementation Directory:** ../ultraplan-go\n",
-		"alternate": "- **Target Implementation Directory:** /tmp/ultraplan-go\n",
+		"missing":     "# Project Index\n",
+		"unavailable": "- **Target Implementation Directory:** ../missing-project\n",
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, findings := ResolveExecuteTarget(content); len(findings) == 0 {
+			if _, findings := ResolveExecuteTarget(t.TempDir(), content); len(findings) == 0 {
 				t.Fatalf("expected findings")
 			}
 		})

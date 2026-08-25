@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/runcontrol"
+	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 )
 
 type durableOperationManager struct {
@@ -38,6 +39,13 @@ type durableCLICommand struct {
 	accepted AcceptedOperation
 }
 
+type durableOperationContextKey struct{}
+
+type durableOperationOwnership struct {
+	repository runcontrol.Repository
+	fence      runcontrol.Fence
+}
+
 func beginDurableCLICommand(deps dependencies, request OperationRequest) (*durableCLICommand, error) {
 	repository, _, err := runRepository(deps)
 	if err != nil {
@@ -52,6 +60,13 @@ func beginDurableCLICommand(deps dependencies, request OperationRequest) (*durab
 }
 
 func (c *durableCLICommand) Context() context.Context { return c.accepted.Context }
+
+func (c *durableCLICommand) QAWriterToken() (sprint.QAWriterToken, func(sprint.QAWriterToken) error, error) {
+	if c == nil {
+		return sprint.QAWriterToken{}, nil, errors.New("durable QA ownership is unavailable")
+	}
+	return qaOwnershipFromContext(c.accepted.Context)
+}
 
 func (c *durableCLICommand) Finish(runErr error) error {
 	state := OperationComplete
@@ -113,12 +128,31 @@ func (m *durableOperationManager) AcceptOperation(ctx context.Context, confirmat
 		return AcceptedOperation{}, fmt.Errorf("persist confirmed operation start: %w", err)
 	}
 	operationCtx, cancel := context.WithCancel(ctx)
+	operationCtx = context.WithValue(operationCtx, durableOperationContextKey{}, durableOperationOwnership{repository: m.repository, fence: fence})
 	owned := &ownedDurableOperation{fence: fence, cancel: cancel, stop: make(chan struct{}), done: make(chan struct{})}
 	m.mu.Lock()
 	m.owned[string(snapshot.RunID)] = owned
 	m.mu.Unlock()
 	go m.controlOperation(operationCtx, owned)
 	return AcceptedOperation{RunID: string(snapshot.RunID), Context: operationCtx, Lifecycle: string(runcontrol.LifecycleRunning)}, nil
+}
+
+func qaOwnershipFromContext(ctx context.Context) (sprint.QAWriterToken, func(sprint.QAWriterToken) error, error) {
+	ownership, ok := ctx.Value(durableOperationContextKey{}).(durableOperationOwnership)
+	if !ok || ownership.repository == nil {
+		return sprint.QAWriterToken{}, nil, errors.New("durable QA ownership is missing from the operation context")
+	}
+	token := sprint.QAWriterToken{RunID: string(ownership.fence.RunID), OperationalAttemptID: string(ownership.fence.AttemptID), FencingGeneration: ownership.fence.FencingGeneration}
+	fence := func(got sprint.QAWriterToken) error {
+		if got != token {
+			return runcontrol.ErrStaleFence
+		}
+		fenceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_, err := ownership.repository.Heartbeat(fenceCtx, ownership.fence, runControlLease)
+		return err
+	}
+	return token, fence, nil
 }
 
 func (m *durableOperationManager) RecordOperationEvent(ctx context.Context, runID string, event OperationEvent) (bool, error) {

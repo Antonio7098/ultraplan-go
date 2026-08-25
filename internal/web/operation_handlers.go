@@ -24,6 +24,7 @@ type operationOptionsRequest struct {
 	Stage             string   `json:"stage,omitempty"`
 	ToStage           string   `json:"to_stage,omitempty"`
 	Task              string   `json:"task,omitempty"`
+	Shard             string   `json:"shard,omitempty"`
 	Model             string   `json:"model,omitempty"`
 	Action            string   `json:"action,omitempty"`
 	DryRun            bool     `json:"dry_run,omitempty"`
@@ -531,6 +532,7 @@ func operationSpecFromForm(r *http.Request) operationSpecRequest {
 		Options: operationOptionsRequest{
 			ToStage:     r.FormValue("stage"),
 			Task:        r.FormValue("task"),
+			Shard:       r.FormValue("shard"),
 			Model:       strings.TrimSpace(r.FormValue("model")),
 			Parallelism: parallelism,
 		},
@@ -677,6 +679,18 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 		}
 	case "verify-dry-run":
 		req.Kind = app.OperationVerifyDryRun
+	case "qa-status":
+		req.Kind = app.OperationQAStatus
+	case "qa-dry-run":
+		req.Kind = app.OperationQADryRun
+	case "qa-start":
+		req.Kind = app.OperationQAStart
+		req.Task = options.Shard
+	case "qa-resume":
+		req.Kind = app.OperationQAResume
+		req.Task = options.Shard
+	case "qa-recover":
+		req.Kind = app.OperationQARecover
 	case "study-run-loop", "study-start":
 		if options.Resume {
 			req.Kind = app.OperationStudyResume
@@ -703,6 +717,14 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 	} else if req.Sprint == "" {
 		return app.OperationRequest{}, fmt.Errorf("sprint operations require scope.sprint")
 	}
+	if strings.HasPrefix(string(req.Kind), "qa-") {
+		if options.Task != "" || options.Model != "" || options.Stage != "" || options.ToStage != "" || options.Action != "" || options.DryRun || options.Resume || options.Level != "" || options.Suite != "" || options.Test != "" || options.Timeout != "" || options.ForceReview || options.RestartReview || options.OverrideRationale != "" || len(options.ReviewFocus) > 0 || len(options.Sources) > 0 || len(options.Dimensions) > 0 || options.Parallelism != 0 {
+			return app.OperationRequest{}, fmt.Errorf("QA operations accept only options.shard")
+		}
+		if options.Shard != "" && req.Kind != app.OperationQAStart && req.Kind != app.OperationQAResume {
+			return app.OperationRequest{}, fmt.Errorf("QA shard is valid only for start or resume")
+		}
+	}
 	return req, nil
 }
 
@@ -722,7 +744,11 @@ func mapOperationSpec(req app.OperationRequest) map[string]any {
 		options["stage"] = req.Stage
 	}
 	if req.Task != "" {
-		options["task"] = req.Task
+		if req.Kind == app.OperationQAStart || req.Kind == app.OperationQAResume {
+			options["shard"] = req.Task
+		} else {
+			options["task"] = req.Task
+		}
 	}
 	if req.Model != "" {
 		options["model"] = req.Model

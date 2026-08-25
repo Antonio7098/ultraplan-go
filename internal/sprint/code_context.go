@@ -211,7 +211,7 @@ func (s Service) PromptCodeContext(projectRef, sprintRef string) (PromptPreview,
 	if findings := ValidateRequirementsContent(inputs.Requirements); len(findings) > 0 {
 		return PromptPreview{}, fmt.Errorf("code-context prerequisites failed validation")
 	}
-	target, findings := s.resolveCodeContextTarget(inputs.ProjectIndex)
+	target, findings := s.resolveSprintTarget(sp, inputs.ProjectIndex, false)
 	if len(findings) > 0 {
 		return PromptPreview{}, fmt.Errorf("code-context target resolution failed: %s", formatValidationFindings(findings))
 	}
@@ -267,7 +267,7 @@ func (s Service) FlowCodeContext(ctx context.Context, projectRef, sprintRef stri
 		err := fmt.Errorf("code-context prerequisites failed validation")
 		return s.failCodeContext(sp, req, now, pruntime.Result{}, findings, err)
 	}
-	target, findings := s.resolveCodeContextTarget(inputs.ProjectIndex)
+	target, findings := s.resolveSprintTarget(sp, inputs.ProjectIndex, !req.DryRun)
 	if len(findings) > 0 {
 		err := fmt.Errorf("code-context target resolution failed")
 		return s.failCodeContext(sp, req, now, pruntime.Result{}, findings, err)
@@ -422,13 +422,6 @@ func codeContextRuntimeResultError(result pruntime.Result) error {
 		return fmt.Errorf("code-context runtime ended with status %q", result.Status)
 	}
 	return nil
-}
-
-func (s Service) resolveCodeContextTarget(projectIndex string) (ExecuteTargetRef, []ValidationFinding) {
-	if s.codeContextTarget != nil {
-		return s.codeContextTarget(projectIndex)
-	}
-	return ResolveExecuteTarget(projectIndex)
 }
 
 func (s Service) failCodeContext(sp Sprint, req FlowRequest, now time.Time, result pruntime.Result, findings []ValidationFinding, err error) (FlowResult, error) {

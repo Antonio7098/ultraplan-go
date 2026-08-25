@@ -20,10 +20,11 @@ func TestEveryRuntimeBackedCLIEntryUsesDurableAcceptanceInventory(t *testing.T) 
 		entries  []string
 	}{
 		{
-			file: "sprint_commands.go", wantCall: 5,
+			file: "sprint_commands.go", wantCall: 6,
 			entries: []string{
 				"Kind: OperationFlow", "Kind: OperationVerifyStart", "Kind: OperationExecuteStart",
 				"Kind: OperationReviewStart", "Kind: OperationSmokeStart",
+				"kind := OperationQAStart", "kind = OperationQAResume",
 			},
 		},
 		{

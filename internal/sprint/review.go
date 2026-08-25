@@ -182,7 +182,7 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 	}
 	selection := s.reviewModelSelection(req.ModelOverride)
 	manifest.Model, manifest.ModelSource = selection.Model, selection.Source
-	if rt, ok := s.stageRuntime[StageReview]; ok {
+	if rt, ok := s.verificationRuntime[VerificationPhaseConformanceReview]; ok {
 		manifest.Variant = rt.Variant
 	} else if rt, ok := s.stageRuntime[StagePlan]; ok {
 		manifest.Variant = rt.Variant
@@ -207,7 +207,7 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 	}
 	idx, indexFindings := ValidateSprintIndexContent(inputs.SprintIndex, catalog)
 	findings = append(findings, indexFindings...)
-	target, targetFindings := ResolveExecuteTarget(inputs.ProjectIndex)
+	target, targetFindings := s.resolveSprintTarget(sp, inputs.ProjectIndex, false)
 	findings = append(findings, targetFindings...)
 	manifest.Target = target.Path
 	base := []struct {
@@ -1275,7 +1275,7 @@ func (s Service) reviewModelSelection(override string) ExecuteModelSelection {
 	if strings.TrimSpace(override) != "" {
 		return ExecuteModelSelection{Model: override, Source: "command override"}
 	}
-	if rt, ok := s.stageRuntime[StageReview]; ok && strings.TrimSpace(rt.Model) != "" {
+	if rt, ok := s.verificationRuntime[VerificationPhaseConformanceReview]; ok && strings.TrimSpace(rt.Model) != "" {
 		return ExecuteModelSelection{Model: rt.Model, Source: "planning.review_model"}
 	}
 	sel := s.executeModelSelection("")

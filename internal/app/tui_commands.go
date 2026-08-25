@@ -34,10 +34,15 @@ func runTUI(deps dependencies, args []string) error {
 	if err != nil {
 		return err
 	}
+	qa, err := qaSettings(effective)
+	if err != nil {
+		return classified(ExitConfig, "qa.config: %w", err)
+	}
 	useCases := dashboardUseCases{
 		root: root.Path, stageRuntime: planningStageRuntime(effective.Config),
 		reviewConcurrency: effective.Config.Execution.DefaultParallel,
 		smokeSettings:     smokeSettings(effective, envLookup(deps.env)),
+		qaSettings:        qa,
 	}
 	repository, _, err := runRepository(deps)
 	if err != nil {
@@ -76,9 +81,9 @@ Usage:
   ultraplan [--workspace <path>] tui
 
 Starts an operational terminal dashboard for workspace, project, study, and
-sprint state. Every sprint status, validation, prompt, flow, execute, and review,
-plus review-gated smoke,
-operation is available. Runtime-backed or mutating actions require confirmation;
+sprint state. Every sprint status, validation, prompt, flow, execute, Conformance
+Review, read-only QA, and review-gated smoke operation is available.
+Runtime-backed or mutating actions require confirmation;
 validation, prompt previews, and dry runs do not invoke the runtime. Refresh and
 sprint status may recompute deterministic sprint flow-state.json status.
 `

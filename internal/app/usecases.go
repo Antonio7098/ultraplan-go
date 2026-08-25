@@ -64,6 +64,7 @@ type dashboardUseCases struct {
 	stageRuntime      map[sprint.PlanningStage]sprint.StageRuntime
 	reviewConcurrency int
 	smokeSettings     sprint.SmokeSettings
+	qaSettings        sprint.QASettings
 	readOnly          bool
 	runs              RunUseCases
 	durable           DurableOperationManager
@@ -120,6 +121,9 @@ func (u dashboardUseCases) FinishOperation(ctx context.Context, id string, state
 
 func (u dashboardUseCases) sprintService() sprint.Service {
 	service := sprint.NewService(u.root).WithStageRuntime(u.stageRuntime).WithReviewConcurrency(u.reviewConcurrency)
+	if u.qaSettings.Runtime.Model != "" {
+		service = service.WithQASettings(u.qaSettings)
+	}
 	if u.smokeSettings.DiscoveryTimeout > 0 {
 		service = service.WithSmokeSettings(u.smokeSettings)
 	}
@@ -242,7 +246,32 @@ func previewKind(rel string) string {
 }
 
 func displaySafe(value string) string {
-	return config.RedactValue("tui.display", value)
+	value = config.RedactValue("tui.display", value)
+	var b strings.Builder
+	b.Grow(len(value))
+	for i := 0; i < len(value); {
+		if value[i] == 0x1b {
+			i++
+			if i < len(value) && value[i] == '[' {
+				i++
+				for i < len(value) {
+					terminal := value[i] >= 0x40 && value[i] <= 0x7e
+					i++
+					if terminal {
+						break
+					}
+				}
+			}
+			continue
+		}
+		if value[i] < 0x20 && value[i] != '\n' && value[i] != '\t' {
+			i++
+			continue
+		}
+		b.WriteByte(value[i])
+		i++
+	}
+	return b.String()
 }
 
 func sortArtifacts(items []DisplayArtifact) {

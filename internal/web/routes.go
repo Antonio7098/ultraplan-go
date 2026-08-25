@@ -46,6 +46,7 @@ type handler struct {
 	preparations *preparationStore
 	diagnostics  io.Writer
 	runs         app.RunUseCases
+	qa           app.QAQueries
 }
 
 func NewHandler(opts HandlerOptions) (http.Handler, error) {
@@ -66,7 +67,11 @@ func NewHandler(opts HandlerOptions) (http.Handler, error) {
 	if hub == nil {
 		hub = newOperationHub(opts.RootContext, opts.Operations, opts.Now, opts.RequestID)
 	}
-	h := &handler{queries: opts.Queries, templates: templates, now: opts.Now, hub: hub, preparations: newPreparationStore(opts.Now, opts.RequestID), diagnostics: opts.Diagnostics, runs: opts.Runs}
+	qa, _ := opts.Operations.(app.QAQueries)
+	if qa == nil {
+		qa, _ = opts.Queries.(app.QAQueries)
+	}
+	h := &handler{queries: opts.Queries, templates: templates, now: opts.Now, hub: hub, preparations: newPreparationStore(opts.Now, opts.RequestID), diagnostics: opts.Diagnostics, runs: opts.Runs, qa: qa}
 	security := newSecurityMiddleware(opts.Authority, opts.Diagnostics, opts.Now, opts.RequestID)
 	return security.wrap(h), nil
 }
@@ -325,6 +330,12 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "project_artifact", params: []string{parts[1], parts[3]}, known: true}
 	case len(parts) == 6 && parts[0] == "projects" && parts[2] == "sprints" && parts[4] == "artifacts":
 		return routeMatch{name: "sprint_artifact", params: []string{parts[1], parts[3], parts[5]}, known: true}
+	case len(parts) == 5 && parts[0] == "projects" && parts[2] == "sprints" && parts[4] == "qa":
+		return routeMatch{name: "sprint_qa", params: []string{parts[1], parts[3]}, known: true}
+	case len(parts) == 7 && parts[0] == "projects" && parts[2] == "sprints" && parts[4] == "qa" && parts[5] == "shards":
+		return routeMatch{name: "sprint_qa_shard", params: []string{parts[1], parts[3], parts[6]}, known: true}
+	case len(parts) == 7 && parts[0] == "projects" && parts[2] == "sprints" && parts[4] == "qa" && parts[5] == "theories":
+		return routeMatch{name: "sprint_qa_theory", params: []string{parts[1], parts[3], parts[6]}, known: true}
 	case len(parts) == 3 && parts[0] == "projects" && validProjectPage(parts[2]):
 		return routeMatch{name: "project_page", params: []string{parts[1], parts[2]}, known: true}
 	case len(parts) == 2 && parts[0] == "projects":
@@ -351,6 +362,14 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "api_project", params: parts[3:], known: true, api: true}
 	case len(parts) == 6 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints":
 		return routeMatch{name: "api_sprint", params: []string{parts[3], parts[5]}, known: true, api: true}
+	case len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa":
+		return routeMatch{name: "api_sprint_qa", params: []string{parts[3], parts[5]}, known: true, api: true}
+	case len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && (parts[7] == "map" || parts[7] == "synthesis"):
+		return routeMatch{name: "api_sprint_qa_" + parts[7], params: []string{parts[3], parts[5]}, known: true, api: true}
+	case len(parts) == 9 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && parts[7] == "shards":
+		return routeMatch{name: "api_sprint_qa_shard", params: []string{parts[3], parts[5], parts[8]}, known: true, api: true}
+	case len(parts) == 9 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && parts[7] == "theories":
+		return routeMatch{name: "api_sprint_qa_theory", params: []string{parts[3], parts[5], parts[8]}, known: true, api: true}
 	case len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "prompts":
 		return routeMatch{name: "api_prompt_bundle", params: []string{parts[3], parts[5], parts[7]}, known: true, api: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "studies":

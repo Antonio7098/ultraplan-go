@@ -140,6 +140,7 @@ type FlowState struct {
 	Stages        []StageState      `json:"stages"`
 	Review        *ReviewStageState `json:"review,omitempty"`
 	Smoke         *SmokeStageState  `json:"smoke,omitempty"`
+	QA            *QAFlowSummary    `json:"qa,omitempty"`
 }
 
 type AttemptStatus string
@@ -240,6 +241,7 @@ type StatusSummary struct {
 	ReviewPath                string             `json:"review_path"`
 	Smoke                     *SmokeStageState   `json:"smoke,omitempty"`
 	SmokePath                 string             `json:"smoke_path"`
+	QA                        *QAFlowSummary     `json:"qa,omitempty"`
 	Verification              VerificationStatus `json:"verification"`
 }
 

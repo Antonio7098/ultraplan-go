@@ -16,7 +16,7 @@ func TestTUICommandHelpAndRunner(t *testing.T) {
 		t.Fatalf("status = %d stderr = %q", status, stderr)
 	}
 	assertContains(t, stdout, "operational terminal dashboard")
-	assertContains(t, stdout, "Every sprint status, validation, prompt, flow, execute, and review")
+	assertContains(t, stdout, "Conformance\nReview, read-only QA")
 	assertContains(t, stdout, "flow-state.json")
 
 	dir := initializedWorkspace(t)
@@ -52,7 +52,7 @@ func TestTUICommandInvalidWorkspace(t *testing.T) {
 func TestTUISprintFlowRunsAndStreamsProgress(t *testing.T) {
 	dir := initializedWorkspace(t)
 	writeCommandSprintProject(t, dir, "proj", "01-alpha")
-	writeFixtureFileContent(t, dir, commandProjectIndex(), "projects", "proj", "project-index.md")
+	writeFixtureFileContent(t, dir, commandProjectIndex(t), "projects", "proj", "project-index.md")
 	fake := &sprintCommandRuntime{}
 	restoreRuntime := stubSprintRuntimeFactory(fake)
 	defer restoreRuntime()

@@ -4,14 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
 )
+
+const runSurfaceContract template.HTML = `<!-- THESIS: The QA run page is an evidence case board, with current health and investigation state ahead of chronology. OWN-WORLD: UltraPlan's graphite field, violet focus, thin borders, compact status language, and dense disclosure controls. STORY: Operators confirm freshness, find the shard that needs attention, inspect its bounded evidence, then verify synthesis against the durable journal. FIRST VIEWPORT: Run control remains first, followed by QA progress, health, coverage, and next action. FORM: Established Operate surface, local extension, no concept seed. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance --><!-- qa-run-cockpit-v1 -->`
 
 type runPageFilters struct {
 	Project, Sprint, Study, Lifecycle string
@@ -64,6 +68,25 @@ type runStudyInsightsView struct {
 	SeedTasks   []studyTaskSeedDTO
 }
 
+type runQACountView struct {
+	Label string
+	Value int
+}
+
+type runQAInsightsView struct {
+	Project, Sprint, StatusURL, SynthesisURL string
+	QA                                       app.QAResult
+	Synthesis                                app.QASynthesisResult
+	Outcomes                                 []runQACountView
+	CompletionPercent, ProgressMax           int
+	Attempts, Commands, ContextRequests      int
+	Evidence, Theories, ApprovedChecks       int
+	HasSynthesis                             bool
+	Unavailable, SynthesisUnavailable        string
+	Historical                               bool
+	CurrentRunID                             string
+}
+
 type studyTaskFailureDTO struct {
 	Task    string `json:"task"`
 	Code    string `json:"code,omitempty"`
@@ -96,16 +119,20 @@ type studyTaskPerfDTO struct {
 }
 
 type runEventView struct {
-	Sequence   uint64
-	Type       string
-	Stage      string
-	Task       string
-	Time       string
-	DetailKind string
-	DetailType string
-	DetailTool string
-	DetailText string
-	Omission   string
+	Sequence     uint64
+	Type         string
+	Stage        string
+	Task         string
+	Time         string
+	DetailKind   string
+	DetailType   string
+	DetailTool   string
+	DetailState  string
+	DetailAction string
+	DetailReason string
+	DetailCount  string
+	DetailText   string
+	Omission     string
 }
 
 func (h *handler) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -218,11 +245,76 @@ func (h *handler) handleRunPage(w http.ResponseWriter, r *http.Request, value st
 			insights = newRunStudyInsightsView(snapshot.Target.Study, study)
 		}
 	}
+	var qaInsights *runQAInsightsView
+	if isQARunTarget(snapshot.Target) {
+		qaInsights = h.newRunQAInsightsView(r, snapshot)
+	}
 	eventViews := make([]runEventView, 0, len(events))
 	for _, event := range events {
 		eventViews = append(eventViews, newRunEventView(event))
 	}
-	h.render(w, r, http.StatusOK, "run", pageModel{Title: "Run " + value, Heading: "Run detail", Run: &detail, StudyInsights: insights, RunEvents: eventViews, NextEventsURL: nextEventsURL})
+	h.render(w, r, http.StatusOK, "run", pageModel{Title: "Run " + value, Heading: "Run detail", Run: &detail, StudyInsights: insights, QAInsights: qaInsights, RunEvents: eventViews, NextEventsURL: nextEventsURL, Page: "run", SurfaceContract: runSurfaceContract})
+}
+
+func isQARunTarget(target app.RunTarget) bool {
+	return target.Operation == string(app.OperationQAStart) || target.Operation == string(app.OperationQAResume)
+}
+
+func (h *handler) newRunQAInsightsView(r *http.Request, snapshot app.RunSnapshot) *runQAInsightsView {
+	view := &runQAInsightsView{Project: snapshot.Target.Project, Sprint: snapshot.Target.Sprint}
+	view.StatusURL = "/api/v1/projects/" + url.PathEscape(view.Project) + "/sprints/" + url.PathEscape(view.Sprint) + "/qa"
+	view.SynthesisURL = view.StatusURL + "/synthesis"
+	if h.qa == nil {
+		view.Unavailable = "The canonical QA reader is unavailable. The durable event journal remains authoritative for this run."
+		return view
+	}
+	qa, err := h.qa.QAStatus(r.Context(), app.QARequest{Project: view.Project, Sprint: view.Sprint})
+	if err != nil {
+		view.Unavailable = "The canonical QA snapshot could not be read. The durable event journal remains available below."
+		return view
+	}
+	view.QA = qa
+	view.ProgressMax = qa.TotalShards
+	if view.ProgressMax < 1 {
+		view.ProgressMax = 1
+	}
+	if qa.RunID != "" && qa.RunID != string(snapshot.RunID) {
+		view.Historical = true
+		view.CurrentRunID = qa.RunID
+		return view
+	}
+	if qa.TotalShards > 0 {
+		view.CompletionPercent = qa.CompletedShards * 100 / qa.TotalShards
+	}
+	keys := make([]string, 0, len(qa.OutcomeTotals))
+	for key := range qa.OutcomeTotals {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		view.Outcomes = append(view.Outcomes, runQACountView{Label: key, Value: qa.OutcomeTotals[key]})
+	}
+	for _, shard := range qa.Shards {
+		view.ApprovedChecks += len(shard.ApprovedChecks)
+		view.Attempts += len(shard.Attempts)
+		view.Theories += len(shard.Theories)
+		for _, attempt := range shard.Attempts {
+			view.Commands += len(attempt.Commands)
+			view.ContextRequests += len(attempt.ContextRequests)
+			view.Evidence += len(attempt.Evidence)
+		}
+		for _, theory := range shard.Theories {
+			view.Evidence += len(theory.Evidence)
+		}
+	}
+	synthesis, err := h.qa.QASynthesis(r.Context(), app.QARequest{Project: view.Project, Sprint: view.Sprint})
+	if err != nil {
+		view.SynthesisUnavailable = "The retained synthesis could not be read."
+		return view
+	}
+	view.Synthesis = synthesis
+	view.HasSynthesis = synthesis.ID != ""
+	return view
 }
 
 func newRunStudyInsightsView(study string, result app.WebStudyResult) *runStudyInsightsView {
@@ -290,7 +382,7 @@ func newRunEventView(event app.RunEvent) runEventView {
 		text = text[:160] + "…"
 	}
 	return runEventView{Sequence: event.Sequence, Type: string(event.Type), Stage: event.Stage, Task: event.Task,
-		Time: committedRunEventTime(event), DetailKind: event.Payload["kind"], DetailType: event.Payload["type"], DetailTool: event.Payload["tool"], DetailText: text, Omission: omission}
+		Time: committedRunEventTime(event), DetailKind: event.Payload["kind"], DetailType: event.Payload["type"], DetailTool: event.Payload["tool"], DetailState: event.Payload["state"], DetailAction: event.Payload["action"], DetailReason: event.Payload["reason"], DetailCount: event.Payload["count"], DetailText: text, Omission: omission}
 }
 
 func firstNonEmptyPayload(payload map[string]string, keys ...string) string {

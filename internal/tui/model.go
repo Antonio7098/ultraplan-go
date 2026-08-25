@@ -32,6 +32,9 @@ const (
 	RouteProjectSprints RouteKind = "project-sprints"
 	RouteProjectDocs    RouteKind = "project-docs"
 	RouteSprint         RouteKind = "sprint"
+	RouteSprintQA       RouteKind = "sprint-qa"
+	RouteSprintQAShard  RouteKind = "sprint-qa-shard"
+	RouteSprintQATheory RouteKind = "sprint-qa-theory"
 	RouteStudies        RouteKind = "studies"
 	RouteStudy          RouteKind = "study"
 	RouteStudyDims      RouteKind = "study-dimensions"
@@ -46,6 +49,8 @@ type Route struct {
 	Sprint  string
 	Study   string
 	RunID   string
+	Shard   string
+	Theory  string
 }
 
 type Model struct {
@@ -438,6 +443,12 @@ func (m Model) navItems() []navItem {
 		}
 	case RouteSprint:
 		if s, ok := findSprint(m.Data.Sprints, route.Project, route.Sprint); ok {
+			stageLabel := func(stage string) string {
+				if stage == "review" {
+					return "Conformance Review"
+				}
+				return stage
+			}
 			items := []navItem{
 				{Label: "Requirements", Path: artifactByLabel(s.Artifacts, "requirements")},
 				{Label: "Sprint Index", Path: artifactByLabel(s.Artifacts, "sprint-index")},
@@ -445,24 +456,25 @@ func (m Model) navItems() []navItem {
 				{Label: "Reasoning", Path: artifactByLabel(s.Artifacts, "reasoning")},
 				{Label: "Plan", Path: artifactByLabel(s.Artifacts, "plan")},
 				{Label: "Execute", Path: artifactByLabel(s.Artifacts, "execute")},
-				{Label: "Review", Path: artifactByLabel(s.Artifacts, "review")},
+				{Label: "Conformance Review", Path: artifactByLabel(s.Artifacts, "review")},
 				{Label: "Smoke", Path: artifactByLabel(s.Artifacts, "smoke")},
 				{Label: "Flow State", Path: artifactByLabel(s.Artifacts, "flow-state")},
 				{Label: "Run State", Path: artifactByLabel(s.Artifacts, "run-state")},
+				{Label: "QA", Route: &Route{Kind: RouteSprintQA, Project: route.Project, Sprint: route.Sprint}},
 			}
 			stages := []string{"requirements", "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "execute", "review"}
 			items = append(items, navItem{Label: "Sprint Status", Operation: &app.OperationRequest{Kind: app.OperationSprintStatus, Project: route.Project, Sprint: route.Sprint}})
 			for _, stage := range stages {
-				items = append(items, navItem{Label: "Validate " + stage, Validation: &app.ValidationRequest{Subject: app.ValidationSprint, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
-				items = append(items, navItem{Label: "Preview " + stage + " Prompt", Operation: &app.OperationRequest{Kind: app.OperationPrompt, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
+				items = append(items, navItem{Label: "Validate " + stageLabel(stage), Validation: &app.ValidationRequest{Subject: app.ValidationSprint, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
+				items = append(items, navItem{Label: "Preview " + stageLabel(stage) + " Prompt", Operation: &app.OperationRequest{Kind: app.OperationPrompt, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
 			}
 			items = append(items,
 				navItem{Label: "Dry Run Flow to smoke", Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
 				navItem{Label: "Run Flow to smoke [RUNTIME + EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}})
 			for _, stage := range stages {
 				items = append(items,
-					navItem{Label: "Dry Run Flow to " + stage, Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: stage}},
-					navItem{Label: "Run Flow to " + stage + " [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
+					navItem{Label: "Dry Run Flow to " + stageLabel(stage), Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: stage}},
+					navItem{Label: "Run Flow to " + stageLabel(stage) + " [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
 			}
 			items = append(items,
 				navItem{Label: "Execute Status", Operation: &app.OperationRequest{Kind: app.OperationExecuteStatus, Project: route.Project, Sprint: route.Sprint, Stage: "execute"}},
@@ -470,13 +482,13 @@ func (m Model) navItems() []navItem {
 				navItem{Label: "Execute Start [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationExecuteStart, Project: route.Project, Sprint: route.Sprint, Stage: "execute"}},
 				navItem{Label: "Execute Resume [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationExecuteResume, Project: route.Project, Sprint: route.Sprint, Stage: "execute"}})
 			items = append(items,
-				navItem{Label: "Review Status", Operation: &app.OperationRequest{Kind: app.OperationReviewStatus, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
-				navItem{Label: "Review Dry Run", Operation: &app.OperationRequest{Kind: app.OperationReviewDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
-				navItem{Label: "Run/Resume Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationReviewStart, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
-				navItem{Label: "Restart Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationReviewStart, Project: route.Project, Sprint: route.Sprint, Stage: "review", RestartReview: true}})
+				navItem{Label: "Conformance Review Status", Operation: &app.OperationRequest{Kind: app.OperationReviewStatus, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
+				navItem{Label: "Conformance Review Dry Run", Operation: &app.OperationRequest{Kind: app.OperationReviewDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
+				navItem{Label: "Run/Resume Conformance Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationReviewStart, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
+				navItem{Label: "Restart Conformance Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationReviewStart, Project: route.Project, Sprint: route.Sprint, Stage: "review", RestartReview: true}})
 			items = append(items,
-				navItem{Label: "Verify to Review Preview", Operation: &app.OperationRequest{Kind: app.OperationVerifyDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
-				navItem{Label: "Verify to Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationVerifyStart, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
+				navItem{Label: "Verify to Conformance Review Preview", Operation: &app.OperationRequest{Kind: app.OperationVerifyDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
+				navItem{Label: "Verify to Conformance Review [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationVerifyStart, Project: route.Project, Sprint: route.Sprint, Stage: "review"}},
 				navItem{Label: "Verify to Smoke Preview", Operation: &app.OperationRequest{Kind: app.OperationVerifyDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
 				navItem{Label: "Verify to Smoke [RUNTIME + EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationVerifyStart, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
 				navItem{Label: "Validate smoke", Validation: &app.ValidationRequest{Subject: app.ValidationSprint, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
@@ -486,6 +498,39 @@ func (m Model) navItems() []navItem {
 				navItem{Label: "Run Smoke Diagnostic Override [EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationSmokeStart, Project: route.Project, Sprint: route.Sprint, Stage: "smoke", ForceReview: true, OverrideRationale: "operator requested guarded TUI diagnostic evidence"}})
 			return items
 		}
+	case RouteSprintQA:
+		if s, ok := findSprint(m.Data.Sprints, route.Project, route.Sprint); ok {
+			items := []navItem{
+				{Label: "QA Status", Operation: &app.OperationRequest{Kind: app.OperationQAStatus, Project: route.Project, Sprint: route.Sprint}},
+				{Label: "QA Dry Run", Operation: &app.OperationRequest{Kind: app.OperationQADryRun, Project: route.Project, Sprint: route.Sprint}},
+				{Label: "Start QA [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationQAStart, Project: route.Project, Sprint: route.Sprint}},
+				{Label: "Resume QA [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationQAResume, Project: route.Project, Sprint: route.Sprint}},
+				{Label: "Recover QA", Operation: &app.OperationRequest{Kind: app.OperationQARecover, Project: route.Project, Sprint: route.Sprint}},
+			}
+			if s.QA.RunID != "" {
+				items = append(items, navItem{Label: "View QA durable run  " + s.QA.RunID, Route: &Route{Kind: RouteRun, RunID: s.QA.RunID}})
+			}
+			for _, shard := range s.QA.Shards {
+				items = append(items, navItem{Label: shard.Title + "  " + shard.Phase, Route: &Route{Kind: RouteSprintQAShard, Project: route.Project, Sprint: route.Sprint, Shard: shard.ID}})
+			}
+			return items
+		}
+	case RouteSprintQAShard:
+		items := []navItem{
+			{Label: "Run focused shard [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationQAStart, Project: route.Project, Sprint: route.Sprint, Task: route.Shard}},
+			{Label: "Resume focused shard [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationQAResume, Project: route.Project, Sprint: route.Sprint, Task: route.Shard}},
+		}
+		if s, ok := findSprint(m.Data.Sprints, route.Project, route.Sprint); ok {
+			for _, shard := range s.QA.Shards {
+				if shard.ID != route.Shard {
+					continue
+				}
+				for _, theory := range shard.Theories {
+					items = append(items, navItem{Label: theory.Claim + "  " + theory.Outcome, Route: &Route{Kind: RouteSprintQATheory, Project: route.Project, Sprint: route.Sprint, Shard: shard.ID, Theory: theory.ID}})
+				}
+			}
+		}
+		return items
 	case RouteStudies:
 		items := make([]navItem, 0, len(m.Data.Studies))
 		for _, s := range m.Data.Studies {
@@ -536,6 +581,12 @@ func (m Model) breadcrumb() string {
 		return "Projects > " + route.Project + " > Docs"
 	case RouteSprint:
 		return "Projects > " + route.Project + " > Sprints > " + route.Sprint
+	case RouteSprintQA:
+		return "Projects > " + route.Project + " > Sprints > " + route.Sprint + " > QA"
+	case RouteSprintQAShard:
+		return "Projects > " + route.Project + " > Sprints > " + route.Sprint + " > QA > " + route.Shard
+	case RouteSprintQATheory:
+		return "Projects > " + route.Project + " > Sprints > " + route.Sprint + " > QA > " + route.Theory
 	case RouteStudy:
 		return "Studies > " + route.Study
 	case RouteStudyDims:

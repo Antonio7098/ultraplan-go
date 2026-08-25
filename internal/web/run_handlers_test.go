@@ -102,7 +102,7 @@ func TestBrowserRunPagesPreserveFiltersAndBoundAccessibleEnhancement(t *testing.
 	if detail.Code != http.StatusOK {
 		t.Fatalf("detail status=%d body=%s", detail.Code, body)
 	}
-	for _, want := range []string{`role="status" aria-live="polite"`, `data-confirm="Request durable cancellation`, `Current attempt`, `Replay boundary`, `oldest 1, last 700, omitted 11`, `Continue retained event replay`, `data-run-agents`, `id="run-agent-grid"`, `id="run-agent-dialog"`, `data-run-type="progress" data-run-stage="execute" data-run-task=""`} {
+	for _, want := range []string{`role="status" aria-live="polite"`, `data-confirm="Request durable cancellation`, `Current attempt`, `Replay boundary`, `oldest 1, last 700, omitted 11`, `Continue retained event replay`, `id="run-agent-dialog"`, `data-run-type="progress" data-run-stage="execute" data-run-task=""`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail missing %q", want)
 		}
@@ -192,6 +192,54 @@ func TestBrowserRunPageSurfacesStudyInsightsCompactly(t *testing.T) {
 	body = request(h, http.MethodGet, "/runs/"+string(testRunID), nil).Body.String()
 	if strings.Contains(body, "run-insights-heading") {
 		t.Fatal("non-study run rendered study insights")
+	}
+}
+
+func TestBrowserRunPageSurfacesCompleteQACockpit(t *testing.T) {
+	runs := newFakeRunUseCases()
+	runs.snapshot.Target = app.RunTarget{Kind: "operation", Operation: string(app.OperationQAStart), Project: "alpha", Sprint: "30-web"}
+	runs.events = []app.RunEvent{{RunID: testRunID, Sequence: 1, Type: "progress", Stage: "running", Task: "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa", Payload: map[string]string{"state": "running", "action": "shard_terminal", "reason": "completed", "detail": "boundary", "count": "1/1"}}}
+	runs.snapshot.LastSequence = 1
+	started := time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)
+	completed := started.Add(2 * time.Second)
+	attempt := app.QAInvestigatorAttemptSummary{ID: "op/shard/1", Number: 1, StartedAt: started, CompletedAt: &completed, Duration: "2s", ImplementationBefore: "impl-before", ImplementationAfter: "impl-after", StopReason: "terminal investigator output accepted", ContextRequests: []app.QAContextRequestSummary{{ID: "context-1", Paths: []string{"internal/app"}, Reason: "inspect boundary", Approved: true}}, Commands: []app.QACommandSummary{{CheckID: "go-test-app", DescriptorFingerprint: "check-fingerprint", ExitCode: 0, Duration: "1.2s", StdoutDigest: "stdout-digest", OutputBytes: 128, Truncated: true}}, Evidence: []app.QAEvidenceSummary{{Kind: "check", Summary: "bounded evidence", Paths: []string{"internal/app"}, CheckID: "go-test-app", OutputDigest: "output-digest"}}}
+	theory := app.QATheorySummary{ID: "qa-v1-theory-bbbbbbbbbbbbbbbbbbbbbbbb", ShardID: "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa", Claim: "hostile <script>alert(1)</script> boundary theory", Basis: "shared path", VerificationSurface: "API response", ExpectationRefs: []string{"AC-1"}, SeverityIfConfirmed: "high", ConfirmationCondition: "request fails", RefutationCondition: "request passes", InconclusiveCondition: "check unavailable", SafeEvidenceStrategy: "approved check", ImplementationFingerprint: "impl-before", AttemptHistory: []app.QAInvestigatorAttemptSummary{attempt}, Evidence: attempt.Evidence, Outcome: "refuted", OutcomeReason: "approved check passed"}
+	qa := app.QAResult{SchemaVersion: 1, Project: "alpha", Sprint: "30-web", Phase: "completed", Fresh: true, AttemptID: "qa-v1-attempt-cccccccccccccccccccccccc", RunID: string(testRunID), OperationalAttemptID: "att_aaaaaaaaaaaaaaaaaaaaaaaaaa", FencingGeneration: 7, RunLifecycle: "terminal", TerminalResult: "completed", GovernedInputFingerprint: "governed", ImplementationFingerprint: "implementation", ReviewFingerprint: "review", MapFingerprint: "map", PolicyFingerprint: "policy", CheckCatalogFingerprint: "catalog", UpdatedAt: completed, MapRecord: &app.QAArtifactRefSummary{Path: "verification/map.json", Digest: "map-digest"}, SynthesisRecord: &app.QAArtifactRefSummary{Path: "verification/synthesis.json", Digest: "synthesis-digest"}, EffectiveSources: []app.QAEffectiveSourceSummary{{Field: "runtime.model", Source: "workspace config"}}, Target: app.QATargetIdentitySummary{Fingerprint: "target", GitHead: "head", GitIndex: "index", GitWorktree: "worktree", Categories: map[string]string{"status": "dirty"}}, Coverage: app.QACoverageSummary{ChangedPaths: []string{"internal/app/a.go", "internal/app/b.go"}, PrimaryOwners: map[string]string{"internal/app/a.go": "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa"}, BoundaryOverlaps: map[string][]string{"internal/app/shared.go": {"qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa"}}, BlockedPaths: []string{"internal/app/blocked.go"}}, InputRefs: []app.QAArtifactRefSummary{{Path: "requirements.md", Digest: "requirements-digest"}}, Limits: app.QALimitsSummary{ConcurrentInvestigators: 3, TheoriesPerShard: 12, RuntimeRetries: 1, CommandsPerAttempt: 8, ContextExpansions: 2, PathsPerExpansion: 16, CommandTimeout: "5m0s", ShardTimeout: "20m0s", RunTimeout: "1h0m0s", CommandOutputBytes: 262144, ShardOutputBytes: 1048576, PromptBytes: 524288, FollowUpShards: 4}, ChangedPaths: 2, CoveredPaths: 2, CompletedShards: 1, TotalShards: 1, OutcomeTotals: map[string]int{"refuted": 1}, NextAction: "Inspect retained outcomes.", Shards: []app.QAShardSummary{{ID: "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa", AttemptID: "qa-v1-attempt-cccccccccccccccccccccccc", Kind: "boundary", Title: "API boundary", Phase: "completed", ChangedPaths: []string{"internal/app/a.go"}, ContextPaths: []string{"internal/app/b.go"}, OverlapPaths: []string{"internal/app/shared.go"}, BoundaryReason: "shared behavior", BehavioralConcerns: []string{"cancellation"}, ExpectationRefs: []string{"AC-1"}, RiskTags: []string{"concurrency"}, ApprovedChecks: []app.QAApprovedCheckSummary{{ID: "go-test-app", Fingerprint: "check-fingerprint"}}, Attempts: []app.QAInvestigatorAttemptSummary{attempt}, TheoryCount: 1, Theories: []app.QATheorySummary{theory}}}}
+	synth := app.QASynthesisResult{QAResult: qa, ID: "qa-v1-synthesis-dddddddddddddddddddddddd", MapID: "map", NextAction: "Ship the verified change.", TheoryIDs: []string{theory.ID}, Challenges: []app.QAChallengeSummary{{ID: "challenge-1", TheoryIDs: []string{theory.ID}, Claim: "challenge claim", Basis: "challenger basis", SafeEvidenceStrategy: "compare evidence", EvidenceRefs: []string{"output-digest"}}}, OutcomeTotals: map[string]int{"refuted": 1}, Deduplicated: map[string][]string{"canonical-theory": {theory.ID}}, Contradictions: [][]string{{theory.ID, "qa-v1-theory-other"}}, Interactions: []string{"API and cancellation paths interact"}, Blockers: []app.QABlockerSummary{{Category: "policy", Scope: "synthesis", Summary: "review required", NextAction: "Inspect policy."}}, FollowUpShards: []app.QAShardSummary{{ID: "qa-v1-shard-followup", Title: "Follow-up", Phase: "completed"}}}
+	fixture := &qaQueryFixture{fakeQueries: sampleQueries(), qa: qa, synth: synth}
+	h, err := NewHandler(HandlerOptions{Queries: fixture, Runs: runs, Authority: testAuthority})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := request(h, http.MethodGet, "/runs/"+string(testRunID), nil).Body.String()
+	for _, want := range []string{"qa-run-cockpit-v1", `data-qa-cockpit`, "QA command center", "Operator next action", "1 / 1 shards", "current evidence", "Investigation shards", "API boundary", "Investigator attempts", "Approved checks executed", "go-test-app", "stdout-digest", "Context requests", "bounded evidence", "Theories and outcomes", "approved check passed", "Synthesis", "challenge claim", "Deduplication", "Contradictions", "API and cancellation paths interact", "Map inputs and target identity", "workspace config", "map-digest", "requirements-digest", "Coverage ownership · 1 paths", "internal/app/blocked.go", "Effective safety limits", "Evidence boundary", "action=shard_terminal", "result=completed", "progress=1/1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("QA cockpit missing %q", want)
+		}
+	}
+	if strings.Contains(body, "<script>alert(1)</script>") || strings.Contains(body, `data-run-agents`) {
+		t.Fatal("QA cockpit rendered unsafe theory copy or study-agent UI")
+	}
+	js := request(h, http.MethodGet, "/static/app.js", nil).Body.String()
+	for _, want := range []string{"refreshQAObservation", "scheduleQAObservationRefresh", "DOMParser", "CSS.escape", "payload.count"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("QA live refresh missing %q", want)
+		}
+	}
+}
+
+func TestBrowserHistoricalQARunDoesNotMixCurrentCanonicalState(t *testing.T) {
+	runs := newFakeRunUseCases()
+	runs.snapshot.Target = app.RunTarget{Kind: "operation", Operation: string(app.OperationQAResume), Project: "alpha", Sprint: "30-web"}
+	qa := app.QAResult{Project: "alpha", Sprint: "30-web", RunID: "run_bbbbbbbbbbbbbbbbbbbbbbbbbb", Phase: "running"}
+	fixture := &qaQueryFixture{fakeQueries: sampleQueries(), qa: qa}
+	h, err := NewHandler(HandlerOptions{Queries: fixture, Runs: runs, Authority: testAuthority})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := request(h, http.MethodGet, "/runs/"+string(testRunID), nil).Body.String()
+	if !strings.Contains(body, "This is a historical QA run") || !strings.Contains(body, qa.RunID) || strings.Contains(body, "Investigation shards") {
+		t.Fatalf("historical QA isolation missing: %s", body)
 	}
 }
 
