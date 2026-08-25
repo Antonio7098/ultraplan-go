@@ -1,6 +1,7 @@
 package sprint
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -175,7 +176,7 @@ func TestQAStoreRejectsUnknownFieldsVersionsTrailingJSONAndModes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		"unknown version": `{"schema_version":2}`,
+		"unknown version": `{"schema_version":3}`,
 		"unknown field":   `{"schema_version":1,"unknown":true}`,
 		"trailing":        `{"schema_version":1} {}`,
 	} {
@@ -265,6 +266,88 @@ func TestQAAtomicFailurePreservesPriorStateAndMapIsImmutable(t *testing.T) {
 	mapChanged.Map = &mapCopy
 	if err := store.Publish(mapChanged, token); err == nil {
 		t.Fatal("immutable map replacement accepted")
+	}
+}
+
+func TestQAEvidencePublicationLoadsAndRollsBackCanonicalFiles(t *testing.T) {
+	root, sp, initial := qaPublicationFixture(t)
+	token := QAWriterToken{RunID: "run-1", OperationalAttemptID: "op-1", FencingGeneration: 1}
+	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error { return nil })
+	if err := store.Publish(initial, token); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow, err := LoadFlowState(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := FreezeQAEvidencePlan(sp.Project, sp.Slug, QAEvidencePlan{AttemptID: state.CurrentAttemptID, ShardID: initial.Shards[0].ID, ExpectationRefs: []string{"REQ-1"}, Kind: QACheckFact, ConfirmationCondition: "fact observed", RefutationCondition: "fact absent", InconclusiveCondition: "fact unavailable", ApprovedPaths: []string{"internal/a.go"}, Executable: "true", Timeout: time.Second, OutputLimit: 1024, CleanupRequired: true, GovernedInputFingerprint: initial.Map.GovernedInputFingerprint, ImplementationFingerprint: initial.Map.ImplementationFingerprint, MapFingerprint: initial.Map.CheckCatalogFingerprint}, initial.Map.Budgets, time.Unix(2, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidenceID, _ := NewQAV2ID("evidence", sp.Project, sp.Slug, plan.ID, "pass")
+	patchID, _ := NewQAV2ID("patch", sp.Project, sp.Slug, plan.ID, "candidate")
+	patchContent := []byte("--- a/internal/a.go\n+++ b/internal/a.go\n@@ -1 +1 @@\n-old\n+new\n")
+	patchRef := QAArtifactRef{Path: QAPatchRelPath(sp, state.CurrentAttemptID, patchID), Digest: hashBytes(normalizePatch(patchContent))}
+	evidence := QAEvidenceRecord{SchemaVersion: QAEvidenceSchemaVersion, ID: evidenceID, PlanID: plan.ID, AttemptID: state.CurrentAttemptID, ShardID: plan.ShardID, WorkspaceID: "opaque", WorkspaceIdentity: strings.Repeat("e", 64), TargetIdentityBefore: initial.Map.ImplementationFingerprint, TargetIdentityAfter: initial.Map.ImplementationFingerprint, GovernedInputFingerprint: plan.GovernedInputFingerprint, ImplementationFingerprint: plan.ImplementationFingerprint, MapFingerprint: plan.MapFingerprint, Patch: &patchRef, Outcome: QAEvidencePass, ReasonCode: "fact_observed", Repeatable: true, Contained: true, Cleanup: QACleanupFacts{Attempted: true, DescendantsTerminated: true, WorkspaceRemoved: true, Complete: true}, CompletedAt: time.Unix(3, 0)}
+	adjudication, err := AdjudicateQA(QAAdjudicationRequest{Project: sp.Project, Sprint: sp.Slug, AttemptID: state.CurrentAttemptID, MapFingerprint: plan.MapFingerprint, Plans: []QAEvidencePlan{plan}, Evidence: []QAEvidenceRecord{evidence}, Budgets: initial.Map.Budgets, Now: time.Unix(4, 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessmentID, _ := NewQAV2ID("assessment", sp.Project, sp.Slug, state.CurrentAttemptID, "pass")
+	assessment := QAAssessmentRecord{SchemaVersion: QAEvidenceSchemaVersion, ID: assessmentID, AttemptID: state.CurrentAttemptID, ReviewVerdict: ReviewPass, ReviewFingerprint: initial.Map.ReviewFingerprint, Assessment: AssessmentPass, EvidenceTotal: 1, NextAction: "Proceed to independent review.", CompletedAt: time.Unix(5, 0)}
+	report, err := RenderQAReport(sp.Project, sp.Slug, initial.Map.GovernedInputFingerprint, []QAEvidenceRecord{evidence}, adjudication, assessment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Phase, state.CompletedShards, state.Run.Lifecycle, state.Run.TerminalResult = QAPhaseCompleted, 1, QARunTerminal, QATerminalCompleted
+	state.NextAction = assessment.NextAction
+	publication := QAPublication{State: state, Flow: flow, Evidence: &QAEvidencePublication{Plans: []QAEvidencePlan{plan}, Records: []QAEvidenceRecord{evidence}, Patches: []QAPatchRecord{{ID: patchID, Content: patchContent}}, Adjudication: &adjudication, Assessment: &assessment, Report: []byte(report), Budgets: initial.Map.Budgets}}
+	if err := store.Publish(publication, token); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.EvidenceCount != 1 || loaded.Adjudication == nil || loaded.Assessment == nil || loaded.CanonicalReport == nil {
+		t.Fatalf("evidence state = %+v", loaded)
+	}
+	if _, err := store.LoadEvidence(state.CurrentAttemptID, evidence.ID); err != nil {
+		t.Fatal(err)
+	}
+	if retained, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(patchRef.Path))); err != nil || !bytes.Equal(retained, normalizePatch(patchContent)) {
+		t.Fatalf("retained patch=%q err=%v", retained, err)
+	}
+	priorReport, err := os.ReadFile(filepath.Join(sp.Path, "qa.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failing := store.WithHooks(QAStateHooks{BeforeRename: func(kind, _ string) error {
+		if kind == "state" {
+			return errors.New("injected state failure")
+		}
+		return nil
+	}})
+	publication.State = loaded
+	publication.State.NextAction = "must not persist"
+	publication.Evidence.Report = []byte("# QA\n\nreplacement\n")
+	if err := failing.Publish(publication, token); err == nil {
+		t.Fatal("expected canonical publication failure")
+	}
+	after, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterReport, err := os.ReadFile(filepath.Join(sp.Path, "qa.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.NextAction != loaded.NextAction || !bytes.Equal(afterReport, priorReport) {
+		t.Fatal("failed publication did not preserve the prior canonical state and report")
 	}
 }
 

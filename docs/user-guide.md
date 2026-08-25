@@ -323,9 +323,9 @@ ultraplan sprint <project> <sprint> validate smoke
 
 The smoke preview shows the review gate, sufficient scope, prerequisites, duration/cost class where supplied, safe argv, and external evidence roots. `--force-review` additionally requires `--override-reason` and is diagnostic-only after a current failed/blocked review; it cannot override stale or malformed review evidence or improve the overall assessment. Raw harness evidence stays in its `runs/` and `issues/` directories, while the sprint stores only `smoke.md` and flow state.
 
-### Run read-only QA
+### Run evidence-producing QA
 
-Conformance Review is the existing analytical review capability. Its compatible command remains `review`; `conformance-review` invokes the same handler. Read-only QA is a later, separate diagnostic phase and never replaces that verdict.
+Conformance Review is the existing analytical review capability. Its compatible command remains `review`; `conformance-review` invokes the same handler. QA is a later, separate evidence phase and never replaces that verdict.
 
 Preview the deterministic map before spending runtime work:
 
@@ -346,7 +346,7 @@ ultraplan sprint <project> <sprint> qa --shard qa-v1-shard-...
 ultraplan sprint <project> <sprint> qa status
 ```
 
-Investigators can only read assigned paths and request bounded context or approved non-mutating checks. They cannot create tests, fixtures, probes, patches, issues, or repairs. A theory is a falsifiable diagnostic record: `confirmed` supports its claim, `refuted` rejects it, `invalid` means the claim contract failed, `inconclusive` lacks safe evidence, `blocked` records a prerequisite or policy stop, `cross_shard` needs bounded interaction work, and `not_applicable` records that the claim does not apply. Negative outcomes remain visible.
+The first investigator pass can only read assigned paths and request bounded context or approved checks. Product code then freezes approved plans and runs them sequentially in fresh writable copies under native target-write denial. Neither stage can apply copy changes, promote its own issue, repair production code, or mutate Git. A theory is a falsifiable diagnostic record: `confirmed` supports its claim, `refuted` rejects it, `invalid` means the claim contract failed, `inconclusive` lacks safe evidence, `blocked` records a prerequisite or policy stop, `cross_shard` needs bounded interaction work, and `not_applicable` records that the claim does not apply. Negative outcomes and rejected evidence remain visible.
 
 Cancellation is explicit and uses the durable run ID shown by status and run inspection:
 
@@ -354,7 +354,7 @@ Cancellation is explicit and uses the durable run ID shown by status and run ins
 ultraplan sprint <project> <sprint> qa cancel --run run_...
 ```
 
-After cancellation, timeout, restart, or restored runtime availability, first inspect status. Use `qa recover` to reconcile runtime-free state and `qa resume` to claim incomplete current work with a new durable owner. Completed current shards are retained; changed map or input fingerprints make the attempt stale and require a new dry-run/start. `Read-only QA completed` means all admitted bounded work ended, not “QA passed,” and it cannot upgrade a failed or blocked Conformance Review.
+After cancellation, timeout, restart, or restored runtime availability, first inspect status. Use `qa recover` to reconcile runtime-free state and `qa resume` to claim incomplete current work with a new durable owner. Completed current shards are retained; changed map or input fingerprints make the attempt stale and require a new dry-run/start. `QA completed` means all admitted bounded work ended, not “QA passed,” and it cannot upgrade a failed or blocked Conformance Review.
 
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`. A project may override only the area-reasoning prompt, final-reasoning prompt, and final-reasoning template. Project status reports which source is effective.
 
@@ -389,3 +389,19 @@ Use `run follow` for observation and `run cancel` for control. Closing a tab,
 leaving a TUI view, quitting the TUI, or interrupting `run follow` does not
 cancel work. A compacted or tombstone record remains truthful about its current
 snapshot even when full event history is no longer available.
+
+## Reading QA evidence
+
+Run `qa --dry-run` to inspect the current map without state writes. A normal
+start retains frozen plans and evidence from disposable copies, then publishes
+adjudication, promoted issue summaries, regression candidates, a canonical
+assessment, and `qa.md`. Evidence can be accepted, rejected, or blocked;
+rejected and incomplete evidence never disappears into a passing assessment.
+QA does not apply generated changes, repair production code, weaken governed
+expectations, mutate Git, or change the independent Conformance Review verdict.
+
+Use `qa --suite smoke` when the next QA action is the canonical containing
+smoke suite. It produces the same external harness run and `smoke.md` authority
+as the `smoke` command. A narrow or diagnostic smoke run cannot substitute for
+that evidence. Inspect status after cancellation or failure. Resume only a
+current normal QA attempt; smoke-suite retries are new starts.

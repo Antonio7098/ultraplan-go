@@ -151,6 +151,34 @@ func QASynthesisRelPath(s Sprint, attemptID string) string {
 	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "synthesis.json"))
 }
 
+func QAEvidencePlanRelPath(s Sprint, attemptID, planID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "plans", planID+".json"))
+}
+
+func QAEvidenceRelPath(s Sprint, attemptID, evidenceID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "evidence", evidenceID+".json"))
+}
+
+func QAPatchRelPath(s Sprint, attemptID, patchID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "patches", patchID+".patch"))
+}
+
+func QAAdjudicationRelPath(s Sprint, attemptID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "adjudication.json"))
+}
+
+func QAIssuesRelPath(s Sprint, attemptID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "issues.json"))
+}
+
+func QAAssessmentRelPath(s Sprint, attemptID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "assessment.json"))
+}
+
+func QAReportRelPath(s Sprint) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "qa.md"))
+}
+
 func (store QAStore) StatePath() (string, error) {
 	return store.resolve(QAVerificationStateRelPath(store.sprint))
 }
@@ -216,7 +244,7 @@ func (store QAStore) LoadState() (QAState, error) {
 		return QAState{}, err
 	}
 	var state QAState
-	if err := store.readStrict(path, "state", &state); err != nil {
+	if err := store.readStrictVersion(path, "state", 0, &state); err != nil {
 		return QAState{}, err
 	}
 	if err := ValidateQAState(state); err != nil {
@@ -225,7 +253,7 @@ func (store QAStore) LoadState() (QAState, error) {
 	if state.Project != store.sprint.Project || state.Sprint != store.sprint.Slug {
 		return QAState{}, NewQAError(QAErrorInvalidState, "load state", "QA state scope does not match the selected sprint", nil)
 	}
-	for _, ref := range []*QAArtifactRef{state.Map, state.Synthesis} {
+	for _, ref := range []*QAArtifactRef{state.Map, state.Synthesis, state.Adjudication, state.Issues, state.Assessment, state.CanonicalReport} {
 		if ref == nil {
 			continue
 		}
@@ -290,7 +318,65 @@ func (store QAStore) LoadSynthesis(attemptID string, budgets QABudgets) (QASynth
 	return value, nil
 }
 
+func (store QAStore) LoadEvidence(attemptID, evidenceID string) (QAEvidenceRecord, error) {
+	if !validQAIDKind(attemptID, "attempt") || !validQAV2ID(evidenceID, "evidence") {
+		return QAEvidenceRecord{}, NewQAError(QAErrorInvalidState, "load evidence", "invalid evidence identity", nil)
+	}
+	path, err := store.resolve(QAEvidenceRelPath(store.sprint, attemptID, evidenceID))
+	if err != nil {
+		return QAEvidenceRecord{}, err
+	}
+	var value QAEvidenceRecord
+	if err := store.readStrictVersion(path, "evidence", QAEvidenceSchemaVersion, &value); err != nil {
+		return QAEvidenceRecord{}, err
+	}
+	if value.ID != evidenceID || value.AttemptID != attemptID {
+		return QAEvidenceRecord{}, NewQAError(QAErrorInvalidState, "load evidence", "evidence identity does not match its path", nil)
+	}
+	return value, nil
+}
+
+func (store QAStore) LoadAdjudication(attemptID string, budgets QABudgets) (QAAdjudication, error) {
+	if !validQAIDKind(attemptID, "attempt") {
+		return QAAdjudication{}, NewQAError(QAErrorInvalidState, "load adjudication", "invalid attempt identity", nil)
+	}
+	path, err := store.resolve(QAAdjudicationRelPath(store.sprint, attemptID))
+	if err != nil {
+		return QAAdjudication{}, err
+	}
+	var value QAAdjudication
+	if err := store.readStrictVersion(path, "adjudication", QAEvidenceSchemaVersion, &value); err != nil {
+		return QAAdjudication{}, err
+	}
+	if err := validateQAAdjudication(value, attemptID, budgets); err != nil {
+		return QAAdjudication{}, NewQAError(QAErrorInvalidState, "load adjudication", err.Error(), err)
+	}
+	return value, nil
+}
+
+func (store QAStore) LoadAssessment(attemptID string) (QAAssessmentRecord, error) {
+	if !validQAIDKind(attemptID, "attempt") {
+		return QAAssessmentRecord{}, NewQAError(QAErrorInvalidState, "load assessment", "invalid attempt identity", nil)
+	}
+	path, err := store.resolve(QAAssessmentRelPath(store.sprint, attemptID))
+	if err != nil {
+		return QAAssessmentRecord{}, err
+	}
+	var value QAAssessmentRecord
+	if err := store.readStrictVersion(path, "assessment", QAEvidenceSchemaVersion, &value); err != nil {
+		return QAAssessmentRecord{}, err
+	}
+	if err := validateQAAssessment(value, attemptID); err != nil {
+		return QAAssessmentRecord{}, NewQAError(QAErrorInvalidState, "load assessment", err.Error(), err)
+	}
+	return value, nil
+}
+
 func (store QAStore) readStrict(path, kind string, value any) error {
+	return store.readStrictVersion(path, kind, QASchemaVersion, value)
+}
+
+func (store QAStore) readStrictVersion(path, kind string, expectedVersion int, value any) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -319,7 +405,11 @@ func (store QAStore) readStrict(path, kind string, value any) error {
 	if err := json.Unmarshal(data, &header); err != nil {
 		return NewQAError(QAErrorInvalidState, "load "+kind, "malformed QA JSON", err)
 	}
-	if header.SchemaVersion != QASchemaVersion {
+	versionAccepted := header.SchemaVersion == expectedVersion
+	if kind == "state" && expectedVersion == 0 {
+		versionAccepted = header.SchemaVersion == QASchemaVersion || header.SchemaVersion == QAStateSchemaVersion
+	}
+	if !versionAccepted {
 		category := QAErrorUnknownSchema
 		if header.SchemaVersion == 0 {
 			category = QAErrorInvalidState
@@ -346,11 +436,30 @@ type QAPublication struct {
 	Synthesis *QASynthesis
 	State     QAState
 	Flow      FlowState
+	Evidence  *QAEvidencePublication
 }
 
-func (store QAStore) Publish(publication QAPublication, token QAWriterToken) error {
+type QAPatchRecord struct {
+	ID      string
+	Content []byte
+}
+
+type QAEvidencePublication struct {
+	Plans        []QAEvidencePlan
+	Records      []QAEvidenceRecord
+	Patches      []QAPatchRecord
+	Adjudication *QAAdjudication
+	Assessment   *QAAssessmentRecord
+	Report       []byte
+	Budgets      QABudgets
+}
+
+func (store QAStore) Publish(publication QAPublication, token QAWriterToken) (resultErr error) {
 	if err := store.checkWriter(token); err != nil {
 		return err
+	}
+	if publication.Evidence != nil {
+		publication.State.SchemaVersion = QAStateSchemaVersion
 	}
 	if err := ValidateQAState(publication.State); err != nil {
 		return NewQAError(QAErrorInvalidState, "publish", err.Error(), err)
@@ -358,12 +467,39 @@ func (store QAStore) Publish(publication QAPublication, token QAWriterToken) err
 	if publication.State.Project != store.sprint.Project || publication.State.Sprint != store.sprint.Slug {
 		return NewQAError(QAErrorInvalidState, "publish", "QA state scope does not match the selected sprint", nil)
 	}
+	statePath, err := store.StatePath()
+	if err != nil {
+		return err
+	}
+	reportPath, err := store.resolve(QAReportRelPath(store.sprint))
+	if err != nil {
+		return err
+	}
+	flowPath, err := FlowStatePath(store.root, store.sprint)
+	if err != nil {
+		return err
+	}
+	snapshots, err := captureQACanonicalFiles(statePath, reportPath, flowPath)
+	if err != nil {
+		return NewQAError(QAErrorPersistenceFailure, "publish", "cannot snapshot canonical QA files", err)
+	}
+	canonicalStarted := false
+	defer func() {
+		if resultErr != nil && canonicalStarted {
+			if rollbackErr := restoreQACanonicalFiles(snapshots); rollbackErr != nil {
+				resultErr = errors.Join(resultErr, NewQAError(QAErrorPersistenceFailure, "publish rollback", "cannot restore prior canonical QA files", rollbackErr))
+			}
+		}
+	}()
 	if publication.Map != nil {
 		if err := ValidateQAMap(*publication.Map); err != nil {
 			return NewQAError(QAErrorInvalidState, "publish map", err.Error(), err)
 		}
 		path, err := store.mapPath(publication.Map.SemanticAttemptID)
 		if err != nil {
+			return err
+		}
+		if err := store.checkWriter(token); err != nil {
 			return err
 		}
 		digest, err := store.writeRecord("map", path, publication.Map, true)
@@ -383,6 +519,9 @@ func (store QAStore) Publish(publication QAPublication, token QAWriterToken) err
 		if err != nil {
 			return err
 		}
+		if err := store.checkWriter(token); err != nil {
+			return err
+		}
 		if _, err := store.writeRecord("shard", path, shard, false); err != nil {
 			return err
 		}
@@ -395,14 +534,26 @@ func (store QAStore) Publish(publication QAPublication, token QAWriterToken) err
 		if err != nil {
 			return err
 		}
+		if err := store.checkWriter(token); err != nil {
+			return err
+		}
 		digest, err := store.writeRecord("synthesis", path, publication.Synthesis, false)
 		if err != nil {
 			return err
 		}
 		publication.State.Synthesis = &QAArtifactRef{Path: QASynthesisRelPath(store.sprint, publication.Synthesis.AttemptID), Digest: digest}
 	}
-	statePath, err := store.StatePath()
-	if err != nil {
+	if publication.Evidence != nil {
+		canonicalStarted = len(publication.Evidence.Report) > 0
+		if err := store.publishEvidence(publication.Evidence, &publication.State, token); err != nil {
+			return err
+		}
+	}
+	if err := ValidateQAState(publication.State); err != nil {
+		return NewQAError(QAErrorInvalidState, "publish", err.Error(), err)
+	}
+	canonicalStarted = true
+	if err := store.checkWriter(token); err != nil {
 		return err
 	}
 	stateDigest, err := store.writeRecord("state", statePath, &publication.State, false)
@@ -411,10 +562,12 @@ func (store QAStore) Publish(publication QAPublication, token QAWriterToken) err
 	}
 	publication.Flow.QA = qaFlowSummary(publication.State, stateDigest, store.sprint)
 	if store.hooks.BeforeStep != nil {
-		flowPath, _ := FlowStatePath(store.root, store.sprint)
 		if err := store.hooks.BeforeStep("flow", flowPath); err != nil {
 			return NewQAError(QAErrorPersistenceFailure, "publish flow summary", "flow summary publication was interrupted", err)
 		}
+	}
+	if err := store.checkWriter(token); err != nil {
+		return err
 	}
 	if err := SaveFlowState(store.root, store.sprint, publication.Flow); err != nil {
 		return NewQAError(QAErrorPersistenceFailure, "publish flow summary", "cannot publish QA flow summary", err)
@@ -495,21 +648,225 @@ func (store QAStore) writeRecord(kind, path string, value any, immutable bool) (
 	return hashBytes(data), nil
 }
 
+func (store QAStore) publishEvidence(bundle *QAEvidencePublication, state *QAState, token QAWriterToken) error {
+	if bundle == nil || state == nil || !validQAIDKind(state.CurrentAttemptID, "attempt") {
+		return NewQAError(QAErrorInvalidState, "publish evidence", "current attempt is required", nil)
+	}
+	if err := validateQABudgets(bundle.Budgets); err != nil {
+		return NewQAError(QAErrorInvalidState, "publish evidence", err.Error(), err)
+	}
+	if len(bundle.Plans) > bundle.Budgets.GeneratedChecks || len(bundle.Records) > bundle.Budgets.EvidenceRecords || len(bundle.Patches) > bundle.Budgets.GeneratedChecks {
+		return NewQAError(QAErrorBudgetExhausted, "publish evidence", "evidence bundle exceeds frozen limits", nil)
+	}
+	plans := make(map[string]QAEvidencePlan, len(bundle.Plans))
+	patches := make(map[string]string, len(bundle.Patches))
+	for i := range bundle.Plans {
+		plan := bundle.Plans[i]
+		if err := ValidateQAEvidencePlan(plan, bundle.Budgets); err != nil || plan.AttemptID != state.CurrentAttemptID {
+			return NewQAError(QAErrorMalformedEvidence, "publish plan", "invalid frozen evidence plan", err)
+		}
+		if err := store.checkWriter(token); err != nil {
+			return err
+		}
+		path, err := store.resolve(QAEvidencePlanRelPath(store.sprint, state.CurrentAttemptID, plan.ID))
+		if err != nil {
+			return err
+		}
+		if _, err := store.writeRecord("evidence-plan", path, &plan, true); err != nil {
+			return err
+		}
+		plans[plan.ID] = plan
+	}
+	for i := range bundle.Patches {
+		patch := bundle.Patches[i]
+		if !validQAV2ID(patch.ID, "patch") || len(patch.Content) == 0 || len(patch.Content) > bundle.Budgets.GeneratedPatchBytes || bytes.IndexByte(patch.Content, 0) >= 0 {
+			return NewQAError(QAErrorMalformedEvidence, "publish patch", "invalid generated patch", nil)
+		}
+		if err := store.checkWriter(token); err != nil {
+			return err
+		}
+		path, err := store.resolve(QAPatchRelPath(store.sprint, state.CurrentAttemptID, patch.ID))
+		if err != nil {
+			return err
+		}
+		digest, err := store.writeBytes("patch", path, normalizePatch(patch.Content), true)
+		if err != nil {
+			return err
+		}
+		patches[patch.ID] = digest
+	}
+	for i := range bundle.Records {
+		record := bundle.Records[i]
+		plan, ok := plans[record.PlanID]
+		if !ok {
+			return NewQAError(QAErrorMalformedEvidence, "publish evidence", "evidence references an unavailable plan", nil)
+		}
+		if err := ValidateQAEvidence(record, plan, bundle.Budgets); err != nil {
+			return NewQAError(QAErrorMalformedEvidence, "publish evidence", err.Error(), err)
+		}
+		if record.Patch != nil {
+			patchID := strings.TrimSuffix(filepath.Base(record.Patch.Path), ".patch")
+			expected := QAPatchRelPath(store.sprint, state.CurrentAttemptID, patchID)
+			digest, available := patches[patchID]
+			if record.Patch.Path != expected || !available || record.Patch.Digest != digest {
+				return NewQAError(QAErrorMalformedEvidence, "publish evidence", "patch reference is not contained in the current attempt", nil)
+			}
+		}
+		if err := store.checkWriter(token); err != nil {
+			return err
+		}
+		path, err := store.resolve(QAEvidenceRelPath(store.sprint, state.CurrentAttemptID, record.ID))
+		if err != nil {
+			return err
+		}
+		if _, err := store.writeRecord("evidence", path, &record, true); err != nil {
+			return err
+		}
+	}
+	state.EvidenceCount = len(bundle.Records)
+	if bundle.Adjudication != nil {
+		if err := validateQAAdjudication(*bundle.Adjudication, state.CurrentAttemptID, bundle.Budgets); err != nil {
+			return NewQAError(QAErrorMalformedEvidence, "publish adjudication", err.Error(), err)
+		}
+		path, err := store.resolve(QAAdjudicationRelPath(store.sprint, state.CurrentAttemptID))
+		if err != nil {
+			return err
+		}
+		if err := store.checkWriter(token); err != nil {
+			return err
+		}
+		digest, err := store.writeRecord("adjudication", path, bundle.Adjudication, true)
+		if err != nil {
+			return err
+		}
+		state.Adjudication = &QAArtifactRef{Path: QAAdjudicationRelPath(store.sprint, state.CurrentAttemptID), Digest: digest}
+		issuesPath, err := store.resolve(QAIssuesRelPath(store.sprint, state.CurrentAttemptID))
+		if err != nil {
+			return err
+		}
+		if err := store.checkWriter(token); err != nil {
+			return err
+		}
+		issuesDigest, err := store.writeRecord("issues", issuesPath, struct {
+			SchemaVersion int       `json:"schema_version"`
+			AttemptID     string    `json:"attempt_id"`
+			Issues        []QAIssue `json:"issues"`
+		}{QAEvidenceSchemaVersion, state.CurrentAttemptID, bundle.Adjudication.Issues}, true)
+		if err != nil {
+			return err
+		}
+		state.Issues = &QAArtifactRef{Path: QAIssuesRelPath(store.sprint, state.CurrentAttemptID), Digest: issuesDigest}
+		state.RejectedCount, state.IssueCount = len(bundle.Adjudication.Rejected), len(bundle.Adjudication.Issues)
+		for _, issue := range bundle.Adjudication.Issues {
+			if issue.RegressionCandidate {
+				state.RegressionCandidates++
+			}
+		}
+	}
+	if bundle.Assessment != nil {
+		if err := validateQAAssessment(*bundle.Assessment, state.CurrentAttemptID); err != nil {
+			return NewQAError(QAErrorMalformedEvidence, "publish assessment", err.Error(), err)
+		}
+		path, err := store.resolve(QAAssessmentRelPath(store.sprint, state.CurrentAttemptID))
+		if err != nil {
+			return err
+		}
+		if err := store.checkWriter(token); err != nil {
+			return err
+		}
+		digest, err := store.writeRecord("assessment", path, bundle.Assessment, true)
+		if err != nil {
+			return err
+		}
+		state.Assessment = &QAArtifactRef{Path: QAAssessmentRelPath(store.sprint, state.CurrentAttemptID), Digest: digest}
+		state.CanonicalAssessment = bundle.Assessment.Assessment
+	}
+	if len(bundle.Report) > 0 {
+		if !bytes.HasPrefix(bundle.Report, []byte("# QA")) {
+			return NewQAError(QAErrorMalformedEvidence, "publish report", "canonical QA report must start with # QA", nil)
+		}
+		path, err := store.resolve(QAReportRelPath(store.sprint))
+		if err != nil {
+			return err
+		}
+		if err := store.checkWriter(token); err != nil {
+			return err
+		}
+		digest, err := store.writeBytes("report", path, append(bytes.TrimSpace(bundle.Report), '\n'), false)
+		if err != nil {
+			return err
+		}
+		state.CanonicalReport = &QAArtifactRef{Path: QAReportRelPath(store.sprint), Digest: digest}
+	}
+	return nil
+}
+
+func (store QAStore) writeBytes(kind, path string, data []byte, immutable bool) (string, error) {
+	if len(data) > qaHardStateBytes {
+		return "", NewQAError(QAErrorBudgetExhausted, "publish "+kind, "record exceeds the hard state limit", nil)
+	}
+	if immutable {
+		current, err := os.ReadFile(path)
+		if err == nil {
+			if bytes.Equal(current, data) {
+				return hashBytes(data), nil
+			}
+			return "", NewQAError(QAErrorConflict, "publish "+kind, "immutable record already exists with different bytes", nil)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+	}
+	if err := privateAtomicWrite(path, data, kind, store.hooks); err != nil {
+		return "", NewQAError(QAErrorPersistenceFailure, "publish "+kind, "cannot atomically publish record", err)
+	}
+	return hashBytes(data), nil
+}
+
+func normalizePatch(data []byte) []byte {
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	return append(bytes.TrimSpace(data), '\n')
+}
+
+func validateQAAdjudication(value QAAdjudication, attemptID string, budgets QABudgets) error {
+	if value.SchemaVersion != QAEvidenceSchemaVersion || !validQAV2ID(value.ID, "adjudication") || value.AttemptID != attemptID || !validFingerprint(value.MapFingerprint) || value.CompletedAt.IsZero() {
+		return fmt.Errorf("invalid QA adjudication schema or identity")
+	}
+	if len(value.AcceptedIDs)+len(value.Rejected) > budgets.EvidenceRecords || len(value.Issues) > budgets.Issues {
+		return fmt.Errorf("QA adjudication exceeds frozen limits")
+	}
+	return nil
+}
+
+func validateQAAssessment(value QAAssessmentRecord, attemptID string) error {
+	if value.SchemaVersion != QAEvidenceSchemaVersion || !validQAV2ID(value.ID, "assessment") || value.AttemptID != attemptID || value.CompletedAt.IsZero() || strings.TrimSpace(value.NextAction) == "" {
+		return fmt.Errorf("invalid QA assessment schema or identity")
+	}
+	switch value.Assessment {
+	case AssessmentIncomplete, AssessmentBlocked, AssessmentFail, AssessmentNotApplicable, AssessmentPassWithFindings, AssessmentPass:
+		return nil
+	default:
+		return fmt.Errorf("invalid QA assessment")
+	}
+}
+
 func privateAtomicWrite(path string, data []byte, kind string, hooks QAStateHooks) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	for current := dir; ; current = filepath.Dir(current) {
-		if err := os.Chmod(current, 0o700); err != nil {
-			return err
-		}
-		if filepath.Base(current) == "verification" {
-			break
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return fmt.Errorf("verification directory not found")
+	if pathHasComponent(path, "verification") {
+		for current := dir; ; current = filepath.Dir(current) {
+			if err := os.Chmod(current, 0o700); err != nil {
+				return err
+			}
+			if filepath.Base(current) == "verification" {
+				break
+			}
+			parent := filepath.Dir(current)
+			if parent == current {
+				return fmt.Errorf("verification directory not found")
+			}
 		}
 	}
 	temp, err := os.CreateTemp(dir, ".qa-"+kind+"-*.tmp")
@@ -551,6 +908,70 @@ func privateAtomicWrite(path string, data []byte, kind string, hooks QAStateHook
 	return nil
 }
 
+type qaFileSnapshot struct {
+	path   string
+	data   []byte
+	mode   fs.FileMode
+	exists bool
+}
+
+func captureQACanonicalFiles(paths ...string) ([]qaFileSnapshot, error) {
+	values := make([]qaFileSnapshot, 0, len(paths))
+	for _, path := range paths {
+		value := qaFileSnapshot{path: path}
+		info, err := os.Lstat(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			values = append(values, value)
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("canonical QA path is not a regular file: %s", path)
+		}
+		value.data, err = os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		value.exists, value.mode = true, info.Mode().Perm()
+		values = append(values, value)
+	}
+	return values, nil
+}
+
+func restoreQACanonicalFiles(values []qaFileSnapshot) error {
+	var result error
+	for _, value := range values {
+		if !value.exists {
+			if err := os.Remove(value.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				result = errors.Join(result, err)
+			}
+			continue
+		}
+		if err := privateAtomicWrite(value.path, value.data, "rollback", QAStateHooks{}); err != nil {
+			result = errors.Join(result, err)
+			continue
+		}
+		if err := os.Chmod(value.path, value.mode); err != nil {
+			result = errors.Join(result, err)
+		}
+	}
+	return result
+}
+
+func pathHasComponent(path, component string) bool {
+	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
+		if filepath.Base(current) == component {
+			return true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return false
+		}
+	}
+}
+
 func (store QAStore) verifyReference(ref QAArtifactRef) error {
 	if filepath.IsAbs(ref.Path) || !validFingerprint(ref.Digest) {
 		return NewQAError(QAErrorInvalidState, "load state", "invalid QA artifact reference", nil)
@@ -570,11 +991,17 @@ func (store QAStore) verifyReference(ref QAArtifactRef) error {
 }
 
 func qaFlowSummary(state QAState, stateDigest string, sprint Sprint) *QAFlowSummary {
-	return &QAFlowSummary{
+	out := &QAFlowSummary{
 		Phase: state.Phase, Fresh: state.Freshness.Current,
 		CompletedShards: state.CompletedShards, TotalShards: state.TotalShards,
 		Confirmed: state.OutcomeCounts[QATheoryConfirmed], Blocked: state.OutcomeCounts[QATheoryBlocked],
 		Cancellation: state.Cancellation, StatePath: QAVerificationStateRelPath(sprint),
 		StateDigest: stateDigest, CurrentAttemptID: state.CurrentAttemptID, NextAction: state.NextAction,
+		Assessment: state.CanonicalAssessment, EvidenceCount: state.EvidenceCount, RejectedCount: state.RejectedCount,
+		IssueCount: state.IssueCount,
 	}
+	if state.CanonicalReport != nil {
+		out.ReportPath, out.ReportDigest = state.CanonicalReport.Path, state.CanonicalReport.Digest
+	}
+	return out
 }

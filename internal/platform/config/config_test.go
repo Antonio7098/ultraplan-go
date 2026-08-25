@@ -266,7 +266,7 @@ func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(QAConfigFields()) != 28 {
+	if len(QAConfigFields()) != 35 {
 		t.Fatalf("QA field count = %d", len(QAConfigFields()))
 	}
 	for _, field := range QAConfigFields() {
@@ -298,6 +298,13 @@ func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
 		"cleanup timeout":         func(q *QA) { q.CleanupTimeout = "31s" },
 		"command output":          func(q *QA) { q.CommandOutputBytes = (512 << 10) + 1 },
 		"shard output":            func(q *QA) { q.ShardOutputBytes = (2 << 20) + 1 },
+		"tree files":              func(q *QA) { q.TreeFiles = 400_001 },
+		"tree bytes":              func(q *QA) { q.TreeBytes = (4 << 30) + 1 },
+		"file bytes":              func(q *QA) { q.FileBytes = (64 << 20) + 1 },
+		"generated checks":        func(q *QA) { q.GeneratedChecks = 129 },
+		"generated patch":         func(q *QA) { q.GeneratedPatchBytes = (4 << 20) + 1 },
+		"evidence records":        func(q *QA) { q.EvidenceRecords = 513 },
+		"issues":                  func(q *QA) { q.Issues = 201 },
 		"prompt":                  func(q *QA) { q.PromptBytes = (1 << 20) + 1 },
 		"progress":                func(q *QA) { q.RecentProgress = 201 },
 		"retention":               func(q *QA) { q.RetainedAttempts = 9 },

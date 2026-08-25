@@ -14,11 +14,20 @@ func renderSprintQAView(b *strings.Builder, m Model, route Route) {
 	}
 	qa := summary.QA
 	if qa.Phase == "completed" {
-		fmt.Fprintln(b, "Read-only QA completed")
+		fmt.Fprintln(b, "Read-only QA completed (compatibility status); evidence-producing QA uses isolated writable copies")
 	} else {
-		fmt.Fprintln(b, "Read-only QA")
+		fmt.Fprintln(b, "QA")
 	}
 	fmt.Fprintf(b, "Phase: %s\nFresh: %t\nConformance Review: status=%s verdict=%s fresh=%t\nCoverage: %d/%d changed paths\nShards: %d/%d\n", qa.Phase, qa.Fresh, qa.ConformanceReviewStatus, qa.ConformanceReviewVerdict, qa.ConformanceReviewFresh, qa.CoveredPaths, qa.ChangedPaths, qa.CompletedShards, qa.TotalShards)
+	if qa.Assessment != "" {
+		fmt.Fprintf(b, "Assessment: %s\nEvidence: %d total, %d rejected\nIssues: %d\nRegression candidates: %d\n", qa.Assessment, qa.EvidenceCount, qa.RejectedEvidenceCount, qa.IssueCount, qa.RegressionCandidateCount)
+	}
+	if qa.CanonicalReport != nil {
+		fmt.Fprintf(b, "Canonical report: %s\n", qa.CanonicalReport.Path)
+	}
+	if qa.CurrentFailure != nil {
+		fmt.Fprintf(b, "Current failure: %s [%s]\n", qa.CurrentFailure.Summary, qa.CurrentFailure.Category)
+	}
 	if qa.Cancellation.Requested {
 		fmt.Fprintf(b, "Cancellation requested: %s\n", qa.Cancellation.Reason)
 	}

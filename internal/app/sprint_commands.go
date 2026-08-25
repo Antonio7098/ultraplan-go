@@ -381,10 +381,16 @@ func runSprint(deps dependencies, args []string) error {
 		var runErr error
 		switch qaCommand.Action {
 		case "map":
-			mapped, mapErr := qaService.QAMap(args[0], args[1])
-			runErr = mapErr
-			if mapErr == nil {
-				qaResult = qaMapProjection(mapped.Map)
+			if qaCommand.Suite == "smoke" {
+				smoke, smokeErr := qaService.RunSmoke(deps.ctx, args[0], args[1], sprint.SmokeRequest{DryRun: true})
+				runErr = smokeErr
+				qaResult = QAResult{SchemaVersion: 1, Project: args[0], Sprint: args[1], Phase: "mapped", Fresh: smokeErr == nil, Suite: "smoke", NextAction: smoke.NextAction}
+			} else {
+				mapped, mapErr := qaService.QAMap(args[0], args[1])
+				runErr = mapErr
+				if mapErr == nil {
+					qaResult = qaMapProjection(mapped.Map)
+				}
 			}
 		case "status":
 			snapshot, statusErr := qaService.QAStatus(args[0], args[1])
@@ -416,7 +422,7 @@ func runSprint(deps dependencies, args []string) error {
 			if qaCommand.Action == "resume" {
 				kind = OperationQAResume
 			}
-			durable, durableErr := beginDurableCLICommand(deps, OperationRequest{Kind: kind, Project: args[0], Sprint: args[1], Task: qaCommand.Shard})
+			durable, durableErr := beginDurableCLICommand(deps, OperationRequest{Kind: kind, Project: args[0], Sprint: args[1], Task: qaCommand.Shard, Suite: qaCommand.Suite})
 			if durableErr != nil {
 				runErr = durableErr
 				break
@@ -432,7 +438,7 @@ func runSprint(deps dependencies, args []string) error {
 				break
 			}
 			runtimeService = runtimeService.WithQAWriterFence(fence)
-			_, qaErr := runtimeService.RunQA(durable.Context(), args[0], args[1], sprint.QARunRequest{Resume: qaCommand.Action == "resume", FocusShard: qaCommand.Shard, WriterToken: token, Progress: func(progress sprint.QAProgress) {
+			qaRun, qaErr := runtimeService.RunQA(durable.Context(), args[0], args[1], sprint.QARunRequest{Resume: qaCommand.Action == "resume", FocusShard: qaCommand.Shard, Suite: qaCommand.Suite, EvidenceProducing: qaCommand.Suite == "", WriterToken: token, Progress: func(progress sprint.QAProgress) {
 				fmt.Fprintf(deps.stderr, "[qa] %s %d/%d", progress.Phase, progress.Completed, progress.Total)
 				if progress.ShardID != "" {
 					fmt.Fprintf(deps.stderr, " %s", progress.ShardID)
@@ -440,11 +446,27 @@ func runSprint(deps dependencies, args []string) error {
 				fmt.Fprintf(deps.stderr, ": %s\n", config.RedactValue("qa.progress", progress.Message))
 			}})
 			runErr = finishDurableCLICommand(durable, qaErr)
-			snapshot, statusErr := runtimeService.QAStatus(args[0], args[1])
-			if statusErr == nil {
-				qaResult = qaSnapshotProjection(snapshot)
+			if qaCommand.Suite == "smoke" {
+				qaResult = QAResult{SchemaVersion: 1, Project: args[0], Sprint: args[1], Phase: string(qaRun.State.Phase), Fresh: qaRun.State.Freshness.Current, Suite: "smoke", RunID: token.RunID, TerminalResult: string(qaRun.State.Run.TerminalResult), NextAction: qaRun.State.NextAction}
+				if qaRun.Smoke != nil {
+					switch qaRun.Smoke.Verdict {
+					case sprint.SmokeFailVerdict:
+						qaResult.Assessment = string(sprint.AssessmentFail)
+					case sprint.SmokeBlockedVerdict:
+						qaResult.Assessment = string(sprint.AssessmentBlocked)
+					case sprint.SmokePassWithOpenIssues:
+						qaResult.Assessment = string(sprint.AssessmentPassWithFindings)
+					case sprint.SmokePass:
+						qaResult.Assessment = string(sprint.AssessmentPass)
+					}
+				}
 			} else {
-				runErr = errors.Join(runErr, statusErr)
+				snapshot, statusErr := runtimeService.QAStatus(args[0], args[1])
+				if statusErr == nil {
+					qaResult = qaSnapshotProjection(snapshot)
+				} else {
+					runErr = errors.Join(runErr, statusErr)
+				}
 			}
 		}
 		if runErr != nil {
@@ -462,6 +484,11 @@ func runSprint(deps dependencies, args []string) error {
 		}
 		if runErr != nil {
 			return mapQACommandError(runErr)
+		}
+		if qaCommand.Action == "run" || qaCommand.Action == "resume" {
+			if qaResult.Assessment == string(sprint.AssessmentFail) || qaResult.Assessment == string(sprint.AssessmentBlocked) || qaResult.Assessment == string(sprint.AssessmentIncomplete) || qaResult.Phase == string(sprint.QAPhaseBlocked) {
+				return classified(ExitValidation, "sprint.qa: assessment %s", qaResult.Assessment)
+			}
 		}
 		return nil
 	case "review":
@@ -582,6 +609,8 @@ type sprintQACommand struct {
 	Action string
 	Shard  string
 	RunID  string
+	Suite  string
+	Yes    bool
 	JSON   bool
 }
 
@@ -603,6 +632,8 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 			command.Action = "map"
 		case "--json":
 			command.JSON = true
+		case "--yes", "--non-interactive":
+			command.Yes = true
 		case "--shard":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
 				return command, errors.New("--shard requires a map-owned shard ID")
@@ -615,6 +646,12 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 			}
 			command.RunID = args[i+1]
 			i++
+		case "--suite":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return command, errors.New("--suite requires smoke")
+			}
+			command.Suite = args[i+1]
+			i++
 		default:
 			return command, fmt.Errorf("unknown QA argument %q", args[i])
 		}
@@ -624,16 +661,35 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 		if command.RunID != "" {
 			return command, errors.New("--run is valid only with qa cancel")
 		}
+		if command.Suite != "" && command.Suite != "smoke" {
+			return command, errors.New("QA suite must be smoke")
+		}
+		if command.Suite != "" && command.Shard != "" {
+			return command, errors.New("--suite and --shard are mutually exclusive")
+		}
+		if command.Action == "resume" && command.Suite != "" {
+			return command, errors.New("qa resume does not accept --suite; start a new smoke-suite run")
+		}
+		if command.Suite == "smoke" && !command.Yes {
+			return command, errors.New("--yes is required for non-interactive external harness execution")
+		}
 	case "cancel":
 		if command.RunID == "" {
 			return command, errors.New("qa cancel requires --run")
 		}
-		if command.Shard != "" {
-			return command, errors.New("qa cancel does not accept --shard")
+		if command.Shard != "" || command.Suite != "" || command.Yes {
+			return command, errors.New("qa cancel does not accept --shard, --suite, or --yes")
 		}
-	case "map", "status", "recover":
-		if command.Shard != "" || command.RunID != "" {
-			return command, fmt.Errorf("qa %s does not accept --shard or --run", command.Action)
+	case "map":
+		if command.Shard != "" || command.RunID != "" || command.Yes {
+			return command, errors.New("qa dry-run does not accept --shard, --run, or --yes")
+		}
+		if command.Suite != "" && command.Suite != "smoke" {
+			return command, errors.New("QA suite must be smoke")
+		}
+	case "status", "recover":
+		if command.Shard != "" || command.RunID != "" || command.Suite != "" || command.Yes {
+			return command, fmt.Errorf("qa %s does not accept --shard, --run, --suite, or --yes", command.Action)
 		}
 	}
 	return command, nil
@@ -641,13 +697,22 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 
 func renderSprintQA(deps dependencies, result QAResult) {
 	if result.Phase == string(sprint.QAPhaseCompleted) {
-		fmt.Fprintln(deps.stdout, "Read-only QA completed")
+		fmt.Fprintln(deps.stdout, "QA completed")
 	} else {
-		fmt.Fprintln(deps.stdout, "Read-only QA")
+		fmt.Fprintln(deps.stdout, "QA")
 	}
 	fmt.Fprintf(deps.stdout, "  sprint: %s/%s\n  phase: %s\n  fresh: %t\n", result.Project, result.Sprint, result.Phase, result.Fresh)
 	fmt.Fprintf(deps.stdout, "  Conformance Review: status=%s verdict=%s fresh=%t\n", result.ConformanceReviewStatus, result.ConformanceReviewVerdict, result.ConformanceReviewFresh)
 	fmt.Fprintf(deps.stdout, "  coverage: %d/%d changed paths\n  shards: %d/%d\n", result.CoveredPaths, result.ChangedPaths, result.CompletedShards, result.TotalShards)
+	if result.Suite != "" {
+		fmt.Fprintf(deps.stdout, "  suite: %s\n", result.Suite)
+	}
+	if result.Assessment != "" {
+		fmt.Fprintf(deps.stdout, "  assessment: %s\n", result.Assessment)
+	}
+	if result.EvidenceCount > 0 || result.RejectedEvidenceCount > 0 || result.IssueCount > 0 {
+		fmt.Fprintf(deps.stdout, "  evidence: %d total, %d rejected\n  issues: %d\n", result.EvidenceCount, result.RejectedEvidenceCount, result.IssueCount)
+	}
 	for _, outcome := range []string{"confirmed", "refuted", "invalid", "inconclusive", "blocked", "cross_shard", "not_applicable"} {
 		if count := result.OutcomeTotals[outcome]; count > 0 {
 			fmt.Fprintf(deps.stdout, "  theories.%s: %d\n", outcome, count)
@@ -660,6 +725,10 @@ func renderSprintQA(deps dependencies, result QAResult) {
 }
 
 func mapQACommandError(err error) error {
+	var alreadyClassed classedError
+	if errors.As(err, &alreadyClassed) {
+		return alreadyClassed
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		code := "qa.cancelled"
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -767,7 +836,8 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 		sources = append(sources, sprint.QAEffectiveSource{Field: field, Source: source})
 	}
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Field < sources[j].Field })
-	settings := sprint.QASettings{Runtime: sprint.StageRuntime{Model: model, Variant: variant}, Sources: sources, Budgets: sprint.QABudgets{
+	budgets := sprint.DefaultQABudgets()
+	configured := sprint.QABudgets{
 		ChangedPaths: c.ChangedPaths, PrimaryShards: c.PrimaryShards, BoundaryShards: c.BoundaryShards,
 		FollowUpShards: c.FollowUpShards, TotalShards: c.TotalShards, PendingEntries: c.PendingEntries,
 		ChangedPathsPerShard: c.ChangedPathsPerShard, ContextPathsPerShard: c.ContextPathsPerShard,
@@ -779,7 +849,21 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 		CleanupTimeout: cleanupTimeout, CommandOutputBytes: c.CommandOutputBytes,
 		ShardOutputBytes: c.ShardOutputBytes, PromptBytes: c.PromptBytes,
 		RecentProgress: c.RecentProgress, RetainedAttempts: c.RetainedAttempts, StateBytes: c.StateBytes,
-	}}
+	}
+	budgets.ChangedPaths, budgets.PrimaryShards, budgets.BoundaryShards = configured.ChangedPaths, configured.PrimaryShards, configured.BoundaryShards
+	budgets.FollowUpShards, budgets.TotalShards, budgets.PendingEntries = configured.FollowUpShards, configured.TotalShards, configured.PendingEntries
+	budgets.ChangedPathsPerShard, budgets.ContextPathsPerShard = configured.ChangedPathsPerShard, configured.ContextPathsPerShard
+	budgets.ContextExpansions, budgets.PathsPerExpansion = configured.ContextExpansions, configured.PathsPerExpansion
+	budgets.BehavioralConcernsPerShard, budgets.TheoriesPerShard = configured.BehavioralConcernsPerShard, configured.TheoriesPerShard
+	budgets.IterationsPerAttempt, budgets.CommandsPerAttempt, budgets.RuntimeRetries = configured.IterationsPerAttempt, configured.CommandsPerAttempt, configured.RuntimeRetries
+	budgets.ConcurrentInvestigators = configured.ConcurrentInvestigators
+	budgets.CommandTimeout, budgets.ShardTimeout, budgets.RunTimeout, budgets.CleanupTimeout = configured.CommandTimeout, configured.ShardTimeout, configured.RunTimeout, configured.CleanupTimeout
+	budgets.CommandOutputBytes, budgets.ShardOutputBytes, budgets.PromptBytes = configured.CommandOutputBytes, configured.ShardOutputBytes, configured.PromptBytes
+	budgets.RecentProgress, budgets.RetainedAttempts, budgets.StateBytes = configured.RecentProgress, configured.RetainedAttempts, configured.StateBytes
+	budgets.TreeFiles, budgets.TreeBytes, budgets.FileBytes = c.TreeFiles, int64(c.TreeBytes), int64(c.FileBytes)
+	budgets.GeneratedChecks, budgets.GeneratedPatchBytes = c.GeneratedChecks, c.GeneratedPatchBytes
+	budgets.EvidenceRecords, budgets.Issues = c.EvidenceRecords, c.Issues
+	settings := sprint.QASettings{Runtime: sprint.StageRuntime{Model: model, Variant: variant}, Sources: sources, Budgets: budgets}
 	if err := sprint.ValidateQASettings(settings); err != nil {
 		return sprint.QASettings{}, err
 	}
@@ -1531,7 +1615,7 @@ Usage:
   ultraplan sprint <project> <sprint> execute --task <id> --defer --reason <text>
   ultraplan sprint <project> <sprint> review [--restart] [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
   ultraplan sprint <project> <sprint> conformance-review [same flags as review]
-  ultraplan sprint <project> <sprint> qa [--dry-run] [--shard <map-owned-id>] [--json]
+  ultraplan sprint <project> <sprint> qa [--dry-run] [--shard <map-owned-id>|--suite smoke] [--json]
   ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
   ultraplan sprint <project> <sprint> qa status [--json]
   ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
@@ -1549,12 +1633,12 @@ Commands:
   <project> <sprint> execute           Execute validated plan tasks through the generic runtime boundary.
   <project> <sprint> review            Run Conformance Review and atomically write review.md.
   <project> <sprint> conformance-review  Compatibility alias for the exact review handler.
-  <project> <sprint> qa                Map, run, resume, inspect, cancel, or recover read-only QA.
+  <project> <sprint> qa                Map, run, resume, inspect, cancel, or recover bounded QA in disposable copies.
   <project> <sprint> smoke             Run the cataloged external harness and atomically write smoke.md.
   <project> <sprint> verify            Run the shared execute-evidence -> review -> smoke transition.
 
 Scope:
-  Supports governed planning, controlled execute, Conformance Review, read-only QA, and review-gated smoke. It does not run issue tracking, Git mutation, hosted/browser, or cross-sprint scheduling workflows.
+  Supports governed planning, controlled execute, Conformance Review, bounded QA in disposable copies, and review-gated smoke. It does not run issue tracking, Git mutation, hosted/browser, or cross-sprint scheduling workflows.
 `
 }
 
@@ -1593,14 +1677,14 @@ func sprintQAHelp() string {
 	return `ultraplan sprint <project> <sprint> qa
 
 Usage:
-  ultraplan sprint <project> <sprint> qa --dry-run [--json]
-  ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>] [--json]
+  ultraplan sprint <project> <sprint> qa --dry-run [--suite smoke] [--json]
+  ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>|--suite smoke --yes] [--json]
   ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
   ultraplan sprint <project> <sprint> qa status [--json]
   ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
   ultraplan sprint <project> <sprint> qa recover [--json]
 
-Builds a deterministic map and runs bounded read-only investigators after current execute and Conformance Review evidence. Start and resume are durably accepted before runtime work. Status and dry-run are read-only; recovery is runtime-free and may reconcile detailed QA state. A focused shard must be owned by the current map. Completed means bounded investigation ended, not that QA passed, and QA never changes the independent Conformance Review verdict.
+Runs bounded QA after current execute and Conformance Review evidence. Normal evidence work uses disposable writable copies while the implementation target stays immutable. --suite smoke routes through the canonical external smoke harness, requires --yes, and cannot resume. Start and resume are durably accepted before runtime work. Status and dry-run are read-only; recovery is runtime-free. Completed means bounded investigation ended, not that QA passed. QA never changes the independent Conformance Review verdict.
 `
 }
 

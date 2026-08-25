@@ -336,3 +336,19 @@ and `Link: </api/v1/runs/{id}>; rel=canonical` identifies the canonical
 resource. Durable operation reads are workspace-visible across browser
 sessions. Mutation routes still enforce loopback Host/Origin, current session,
 and CSRF authority.
+
+## QA evidence in the browser
+
+The QA page is server-rendered and remains useful without JavaScript. It shows
+the current assessment, evidence and rejection counts, issue count, canonical
+report reference, current failure, and next action from app projections. A
+guarded form can start the canonical smoke suite through QA. Starts and
+cancellation retain the normal preparation fingerprint, same-origin, current
+session, CSRF, durable acceptance, ownership, and fencing checks.
+
+Focused read-only JSON is available below the sprint QA resource for one
+evidence record, adjudication, paged issues, one current issue, assessment, and
+smoke-suite status. Issue cursors are opaque and bound to the current attempt.
+Disconnects and event gaps are observation failures only; the page refreshes
+authoritative app state after reconnect, session rotation, terminal events, or
+recovery.

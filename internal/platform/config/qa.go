@@ -39,6 +39,13 @@ type QA struct {
 	RecentProgress             int    `json:"recent_progress"`
 	RetainedAttempts           int    `json:"retained_attempts"`
 	StateBytes                 int    `json:"state_bytes"`
+	TreeFiles                  int    `json:"tree_files"`
+	TreeBytes                  int    `json:"tree_bytes"`
+	FileBytes                  int    `json:"file_bytes"`
+	GeneratedChecks            int    `json:"generated_checks"`
+	GeneratedPatchBytes        int    `json:"generated_patch_bytes"`
+	EvidenceRecords            int    `json:"evidence_records"`
+	Issues                     int    `json:"issues"`
 }
 
 func DefaultQA() QA {
@@ -53,6 +60,8 @@ func DefaultQA() QA {
 		RunTimeout: "60m", CleanupTimeout: "30s", CommandOutputBytes: 256 << 10,
 		ShardOutputBytes: 1 << 20, PromptBytes: 512 << 10, RecentProgress: 100,
 		RetainedAttempts: 8, StateBytes: 128 << 20,
+		TreeFiles: 200_000, TreeBytes: 2 << 30, FileBytes: 32 << 20,
+		GeneratedChecks: 64, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256, Issues: 200,
 	}
 }
 
@@ -68,6 +77,8 @@ func maxQA() QA {
 		RunTimeout: "90m", CleanupTimeout: "30s", CommandOutputBytes: 512 << 10,
 		ShardOutputBytes: 2 << 20, PromptBytes: 1 << 20, RecentProgress: 200,
 		RetainedAttempts: 8, StateBytes: 128 << 20,
+		TreeFiles: 400_000, TreeBytes: 4 << 30, FileBytes: 64 << 20,
+		GeneratedChecks: 128, GeneratedPatchBytes: 4 << 20, EvidenceRecords: 512, Issues: 200,
 	}
 }
 
@@ -84,6 +95,8 @@ func qaConfigFields() []string {
 		"qa.run_timeout", "qa.cleanup_timeout", "qa.command_output_bytes",
 		"qa.shard_output_bytes", "qa.prompt_bytes", "qa.recent_progress",
 		"qa.retained_attempts", "qa.state_bytes",
+		"qa.tree_files", "qa.tree_bytes", "qa.file_bytes", "qa.generated_checks",
+		"qa.generated_patch_bytes", "qa.evidence_records", "qa.issues",
 	}
 }
 
@@ -177,6 +190,20 @@ func setQAField(q *QA, field, value string) (bool, error) {
 		return setQAInteger(field, value, &q.RetainedAttempts)
 	case "qa.state_bytes":
 		return setQAInteger(field, value, &q.StateBytes)
+	case "qa.tree_files":
+		return setQAInteger(field, value, &q.TreeFiles)
+	case "qa.tree_bytes":
+		return setQAInteger(field, value, &q.TreeBytes)
+	case "qa.file_bytes":
+		return setQAInteger(field, value, &q.FileBytes)
+	case "qa.generated_checks":
+		return setQAInteger(field, value, &q.GeneratedChecks)
+	case "qa.generated_patch_bytes":
+		return setQAInteger(field, value, &q.GeneratedPatchBytes)
+	case "qa.evidence_records":
+		return setQAInteger(field, value, &q.EvidenceRecords)
+	case "qa.issues":
+		return setQAInteger(field, value, &q.Issues)
 	default:
 		return false, nil
 	}
@@ -209,6 +236,9 @@ func validateQA(q QA) error {
 		{"command_output_bytes", q.CommandOutputBytes, max.CommandOutputBytes}, {"shard_output_bytes", q.ShardOutputBytes, max.ShardOutputBytes},
 		{"prompt_bytes", q.PromptBytes, max.PromptBytes}, {"recent_progress", q.RecentProgress, max.RecentProgress},
 		{"retained_attempts", q.RetainedAttempts, max.RetainedAttempts}, {"state_bytes", q.StateBytes, max.StateBytes},
+		{"tree_files", q.TreeFiles, max.TreeFiles}, {"tree_bytes", q.TreeBytes, max.TreeBytes}, {"file_bytes", q.FileBytes, max.FileBytes},
+		{"generated_checks", q.GeneratedChecks, max.GeneratedChecks}, {"generated_patch_bytes", q.GeneratedPatchBytes, max.GeneratedPatchBytes},
+		{"evidence_records", q.EvidenceRecords, max.EvidenceRecords}, {"issues", q.Issues, max.Issues},
 	}
 	for _, limit := range limits {
 		if limit.got <= 0 || limit.got > limit.max {

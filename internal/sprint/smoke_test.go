@@ -298,7 +298,7 @@ func TestSmokeAuthoringPathAllowlist(t *testing.T) {
 	}
 }
 
-func TestSmokeRunCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing.T) {
+func TestQASmokeParityCommitsValidatedArtifactAndPreservesItOnMalformedRun(t *testing.T) {
 	root, sp := reviewFixture(t)
 	writeFileContent(t, filepath.Join(root, "projects", "proj"), `# Roadmap
 
@@ -364,6 +364,13 @@ Complete alpha.
 	if err != nil || result.Verdict != SmokePass || len(runner.calls) != 2 {
 		t.Fatalf("result=%+v calls=%v err=%v", result, runner.calls, err)
 	}
+	qaResult, err := service.RunQA(context.Background(), "proj", "01", QARunRequest{Suite: "smoke", WriterToken: QAWriterToken{RunID: "run-qa", OperationalAttemptID: "attempt-qa", FencingGeneration: 1}})
+	if err != nil || qaResult.Smoke == nil {
+		t.Fatalf("QA smoke result=%+v err=%v", qaResult, err)
+	}
+	if qaResult.Smoke.Verdict != result.Verdict || qaResult.Smoke.Protocol != result.Protocol || qaResult.Smoke.ScopeKind != result.ScopeKind || qaResult.Smoke.Scope != result.Scope || len(runner.calls) != 4 {
+		t.Fatalf("smoke parity direct=%+v qa=%+v calls=%v", result, qaResult.Smoke, runner.calls)
+	}
 	roadmapData, err := os.ReadFile(filepath.Join(root, "projects", "proj", "roadmap.md"))
 	if err != nil || !strings.Contains(string(roadmapData), "> Status: delivered") {
 		t.Fatalf("roadmap was not reconciled: %q err=%v", roadmapData, err)
@@ -375,7 +382,7 @@ Complete alpha.
 	if result.CoverageMapping == nil || !result.CoverageMapping.Complete || result.CoverageMapping.Rationale != "dedicated" || len(result.CoverageMapping.RequiredCoverage) != 1 || len(result.CoverageMapping.Tests) != 1 || result.CoverageMapping.Tests[0].ID != "live" {
 		t.Fatalf("coverage mapping was not retained in result: %+v", result.CoverageMapping)
 	}
-	if len(author.requests) != 1 || author.requests[0].WorkDir != harness || author.requests[0].Model != "author" || !containsString(author.requests[0].RequireCaps, "permissions") || author.requests[0].Policy.UnsupportedBehavior != "" || !strings.Contains(author.requests[0].Prompt, "required deep-smoke coverage ID") || strings.Count(author.requests[0].Prompt, sharedPromptStageBoundary) != 1 {
+	if len(author.requests) != 2 || author.requests[0].WorkDir != harness || author.requests[0].Model != "author" || !containsString(author.requests[0].RequireCaps, "permissions") || author.requests[0].Policy.UnsupportedBehavior != "" || !strings.Contains(author.requests[0].Prompt, "required deep-smoke coverage ID") || strings.Count(author.requests[0].Prompt, sharedPromptStageBoundary) != 1 {
 		t.Fatalf("smoke author request was not sprint-specific and model-routed: %+v", author.requests)
 	}
 	boundary := strings.Index(author.requests[0].Prompt, sharedPromptStageBoundary) + len(sharedPromptStageBoundary)

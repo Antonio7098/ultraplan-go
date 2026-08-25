@@ -131,7 +131,7 @@ an author-attributed protected write and any out-of-allowlist harness mutation
 remain hard failures. Attribution observes the live runtime event callback and
 does not depend on the bounded retained-event tail.
 
-## Read-only QA verification phase
+## QA verification phase
 
 `VerificationPhase` is independent from `PlanningStage`. It names `conformance-review`, `qa`, and the reserved future `repair` phase without inserting QA into planning order or changing `StageReview`, `StageSmoke`, `review.md`, or `smoke.md`. Human interfaces say Conformance Review; the `review` machine identity remains authoritative.
 
@@ -142,7 +142,7 @@ Four authorities remain separate:
 - `internal/runcontrol` owns operational acceptance, leases, fencing, cancellation, events, and terminal arbitration;
 - `internal/app` owns typed projections and operation preparation consumed by CLI, TUI, and web.
 
-The detailed state root is `projects/<project>/sprints/<sprint>/verification/`. `state.json` is the current pointer; immutable `attempts/<qa-v1-attempt-id>/map.json`, per-shard JSON, and `synthesis.json` retain bounded evidence. Records are strict schema v1, private, path-contained, digest-checked, and atomically written. Publication writes referenced records first, then `state.json`, then the bounded `flow-state.json` summary. The flow summary never stores theories or attempt history. Recovery may reconcile a validated terminal pointer and summary but never fabricates runtime completion.
+The detailed state root is `projects/<project>/sprints/<sprint>/verification/`. `state.json` is the current pointer. Sprint 36 read-only map, shard, and synthesis records remain readable as strict schema v1. Evidence-producing Sprint 37 attempts write strict schema v2 plans, evidence, adjudication, issues, assessment, and report pointers. Both versions are private, path-contained, digest-checked, and atomically written. Publication writes referenced records first, then `state.json`, then the bounded `flow-state.json` summary. The flow summary never stores theories or attempt history. Recovery may reconcile a validated terminal pointer and summary but never fabricates runtime completion.
 
 Mapping normalizes governed input traces, current execute changed paths, current Conformance Review evidence, target/Git identity, boundaries, risks, the approved-check catalog, effective policy, and every numeric limit. IDs use the local `qa-v1` namespace and are deterministic only within this schema and sprint scope. Every changed path has exactly one primary owner; boundary overlap is explicit and bounded.
 
@@ -223,3 +223,28 @@ This design supports direct writers and observers on one host and a trustworthy
 local filesystem. Multi-host access, network filesystems without reliable
 SQLite WAL/locking semantics, worker adoption, brokers, and remote signalling
 are outside the supported topology.
+
+## QA evidence and isolation
+
+QA policy belongs to `internal/sprint`; reusable copy, identity, process, and
+cleanup mechanics belong to `internal/platform/process`. Each writable check
+gets a new `0700` non-Git-dependent copy. On Linux, bubblewrap mounts the host
+root read-only and remounts only the disposable copy writable. Platforms that
+cannot prove protected-root denial, process-group cleanup, and workspace
+removal report the missing capability and QA blocks before writable work.
+
+Frozen plans bind the attempt, shard, expectations, approved paths, exact
+executable and argv, time and output limits, cleanup requirement, and governed
+fingerprints. QA v2 evidence binds target and copy identities, changed paths,
+command facts, containment, and cleanup. Only product adjudication can accept
+evidence or promote a bounded issue. Semantic analyzers and failed-shard
+evaluators use fixed three-call limits where applicable; a majority is an
+adjudication rule, not independent proof.
+
+Immutable plans and evidence are written before adjudication, issues,
+assessment, and the canonical pointers. Every publication rechecks the durable
+writer fence. `qa.md`, the private state pointer, and the bounded flow
+projection are snapshotted and restored together if a later canonical write
+fails. QA state v2 is written for evidence attempts; state v1 remains readable
+but cannot supply v2 evidence. Canonical smoke execution is reused directly,
+not copied into a second runner.

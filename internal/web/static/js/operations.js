@@ -12,6 +12,8 @@
     if (selectedParallelism) result.parallelism = Number(selectedParallelism);
     const selectedShard = form.elements?.shard?.value;
     if (selectedShard) result.shard = selectedShard;
+	const selectedSuite = form.elements?.suite?.value;
+	if (selectedSuite) result.suite = selectedSuite;
     return result;
   }
   window.UltraPlanOperations = Object.freeze({

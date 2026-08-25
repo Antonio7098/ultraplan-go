@@ -229,6 +229,15 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Scope = []string{req.Stage}
 		c.Warning = "runtime-free; no runtime-backed writes"
 	case OperationQADryRun:
+		if req.Suite == "smoke" {
+			smoke, err := u.sprintService().RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{DryRun: true})
+			if err != nil {
+				return c, err
+			}
+			c.Scope = []string{"canonical containing smoke selection", smoke.ScopeKind + " " + smoke.Scope}
+			c.Warning = "RUNTIME-FREE SMOKE PREFLIGHT; NO HARNESS INVOCATION"
+			break
+		}
 		mapped, err := u.QAMap(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
 		if err != nil {
 			return c, err
@@ -236,6 +245,12 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Scope = []string{fmt.Sprintf("deterministic map %s", mapped.MapFingerprint), fmt.Sprintf("%d changed paths in %d bounded shards", mapped.ChangedPaths, mapped.TotalShards)}
 		c.Warning = "RUNTIME-FREE; TARGET AND GOVERNED INPUTS READ-ONLY; NO QA STATE WRITE"
 	case OperationQAStart, OperationQAResume:
+		if req.Suite == "smoke" {
+			c.Runtime, c.Mutates = true, true
+			c.Scope = []string{"one canonical smoke harness invocation", "one smoke.md and flow-state update"}
+			c.Warning = "RUNTIME + EXTERNAL HARNESS EVIDENCE; IMPLEMENTATION TARGET READ-ONLY"
+			break
+		}
 		mapped, err := u.QAMap(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
 		if err != nil {
 			return c, err
@@ -364,8 +379,17 @@ func validateQAOperationRequest(req OperationRequest) error {
 	default:
 		return nil
 	}
-	if req.Study != "" || req.Stage != "" || req.Model != "" || req.Level != "" || req.Suite != "" || req.Test != "" || req.Timeout != "" || req.ForceReview || req.RestartReview || req.OverrideRationale != "" || len(req.ReviewFocus) > 0 || len(req.Sources) > 0 || len(req.Dimensions) > 0 || req.Parallelism != 0 {
+	if req.Study != "" || req.Stage != "" || req.Model != "" || req.Level != "" || req.Test != "" || req.Timeout != "" || req.ForceReview || req.RestartReview || req.OverrideRationale != "" || len(req.ReviewFocus) > 0 || len(req.Sources) > 0 || len(req.Dimensions) > 0 || req.Parallelism != 0 {
 		return fmt.Errorf("QA operations accept only project, sprint, and a map-owned shard")
+	}
+	if req.Suite != "" && req.Suite != "smoke" {
+		return fmt.Errorf("QA suite must be smoke")
+	}
+	if req.Suite != "" && req.Kind != OperationQAStart && req.Kind != OperationQADryRun {
+		return fmt.Errorf("QA suite is valid only for start or dry-run")
+	}
+	if req.Suite != "" && req.Task != "" {
+		return fmt.Errorf("QA suite and shard focus are mutually exclusive")
 	}
 	if req.Task != "" && req.Kind != OperationQAStart && req.Kind != OperationQAResume {
 		return fmt.Errorf("QA shard is valid only for start or resume")
@@ -491,6 +515,15 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 		}
 		result.Message = fmt.Sprintf("phase=%s fresh=%t shards=%d/%d next=%s", qa.Phase, qa.Fresh, qa.CompletedShards, qa.TotalShards, qa.NextAction)
 	case OperationQADryRun:
+		if req.Suite == "smoke" {
+			smoke, err := ss.RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{DryRun: true})
+			if err != nil {
+				return failedOperation(result, err)
+			}
+			result.Message = fmt.Sprintf("smoke suite ready: %s %s", smoke.ScopeKind, smoke.Scope)
+			result.Content, result.Truncated = boundContent(sprint.RenderSmoke(smoke))
+			break
+		}
 		qa, err := u.QAMap(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
 		if err != nil {
 			return failedOperation(result, err)
@@ -613,6 +646,9 @@ func operationRuntimeIdentity(req OperationRequest, stages map[sprint.PlanningSt
 	case OperationSmokeStart, OperationVerifyStart:
 		stage = sprint.StageSmoke
 	case OperationQAStart, OperationQAResume:
+		if req.Suite == "smoke" {
+			return "configured smoke author and harness"
+		}
 		return "configured QA runtime"
 	}
 	if runtime, ok := stages[stage]; ok && (runtime.Model != "" || runtime.Variant != "") {

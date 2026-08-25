@@ -8,19 +8,24 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 type QARunRequest struct {
-	Resume      bool
-	FocusShard  string
-	WriterToken QAWriterToken
-	Progress    func(QAProgress)
+	Resume            bool
+	FocusShard        string
+	Suite             string
+	EvidenceProducing bool
+	WriterToken       QAWriterToken
+	Progress          func(QAProgress)
 }
 
 type QAProgress struct {
@@ -35,12 +40,13 @@ type QAProgress struct {
 }
 
 type QARunResult struct {
-	Project   string      `json:"project"`
-	Sprint    string      `json:"sprint"`
-	State     QAState     `json:"state"`
-	Map       QAMap       `json:"map"`
-	Shards    []QAShard   `json:"shards"`
-	Synthesis QASynthesis `json:"synthesis"`
+	Project   string       `json:"project"`
+	Sprint    string       `json:"sprint"`
+	State     QAState      `json:"state"`
+	Map       QAMap        `json:"map"`
+	Shards    []QAShard    `json:"shards"`
+	Synthesis QASynthesis  `json:"synthesis"`
+	Smoke     *SmokeResult `json:"smoke,omitempty"`
 }
 
 type QASnapshot struct {
@@ -127,6 +133,44 @@ func (s Service) QATheory(projectRef, sprintRef, theoryID string) (QATheory, err
 		}
 	}
 	return QATheory{}, NewQAError(QAErrorInvalidState, "read theory", "theory is not owned by the current QA attempt", nil)
+}
+
+func (s Service) QAEvidence(projectRef, sprintRef, evidenceID string) (QAEvidenceRecord, error) {
+	sp, _, _, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return QAEvidenceRecord{}, err
+	}
+	state, err := NewQAStore(s.root, sp).LoadState()
+	if err != nil {
+		return QAEvidenceRecord{}, err
+	}
+	return NewQAStore(s.root, sp).LoadEvidence(state.CurrentAttemptID, evidenceID)
+}
+
+func (s Service) QAAdjudication(projectRef, sprintRef string) (QAAdjudication, error) {
+	sp, _, _, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return QAAdjudication{}, err
+	}
+	store := NewQAStore(s.root, sp)
+	state, err := store.LoadState()
+	if err != nil {
+		return QAAdjudication{}, err
+	}
+	return store.LoadAdjudication(state.CurrentAttemptID, MaximumQABudgets())
+}
+
+func (s Service) QAAssessment(projectRef, sprintRef string) (QAAssessmentRecord, error) {
+	sp, _, _, err := s.resolveSprintInputs(projectRef, sprintRef)
+	if err != nil {
+		return QAAssessmentRecord{}, err
+	}
+	store := NewQAStore(s.root, sp)
+	state, err := store.LoadState()
+	if err != nil {
+		return QAAssessmentRecord{}, err
+	}
+	return store.LoadAssessment(state.CurrentAttemptID)
 }
 
 // RecoverQA reconciles an abandoned or stale QA pointer without creating a
@@ -235,6 +279,28 @@ type qaShardResult struct {
 // this method starts persistence and runtimes only after a valid writer token
 // and the sprint mutation lease have both been acquired.
 func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QARunRequest) (QARunResult, error) {
+	if req.Suite != "" {
+		if req.Suite != "smoke" {
+			return QARunResult{}, NewQAError(QAErrorInvalidState, "run", "unsupported QA suite", nil)
+		}
+		if req.Resume || req.FocusShard != "" {
+			return QARunResult{}, NewQAError(QAErrorInvalidState, "run", "the smoke QA suite cannot resume or focus a shard", nil)
+		}
+		if err := req.WriterToken.Validate(); err != nil {
+			return QARunResult{}, NewQAError(QAErrorConflict, "run", err.Error(), err)
+		}
+		smoke, smokeErr := s.RunSmoke(ctx, projectRef, sprintRef, SmokeRequest{Progress: func(progress SmokeProgress) {
+			emitQA(req.Progress, QAProgress{Phase: QAPhaseRunning, Event: "smoke_" + string(progress.Phase), Message: progress.Message})
+		}})
+		phase, terminal := QAPhaseCompleted, QATerminalCompleted
+		next := smoke.NextAction
+		if smokeErr != nil || smoke.Status != SmokeCompleted || smoke.Verdict == SmokeFailVerdict || smoke.Verdict == SmokeBlockedVerdict {
+			phase, terminal = QAPhaseBlocked, QATerminalBlocked
+		}
+		state := QAState{SchemaVersion: QASchemaVersion, Project: projectRef, Sprint: sprintRef, Phase: phase, Freshness: QAFreshness{Current: smokeErr == nil && !smoke.Stale}, Run: qaRunCorrelation(req.WriterToken, QARunTerminal), NextAction: next, UpdatedAt: s.now().UTC()}
+		state.Run.TerminalResult = terminal
+		return QARunResult{Project: projectRef, Sprint: sprintRef, State: state, Smoke: &smoke}, smokeErr
+	}
 	if s.runtime == nil {
 		return QARunResult{}, NewQAError(QAErrorRuntimeUnavailable, "run", "a QA runtime is required", nil)
 	}
@@ -348,7 +414,21 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	state.Run.TerminalResult = QATerminalCompleted
 	state.NextAction = synthesis.NextAction
 	state.UpdatedAt = s.now().UTC()
-	if err := store.Publish(QAPublication{Shards: shards, Synthesis: &synthesis, State: state, Flow: flow}, req.WriterToken); err != nil {
+	var evidencePublication *QAEvidencePublication
+	if req.EvidenceProducing {
+		bundle, assessment, evidenceErr := s.buildQAEvidencePublication(runCtx, sp, mapResult.Map, manifest.Target, shards, req.Progress)
+		if evidenceErr != nil {
+			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, evidenceErr)
+		}
+		evidencePublication = &bundle
+		state.NextAction = assessment.NextAction
+		state.CanonicalAssessment = assessment.Assessment
+		if assessment.Assessment == AssessmentFail || assessment.Assessment == AssessmentBlocked || assessment.Assessment == AssessmentIncomplete {
+			state.Phase = QAPhaseBlocked
+			state.Run.TerminalResult = QATerminalBlocked
+		}
+	}
+	if err := store.Publish(QAPublication{Shards: shards, Synthesis: &synthesis, State: state, Flow: flow, Evidence: evidencePublication}, req.WriterToken); err != nil {
 		return QARunResult{}, err
 	}
 	loaded, err := store.LoadState()
@@ -357,6 +437,118 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	}
 	emitQA(req.Progress, QAProgress{Phase: loaded.Phase, Event: "investigation_complete", Completed: loaded.CompletedShards, Total: loaded.TotalShards, Message: "QA investigation complete"})
 	return QARunResult{Project: sp.Project, Sprint: sp.Slug, State: loaded, Map: mapResult.Map, Shards: shards, Synthesis: synthesis}, nil
+}
+
+func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMap QAMap, target string, shards []QAShard, progress func(QAProgress)) (QAEvidencePublication, QAAssessmentRecord, error) {
+	status, err := s.VerificationStatus(sp.Project, sp.Slug)
+	if err != nil {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorAdmissionBlocked, "admission", "verification prerequisites are unavailable", err)
+	}
+	capabilities := pprocess.IsolationCapabilityFacts()
+	admission := QAAdmission{
+		ReviewCurrent: status.Review.Fresh, ReviewVerdict: status.Review.Verdict,
+		SmokeCurrent: status.Smoke.Fresh, SmokeVerdict: status.Smoke.Verdict, ContainingSmoke: status.Smoke.Fresh,
+		ReadOnlyProofs: []string{"deterministic_map", "bounded_investigation", "synthesis"}, MapComplete: len(qaMap.Coverage.BlockedPaths) == 0 && len(qaMap.Coverage.PrimaryOwners) == len(qaMap.Coverage.ChangedPaths),
+		IsolationProven:     capabilities.NativeProtectedRootDeny && capabilities.DescendantCleanup && capabilities.WorkspaceRemoval,
+		WritableConcurrency: 1,
+	}
+	if err := ValidateQAAdmission(admission); err != nil {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, err
+	}
+	limits := pprocess.IsolationLimits{MaxFiles: qaMap.Budgets.TreeFiles, MaxBytes: qaMap.Budgets.TreeBytes, MaxFileSize: qaMap.Budgets.FileBytes, Timeout: qaMap.Budgets.ShardTimeout}
+	targetIdentity, err := pprocess.IdentifyTree(ctx, target, limits)
+	if err != nil {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorPermissionDenied, "admission", "cannot freeze the protected target identity", err)
+	}
+	mapFingerprint, err := fingerprintQAValue(qaMap)
+	if err != nil {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, err
+	}
+	workspaceParent, err := os.MkdirTemp("", "ultraplan-qa-evidence-")
+	if err != nil {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorPermissionDenied, "admission", "cannot create the private QA workspace parent", err)
+	}
+	defer os.RemoveAll(workspaceParent)
+	plans := make([]QAEvidencePlan, 0, len(shards))
+	records := make([]QAEvidenceRecord, 0, len(shards))
+	candidates := make([]QAIssueCandidate, 0)
+	evaluators := make([]QAModelObservation, 0)
+	completedEvidence := 0
+	for _, shard := range shards {
+		if shard.Phase != QAPhaseCompleted {
+			continue
+		}
+		approvedPaths := normalizeQAStrings(append(append([]string(nil), shard.ChangedPaths...), shard.ContextPaths...))
+		if len(approvedPaths) == 0 {
+			continue
+		}
+		emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_started", ShardID: shard.ID, Completed: completedEvidence, Total: len(shards), Message: "Running isolated evidence check"})
+		descriptors, checkErr := ApprovedQAChecks(target, shard.ChangedPaths, qaMap.Budgets)
+		if checkErr != nil {
+			return QAEvidencePublication{}, QAAssessmentRecord{}, checkErr
+		}
+		descriptor := QACheckDescriptor{Executable: "true", Timeout: qaMap.Budgets.CommandTimeout, OutputLimit: qaMap.Budgets.CommandOutputBytes}
+		if len(descriptors) > 0 {
+			descriptor = descriptors[0]
+		}
+		executable, lookupErr := exec.LookPath(descriptor.Executable)
+		if lookupErr != nil {
+			return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorAdmissionBlocked, "plan evidence", "an approved check executable is unavailable", lookupErr)
+		}
+		plan, planErr := FreezeQAEvidencePlan(sp.Project, sp.Slug, QAEvidencePlan{
+			AttemptID: qaMap.SemanticAttemptID, ShardID: shard.ID, ExpectationRefs: shard.ExpectationRefs,
+			Kind: QACheckFact, ConfirmationCondition: "approved check exits successfully", RefutationCondition: "approved check exits unsuccessfully", InconclusiveCondition: "approved check is incomplete",
+			ApprovedPaths: approvedPaths, Executable: executable, Args: append([]string(nil), descriptor.Args...), Timeout: descriptor.Timeout, OutputLimit: descriptor.OutputLimit,
+			CleanupRequired: true, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint, MapFingerprint: mapFingerprint,
+		}, qaMap.Budgets, s.now().UTC())
+		if planErr != nil {
+			return QAEvidencePublication{}, QAAssessmentRecord{}, planErr
+		}
+		record, runErr := RunQAInvestigation(ctx, QAInvestigationRequest{Project: sp.Project, Sprint: sp.Slug, TargetRoot: target, WorkspaceParent: workspaceParent, ProtectedRoots: []string{s.root, target}, Plan: plan, Budgets: qaMap.Budgets, ExpectedTargetID: targetIdentity.Digest, Now: s.now})
+		if runErr != nil {
+			return QAEvidencePublication{}, QAAssessmentRecord{}, runErr
+		}
+		if record.Outcome == QAEvidenceFail {
+			observations, finalOutcome, evaluationErr := s.evaluateFailedEvidence(ctx, sp, record, plan)
+			evaluators = append(evaluators, observations...)
+			if evaluationErr != nil {
+				record.Outcome, record.ReasonCode = QAEvidenceBlocked, "evaluator_incomplete"
+			} else {
+				record.Outcome = finalOutcome
+				record.Repeatable = finalOutcome == QAEvidenceFail
+				record.ReasonCode = "failed_shard_evaluated"
+			}
+		}
+		plans, records = append(plans, plan), append(records, record)
+		completedEvidence++
+		emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_completed", ShardID: shard.ID, Completed: completedEvidence, Total: len(shards), Message: "Isolated evidence check complete"})
+		if record.Outcome == QAEvidenceFail {
+			title, claim, location := "Approved QA check failed", "an approved check failed in the isolated copy", approvedPaths[0]
+			if len(shard.Theories) > 0 {
+				title, claim, location = shard.Theories[0].Claim, shard.Theories[0].Claim, shard.Theories[0].VerificationSurface
+			}
+			candidates = append(candidates, QAIssueCandidate{Title: title, Claim: claim, IssueClass: "behavior", Severity: "medium", Location: location, EvidenceIDs: []string{record.ID}, RepairEligible: true, RegressionCandidate: true})
+		}
+	}
+	adjudication, err := AdjudicateQA(QAAdjudicationRequest{Project: sp.Project, Sprint: sp.Slug, AttemptID: qaMap.SemanticAttemptID, MapFingerprint: mapFingerprint, Plans: plans, Evidence: records, Candidates: candidates, Evaluators: evaluators, Budgets: qaMap.Budgets, Now: s.now().UTC()})
+	if err != nil {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, err
+	}
+	assessmentValue, nextAction := DeriveQAAssessment(status.Review, records, adjudication, &status.Smoke, nil)
+	assessmentID, err := NewQAV2ID("assessment", sp.Project, sp.Slug, qaMap.SemanticAttemptID, struct {
+		Assessment OverallAssessment
+		Evidence   []string
+		Issues     int
+	}{assessmentValue, adjudication.AcceptedIDs, len(adjudication.Issues)})
+	if err != nil {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, err
+	}
+	assessment := QAAssessmentRecord{SchemaVersion: QAEvidenceSchemaVersion, ID: assessmentID, AttemptID: qaMap.SemanticAttemptID, ReviewVerdict: ReviewVerdict(status.Review.Verdict), ReviewFingerprint: status.Review.InputFingerprint, SmokeVerdict: SmokeVerdict(status.Smoke.Verdict), SmokeRunID: status.Smoke.RunID, Assessment: assessmentValue, EvidenceTotal: len(records), RejectedTotal: len(adjudication.Rejected), IssueTotal: len(adjudication.Issues), NextAction: nextAction, CompletedAt: s.now().UTC()}
+	report, err := RenderQAReport(sp.Project, sp.Slug, qaMap.GovernedInputFingerprint, records, adjudication, assessment)
+	if err != nil {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, err
+	}
+	return QAEvidencePublication{Plans: plans, Records: records, Adjudication: &adjudication, Assessment: &assessment, Report: []byte(report), Budgets: qaMap.Budgets}, assessment, nil
 }
 
 func (s Service) publishTerminalQAFailure(store QAStore, flow FlowState, qaMap QAMap, shards []QAShard, state QAState, token QAWriterToken, runErr error) (QARunResult, error) {
