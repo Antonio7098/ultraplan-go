@@ -366,6 +366,8 @@ type pageModel struct {
 	RepoChampions     []repoChampion
 	StudyInsights     *runStudyInsightsView
 	SprintUsage       *runSprintUsageView
+	SprintFlowUsage   *sprintStageUsageView
+	StudyLoopUsage    *runUsageView
 	RunEvents         []runEventView
 	NextRunsURL       string
 	NextEventsURL     string
@@ -491,7 +493,8 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			h.handleQueryError(w, r, false, err)
 			return
 		}
-		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: "Sprint " + result.Slug, Heading: result.Slug, Sprint: &result, Page: "overview"})
+		flowUsage := h.loadSprintFlowUsage(r.Context(), result.Project, result.Slug)
+		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: "Sprint " + result.Slug, Heading: result.Slug, Sprint: &result, SprintFlowUsage: flowUsage, Page: "overview"})
 	case "sprint_page":
 		result, err := h.queries.Sprint(r.Context(), match.params[0], match.params[1])
 		if err != nil {
@@ -544,7 +547,8 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		if len(artifacts) > 4 {
 			artifacts = artifacts[:4]
 		}
-		h.render(w, r, http.StatusOK, "study", pageModel{Title: "Study " + result.Name, Heading: result.Name, Study: &result, StudyArtifacts: artifacts, Page: "overview"})
+		loopUsage := h.loadStudyLoopUsage(result.Name, result.Tasks)
+		h.render(w, r, http.StatusOK, "study", pageModel{Title: "Study " + result.Name, Heading: result.Name, Study: &result, StudyArtifacts: artifacts, StudyLoopUsage: loopUsage, Page: "overview"})
 	case "study_page":
 		result, err := h.queries.Study(r.Context(), match.params[0])
 		if err != nil {
@@ -565,6 +569,9 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 			page = "results"
 		}
 		model := pageModel{Title: studyPageTitle(page) + " · " + result.Name, Heading: result.Name, Study: &result, Page: page}
+		if page == "overview" || page == "progress" {
+			model.StudyLoopUsage = h.loadStudyLoopUsage(result.Name, result.Tasks)
+		}
 		if page == "inputs" {
 			cards, err := h.studyDimensionCards(r, match.params[0])
 			if err != nil {
@@ -967,6 +974,43 @@ func (h *handler) studyDimensionCards(r *http.Request, name string) ([]dimension
 		})
 	}
 	return cards, nil
+}
+
+// loadSprintFlowUsage fetches the per-stage sprint runtime metrics used by the
+// sprint flow overview. It returns nil when the embedder does not expose the
+// additive WebSprintUsageQueries capability, mirroring the behaviour used for
+// the durable run page.
+func (h *handler) loadSprintFlowUsage(ctx context.Context, project, slug string) *sprintStageUsageView {
+	if project == "" || slug == "" || h.queries == nil {
+		return nil
+	}
+	usageQueries, ok := h.queries.(app.WebSprintUsageQueries)
+	if !ok {
+		return nil
+	}
+	metrics, err := usageQueries.SprintRuntimeUsage(ctx, project, slug)
+	if err != nil {
+		return nil
+	}
+	view := newSprintStageUsageView(slug, metrics)
+	if !view.HasMetrics {
+		return nil
+	}
+	return &view
+}
+
+// loadStudyLoopUsage aggregates token and cost facts across study tasks for
+// the study loop overview. It returns nil when no task has reported usage so
+// the overview can suppress the panel cleanly.
+func (h *handler) loadStudyLoopUsage(study string, tasks []app.RunTaskSummary) *runUsageView {
+	if len(tasks) == 0 {
+		return nil
+	}
+	view := newStudyUsageView(study, tasks)
+	if !view.HasUsage {
+		return nil
+	}
+	return &view
 }
 
 func (h *handler) handleValidations(w http.ResponseWriter, r *http.Request) {

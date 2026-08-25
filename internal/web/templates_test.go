@@ -419,3 +419,75 @@ func TestTemplateEmptyErrorAndTruncationStates(t *testing.T) {
 		t.Fatalf("truncation body=%s", truncated.Body.String())
 	}
 }
+
+func TestSprintFlowUsagePanelRendersPerStageBreakdown(t *testing.T) {
+	queries := sampleQueries()
+	queries.sprintUsage = app.SprintMetricsSummary{
+		RecentRuns: []app.SprintMetricRow{
+			{Stage: "requirements", Status: "ok", Model: "x", InputKnown: true, Input: 1000, OutputKnown: true, Output: 200,
+				CacheReadKnown: true, CacheRead: 50, CacheWriteKnown: true, CacheWrite: 0, TotalKnown: true, Total: 1250,
+				CostKnown: true, CostAmount: 0.012, CostSource: "model_priced"},
+			{Stage: "plan", Status: "ok", Model: "y", InputKnown: true, Input: 500, OutputKnown: true, Output: 100,
+				CacheReadKnown: true, CacheRead: 25, CacheWriteKnown: true, CacheWrite: 0, TotalKnown: true, Total: 625,
+				CostKnown: true, CostAmount: 0.006, CostSource: "provider_reported"},
+		},
+	}
+	body := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints/30-web", nil).Body.String()
+	for _, want := range []string{
+		`id="sprint-flow-usage-heading"`,
+		"Token usage &amp; cost by stage",
+		"Requirements",
+		"Plan",
+		`class="stage-usage-table"`,
+		"$0.018",
+		"LiteLLM public rates",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("sprint flow usage panel missing %q", want)
+		}
+	}
+}
+
+func TestStudyLoopUsagePanelRendersPerTaskBreakdown(t *testing.T) {
+	queries := sampleQueries()
+	queries.study.Tasks = []app.RunTaskSummary{
+		{ID: "analysis:01-structure:repo", Kind: "analysis", Dimension: "01", Source: "repo",
+			Status: "completed", TurnsKnown: true, Turns: 5,
+			InputKnown: true, InputTokens: 200, OutputKnown: true, OutputTokens: 50,
+			CacheReadKnown: true, CacheReadTokens: 20, CacheWriteKnown: true, CacheWriteTokens: 0,
+			TokensKnown: true, Tokens: 270, CostKnown: true, CostAmount: 0.01, CostSource: "model_priced", Cost: "$0.01"},
+		{ID: "synthesis:01-structure:final", Kind: "synthesis", Dimension: "01", Source: "synthesis",
+			Status: "completed", TurnsKnown: true, Turns: 3,
+			InputKnown: true, InputTokens: 100, OutputKnown: true, OutputTokens: 30,
+			CacheReadKnown: true, CacheReadTokens: 10, CacheWriteKnown: true, CacheWriteTokens: 0,
+			TokensKnown: true, Tokens: 140, CostKnown: true, CostAmount: 0.005, CostSource: "provider_reported", Cost: "$0.005"},
+	}
+	body := request(testHandler(t, queries, nil), http.MethodGet, "/studies/research", nil).Body.String()
+	for _, want := range []string{
+		`id="study-loop-usage-heading"`,
+		"Token usage &amp; cost by task",
+		`class="study-task-usage-table"`,
+		"analysis:01-structure:repo",
+		"synthesis:01-structure:final",
+		"rate-table",
+		"$0.015",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("study loop usage panel missing %q", want)
+		}
+	}
+}
+
+func TestSprintAndStudyUsagePanelsHideWhenNoData(t *testing.T) {
+	queries := sampleQueries()
+	queries.sprintUsage = app.SprintMetricsSummary{}
+	queries.study.Tasks = nil
+	body := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints/30-web", nil).Body.String()
+	if strings.Contains(body, `id="sprint-flow-usage-heading"`) {
+		t.Error("sprint flow usage panel must hide when no metrics are reported")
+	}
+	body = request(testHandler(t, queries, nil), http.MethodGet, "/studies/research", nil).Body.String()
+	if strings.Contains(body, `id="study-loop-usage-heading"`) {
+		t.Error("study loop usage panel must hide when no usage data exists")
+	}
+}

@@ -156,6 +156,9 @@ type runUsageView struct {
 	CostLabel        string
 	ProviderReported int
 	ModelPriced      int
+	// Tasks preserves the per-task summaries that fed the aggregate so
+	// dashboards can render a per-task breakdown alongside totals.
+	Tasks []app.RunTaskSummary
 }
 
 func (v *runUsageView) addTokens(inputKnown bool, input int64, outputKnown bool, output int64, reasoningKnown bool, reasoning int64,
@@ -173,6 +176,12 @@ func (v *runUsageView) addTokens(inputKnown bool, input int64, outputKnown bool,
 	}
 	if reasoningKnown {
 		v.Reasoning += reasoning
+	}
+	if cacheReadKnown {
+		v.CacheRead += cacheRead
+	}
+	if cacheWriteKnown {
+		v.CacheWrite += cacheWrite
 	}
 	if cacheReadKnown && cacheWriteKnown && v.cacheHitComplete {
 		v.cacheDenominator += input + cacheRead + cacheWrite
@@ -481,7 +490,7 @@ func formatRunUSD(amount float64) string {
 }
 
 func newRunUsageView(scope string, tasks []app.RunTaskSummary) runUsageView {
-	view := runUsageView{Scope: scope, cacheHitComplete: true}
+	view := runUsageView{Scope: scope, cacheHitComplete: true, Tasks: append([]app.RunTaskSummary(nil), tasks...)}
 	for _, task := range tasks {
 		view.addTokens(task.InputKnown, task.InputTokens, task.OutputKnown, task.OutputTokens, task.ReasoningKnown, task.ReasoningTokens,
 			task.CacheReadKnown, task.CacheReadTokens, task.CacheWriteKnown, task.CacheWriteTokens, task.TokensKnown, task.Tokens)
@@ -530,6 +539,145 @@ func newRunSprintUsageView(slug string, metrics app.SprintMetricsSummary) runSpr
 	finalizeRunUsageView(&view.runUsageView)
 	view.HasMetrics = len(metrics.RecentRuns) > 0
 	return view
+}
+
+// sprintStageUsageRow is one row in the per-stage breakdown shown on the
+// sprint flow overview. Each row aggregates every recent run recorded for
+// that stage.
+type sprintStageUsageRow struct {
+	Stage    string
+	Runs     int
+	Tokens   string
+	CacheR   string
+	CacheW   string
+	Cost     string
+	CostNote string
+}
+
+// sprintStageUsageView summarizes sprint runtime metrics grouped by stage for
+// the sprint flow page. It carries the same runUsageView totals as the run
+// page so operators see one cost figure everywhere.
+type sprintStageUsageView struct {
+	runUsageView
+	Rows       []sprintStageUsageRow
+	UpdatedAt  time.Time
+	HasMetrics bool
+}
+
+// sprintStageOrder returns the canonical planning-stage order used to lay out
+// per-stage usage rows.
+func sprintStageOrder() []string {
+	return []string{
+		"requirements", "code-context", "sprint-index", "technical-handbook",
+		"area-reasoning", "reasoning", "plan", "execute", "review", "smoke",
+	}
+}
+
+func newSprintStageUsageView(slug string, metrics app.SprintMetricsSummary) sprintStageUsageView {
+	view := sprintStageUsageView{runUsageView: runUsageView{Scope: slug, cacheHitComplete: true}, UpdatedAt: metrics.UpdatedAt}
+	type stageAgg struct {
+		runs             int
+		tokens           int64
+		tokensKnown      bool
+		cacheRead        int64
+		cacheReadKnown   bool
+		cacheWrite       int64
+		cacheWriteKnown  bool
+		cost             float64
+		costKnown        bool
+		providerReported int
+		modelPriced      int
+	}
+	agg := map[string]*stageAgg{}
+	for _, run := range metrics.RecentRuns {
+		view.addTokens(run.InputKnown, run.Input, run.OutputKnown, run.Output, run.ReasoningKnown, run.Reasoning,
+			run.CacheReadKnown, run.CacheRead, run.CacheWriteKnown, run.CacheWrite, run.TotalKnown, run.Total)
+		view.addCost(run.CostKnown, run.CostAmount, run.CostSource)
+		a, ok := agg[run.Stage]
+		if !ok {
+			a = &stageAgg{}
+			agg[run.Stage] = a
+		}
+		a.runs++
+		if run.TotalKnown {
+			a.tokens += run.Total
+			a.tokensKnown = true
+		}
+		if run.CacheReadKnown {
+			a.cacheRead += run.CacheRead
+			a.cacheReadKnown = true
+		}
+		if run.CacheWriteKnown {
+			a.cacheWrite += run.CacheWrite
+			a.cacheWriteKnown = true
+		}
+		if run.CostKnown {
+			a.cost += run.CostAmount
+			a.costKnown = true
+			switch run.CostSource {
+			case "model_priced":
+				a.modelPriced++
+			case "provider_reported":
+				a.providerReported++
+			}
+		}
+	}
+	seen := map[string]bool{}
+	emit := func(name string) {
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		a, ok := agg[name]
+		if !ok {
+			return
+		}
+		tokens := "-"
+		if a.tokensKnown {
+			tokens = strconv.FormatInt(a.tokens, 10)
+		}
+		cacheR := "-"
+		if a.cacheReadKnown {
+			cacheR = strconv.FormatInt(a.cacheRead, 10)
+		}
+		cacheW := "-"
+		if a.cacheWriteKnown {
+			cacheW = strconv.FormatInt(a.cacheWrite, 10)
+		}
+		cost := "-"
+		costNote := ""
+		if a.costKnown {
+			suffix := ""
+			if a.modelPriced > 0 {
+				suffix = "*"
+			}
+			cost = formatRunUSD(a.cost) + suffix
+			if a.modelPriced > 0 && a.providerReported > 0 {
+				costNote = "mixed"
+			} else if a.modelPriced > 0 {
+				costNote = "rate-table estimate"
+			} else if a.providerReported > 0 {
+				costNote = "provider reported"
+			}
+		}
+		view.Rows = append(view.Rows, sprintStageUsageRow{Stage: name, Runs: a.runs, Tokens: tokens, CacheR: cacheR, CacheW: cacheW, Cost: cost, CostNote: costNote})
+	}
+	for _, name := range sprintStageOrder() {
+		emit(name)
+	}
+	for name := range agg {
+		emit(name)
+	}
+	finalizeRunUsageView(&view.runUsageView)
+	view.HasMetrics = len(metrics.RecentRuns) > 0
+	return view
+}
+
+// newStudyUsageView aggregates token and cost facts across the tasks of a
+// study loop. It mirrors the runUsageView shown on the durable run page so
+// the same cost figure appears across surfaces.
+func newStudyUsageView(scope string, tasks []app.RunTaskSummary) runUsageView {
+	return newRunUsageView(scope, tasks)
 }
 
 func newRunRowView(snapshot app.RunSnapshot) runRowView {

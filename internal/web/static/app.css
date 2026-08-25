@@ -962,7 +962,23 @@ footer { min-height: 3.25rem; display: flex; align-items: center; justify-conten
 .champion-card a:hover { color: var(--text); }
 .champion-card a strong { margin-left: auto; color: var(--text); font-variant-numeric: tabular-nums; }
 .champ-rank { color: var(--subtle); font-family: var(--mono); font-size: .72rem; }
+
+.sprint-flow-usage, .study-loop-usage { display: grid; gap: .55rem; }
+.sprint-flow-usage .group-description, .study-loop-usage .group-description { margin: 0; color: var(--subtle); font-size: .78rem; }
+.sprint-flow-usage .metadata, .study-loop-usage .metadata { margin: 0; }
+.stage-usage-table, .study-task-usage-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.stage-usage-table th, .stage-usage-table td, .study-task-usage-table th, .study-task-usage-table td { padding: .45rem .7rem; text-align: left; border-bottom: 1px solid var(--border-soft); }
+.stage-usage-table thead th, .study-task-usage-table thead th { color: var(--subtle); font-size: .68rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+.stage-usage-table th[scope="row"], .study-task-usage-table th[scope="row"] { color: var(--text); font-weight: 600; }
+.stage-usage-table td, .study-task-usage-table td { font-variant-numeric: tabular-nums; color: var(--muted); }
+.stage-usage-table td:last-child, .study-task-usage-table td:last-child { color: var(--text); }
+.cost-note { color: var(--subtle); font-size: .68rem; font-weight: 500; }
+.study-loop-usage-details > summary { cursor: pointer; padding: .5rem 0; color: var(--muted); font-weight: 600; }
+.study-loop-usage-details[open] > summary { color: var(--text); }
+.study-task-usage-table code { font-family: var(--mono); font-size: .78rem; }
 @media (max-width: 48rem) {
   .repo-row { grid-template-columns: 2rem minmax(0, 1fr); row-gap: .5rem; }
   .repo-best, .repo-score { grid-column: 2; justify-self: start; }
+  .stage-usage-table, .study-task-usage-table { font-size: .76rem; }
+  .stage-usage-table th, .stage-usage-table td, .study-task-usage-table th, .study-task-usage-table td { padding: .35rem .45rem; }
 }

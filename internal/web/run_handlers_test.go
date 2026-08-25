@@ -434,3 +434,81 @@ func TestBrowserRunTwoServerRepositoriesShareObservationAndCancellation(t *testi
 		t.Fatalf("first server did not observe cancellation: snapshot=%+v err=%v", observed, err)
 	}
 }
+
+func TestSprintStageUsageViewGroupsByStageAndAggregatesCost(t *testing.T) {
+	metrics := app.SprintMetricsSummary{
+		RecentRuns: []app.SprintMetricRow{
+			{Stage: "plan", Model: "x", Status: "ok", InputKnown: true, Input: 1000, OutputKnown: true, Output: 250,
+				CacheReadKnown: true, CacheRead: 100, CacheWriteKnown: true, CacheWrite: 0, TotalKnown: true, Total: 1350,
+				CostKnown: true, CostAmount: 0.012, CostSource: "model_priced"},
+			{Stage: "plan", Model: "x", Status: "ok", InputKnown: true, Input: 500, OutputKnown: true, Output: 120,
+				CacheReadKnown: true, CacheRead: 50, CacheWriteKnown: true, CacheWrite: 0, TotalKnown: true, Total: 670,
+				CostKnown: true, CostAmount: 0.006, CostSource: "provider_reported"},
+			{Stage: "execute", Model: "y", Status: "ok", InputKnown: true, Input: 2000, OutputKnown: true, Output: 400,
+				CacheReadKnown: true, CacheRead: 200, CacheWriteKnown: true, CacheWrite: 0, TotalKnown: true, Total: 2600,
+				CostKnown: false, CostSource: "unpriced"},
+		},
+	}
+	view := newSprintStageUsageView("35", metrics)
+	if !view.HasMetrics {
+		t.Fatal("expected HasMetrics to be true")
+	}
+	if view.TasksWithUsage != 3 {
+		t.Fatalf("expected 3 priced-or-unpriced tasks, got %d", view.TasksWithUsage)
+	}
+	if view.TasksPriced != 2 || view.TasksUnpriced != 1 {
+		t.Fatalf("expected 2 priced and 1 unpriced task, got priced=%d unpriced=%d", view.TasksPriced, view.TasksUnpriced)
+	}
+	if view.Total != 1350+670+2600 {
+		t.Fatalf("aggregate total tokens mismatch: got %d want %d", view.Total, 1350+670+2600)
+	}
+	if len(view.Rows) != 2 {
+		t.Fatalf("expected two stage rows (plan, execute) in canonical order, got %d", len(view.Rows))
+	}
+	if view.Rows[0].Stage != "plan" || view.Rows[0].Runs != 2 || view.Rows[0].Tokens != "2020" {
+		t.Fatalf("plan row mismatch: %+v", view.Rows[0])
+	}
+	if !strings.HasSuffix(view.Rows[0].Cost, "*") {
+		t.Fatalf("plan cost should carry the rate-table asterisk, got %q", view.Rows[0].Cost)
+	}
+	if view.Rows[1].Stage != "execute" || view.Rows[1].Cost != "-" {
+		t.Fatalf("execute row should report unpriced cost as dash, got %+v", view.Rows[1])
+	}
+	if view.Rows[1].CacheR != "200" || view.Rows[1].CacheW != "0" {
+		t.Fatalf("execute cache splits mismatch: %+v", view.Rows[1])
+	}
+}
+
+func TestStudyUsageViewAggregatesTaskTokensAndCost(t *testing.T) {
+	tasks := []app.RunTaskSummary{
+		{ID: "a", Status: "completed", InputKnown: true, InputTokens: 100, OutputKnown: true, OutputTokens: 25,
+			CacheReadKnown: true, CacheReadTokens: 10, CacheWriteKnown: true, CacheWriteTokens: 0,
+			TokensKnown: true, Tokens: 135, CostKnown: true, CostAmount: 0.01, CostSource: "model_priced", Cost: "$0.01"},
+		{ID: "b", Status: "completed", InputKnown: true, InputTokens: 200, OutputKnown: true, OutputTokens: 50,
+			CacheReadKnown: true, CacheReadTokens: 20, CacheWriteKnown: true, CacheWriteTokens: 0,
+			TokensKnown: true, Tokens: 270, CostKnown: true, CostAmount: 0.02, CostSource: "provider_reported", Cost: "$0.02"},
+	}
+	view := newStudyUsageView("research", tasks)
+	if !view.HasUsage {
+		t.Fatal("expected HasUsage to be true")
+	}
+	if view.Input != 300 || view.Output != 75 || view.CacheRead != 30 || view.Total != 405 {
+		t.Fatalf("aggregate mismatch: input=%d output=%d cache=%d total=%d", view.Input, view.Output, view.CacheRead, view.Total)
+	}
+	if view.TasksPriced != 2 || view.ModelPriced != 1 || view.ProviderReported != 1 {
+		t.Fatalf("provenance counts wrong: priced=%d model=%d reported=%d", view.TasksPriced, view.ModelPriced, view.ProviderReported)
+	}
+	if !strings.HasSuffix(view.CostLabel, "*") {
+		t.Fatalf("CostLabel should mark mixed provenance with asterisk, got %q", view.CostLabel)
+	}
+	if len(view.Tasks) != 2 {
+		t.Fatalf("expected Tasks slice to preserve the input rows, got %d", len(view.Tasks))
+	}
+}
+
+func TestStudyUsageViewIsNilSafeForEmptyTasks(t *testing.T) {
+	view := newStudyUsageView("research", nil)
+	if view.HasUsage || len(view.Tasks) != 0 {
+		t.Fatalf("empty tasks should produce empty view, got %+v", view)
+	}
+}

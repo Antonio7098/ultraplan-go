@@ -9,23 +9,24 @@ import (
 )
 
 type fakeQueries struct {
-	dashboard  app.WebDashboardResult
-	projects   app.WebProjectsResult
-	project    app.WebProjectResult
-	sprint     app.WebSprintResult
-	studies    app.WebStudiesResult
-	study      app.WebStudyResult
-	validation app.WebValidationResult
-	artifact   app.WebArtifactPreview
-	dimensions app.WebDimensionsResult
-	reports    app.WebStudyReportsResult
-	repoScores app.WebStudyReposResult
-	health     app.WebHealthResult
-	prompt     app.WebPromptBundleResult
-	models     app.WebModelsResult
-	modelsErr  error
-	err        error
-	createErr  error
+	dashboard    app.WebDashboardResult
+	projects     app.WebProjectsResult
+	project      app.WebProjectResult
+	sprint       app.WebSprintResult
+	studies      app.WebStudiesResult
+	study        app.WebStudyResult
+	validation   app.WebValidationResult
+	artifact     app.WebArtifactPreview
+	dimensions   app.WebDimensionsResult
+	reports      app.WebStudyReportsResult
+	repoScores   app.WebStudyReposResult
+	health       app.WebHealthResult
+	prompt       app.WebPromptBundleResult
+	models       app.WebModelsResult
+	modelsErr    error
+	err          error
+	createErr    error
+	sprintUsage  app.SprintMetricsSummary
 
 	healthCalls    int
 	promptCalls    int
@@ -163,4 +164,11 @@ func (f *fakeQueries) CreateSprintWorkspace(_ context.Context, project, slug str
 func (f *fakeQueries) Health(context.Context) (app.WebHealthResult, error) {
 	f.healthCalls++
 	return f.health, f.err
+}
+
+func (f *fakeQueries) SprintRuntimeUsage(_ context.Context, project, slug string) (app.SprintMetricsSummary, error) {
+	if f.err != nil {
+		return app.SprintMetricsSummary{}, f.err
+	}
+	return f.sprintUsage, nil
 }
