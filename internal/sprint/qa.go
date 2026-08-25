@@ -734,8 +734,10 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 	request.Metadata["operation"] = "qa-investigate"
 	request.Metadata["task"] = shard.ID
 	request.Metadata["operational_attempt"] = token.OperationalAttemptID
+	initialRequest := request
 	var (
 		result  pruntime.Result
+		output  qaInvestigatorOutput
 		attempt QAInvestigatorAttempt
 	)
 	for number := 1; number <= qaMap.Budgets.RuntimeRetries+1; number++ {
@@ -773,11 +775,17 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 				shard.Attempts = append(shard.Attempts, attempt)
 				return shard, NewQAError(QAErrorBudgetExhausted, "investigate shard", fmt.Sprintf("investigator used %d turns; limit is %d", result.Usage.Turns, qaMap.Budgets.IterationsPerAttempt), nil)
 			}
-			attempt.StopReason = "terminal investigator output accepted"
-			break
+			output, runErr = decodeQAInvestigatorOutput(result, qaMap.Budgets.ShardOutputBytes)
+			if runErr == nil {
+				attempt.StopReason = "terminal investigator output accepted"
+				break
+			}
+			attempt.FailureKind, attempt.Retryable = "invalid_output", true
+			attempt.StopReason = "investigator output rejected"
+		} else {
+			attempt.FailureKind, attempt.Retryable = classifyQARuntimeFailure(result, runErr)
+			attempt.StopReason = "runtime attempt failed"
 		}
-		attempt.FailureKind, attempt.Retryable = classifyQARuntimeFailure(result, runErr)
-		attempt.StopReason = "runtime attempt failed"
 		shard.Attempts = append(shard.Attempts, attempt)
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			return shard, runErr
@@ -786,12 +794,16 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 			return shard, NewQAError(QAErrorRuntimeUnavailable, "investigate shard", "runtime failure is not retryable", runErr)
 		}
 		if number > qaMap.Budgets.RuntimeRetries {
-			return shard, NewQAError(QAErrorBudgetExhausted, "investigate shard", fmt.Sprintf("runtime retry limit exhausted after %d attempts", number), runErr)
+			detail := fmt.Sprintf("runtime retry limit exhausted after %d attempts", number)
+			if attempt.FailureKind == "invalid_output" {
+				detail = fmt.Sprintf("investigator output retry limit exhausted after %d attempts", number)
+			}
+			return shard, NewQAError(QAErrorBudgetExhausted, "investigate shard", detail, runErr)
 		}
-	}
-	output, err := decodeQAInvestigatorOutput(result, qaMap.Budgets.ShardOutputBytes)
-	if err != nil {
-		return shard, err
+		if waitErr := waitForQARetry(ctx, qaRetryDelay(result, number, shard.ID)); waitErr != nil {
+			return shard, waitErr
+		}
+		request = qaRetryRequest(initialRequest, request, result, runErr, number)
 	}
 	if len(output.Theories) > qaMap.Budgets.TheoriesPerShard || len(output.Context) > qaMap.Budgets.ContextExpansions || len(output.Checks) > qaMap.Budgets.CommandsPerAttempt {
 		return shard, NewQAError(QAErrorBudgetExhausted, "investigate shard", "investigator output exceeds map-owned limits", nil)
@@ -855,6 +867,49 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 	shard.Phase = QAPhaseCompleted
 	shard.Blocker = nil
 	return shard, nil
+}
+
+func qaRetryRequest(initial, current pruntime.Request, result pruntime.Result, failure error, number int) pruntime.Request {
+	retry := current
+	if result.SessionID != "" {
+		retry.SessionID, retry.SessionAction = result.SessionID, "continue"
+	}
+	if qaErr, ok := AsQAError(failure); ok && qaErr.Operation == "decode investigator" {
+		retry.Prompt = "Return only one corrected strict QA JSON object. Do not perform more tool calls. The previous terminal output was rejected: " + qaErr.Detail
+		// A second invalid same-session response gets a clean final attempt.
+		if number >= 2 {
+			retry.SessionID, retry.SessionAction = "", "fresh"
+			retry.Prompt = initial.Prompt
+		}
+	}
+	return retry
+}
+
+func qaRetryDelay(result pruntime.Result, number int, shardID string) time.Duration {
+	if result.Error != nil && result.Error.RetryAfter > 0 {
+		return result.Error.RetryAfter
+	}
+	base := 100 * time.Millisecond
+	if number > 1 {
+		base <<= min(number-1, 4)
+	}
+	var seed uint32
+	for _, value := range []byte(shardID) {
+		seed = seed*33 + uint32(value)
+	}
+	seed += uint32(number * 97)
+	return base + time.Duration(seed%100)*time.Millisecond
+}
+
+func waitForQARetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s Service) validateCurrentQAMap(expected QAMap) error {

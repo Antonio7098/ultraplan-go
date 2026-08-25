@@ -29,6 +29,13 @@ type qaRetryRuntime struct {
 	calls    atomic.Int32
 }
 
+type qaOutputRetryRuntime struct {
+	qaInvestigatorRuntime
+	calls    atomic.Int32
+	failures int32
+	requests []pruntime.Request
+}
+
 type qaCancellationRuntime struct {
 	started chan struct{}
 }
@@ -52,6 +59,14 @@ func (runtime *qaCancellationRuntime) StartRun(ctx context.Context, _ pruntime.R
 func (runtime *qaRetryRuntime) StartRun(ctx context.Context, req pruntime.Request) (pruntime.Result, error) {
 	if runtime.calls.Add(1) <= runtime.failures {
 		return pruntime.Result{Permissions: pruntime.PermissionSummary{Mode: "restricted", Default: "deny"}}, errors.New("temporary runtime failure")
+	}
+	return runtime.qaInvestigatorRuntime.StartRun(ctx, req)
+}
+
+func (runtime *qaOutputRetryRuntime) StartRun(ctx context.Context, req pruntime.Request) (pruntime.Result, error) {
+	runtime.requests = append(runtime.requests, req)
+	if runtime.calls.Add(1) <= runtime.failures {
+		return pruntime.Result{SessionID: "qa-session", TerminalOutput: "not json", Permissions: pruntime.PermissionSummary{Mode: "restricted", Default: "deny"}}, nil
 	}
 	return runtime.qaInvestigatorRuntime.StartRun(ctx, req)
 }
@@ -242,6 +257,51 @@ func TestQAInvestigationAppliesAndRecordsRuntimeRetryLimit(t *testing.T) {
 	typed, ok := AsQAError(err)
 	if !ok || typed.Category != QAErrorBudgetExhausted || !strings.Contains(typed.Detail, "after 2 attempts") || len(blocked.Attempts) != 2 {
 		t.Fatalf("retry exhaustion = error=%v attempts=%+v", err, blocked.Attempts)
+	}
+}
+
+func TestQAInvestigationRetriesRejectedOutputInSameSession(t *testing.T) {
+	root, _, target, qaMap, _, _, token := qaRunFixture(t)
+	runtime := &qaOutputRetryRuntime{failures: 1}
+	settings := QASettings{Runtime: StageRuntime{Model: "openai/qa", Variant: "high"}, Budgets: qaMap.Budgets}
+	completed, err := withTestQAMapFence(NewService(root).WithQASettings(settings).WithRuntime(runtime), func(QAMap) error { return nil }).runOneQAShard(context.Background(), qaMap, qaMap.Shards[0], target, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.calls.Load() != 2 || len(completed.Attempts) != 2 {
+		t.Fatalf("output retry history = calls=%d attempts=%+v", runtime.calls.Load(), completed.Attempts)
+	}
+	if completed.Attempts[0].FailureKind != "invalid_output" || !completed.Attempts[0].Retryable || completed.Attempts[0].StopReason != "investigator output rejected" {
+		t.Fatalf("rejected attempt = %+v", completed.Attempts[0])
+	}
+	if got := runtime.requests[1]; got.SessionID != "qa-session" || got.SessionAction != "continue" || !strings.Contains(got.Prompt, "corrected strict QA JSON object") {
+		t.Fatalf("repair request = %+v", got)
+	}
+}
+
+func TestQAInvestigationExhaustsRejectedOutputRetryBudget(t *testing.T) {
+	root, _, target, qaMap, _, _, token := qaRunFixture(t)
+	runtime := &qaOutputRetryRuntime{failures: 3}
+	settings := QASettings{Runtime: StageRuntime{Model: "openai/qa"}, Budgets: qaMap.Budgets}
+	blocked, err := withTestQAMapFence(NewService(root).WithQASettings(settings).WithRuntime(runtime), func(QAMap) error { return nil }).runOneQAShard(context.Background(), qaMap, qaMap.Shards[0], target, token)
+	typed, ok := AsQAError(err)
+	if !ok || typed.Category != QAErrorBudgetExhausted || !strings.Contains(typed.Detail, "output retry limit exhausted after 2 attempts") {
+		t.Fatalf("output retry exhaustion = %v", err)
+	}
+	if runtime.calls.Load() != 2 || len(blocked.Attempts) != 2 {
+		t.Fatalf("output retry exhaustion history = calls=%d attempts=%+v", runtime.calls.Load(), blocked.Attempts)
+	}
+}
+
+func TestQARetryDelayHonorsProviderAndAddsStableJitter(t *testing.T) {
+	providerDelay := 7 * time.Second
+	if got := qaRetryDelay(pruntime.Result{Error: &pruntime.Error{RetryAfter: providerDelay}}, 1, "shard"); got != providerDelay {
+		t.Fatalf("provider retry delay = %s", got)
+	}
+	first := qaRetryDelay(pruntime.Result{}, 1, "shard")
+	second := qaRetryDelay(pruntime.Result{}, 2, "shard")
+	if first < 100*time.Millisecond || first >= 200*time.Millisecond || second < 200*time.Millisecond || second >= 300*time.Millisecond {
+		t.Fatalf("jittered retry delays = %s, %s", first, second)
 	}
 }
 
