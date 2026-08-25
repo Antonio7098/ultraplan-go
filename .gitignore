@@ -1,2 +1,5 @@
-ultraplan
+.ultraplan/
 .impeccable/hook.cache.json
+/bin/
+/ultraplan
+/cmd/ultraplan/ultraplan
