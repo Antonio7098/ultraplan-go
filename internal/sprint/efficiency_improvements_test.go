@@ -83,17 +83,19 @@ func TestRuntimeCompositionLazilyCachesButPreviewRemainsReadOnly(t *testing.T) {
 	}
 }
 
-func TestCanonicalSharedSelectionEnforcesReferenceBudgetWithoutLineLimit(t *testing.T) {
-	refs := make([]sharedContextReference, maxSharedContextReferences+1)
+func TestCanonicalSharedSelectionHasNoReferenceOrLineLimit(t *testing.T) {
+	refs := make([]sharedContextReference, 74)
 	for i := range refs {
 		refs[i] = sharedContextReference{Name: "selection", Path: "source.go", Lines: "1", Rationale: "test"}
 	}
-	_, err := canonicalSharedSelections(refs)
-	var budgetErr *promptContextError
-	if !errors.As(err, &budgetErr) || budgetErr.Unit != "references" {
-		t.Fatalf("reference budget error = %#v", err)
+	selections, err := canonicalSharedSelections(refs)
+	if err != nil {
+		t.Fatalf("74 references were rejected: %v", err)
 	}
-	selections, err := canonicalSharedSelections([]sharedContextReference{{Name: "selection", Path: "source.go", Lines: "1-4097", Rationale: "test"}})
+	if len(selections) != 1 || len(selections[0].References) != len(refs) {
+		t.Fatalf("74 reference selection = %#v", selections)
+	}
+	selections, err = canonicalSharedSelections([]sharedContextReference{{Name: "selection", Path: "source.go", Lines: "1-4097", Rationale: "test"}})
 	if err != nil {
 		t.Fatalf("large line range was rejected: %v", err)
 	}

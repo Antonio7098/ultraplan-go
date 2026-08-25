@@ -19,7 +19,6 @@ import (
 const (
 	maxSharedPromptPrefixBytes = 256 << 10
 	sharedSourceReadBuffer     = 32 << 10
-	maxSharedContextReferences = 64
 )
 
 type promptContextErrorKind string
@@ -229,9 +228,6 @@ func renderSharedPromptContext(ctx context.Context, sp Sprint, requirements, cod
 }
 
 func canonicalSharedSelections(refs []sharedContextReference) ([]sharedSourceSelection, error) {
-	if len(refs) > maxSharedContextReferences {
-		return nil, &promptContextError{Kind: promptContextBudget, Allowed: maxSharedContextReferences, Observed: len(refs), Unit: "references", Err: errors.New("too many selected source references")}
-	}
 	positions := map[string]int{}
 	selections := make([]sharedSourceSelection, 0, len(refs))
 	for _, ref := range refs {
