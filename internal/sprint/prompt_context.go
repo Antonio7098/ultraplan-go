@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	maxSharedPromptPrefixBytes = 256 << 10
+	maxSharedPromptPrefixBytes = 512 << 10
 	sharedSourceReadBuffer     = 32 << 10
 )
 
