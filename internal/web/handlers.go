@@ -652,6 +652,18 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		h.handleSprintQATheory(w, r, match.params[0], match.params[1], match.params[2])
 	case "api_sprint_qa_synthesis":
 		h.handleSprintQASynthesis(w, r, match.params[0], match.params[1])
+	case "api_sprint_qa_evidence":
+		h.handleSprintQAEvidence(w, r, match.params[0], match.params[1], match.params[2])
+	case "api_sprint_qa_adjudication":
+		h.handleSprintQAAdjudication(w, r, match.params[0], match.params[1])
+	case "api_sprint_qa_issues":
+		h.handleSprintQAIssues(w, r, match.params[0], match.params[1])
+	case "api_sprint_qa_issue":
+		h.handleSprintQAIssue(w, r, match.params[0], match.params[1], match.params[2])
+	case "api_sprint_qa_assessment":
+		h.handleSprintQAAssessment(w, r, match.params[0], match.params[1])
+	case "api_sprint_qa_smoke-suite":
+		h.handleSprintQASmokeSuite(w, r, match.params[0], match.params[1])
 	case "api_models":
 		queries, ok := h.queries.(app.WebModelQueries)
 		if !ok {

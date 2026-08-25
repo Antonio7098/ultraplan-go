@@ -245,3 +245,20 @@ empty history.
 Run control is supported only for same-host processes on a local filesystem
 with reliable SQLite locking/WAL semantics. Move the workspace to such a
 filesystem before recovery if those guarantees are unavailable.
+
+## QA evidence recovery
+
+Start with `qa status`. `qa recover` is runtime-free: it can mark abandoned
+active state interrupted, reconcile the bounded flow pointer, or expose stale
+inputs, but it never adopts a worker, replays a missing command, repairs a
+record, or treats a v1 record as current v2 evidence. Resume only when the
+semantic attempt and retained identities remain current.
+
+Protected-target drift, unapproved copy changes, permission denial, timeout,
+cancellation, malformed or stale evidence, stale writer fencing, and uncertain
+descendant or workspace cleanup are non-pass outcomes. Keep immutable attempt
+records for diagnosis. A failed new canonical publication restores the last
+complete `qa.md`, state pointer, and flow projection while the operation error
+remains visible. Restore platform capability or current review and containing
+smoke prerequisites before starting again; do not apply retained patches or
+edit private verification JSON by hand.

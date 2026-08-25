@@ -370,12 +370,16 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "api_sprint", params: []string{parts[3], parts[5]}, known: true, api: true}
 	case len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa":
 		return routeMatch{name: "api_sprint_qa", params: []string{parts[3], parts[5]}, known: true, api: true}
-	case len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && (parts[7] == "map" || parts[7] == "synthesis"):
+	case len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && (parts[7] == "map" || parts[7] == "synthesis" || parts[7] == "adjudication" || parts[7] == "issues" || parts[7] == "assessment" || parts[7] == "smoke-suite"):
 		return routeMatch{name: "api_sprint_qa_" + parts[7], params: []string{parts[3], parts[5]}, known: true, api: true}
 	case len(parts) == 9 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && parts[7] == "shards":
 		return routeMatch{name: "api_sprint_qa_shard", params: []string{parts[3], parts[5], parts[8]}, known: true, api: true}
 	case len(parts) == 9 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && parts[7] == "theories":
 		return routeMatch{name: "api_sprint_qa_theory", params: []string{parts[3], parts[5], parts[8]}, known: true, api: true}
+	case len(parts) == 9 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && parts[7] == "evidence":
+		return routeMatch{name: "api_sprint_qa_evidence", params: []string{parts[3], parts[5], parts[8]}, known: true, api: true}
+	case len(parts) == 9 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && parts[7] == "issues":
+		return routeMatch{name: "api_sprint_qa_issue", params: []string{parts[3], parts[5], parts[8]}, known: true, api: true}
 	case len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "prompts":
 		return routeMatch{name: "api_prompt_bundle", params: []string{parts[3], parts[5], parts[7]}, known: true, api: true}
 	case len(parts) == 4 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "studies":

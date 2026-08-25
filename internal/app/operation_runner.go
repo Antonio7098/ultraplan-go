@@ -121,7 +121,7 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 				return failedOperation(result, e)
 			}
 			service = service.WithQAWriterFence(fence)
-			r, e := service.RunQA(ctx, req.Project, req.Sprint, sprint.QARunRequest{Resume: req.Kind == OperationQAResume, FocusShard: req.Task, WriterToken: token, Progress: func(progress sprint.QAProgress) {
+			r, e := service.RunQA(ctx, req.Project, req.Sprint, sprint.QARunRequest{Resume: req.Kind == OperationQAResume, FocusShard: req.Task, Suite: req.Suite, EvidenceProducing: req.Suite == "", WriterToken: token, Progress: func(progress sprint.QAProgress) {
 				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Phase), Task: progress.ShardID, Message: progress.Message, Action: progress.Event, Reason: string(progress.ShardPhase), Detail: string(progress.ShardKind), Completed: progress.Completed, Total: progress.Total})
 			}})
 			result.Message = fmt.Sprintf("phase=%s shards=%d/%d next=%s", r.State.Phase, r.State.CompletedShards, r.State.TotalShards, r.State.NextAction)

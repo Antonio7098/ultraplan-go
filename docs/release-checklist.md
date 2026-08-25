@@ -179,3 +179,27 @@ Sprint 35 local release evidence (2026-08-21):
   append benchmarks measured 0.99–1.40 ms/op and 512-event indexed replay
   measured 2.05–2.18 ms/page over three one-second samples. These figures are
   release evidence, not latency guarantees.
+
+## Evidence-producing QA release gate
+
+- Prove the source identity before and after every disposable check and confirm
+  that Git state is unchanged.
+- Exercise bounded non-Git and dirty-tree copying, unsafe entry rejection,
+  native protected-root denial, cancellation, descendant cleanup, workspace
+  removal, and unapproved-change rejection.
+- Validate frozen plans, v1 reads, v2 writes, immutable evidence, adjudication
+  rejection, issue grouping, assessment, stale fences, rollback, and recovery.
+- Compare `smoke` with `qa --suite smoke` for containing selection, argv,
+  environment, timeout, external run identity, evidence, verdict, cleanup,
+  `smoke.md`, and flow state. Confirm one durable QA run and no nested smoke run.
+- Compare the app, CLI text/JSON, TUI, browser HTML/JSON, `qa.md`, and private
+  state for one bounded fixture, including hostile display text.
+- Run `go test ./...`, `go test -race ./...`, `go vet ./...`,
+  `go build ./cmd/ultraplan`, and `git diff --check`.
+- Gate real dogfood on a current acceptable review, containing smoke evidence,
+  runtime availability, and native isolation. Missing capability or cleanup
+  certainty is `blocked`, never a waived pass.
+
+Disposable copies reduce accidental target mutation but are not a hostile
+multi-tenant sandbox. Evaluator majority does not prove independent truth.
+QA retains patches as evidence only and exposes no apply or repair operation.

@@ -166,6 +166,23 @@ func TestQAOperationPreparationRejectsEveryCallerOwnedControl(t *testing.T) {
 	if _, err := u.PrepareOperation(context.Background(), OperationRequest{Kind: OperationQAStatus, Project: "alpha", Sprint: "36-read-only-qa", Task: "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa"}); err == nil {
 		t.Fatal("QA status accepted a focused shard")
 	}
+	for _, req := range []OperationRequest{
+		{Kind: OperationQAResume, Project: "alpha", Sprint: "37-evidence", Suite: "smoke"},
+		{Kind: OperationQAStart, Project: "alpha", Sprint: "37-evidence", Suite: "other"},
+		{Kind: OperationQAStart, Project: "alpha", Sprint: "37-evidence", Suite: "smoke", Task: "shard"},
+	} {
+		if err := validateQAOperationRequest(req); err == nil {
+			t.Fatalf("invalid QA suite request accepted: %+v", req)
+		}
+	}
+	for _, req := range []OperationRequest{
+		{Kind: OperationQAStart, Project: "alpha", Sprint: "37-evidence", Suite: "smoke"},
+		{Kind: OperationQADryRun, Project: "alpha", Sprint: "37-evidence", Suite: "smoke"},
+	} {
+		if err := validateQAOperationRequest(req); err != nil {
+			t.Fatalf("valid QA suite request rejected: %+v: %v", req, err)
+		}
+	}
 }
 
 func operationTree(t *testing.T, root string) []string {

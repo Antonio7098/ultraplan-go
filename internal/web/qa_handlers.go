@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
 )
@@ -12,6 +13,99 @@ func (h *handler) handleSprintQA(w http.ResponseWriter, r *http.Request, project
 		return
 	}
 	result, err := h.qa.QAStatus(r.Context(), app.QARequest{Project: project, Sprint: sprint})
+	if err != nil {
+		h.handleQueryError(w, r, true, err)
+		return
+	}
+	h.writeSuccess(w, r, http.StatusOK, result, nil)
+}
+
+func (h *handler) handleSprintQAEvidence(w http.ResponseWriter, r *http.Request, project, sprintSlug, evidence string) {
+	queries, ok := h.qa.(app.QAEvidenceQueries)
+	if !ok {
+		h.handleQueryError(w, r, true, app.ErrWebUnavailable)
+		return
+	}
+	result, err := queries.QAEvidence(r.Context(), app.QARequest{Project: project, Sprint: sprintSlug, Evidence: evidence})
+	if err != nil {
+		h.handleQueryError(w, r, true, err)
+		return
+	}
+	h.writeSuccess(w, r, http.StatusOK, result, nil)
+}
+
+func (h *handler) handleSprintQAAdjudication(w http.ResponseWriter, r *http.Request, project, sprintSlug string) {
+	queries, ok := h.qa.(app.QAEvidenceQueries)
+	if !ok {
+		h.handleQueryError(w, r, true, app.ErrWebUnavailable)
+		return
+	}
+	result, err := queries.QAAdjudication(r.Context(), app.QARequest{Project: project, Sprint: sprintSlug})
+	if err != nil {
+		h.handleQueryError(w, r, true, err)
+		return
+	}
+	h.writeSuccess(w, r, http.StatusOK, result, nil)
+}
+
+func (h *handler) handleSprintQAIssues(w http.ResponseWriter, r *http.Request, project, sprintSlug string) {
+	queries, ok := h.qa.(app.QAEvidenceQueries)
+	if !ok {
+		h.handleQueryError(w, r, true, app.ErrWebUnavailable)
+		return
+	}
+	limit := 0
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			h.handleQueryError(w, r, true, err)
+			return
+		}
+		limit = parsed
+	}
+	result, err := queries.QAIssues(r.Context(), app.QARequest{Project: project, Sprint: sprintSlug, Cursor: r.URL.Query().Get("cursor"), Limit: limit})
+	if err != nil {
+		h.handleQueryError(w, r, true, err)
+		return
+	}
+	h.writeSuccess(w, r, http.StatusOK, result, nil)
+}
+
+func (h *handler) handleSprintQAIssue(w http.ResponseWriter, r *http.Request, project, sprintSlug, issue string) {
+	queries, ok := h.qa.(app.QAEvidenceQueries)
+	if !ok {
+		h.handleQueryError(w, r, true, app.ErrWebUnavailable)
+		return
+	}
+	result, err := queries.QAIssue(r.Context(), app.QARequest{Project: project, Sprint: sprintSlug, Issue: issue})
+	if err != nil {
+		h.handleQueryError(w, r, true, err)
+		return
+	}
+	h.writeSuccess(w, r, http.StatusOK, result, nil)
+}
+
+func (h *handler) handleSprintQAAssessment(w http.ResponseWriter, r *http.Request, project, sprintSlug string) {
+	queries, ok := h.qa.(app.QAEvidenceQueries)
+	if !ok {
+		h.handleQueryError(w, r, true, app.ErrWebUnavailable)
+		return
+	}
+	result, err := queries.QAAssessment(r.Context(), app.QARequest{Project: project, Sprint: sprintSlug})
+	if err != nil {
+		h.handleQueryError(w, r, true, err)
+		return
+	}
+	h.writeSuccess(w, r, http.StatusOK, result, nil)
+}
+
+func (h *handler) handleSprintQASmokeSuite(w http.ResponseWriter, r *http.Request, project, sprintSlug string) {
+	queries, ok := h.qa.(app.QAEvidenceQueries)
+	if !ok {
+		h.handleQueryError(w, r, true, app.ErrWebUnavailable)
+		return
+	}
+	result, err := queries.QASmokeSuite(r.Context(), app.QARequest{Project: project, Sprint: sprintSlug})
 	if err != nil {
 		h.handleQueryError(w, r, true, err)
 		return
@@ -86,7 +180,7 @@ func (h *handler) handleSprintQAPage(w http.ResponseWriter, r *http.Request, pro
 		h.handleQueryError(w, r, false, err)
 		return
 	}
-	model := pageModel{Title: "Read-only QA · " + sprintResult.Slug, Heading: sprintResult.Slug, Sprint: &sprintResult, QA: &qa, Page: "qa"}
+	model := pageModel{Title: "QA · " + sprintResult.Slug, Heading: sprintResult.Slug, Sprint: &sprintResult, QA: &qa, Page: "qa"}
 	if shard != "" {
 		focused, focusErr := h.qa.QAShard(r.Context(), app.QARequest{Project: project, Sprint: sprint, Shard: shard})
 		if focusErr != nil {

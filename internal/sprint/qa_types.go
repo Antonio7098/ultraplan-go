@@ -14,8 +14,11 @@ import (
 )
 
 const (
-	QASchemaVersion = 1
-	QAIDScope       = "qa-v1"
+	QASchemaVersion         = 1
+	QAStateSchemaVersion    = 2
+	QAEvidenceSchemaVersion = 2
+	QAIDScope               = "qa-v1"
+	QAEvidenceIDScope       = "qa-v2"
 )
 
 type QAPhaseStatus string
@@ -109,6 +112,15 @@ type QABudgets struct {
 	RecentProgress             int           `json:"recent_progress"`
 	RetainedAttempts           int           `json:"retained_attempts"`
 	StateBytes                 int           `json:"state_bytes"`
+	TreeFiles                  int           `json:"tree_files"`
+	TreeBytes                  int64         `json:"tree_bytes"`
+	FileBytes                  int64         `json:"file_bytes"`
+	GeneratedChecks            int           `json:"generated_checks"`
+	GeneratedPatchBytes        int           `json:"generated_patch_bytes"`
+	EvidenceRecords            int           `json:"evidence_records"`
+	Issues                     int           `json:"issues"`
+	AnalyzerCalls              int           `json:"analyzer_calls"`
+	EvaluatorCalls             int           `json:"evaluator_calls"`
 }
 
 func DefaultQABudgets() QABudgets {
@@ -123,6 +135,9 @@ func DefaultQABudgets() QABudgets {
 		CleanupTimeout: 30 * time.Second, CommandOutputBytes: 256 << 10,
 		ShardOutputBytes: 1 << 20, PromptBytes: 512 << 10, RecentProgress: 100,
 		RetainedAttempts: 8, StateBytes: 128 << 20,
+		TreeFiles: 200_000, TreeBytes: 2 << 30, FileBytes: 32 << 20,
+		GeneratedChecks: 64, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256,
+		Issues: 200, AnalyzerCalls: 3, EvaluatorCalls: 3,
 	}
 }
 
@@ -138,6 +153,9 @@ func MaximumQABudgets() QABudgets {
 		CleanupTimeout: 30 * time.Second, CommandOutputBytes: 512 << 10,
 		ShardOutputBytes: 2 << 20, PromptBytes: 1 << 20, RecentProgress: 200,
 		RetainedAttempts: 8, StateBytes: 128 << 20,
+		TreeFiles: 400_000, TreeBytes: 4 << 30, FileBytes: 64 << 20,
+		GeneratedChecks: 128, GeneratedPatchBytes: 4 << 20, EvidenceRecords: 512,
+		Issues: 200, AnalyzerCalls: 3, EvaluatorCalls: 3,
 	}
 }
 
@@ -206,38 +224,54 @@ type QAArtifactRef struct {
 }
 
 type QAState struct {
-	SchemaVersion    int                     `json:"schema_version"`
-	Project          string                  `json:"project"`
-	Sprint           string                  `json:"sprint"`
-	Phase            QAPhaseStatus           `json:"phase"`
-	Freshness        QAFreshness             `json:"freshness"`
-	CurrentAttemptID string                  `json:"current_attempt_id,omitempty"`
-	Map              *QAArtifactRef          `json:"map,omitempty"`
-	Synthesis        *QAArtifactRef          `json:"synthesis,omitempty"`
-	CompletedShards  int                     `json:"completed_shards"`
-	TotalShards      int                     `json:"total_shards"`
-	OutcomeCounts    map[QATheoryOutcome]int `json:"outcome_counts,omitempty"`
-	Blocker          *QABlocker              `json:"blocker,omitempty"`
-	Cancellation     QACancellation          `json:"cancellation"`
-	Run              QARunCorrelation        `json:"run"`
-	NextAction       string                  `json:"next_action"`
-	UpdatedAt        time.Time               `json:"updated_at"`
+	SchemaVersion        int                     `json:"schema_version"`
+	Project              string                  `json:"project"`
+	Sprint               string                  `json:"sprint"`
+	Phase                QAPhaseStatus           `json:"phase"`
+	Freshness            QAFreshness             `json:"freshness"`
+	CurrentAttemptID     string                  `json:"current_attempt_id,omitempty"`
+	Map                  *QAArtifactRef          `json:"map,omitempty"`
+	Synthesis            *QAArtifactRef          `json:"synthesis,omitempty"`
+	Adjudication         *QAArtifactRef          `json:"adjudication,omitempty"`
+	Issues               *QAArtifactRef          `json:"issues,omitempty"`
+	Assessment           *QAArtifactRef          `json:"assessment,omitempty"`
+	CanonicalReport      *QAArtifactRef          `json:"canonical_report,omitempty"`
+	EvidenceCount        int                     `json:"evidence_count,omitempty"`
+	RejectedCount        int                     `json:"rejected_count,omitempty"`
+	IssueCount           int                     `json:"issue_count,omitempty"`
+	RegressionCandidates int                     `json:"regression_candidates,omitempty"`
+	CanonicalAssessment  OverallAssessment       `json:"canonical_assessment,omitempty"`
+	CurrentFailure       *QABlocker              `json:"current_failure,omitempty"`
+	CompletedShards      int                     `json:"completed_shards"`
+	TotalShards          int                     `json:"total_shards"`
+	OutcomeCounts        map[QATheoryOutcome]int `json:"outcome_counts,omitempty"`
+	Blocker              *QABlocker              `json:"blocker,omitempty"`
+	Cancellation         QACancellation          `json:"cancellation"`
+	Run                  QARunCorrelation        `json:"run"`
+	NextAction           string                  `json:"next_action"`
+	UpdatedAt            time.Time               `json:"updated_at"`
 }
 
 // QAFlowSummary is the only QA detail stored in flow-state.json. It is a
 // bounded pointer projection, not a theory or attempt database.
 type QAFlowSummary struct {
-	Phase            QAPhaseStatus  `json:"phase"`
-	Fresh            bool           `json:"fresh"`
-	CompletedShards  int            `json:"completed_shards"`
-	TotalShards      int            `json:"total_shards"`
-	Confirmed        int            `json:"confirmed"`
-	Blocked          int            `json:"blocked"`
-	Cancellation     QACancellation `json:"cancellation"`
-	StatePath        string         `json:"state_path"`
-	StateDigest      string         `json:"state_digest"`
-	CurrentAttemptID string         `json:"current_attempt_id,omitempty"`
-	NextAction       string         `json:"next_action"`
+	Phase            QAPhaseStatus     `json:"phase"`
+	Fresh            bool              `json:"fresh"`
+	CompletedShards  int               `json:"completed_shards"`
+	TotalShards      int               `json:"total_shards"`
+	Confirmed        int               `json:"confirmed"`
+	Blocked          int               `json:"blocked"`
+	Cancellation     QACancellation    `json:"cancellation"`
+	StatePath        string            `json:"state_path"`
+	StateDigest      string            `json:"state_digest"`
+	CurrentAttemptID string            `json:"current_attempt_id,omitempty"`
+	NextAction       string            `json:"next_action"`
+	Assessment       OverallAssessment `json:"assessment,omitempty"`
+	EvidenceCount    int               `json:"evidence_count,omitempty"`
+	RejectedCount    int               `json:"rejected_count,omitempty"`
+	IssueCount       int               `json:"issue_count,omitempty"`
+	ReportPath       string            `json:"report_path,omitempty"`
+	ReportDigest     string            `json:"report_digest,omitempty"`
 }
 
 type QATargetIdentity struct {
@@ -562,6 +596,9 @@ func validateQABudgets(got QABudgets) error {
 		{"command_output_bytes", got.CommandOutputBytes, max.CommandOutputBytes}, {"shard_output_bytes", got.ShardOutputBytes, max.ShardOutputBytes},
 		{"prompt_bytes", got.PromptBytes, max.PromptBytes}, {"recent_progress", got.RecentProgress, max.RecentProgress},
 		{"retained_attempts", got.RetainedAttempts, max.RetainedAttempts}, {"state_bytes", got.StateBytes, max.StateBytes},
+		{"tree_files", got.TreeFiles, max.TreeFiles}, {"generated_checks", got.GeneratedChecks, max.GeneratedChecks},
+		{"generated_patch_bytes", got.GeneratedPatchBytes, max.GeneratedPatchBytes}, {"evidence_records", got.EvidenceRecords, max.EvidenceRecords},
+		{"issues", got.Issues, max.Issues}, {"analyzer_calls", got.AnalyzerCalls, max.AnalyzerCalls}, {"evaluator_calls", got.EvaluatorCalls, max.EvaluatorCalls},
 	}
 	for _, limit := range ints {
 		if limit.got <= 0 || limit.got > limit.max {
@@ -576,6 +613,17 @@ func validateQABudgets(got QABudgets) error {
 		if limit.got <= 0 || limit.got > limit.max {
 			return fmt.Errorf("qa budget %s must be positive and no greater than %s", limit.name, limit.max)
 		}
+	}
+	for _, limit := range []struct {
+		name     string
+		got, max int64
+	}{{"tree_bytes", got.TreeBytes, max.TreeBytes}, {"file_bytes", got.FileBytes, max.FileBytes}} {
+		if limit.got <= 0 || limit.got > limit.max {
+			return fmt.Errorf("qa budget %s must be between 1 and %d", limit.name, limit.max)
+		}
+	}
+	if got.AnalyzerCalls != 3 || got.EvaluatorCalls != 3 {
+		return fmt.Errorf("qa semantic analyzer and evaluator counts must be exactly 3")
 	}
 	return nil
 }
@@ -662,7 +710,7 @@ func ValidateQAShard(shard QAShard) error {
 }
 
 func ValidateQAState(state QAState) error {
-	if state.SchemaVersion != QASchemaVersion || !safeQAName(state.Project) || !safeQAName(state.Sprint) || !containsQAPhase(state.Phase) {
+	if state.SchemaVersion != QASchemaVersion && state.SchemaVersion != QAStateSchemaVersion || !safeQAName(state.Project) || !safeQAName(state.Sprint) || !containsQAPhase(state.Phase) {
 		return fmt.Errorf("invalid QA state schema, scope, or phase")
 	}
 	if state.CurrentAttemptID != "" && !validQAID(state.CurrentAttemptID) {
@@ -670,6 +718,9 @@ func ValidateQAState(state QAState) error {
 	}
 	if state.CompletedShards < 0 || state.TotalShards < 0 || state.CompletedShards > state.TotalShards {
 		return fmt.Errorf("invalid QA shard counts")
+	}
+	if state.EvidenceCount < 0 || state.RejectedCount < 0 || state.IssueCount < 0 || state.RegressionCandidates < 0 {
+		return fmt.Errorf("invalid QA evidence counts")
 	}
 	if strings.TrimSpace(state.NextAction) == "" || state.UpdatedAt.IsZero() {
 		return fmt.Errorf("QA next action and update time are required")
@@ -780,6 +831,10 @@ const (
 	QAErrorConflict           QAErrorCategory = "conflict"
 	QAErrorPersistenceFailure QAErrorCategory = "persistence_failure"
 	QAErrorRuntimeUnavailable QAErrorCategory = "runtime_unavailable"
+	QAErrorAdmissionBlocked   QAErrorCategory = "admission_blocked"
+	QAErrorAssertionFailure   QAErrorCategory = "assertion_failure"
+	QAErrorCleanupUncertain   QAErrorCategory = "cleanup_uncertain"
+	QAErrorMalformedEvidence  QAErrorCategory = "malformed_evidence"
 )
 
 type QAError struct {
@@ -835,6 +890,14 @@ func qaRecovery(category QAErrorCategory) string {
 		return "Restore reliable workspace persistence, then run explicit QA recovery."
 	case QAErrorRuntimeUnavailable:
 		return "Restore the configured runtime and resume the current semantic attempt."
+	case QAErrorAdmissionBlocked:
+		return "Restore the current review, containing smoke, mapping, and isolation prerequisites before retrying."
+	case QAErrorAssertionFailure:
+		return "Inspect the admitted evidence and adjudicated issue before any governed repair."
+	case QAErrorCleanupUncertain:
+		return "Inspect and remove the isolated workspace, then start a new QA attempt."
+	case QAErrorMalformedEvidence:
+		return "Discard the invalid attempt and rerun the evidence plan from current inputs."
 	default:
 		return "Inspect the QA status and next action."
 	}

@@ -346,8 +346,8 @@ ultraplan sprint ultraplan-go 28-review-to-smoke-flow review --focus architectur
 ### `ultraplan sprint <project> <sprint> qa`
 
 ```text
-ultraplan sprint <project> <sprint> qa --dry-run [--json]
-ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>] [--json]
+ultraplan sprint <project> <sprint> qa --dry-run [--suite smoke] [--json]
+ultraplan sprint <project> <sprint> qa [--shard <map-owned-id> | --suite smoke] [--json]
 ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
 ultraplan sprint <project> <sprint> qa status [--json]
 ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
@@ -358,7 +358,7 @@ ultraplan sprint <project> <sprint> qa recover [--json]
 
 `status` is read-only. `cancel` sends an explicit request through durable run control; closing a terminal or browser session does not cancel work. `recover` is runtime-free but may reconcile an interrupted/stale pointer, digest, bounded flow summary, or retention state. Resume always creates a new durable owner and never adopts an old runtime session.
 
-Text says `Read-only QA completed` when bounded work ends. This is not a pass verdict. Theory outcomes are `confirmed`, `refuted`, `invalid`, `inconclusive`, `blocked`, `cross_shard`, and `not_applicable`; none is automatically an issue. QA cannot change the separate Conformance Review verdict.
+Text says `QA completed` when bounded work ends. This is not a pass verdict. Theory outcomes are `confirmed`, `refuted`, `invalid`, `inconclusive`, `blocked`, `cross_shard`, and `not_applicable`; none is automatically an issue. Product adjudication separately accepts or rejects v2 evidence and is the only component that promotes bounded issue summaries. QA cannot change the separate Conformance Review verdict.
 
 With `--json`, success or failure is one object with `schema_version: 1`, `operation: "sprint.qa"`, `status`, `result`, and an optional stable `error`. The result carries phase and freshness separately from run lifecycle, cancellation, terminal result, Conformance Review status/verdict/freshness, fingerprints, coverage, effective limits, bounded shards, outcome totals, blocker, and next action. Usage errors use exit 2, configuration errors 3, validation/stale/policy errors 5, runtime or persistence failures 6, and cancellation or deadline partial results 8.
 
@@ -394,6 +394,13 @@ QA configuration uses normal precedence: product default, `ultraplan.yml`, then 
 | `recent_progress` | `ULTRAPLAN_QA_RECENT_PROGRESS` | 100 | 200 |
 | `retained_attempts` | `ULTRAPLAN_QA_RETAINED_ATTEMPTS` | 8 | 8 |
 | `state_bytes` | `ULTRAPLAN_QA_STATE_BYTES` | 134217728 | 134217728 |
+| `tree_files` | `ULTRAPLAN_QA_TREE_FILES` | 200000 | 400000 |
+| `tree_bytes` | `ULTRAPLAN_QA_TREE_BYTES` | 2147483648 | 4294967296 |
+| `file_bytes` | `ULTRAPLAN_QA_FILE_BYTES` | 33554432 | 67108864 |
+| `generated_checks` | `ULTRAPLAN_QA_GENERATED_CHECKS` | 64 | 128 |
+| `generated_patch_bytes` | `ULTRAPLAN_QA_GENERATED_PATCH_BYTES` | 2097152 | 4194304 |
+| `evidence_records` | `ULTRAPLAN_QA_EVIDENCE_RECORDS` | 256 | 512 |
+| `issues` | `ULTRAPLAN_QA_ISSUES` | 200 | 200 |
 
 `qa.model` falls back to `planning.review_model`, then `planning.plan_model`, then `models.default`. `qa.variant` falls back to `execution.default_variant`. Model changes can alter cost, latency, and investigator behavior. They change the policy fingerprint, make retained QA state stale, and require a fresh dry-run before another start. Restore the prior model value to roll back, then rebuild the map so the recorded policy matches the actual request.
 
@@ -518,3 +525,24 @@ config source classes, reconciliation decisions, and the newest sanitized
 records from `.ultraplan/run-control.log`; it excludes event payloads, prompts,
 provider data, source content, credentials, arbitrary output, and the absolute
 workspace path.
+
+## Evidence-producing QA
+
+```text
+ultraplan sprint <project> <sprint> qa --dry-run [--suite smoke] [--json]
+ultraplan sprint <project> <sprint> qa [--shard <map-owned-id> | --suite smoke] [--json]
+ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
+```
+
+Normal QA first runs the bounded read-only map and investigator pass, then runs
+approved checks sequentially in fresh disposable writable copies. The original
+target and workspace are mounted read-only by the native isolation layer. An
+unsupported isolation primitive, stale review or smoke evidence, target drift,
+unapproved path change, incomplete cleanup, or malformed evidence blocks the
+run. `qa resume --suite smoke` is invalid; start a new smoke-suite operation.
+
+`--suite smoke` is a closed compatibility selector. It calls the canonical
+smoke implementation, so selection, review gating, harness evidence,
+`smoke.md`, and flow state have one authority. JSON remains schema version 1
+with additive assessment, evidence, issue, report, failure, limit, and suite
+fields.

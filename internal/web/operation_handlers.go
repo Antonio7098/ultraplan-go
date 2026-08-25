@@ -547,6 +547,7 @@ func operationSpecFromForm(r *http.Request) operationSpecRequest {
 			Task:        r.FormValue("task"),
 			Shard:       r.FormValue("shard"),
 			Model:       strings.TrimSpace(r.FormValue("model")),
+			Suite:       strings.TrimSpace(r.FormValue("suite")),
 			Parallelism: parallelism,
 		},
 	}
@@ -731,9 +732,19 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 		return app.OperationRequest{}, fmt.Errorf("sprint operations require scope.sprint")
 	}
 	if strings.HasPrefix(string(req.Kind), "qa-") {
-		if options.Task != "" || options.Model != "" || options.Stage != "" || options.ToStage != "" || options.Action != "" || options.DryRun || options.Resume || options.Level != "" || options.Suite != "" || options.Test != "" || options.Timeout != "" || options.ForceReview || options.RestartReview || options.OverrideRationale != "" || len(options.ReviewFocus) > 0 || len(options.Sources) > 0 || len(options.Dimensions) > 0 || options.Parallelism != 0 {
-			return app.OperationRequest{}, fmt.Errorf("QA operations accept only options.shard")
+		if options.Task != "" || options.Model != "" || options.Stage != "" || options.ToStage != "" || options.Action != "" || options.DryRun || options.Resume || options.Level != "" || options.Test != "" || options.Timeout != "" || options.ForceReview || options.RestartReview || options.OverrideRationale != "" || len(options.ReviewFocus) > 0 || len(options.Sources) > 0 || len(options.Dimensions) > 0 || options.Parallelism != 0 {
+			return app.OperationRequest{}, fmt.Errorf("QA operations accept only options.shard or options.suite")
 		}
+		if options.Suite != "" && options.Suite != "smoke" {
+			return app.OperationRequest{}, fmt.Errorf("QA options.suite must be smoke")
+		}
+		if options.Suite != "" && req.Kind != app.OperationQAStart && req.Kind != app.OperationQADryRun {
+			return app.OperationRequest{}, fmt.Errorf("QA suite is valid only for start or dry-run")
+		}
+		if options.Suite != "" && options.Shard != "" {
+			return app.OperationRequest{}, fmt.Errorf("QA suite and shard are mutually exclusive")
+		}
+		req.Suite = options.Suite
 		if options.Shard != "" && req.Kind != app.OperationQAStart && req.Kind != app.OperationQAResume {
 			return app.OperationRequest{}, fmt.Errorf("QA shard is valid only for start or resume")
 		}
@@ -768,6 +779,9 @@ func mapOperationSpec(req app.OperationRequest) map[string]any {
 	}
 	if req.Parallelism > 0 {
 		options["parallelism"] = req.Parallelism
+	}
+	if req.Suite != "" {
+		options["suite"] = req.Suite
 	}
 	return map[string]any{"kind": req.Kind, "scope": scope, "options": options}
 }

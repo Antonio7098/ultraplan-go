@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -83,12 +84,28 @@ type QAQueries interface {
 	QASynthesis(context.Context, QARequest) (QASynthesisResult, error)
 }
 
+// QAEvidenceQueries is additive so older local adapters that implement the
+// Sprint 36 QA query set remain source-compatible.
+type QAEvidenceQueries interface {
+	QAEvidence(context.Context, QARequest) (QAEvidenceResult, error)
+	QAAdjudication(context.Context, QARequest) (QAAdjudicationResult, error)
+	QAIssues(context.Context, QARequest) (QAIssuePage, error)
+	QAIssue(context.Context, QARequest) (QAIssueSummary, error)
+	QAAssessment(context.Context, QARequest) (QAAssessmentResult, error)
+	QASmokeSuite(context.Context, QARequest) (QASmokeSuiteResult, error)
+}
+
 type QARequest struct {
-	Project string
-	Sprint  string
-	Shard   string
-	Theory  string
-	RunID   string
+	Project  string
+	Sprint   string
+	Shard    string
+	Theory   string
+	RunID    string
+	Suite    string
+	Evidence string
+	Issue    string
+	Cursor   string
+	Limit    int
 }
 
 type QAResult struct {
@@ -132,6 +149,14 @@ type QAResult struct {
 	Blocker                      *QABlockerSummary          `json:"blocker,omitempty"`
 	Cancellation                 QACancellationSummary      `json:"cancellation"`
 	NextAction                   string                     `json:"next_action"`
+	Suite                        string                     `json:"suite,omitempty"`
+	Assessment                   string                     `json:"assessment,omitempty"`
+	EvidenceCount                int                        `json:"evidence_count,omitempty"`
+	RejectedEvidenceCount        int                        `json:"rejected_evidence_count,omitempty"`
+	IssueCount                   int                        `json:"issue_count,omitempty"`
+	RegressionCandidateCount     int                        `json:"regression_candidate_count,omitempty"`
+	CanonicalReport              *QAArtifactRefSummary      `json:"canonical_report,omitempty"`
+	CurrentFailure               *QABlockerSummary          `json:"current_failure,omitempty"`
 }
 
 type QAArtifactRefSummary struct {
@@ -181,6 +206,15 @@ type QALimitsSummary struct {
 	ShardOutputBytes           int    `json:"shard_output_bytes"`
 	PromptBytes                int    `json:"prompt_bytes"`
 	FollowUpShards             int    `json:"follow_up_shards"`
+	TreeFiles                  int    `json:"tree_files,omitempty"`
+	TreeBytes                  int64  `json:"tree_bytes,omitempty"`
+	FileBytes                  int64  `json:"file_bytes,omitempty"`
+	GeneratedChecks            int    `json:"generated_checks,omitempty"`
+	GeneratedPatchBytes        int    `json:"generated_patch_bytes,omitempty"`
+	EvidenceRecords            int    `json:"evidence_records,omitempty"`
+	Issues                     int    `json:"issues,omitempty"`
+	AnalyzerCalls              int    `json:"analyzer_calls,omitempty"`
+	EvaluatorCalls             int    `json:"evaluator_calls,omitempty"`
 }
 
 type QAShardSummary struct {
@@ -327,6 +361,72 @@ type QACancelResult struct {
 	Run       RunSnapshot `json:"run"`
 	Requested bool        `json:"requested"`
 	QA        QAResult    `json:"qa"`
+}
+
+type QAEvidenceResult struct {
+	ID              string `json:"id"`
+	PlanID          string `json:"plan_id"`
+	AttemptID       string `json:"attempt_id"`
+	ShardID         string `json:"shard_id"`
+	Outcome         string `json:"outcome"`
+	ReasonCode      string `json:"reason_code"`
+	Repeatable      bool   `json:"repeatable"`
+	Contained       bool   `json:"contained"`
+	CleanupComplete bool   `json:"cleanup_complete"`
+	CommandCount    int    `json:"command_count"`
+	AnalyzerCount   int    `json:"analyzer_count"`
+}
+
+type QAAdjudicationResult struct {
+	ID             string              `json:"id"`
+	AttemptID      string              `json:"attempt_id"`
+	AcceptedCount  int                 `json:"accepted_count"`
+	Rejected       []QARejectedSummary `json:"rejected,omitempty"`
+	IssueCount     int                 `json:"issue_count"`
+	EvaluatorCount int                 `json:"evaluator_count"`
+}
+
+type QARejectedSummary struct {
+	EvidenceID string `json:"evidence_id"`
+	Code       string `json:"code"`
+	Detail     string `json:"detail"`
+}
+
+type QAIssueSummary struct {
+	ID                  string   `json:"id"`
+	Title               string   `json:"title"`
+	IssueClass          string   `json:"issue_class"`
+	Severity            string   `json:"severity"`
+	Location            string   `json:"location"`
+	EvidenceIDs         []string `json:"evidence_ids"`
+	PromotionReason     string   `json:"promotion_reason"`
+	RepairEligible      bool     `json:"repair_eligible"`
+	RegressionCandidate bool     `json:"regression_candidate"`
+}
+
+type QAIssuePage struct {
+	Items        []QAIssueSummary `json:"items"`
+	NextCursor   string           `json:"next_cursor,omitempty"`
+	OmittedCount int              `json:"omitted_count"`
+}
+
+type QAAssessmentResult struct {
+	Assessment    string             `json:"assessment"`
+	ReviewVerdict string             `json:"review_verdict"`
+	SmokeVerdict  string             `json:"smoke_verdict,omitempty"`
+	EvidenceTotal int                `json:"evidence_total"`
+	RejectedTotal int                `json:"rejected_total"`
+	IssueTotal    int                `json:"issue_total"`
+	Blockers      []QABlockerSummary `json:"blockers,omitempty"`
+	NextAction    string             `json:"next_action"`
+}
+
+type QASmokeSuiteResult struct {
+	ExecutionStatus string `json:"execution_status"`
+	Verdict         string `json:"verdict,omitempty"`
+	Fresh           bool   `json:"fresh"`
+	RunID           string `json:"run_id,omitempty"`
+	NextAction      string `json:"next_action"`
 }
 
 type StageSummary struct {
@@ -692,6 +792,168 @@ func (u dashboardUseCases) QASynthesis(ctx context.Context, req QARequest) (QASy
 	return result, nil
 }
 
+func (u dashboardUseCases) QAEvidence(ctx context.Context, req QARequest) (QAEvidenceResult, error) {
+	if err := ctx.Err(); err != nil {
+		return QAEvidenceResult{}, err
+	}
+	if req.Evidence == "" {
+		return QAEvidenceResult{}, fmt.Errorf("evidence ID is required")
+	}
+	if err := validateFocusedQARequest(req, "evidence"); err != nil {
+		return QAEvidenceResult{}, err
+	}
+	record, err := u.sprintService().QAEvidence(req.Project, req.Sprint, req.Evidence)
+	if err != nil {
+		return QAEvidenceResult{}, mapQAUseCaseError(err)
+	}
+	return QAEvidenceResult{ID: record.ID, PlanID: record.PlanID, AttemptID: record.AttemptID, ShardID: record.ShardID, Outcome: string(record.Outcome), ReasonCode: displaySafe(record.ReasonCode), Repeatable: record.Repeatable, Contained: record.Contained, CleanupComplete: record.Cleanup.Complete, CommandCount: len(record.Commands), AnalyzerCount: len(record.Analyzers)}, nil
+}
+
+func (u dashboardUseCases) QAAdjudication(ctx context.Context, req QARequest) (QAAdjudicationResult, error) {
+	if err := ctx.Err(); err != nil {
+		return QAAdjudicationResult{}, err
+	}
+	if err := validateFocusedQARequest(req); err != nil {
+		return QAAdjudicationResult{}, err
+	}
+	value, err := u.sprintService().QAAdjudication(req.Project, req.Sprint)
+	if err != nil {
+		return QAAdjudicationResult{}, mapQAUseCaseError(err)
+	}
+	result := QAAdjudicationResult{ID: value.ID, AttemptID: value.AttemptID, AcceptedCount: len(value.AcceptedIDs), IssueCount: len(value.Issues), EvaluatorCount: len(value.Evaluators)}
+	for _, rejected := range value.Rejected {
+		result.Rejected = append(result.Rejected, QARejectedSummary{EvidenceID: rejected.EvidenceID, Code: displaySafe(rejected.Code), Detail: displaySafe(rejected.Detail)})
+	}
+	return result, nil
+}
+
+func (u dashboardUseCases) QAIssues(ctx context.Context, req QARequest) (QAIssuePage, error) {
+	if err := ctx.Err(); err != nil {
+		return QAIssuePage{}, err
+	}
+	if err := validateFocusedQARequest(req, "cursor", "limit"); err != nil {
+		return QAIssuePage{}, err
+	}
+	limit := req.Limit
+	if limit == 0 {
+		limit = 50
+	}
+	if limit < 1 || limit > 200 {
+		return QAIssuePage{}, fmt.Errorf("issue page limit must be between 1 and 200")
+	}
+	value, err := u.sprintService().QAAdjudication(req.Project, req.Sprint)
+	if err != nil {
+		return QAIssuePage{}, mapQAUseCaseError(err)
+	}
+	start := 0
+	if req.Cursor != "" {
+		decoded, decodeErr := base64.RawURLEncoding.DecodeString(req.Cursor)
+		if decodeErr != nil {
+			return QAIssuePage{}, fmt.Errorf("invalid issue cursor")
+		}
+		parts := strings.SplitN(string(decoded), "\x00", 2)
+		if len(parts) != 2 || parts[0] != value.AttemptID {
+			return QAIssuePage{}, fmt.Errorf("issue cursor is stale")
+		}
+		found := false
+		for i, issue := range value.Issues {
+			if issue.ID == parts[1] {
+				start, found = i+1, true
+				break
+			}
+		}
+		if !found {
+			return QAIssuePage{}, fmt.Errorf("issue cursor is stale")
+		}
+	}
+	end := start + limit
+	if end > len(value.Issues) {
+		end = len(value.Issues)
+	}
+	page := QAIssuePage{OmittedCount: len(value.Issues) - end}
+	for _, issue := range value.Issues[start:end] {
+		page.Items = append(page.Items, qaIssueProjection(issue))
+	}
+	if end < len(value.Issues) && end > start {
+		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(value.AttemptID + "\x00" + value.Issues[end-1].ID))
+	}
+	return page, nil
+}
+
+func (u dashboardUseCases) QAIssue(ctx context.Context, req QARequest) (QAIssueSummary, error) {
+	if req.Issue == "" {
+		return QAIssueSummary{}, fmt.Errorf("issue ID is required")
+	}
+	if err := validateFocusedQARequest(req, "issue"); err != nil {
+		return QAIssueSummary{}, err
+	}
+	page, err := u.QAIssues(ctx, QARequest{Project: req.Project, Sprint: req.Sprint, Limit: 200})
+	if err != nil {
+		return QAIssueSummary{}, err
+	}
+	for _, issue := range page.Items {
+		if issue.ID == req.Issue {
+			return issue, nil
+		}
+	}
+	return QAIssueSummary{}, fmt.Errorf("issue is not owned by the current QA attempt")
+}
+
+func (u dashboardUseCases) QAAssessment(ctx context.Context, req QARequest) (QAAssessmentResult, error) {
+	if err := ctx.Err(); err != nil {
+		return QAAssessmentResult{}, err
+	}
+	if err := validateFocusedQARequest(req); err != nil {
+		return QAAssessmentResult{}, err
+	}
+	value, err := u.sprintService().QAAssessment(req.Project, req.Sprint)
+	if err != nil {
+		return QAAssessmentResult{}, mapQAUseCaseError(err)
+	}
+	result := QAAssessmentResult{Assessment: string(value.Assessment), ReviewVerdict: string(value.ReviewVerdict), SmokeVerdict: string(value.SmokeVerdict), EvidenceTotal: value.EvidenceTotal, RejectedTotal: value.RejectedTotal, IssueTotal: value.IssueTotal, NextAction: displaySafe(value.NextAction)}
+	for i := range value.Blockers {
+		if blocker := qaBlockerProjection(&value.Blockers[i]); blocker != nil {
+			result.Blockers = append(result.Blockers, *blocker)
+		}
+	}
+	return result, nil
+}
+
+func (u dashboardUseCases) QASmokeSuite(ctx context.Context, req QARequest) (QASmokeSuiteResult, error) {
+	if err := ctx.Err(); err != nil {
+		return QASmokeSuiteResult{}, err
+	}
+	if err := validateFocusedQARequest(req); err != nil {
+		return QASmokeSuiteResult{}, err
+	}
+	status, err := u.sprintService().VerificationStatus(req.Project, req.Sprint)
+	if err != nil {
+		return QASmokeSuiteResult{}, err
+	}
+	return QASmokeSuiteResult{ExecutionStatus: status.Smoke.ExecutionStatus, Verdict: status.Smoke.Verdict, Fresh: status.Smoke.Fresh, RunID: status.Smoke.RunID, NextAction: displaySafe(status.Smoke.NextAction)}, nil
+}
+
+func validateFocusedQARequest(req QARequest, allowed ...string) error {
+	permit := make(map[string]bool, len(allowed))
+	for _, field := range allowed {
+		permit[field] = true
+	}
+	present := map[string]bool{
+		"shard": req.Shard != "", "theory": req.Theory != "", "run_id": req.RunID != "", "suite": req.Suite != "",
+		"evidence": req.Evidence != "", "issue": req.Issue != "", "cursor": req.Cursor != "", "limit": req.Limit != 0,
+	}
+	for field, set := range present {
+		if set && !permit[field] {
+			return fmt.Errorf("focused QA query does not accept %s", field)
+		}
+	}
+	return nil
+}
+
+func qaIssueProjection(issue sprint.QAIssue) QAIssueSummary {
+	return QAIssueSummary{ID: issue.ID, Title: displaySafe(issue.Title), IssueClass: displaySafe(issue.IssueClass), Severity: displaySafe(issue.Severity), Location: displaySafe(issue.Location), EvidenceIDs: append([]string(nil), issue.EvidenceIDs...), PromotionReason: displaySafe(issue.PromotionReason), RepairEligible: issue.RepairEligible, RegressionCandidate: issue.RegressionCandidate}
+}
+
 func (u dashboardUseCases) RunQA(ctx context.Context, req QARequest, emit func(OperationEvent)) (QAResult, error) {
 	return u.runQA(ctx, req, false, emit)
 }
@@ -708,7 +970,7 @@ func (u dashboardUseCases) runQA(ctx context.Context, req QARequest, resume bool
 	if resume {
 		kind = OperationQAResume
 	}
-	_, runErr := u.runner(ctx, OperationRequest{Kind: kind, Project: req.Project, Sprint: req.Sprint, Task: req.Shard}, emit)
+	_, runErr := u.runner(ctx, OperationRequest{Kind: kind, Project: req.Project, Sprint: req.Sprint, Task: req.Shard, Suite: req.Suite}, emit)
 	status, statusErr := u.QAStatus(context.WithoutCancel(ctx), req)
 	return status, errors.Join(runErr, statusErr)
 }
@@ -728,7 +990,7 @@ func (u dashboardUseCases) CancelQA(ctx context.Context, req QARequest) (QACance
 	if current.Target.Project != req.Project || current.Target.Sprint != req.Sprint || (current.Target.Operation != string(OperationQAStart) && current.Target.Operation != string(OperationQAResume)) {
 		return QACancelResult{}, fmt.Errorf("QA run does not belong to the selected sprint")
 	}
-	run, requested, err := u.runs.CancelRun(ctx, runID, "read-only QA cancellation requested")
+	run, requested, err := u.runs.CancelRun(ctx, runID, "QA cancellation requested")
 	if err != nil {
 		return QACancelResult{}, err
 	}
@@ -758,7 +1020,7 @@ func (u dashboardUseCases) withQAConformanceReview(req QARequest, result QAResul
 }
 
 func qaMapProjection(qaMap sprint.QAMap) QAResult {
-	result := QAResult{SchemaVersion: 1, Project: qaMap.Project, Sprint: qaMap.Sprint, Phase: string(sprint.QAPhaseMapped), Fresh: true, AttemptID: qaMap.SemanticAttemptID, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint, ReviewFingerprint: qaMap.ReviewFingerprint, MapFingerprint: qaMap.ID, PolicyFingerprint: qaMap.PolicyFingerprint, CheckCatalogFingerprint: qaMap.CheckCatalogFingerprint, EffectiveSources: qaEffectiveSourcesProjection(qaMap.EffectiveSources), Target: qaTargetProjection(qaMap.Target), Coverage: qaCoverageProjection(qaMap.Coverage), InputRefs: qaArtifactRefsProjection(qaMap.InputRefs), Limits: qaLimitsProjection(qaMap.Budgets), ChangedPaths: len(qaMap.Coverage.ChangedPaths), CoveredPaths: len(qaMap.Coverage.PrimaryOwners), TotalShards: len(qaMap.Shards), NextAction: "Start read-only QA from this current deterministic map."}
+	result := QAResult{SchemaVersion: 1, Project: qaMap.Project, Sprint: qaMap.Sprint, Phase: string(sprint.QAPhaseMapped), Fresh: true, AttemptID: qaMap.SemanticAttemptID, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint, ReviewFingerprint: qaMap.ReviewFingerprint, MapFingerprint: qaMap.ID, PolicyFingerprint: qaMap.PolicyFingerprint, CheckCatalogFingerprint: qaMap.CheckCatalogFingerprint, EffectiveSources: qaEffectiveSourcesProjection(qaMap.EffectiveSources), Target: qaTargetProjection(qaMap.Target), Coverage: qaCoverageProjection(qaMap.Coverage), InputRefs: qaArtifactRefsProjection(qaMap.InputRefs), Limits: qaLimitsProjection(qaMap.Budgets), ChangedPaths: len(qaMap.Coverage.ChangedPaths), CoveredPaths: len(qaMap.Coverage.PrimaryOwners), TotalShards: len(qaMap.Shards), NextAction: "Start QA evidence production from this current deterministic map."}
 	for _, shard := range qaMap.Shards {
 		result.Shards = append(result.Shards, qaShardProjection(shard))
 	}
@@ -770,7 +1032,7 @@ func qaMapProjection(qaMap sprint.QAMap) QAResult {
 
 func qaSnapshotProjection(snapshot sprint.QASnapshot) QAResult {
 	state := snapshot.State
-	result := QAResult{SchemaVersion: state.SchemaVersion, Project: state.Project, Sprint: state.Sprint, Phase: string(state.Phase), Fresh: state.Freshness.Current, FreshnessReasons: qaDisplayStrings(state.Freshness.Reasons), AttemptID: state.CurrentAttemptID, RunID: state.Run.RunID, OperationalAttemptID: state.Run.OperationalAttemptID, FencingGeneration: state.Run.FencingGeneration, RunLifecycle: string(state.Run.Lifecycle), TerminalResult: string(state.Run.TerminalResult), GovernedInputFingerprint: state.Freshness.GovernedInputFingerprint, ImplementationFingerprint: state.Freshness.ImplementationFingerprint, ReviewFingerprint: state.Freshness.ReviewFingerprint, PolicyFingerprint: state.Freshness.PolicyFingerprint, UpdatedAt: state.UpdatedAt, MapRecord: qaArtifactRefProjection(state.Map), SynthesisRecord: qaArtifactRefProjection(state.Synthesis), CompletedShards: state.CompletedShards, TotalShards: state.TotalShards, OutcomeTotals: qaOutcomeProjection(state.OutcomeCounts), Blocker: qaBlockerProjection(state.Blocker), Cancellation: QACancellationSummary{Requested: state.Cancellation.Requested, Scope: displaySafe(state.Cancellation.Scope), ShardID: state.Cancellation.ShardID, Reason: displaySafe(state.Cancellation.Reason), At: state.Cancellation.At}, NextAction: displaySafe(state.NextAction)}
+	result := QAResult{SchemaVersion: 1, Project: state.Project, Sprint: state.Sprint, Phase: string(state.Phase), Fresh: state.Freshness.Current, FreshnessReasons: qaDisplayStrings(state.Freshness.Reasons), AttemptID: state.CurrentAttemptID, RunID: state.Run.RunID, OperationalAttemptID: state.Run.OperationalAttemptID, FencingGeneration: state.Run.FencingGeneration, RunLifecycle: string(state.Run.Lifecycle), TerminalResult: string(state.Run.TerminalResult), GovernedInputFingerprint: state.Freshness.GovernedInputFingerprint, ImplementationFingerprint: state.Freshness.ImplementationFingerprint, ReviewFingerprint: state.Freshness.ReviewFingerprint, PolicyFingerprint: state.Freshness.PolicyFingerprint, UpdatedAt: state.UpdatedAt, MapRecord: qaArtifactRefProjection(state.Map), SynthesisRecord: qaArtifactRefProjection(state.Synthesis), CompletedShards: state.CompletedShards, TotalShards: state.TotalShards, OutcomeTotals: qaOutcomeProjection(state.OutcomeCounts), Blocker: qaBlockerProjection(state.Blocker), Cancellation: QACancellationSummary{Requested: state.Cancellation.Requested, Scope: displaySafe(state.Cancellation.Scope), ShardID: state.Cancellation.ShardID, Reason: displaySafe(state.Cancellation.Reason), At: state.Cancellation.At}, NextAction: displaySafe(state.NextAction), Assessment: string(state.CanonicalAssessment), EvidenceCount: state.EvidenceCount, RejectedEvidenceCount: state.RejectedCount, IssueCount: state.IssueCount, RegressionCandidateCount: state.RegressionCandidates, CanonicalReport: qaArtifactRefProjection(state.CanonicalReport), CurrentFailure: qaBlockerProjection(state.CurrentFailure)}
 	if snapshot.Map != nil {
 		result.MapFingerprint = snapshot.Map.ID
 		result.CheckCatalogFingerprint = snapshot.Map.CheckCatalogFingerprint
@@ -844,6 +1106,9 @@ func qaLimitsProjection(b sprint.QABudgets) QALimitsSummary {
 		RunTimeout: b.RunTimeout.String(), CleanupTimeout: b.CleanupTimeout.String(),
 		CommandOutputBytes: b.CommandOutputBytes, ShardOutputBytes: b.ShardOutputBytes,
 		PromptBytes: b.PromptBytes, FollowUpShards: b.FollowUpShards,
+		TreeFiles: b.TreeFiles, TreeBytes: b.TreeBytes, FileBytes: b.FileBytes,
+		GeneratedChecks: b.GeneratedChecks, GeneratedPatchBytes: b.GeneratedPatchBytes,
+		EvidenceRecords: b.EvidenceRecords, Issues: b.Issues, AnalyzerCalls: b.AnalyzerCalls, EvaluatorCalls: b.EvaluatorCalls,
 	}
 }
 

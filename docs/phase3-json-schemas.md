@@ -79,3 +79,25 @@ Status is read-only. It reports current artifact/state facts, freshness, reconci
 - Secrets and raw provider/harness payloads are excluded.
 - Cancellation and unavailable prerequisites remain distinct from pass.
 - Consumers must tolerate additive fields within schema version 1.
+
+## QA v2 evidence records
+
+Evidence-producing attempts write private QA state schema version 2 while
+retaining explicit reads of state version 1. Existing `qa-v1` attempt, map,
+shard, theory, challenge, and synthesis IDs keep their meaning. New scoped
+`qa-v2` IDs cover plan, evidence, patch, adjudication, root-cause group, issue,
+and assessment records; none is a global content identity.
+
+Under `verification/attempts/<attempt-id>/`, v2 adds `plans/`, `evidence/`,
+`patches/`, `adjudication.json`, `issues.json`, and `assessment.json`.
+`qa.md` remains the canonical bounded report. State references these records
+by contained relative path and SHA-256 digest. Flow state keeps only phase,
+freshness, assessment, counts, cancellation, next action, and state/report
+pointers. Unknown majors, unknown fields, invalid modes, path escapes,
+symlinks, ownership mismatches, or digest mismatches fail closed.
+
+Public CLI and app JSON stays at schema version 1. Additive fields include QA
+suite, assessment, evidence and rejected-evidence counts, issue and regression
+candidate counts, canonical report, current failure, and the new finite limits.
+Focused evidence and issue resources expose bounded summaries, never raw
+stdout, stderr, environment values, model payloads, or arbitrary patch bodies.
