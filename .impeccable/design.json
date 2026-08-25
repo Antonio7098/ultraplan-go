@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-24T00:00:00Z",
+  "title": "Design System: UltraPlan entity dashboards",
+  "extensions": {
+    "colorMeta": {
+      "workspace": { "role": "neutral", "displayName": "Workspace Plum", "canonical": "oklch(0.22813 0.020366 307.469)", "tonalRamp": ["oklch(0.15 0.020366 307.469)", "oklch(0.23 0.020366 307.469)", "oklch(0.32 0.020366 307.469)", "oklch(0.43 0.020366 307.469)", "oklch(0.55 0.020366 307.469)", "oklch(0.67 0.020366 307.469)", "oklch(0.80 0.020366 307.469)", "oklch(0.95 0.020366 307.469)"] },
+      "panel": { "role": "neutral", "displayName": "Workbench Panel", "canonical": "oklch(0.267101 0.02016 311.799)", "tonalRamp": ["oklch(0.15 0.02016 311.799)", "oklch(0.23 0.02016 311.799)", "oklch(0.32 0.02016 311.799)", "oklch(0.43 0.02016 311.799)", "oklch(0.55 0.02016 311.799)", "oklch(0.67 0.02016 311.799)", "oklch(0.80 0.02016 311.799)", "oklch(0.95 0.02016 311.799)"] },
+      "panel-raised": { "role": "neutral", "displayName": "Raised Panel", "canonical": "oklch(0.279864 0.021572 309.532)", "tonalRamp": ["oklch(0.15 0.021572 309.532)", "oklch(0.23 0.021572 309.532)", "oklch(0.32 0.021572 309.532)", "oklch(0.43 0.021572 309.532)", "oklch(0.55 0.021572 309.532)", "oklch(0.67 0.021572 309.532)", "oklch(0.80 0.021572 309.532)", "oklch(0.95 0.021572 309.532)"] },
+      "panel-overlay": { "role": "neutral", "displayName": "Overlay Plum", "canonical": "oklch(0.154761 0.01316 338.901)", "tonalRamp": ["oklch(0.15 0.01316 338.901)", "oklch(0.23 0.01316 338.901)", "oklch(0.32 0.01316 338.901)", "oklch(0.43 0.01316 338.901)", "oklch(0.55 0.01316 338.901)", "oklch(0.67 0.01316 338.901)", "oklch(0.80 0.01316 338.901)", "oklch(0.95 0.01316 338.901)"] },
+      "panel-hover": { "role": "neutral", "displayName": "Hover Plum", "canonical": "oklch(0.364912 0.050794 308.491)", "tonalRamp": ["oklch(0.15 0.050794 308.491)", "oklch(0.23 0.050794 308.491)", "oklch(0.32 0.050794 308.491)", "oklch(0.43 0.050794 308.491)", "oklch(0.55 0.050794 308.491)", "oklch(0.67 0.050794 308.491)", "oklch(0.80 0.050794 308.491)", "oklch(0.95 0.050794 308.491)"] },
+      "control": { "role": "neutral", "displayName": "Control Plum", "canonical": "oklch(0.313674 0.030572 310.061)", "tonalRamp": ["oklch(0.15 0.030572 310.061)", "oklch(0.23 0.030572 310.061)", "oklch(0.32 0.030572 310.061)", "oklch(0.43 0.030572 310.061)", "oklch(0.55 0.030572 310.061)", "oklch(0.67 0.030572 310.061)", "oklch(0.80 0.030572 310.061)", "oklch(0.95 0.030572 310.061)"] },
+      "input-border": { "role": "neutral", "displayName": "Input Border", "canonical": "oklch(0.266817 0.02897 344.461)", "tonalRamp": ["oklch(0.15 0.02897 344.461)", "oklch(0.23 0.02897 344.461)", "oklch(0.32 0.02897 344.461)", "oklch(0.43 0.02897 344.461)", "oklch(0.55 0.02897 344.461)", "oklch(0.67 0.02897 344.461)", "oklch(0.80 0.02897 344.461)", "oklch(0.95 0.02897 344.461)"] },
+      "text": { "role": "neutral", "displayName": "Readable White", "canonical": "oklch(0.980735 0.004092 301.426)", "tonalRamp": ["oklch(0.15 0.004092 301.426)", "oklch(0.23 0.004092 301.426)", "oklch(0.32 0.004092 301.426)", "oklch(0.43 0.004092 301.426)", "oklch(0.55 0.004092 301.426)", "oklch(0.67 0.004092 301.426)", "oklch(0.80 0.004092 301.426)", "oklch(0.95 0.004092 301.426)"] },
+      "text-muted": { "role": "neutral", "displayName": "Muted Lilac", "canonical": "oklch(0.880303 0.03077 342.696)", "tonalRamp": ["oklch(0.15 0.03077 342.696)", "oklch(0.23 0.03077 342.696)", "oklch(0.32 0.03077 342.696)", "oklch(0.43 0.03077 342.696)", "oklch(0.55 0.03077 342.696)", "oklch(0.67 0.03077 342.696)", "oklch(0.80 0.03077 342.696)", "oklch(0.95 0.03077 342.696)"] },
+      "text-subtle": { "role": "neutral", "displayName": "Subtle Mauve", "canonical": "oklch(0.657087 0.028226 307.985)", "tonalRamp": ["oklch(0.15 0.028226 307.985)", "oklch(0.23 0.028226 307.985)", "oklch(0.32 0.028226 307.985)", "oklch(0.43 0.028226 307.985)", "oklch(0.55 0.028226 307.985)", "oklch(0.67 0.028226 307.985)", "oklch(0.80 0.028226 307.985)", "oklch(0.95 0.028226 307.985)"] },
+      "accent": { "role": "primary", "displayName": "Operational Magenta", "canonical": "oklch(0.460685 0.185347 4.099)", "tonalRamp": ["oklch(0.15 0.08 4.099)", "oklch(0.23 0.12 4.099)", "oklch(0.32 0.16 4.099)", "oklch(0.43 0.185347 4.099)", "oklch(0.55 0.185347 4.099)", "oklch(0.67 0.16 4.099)", "oklch(0.80 0.11 4.099)", "oklch(0.95 0.04 4.099)"] },
+      "accent-strong": { "role": "primary", "displayName": "Strong Magenta", "canonical": "oklch(0.591646 0.217985 0.584)", "tonalRamp": ["oklch(0.15 0.08 0.584)", "oklch(0.23 0.13 0.584)", "oklch(0.32 0.18 0.584)", "oklch(0.43 0.217985 0.584)", "oklch(0.55 0.217985 0.584)", "oklch(0.67 0.18 0.584)", "oklch(0.80 0.12 0.584)", "oklch(0.95 0.04 0.584)"] },
+      "accent-foreground": { "role": "primary", "displayName": "Accent Foreground", "canonical": "oklch(0.901233 0.057189 343.694)", "tonalRamp": ["oklch(0.15 0.057189 343.694)", "oklch(0.23 0.057189 343.694)", "oklch(0.32 0.057189 343.694)", "oklch(0.43 0.057189 343.694)", "oklch(0.55 0.057189 343.694)", "oklch(0.67 0.057189 343.694)", "oklch(0.80 0.057189 343.694)", "oklch(0.95 0.04 343.694)"] },
+      "accent-soft": { "role": "primary", "displayName": "Accent Wash", "canonical": "oklch(0.256077 0.063004 342.914)", "tonalRamp": ["oklch(0.15 0.063004 342.914)", "oklch(0.23 0.063004 342.914)", "oklch(0.32 0.063004 342.914)", "oklch(0.43 0.063004 342.914)", "oklch(0.55 0.063004 342.914)", "oklch(0.67 0.063004 342.914)", "oklch(0.80 0.063004 342.914)", "oklch(0.95 0.04 342.914)"] },
+      "border": { "role": "neutral", "displayName": "Quiet Border", "canonical": "oklch(0.266943 0.015262 302.425)", "tonalRamp": ["oklch(0.15 0.015262 302.425)", "oklch(0.23 0.015262 302.425)", "oklch(0.32 0.015262 302.425)", "oklch(0.43 0.015262 302.425)", "oklch(0.55 0.015262 302.425)", "oklch(0.67 0.015262 302.425)", "oklch(0.80 0.015262 302.425)", "oklch(0.95 0.015262 302.425)"] },
+      "border-soft": { "role": "neutral", "displayName": "Soft Divider", "canonical": "oklch(0.269132 0.030766 351.067)", "tonalRamp": ["oklch(0.15 0.030766 351.067)", "oklch(0.23 0.030766 351.067)", "oklch(0.32 0.030766 351.067)", "oklch(0.43 0.030766 351.067)", "oklch(0.55 0.030766 351.067)", "oklch(0.67 0.030766 351.067)", "oklch(0.80 0.030766 351.067)", "oklch(0.95 0.030766 351.067)"] },
+      "success": { "role": "secondary", "displayName": "Completion Green", "canonical": "#56c793", "tonalRamp": ["oklch(0.15 0.07 157)", "oklch(0.23 0.10 157)", "oklch(0.32 0.13 157)", "oklch(0.43 0.15 157)", "oklch(0.55 0.15 157)", "oklch(0.67 0.14 157)", "oklch(0.80 0.10 157)", "oklch(0.95 0.04 157)"] },
+      "warning": { "role": "tertiary", "displayName": "Attention Amber", "canonical": "oklch(0.836861 0.164422 84.429)", "tonalRamp": ["oklch(0.15 0.07 84.429)", "oklch(0.23 0.10 84.429)", "oklch(0.32 0.13 84.429)", "oklch(0.43 0.164422 84.429)", "oklch(0.55 0.164422 84.429)", "oklch(0.67 0.15 84.429)", "oklch(0.80 0.12 84.429)", "oklch(0.95 0.04 84.429)"] },
+      "danger": { "role": "tertiary", "displayName": "Failure Pink", "canonical": "oklch(0.901233 0.057189 343.694)", "tonalRamp": ["oklch(0.15 0.057189 343.694)", "oklch(0.23 0.057189 343.694)", "oklch(0.32 0.057189 343.694)", "oklch(0.43 0.057189 343.694)", "oklch(0.55 0.057189 343.694)", "oklch(0.67 0.057189 343.694)", "oklch(0.80 0.057189 343.694)", "oklch(0.95 0.04 343.694)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Completion Display", "purpose": "One large study completion count." },
+      "headline": { "displayName": "Entity Headline", "purpose": "Page titles outside the dashboard grid." },
+      "title": { "displayName": "Panel Title", "purpose": "Dashboard panel headings." },
+      "body": { "displayName": "Operational Body", "purpose": "Descriptions, findings, and guidance." },
+      "label": { "displayName": "Taxonomy Label", "purpose": "Uppercase eyebrows and compact categories." }
+    },
+    "shadows": [
+      { "name": "panel-hairline", "value": "0 1px 0 rgb(255 255 255 / 2%)", "purpose": "Standard dashboard panels at rest." },
+      { "name": "dominant-state", "value": "0 16px 42px rgb(0 0 0 / 17%)", "purpose": "The sprint current-status panel only." }
+    ],
+    "motion": [
+      { "name": "dashboard-state", "value": "180ms ease", "purpose": "Border and background changes on linked dashboard panels." },
+      { "name": "dashboard-lift", "value": "180ms cubic-bezier(.22, 1, .36, 1)", "purpose": "The 2px lift on a linked panel." }
+    ],
+    "breakpoints": [
+      { "name": "dashboard-stack", "value": "48rem" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Dashboard Panel",
+      "kind": "card",
+      "refersTo": "dashboard-panel",
+      "description": "The standard bordered container for one dashboard concern.",
+      "html": "<section class=\"ds-dashboard-panel\"><h2>Delivery health</h2><p>Three sprints are active and one needs attention.</p></section>",
+      "css": ".ds-dashboard-panel { padding: 1.15rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--text); box-shadow: 0 1px 0 rgb(255 255 255 / 2%); font: 14px/1.55 var(--sans); } .ds-dashboard-panel h2 { margin: 0 0 .9rem; color: var(--text); font-size: 1.05rem; font-weight: 630; line-height: 1.3; letter-spacing: -.025em; } .ds-dashboard-panel p { margin: 0; color: var(--muted); }"
+    },
+    {
+      "name": "Linked Dashboard Panel",
+      "kind": "card",
+      "refersTo": "dashboard-panel-hover",
+      "description": "A whole-panel destination used only when no nested control conflicts.",
+      "html": "<a class=\"ds-dashboard-link\" href=\"#\"><section><div><h2>Project knowledge</h2><strong>3 dossiers</strong></div><p>Requirements, technical design, and architecture.</p><span>Open project knowledge</span></section></a>",
+      "css": ".ds-dashboard-link { display: block; color: inherit; text-decoration: none; font: 14px/1.55 var(--sans); } .ds-dashboard-link section { padding: 1.15rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); box-shadow: 0 1px 0 rgb(255 255 255 / 2%); transition: border-color .18s ease, background .18s ease, transform .18s cubic-bezier(.22, 1, .36, 1); } .ds-dashboard-link div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; } .ds-dashboard-link h2 { margin: 0; color: var(--text); font-size: 1.05rem; } .ds-dashboard-link strong { color: var(--muted); font-size: .82rem; } .ds-dashboard-link p { color: var(--muted); } .ds-dashboard-link span { color: var(--accent-strong); font-size: .84rem; font-weight: 600; } .ds-dashboard-link:hover section, .ds-dashboard-link:focus-visible section { border-color: var(--accent); background: var(--panel-raised); transform: translateY(-2px); } .ds-dashboard-link:focus-visible { border-radius: var(--radius); outline: 2px solid var(--focus); outline-offset: 3px; }"
+    },
+    {
+      "name": "Operational Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "A compact control placed beside the state it changes.",
+      "html": "<button class=\"ds-button\" type=\"button\">Validate project</button>",
+      "css": ".ds-button { min-height: 2.25rem; padding: .45rem .75rem; border: 1px solid var(--input); border-radius: .5rem; background: var(--control); color: var(--text); box-shadow: inset 0 1px rgb(255 255 255 / 5%), 0 1px 2px rgb(0 0 0 / 30%); font: 14px/1.55 var(--sans); cursor: pointer; } .ds-button:hover { border-color: var(--accent); background: var(--control-hover); } .ds-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-button:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "status",
+      "description": "A compact semantic state label with a matching dot.",
+      "html": "<span class=\"ds-status ds-status-active\">running</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; gap: .35rem; padding: .13rem .48rem; border: 1px solid currentColor; border-radius: 999px; font: 620 .7rem/1.55 var(--sans); letter-spacing: .02em; white-space: nowrap; } .ds-status::before { content: ''; width: .38rem; height: .38rem; border-radius: 50%; background: currentColor; box-shadow: 0 0 7px currentColor; } .ds-status-active { color: var(--accent-strong); }"
+    },
+    {
+      "name": "Segmented Progress",
+      "kind": "custom",
+      "refersTo": "progress-track",
+      "description": "A truthful task distribution with separate workflow states.",
+      "html": "<div class=\"ds-segmented-progress\" role=\"img\" aria-label=\"12 complete, 2 active, 1 failed, 5 pending\"><i class=\"ds-complete\" style=\"flex:12\"></i><i class=\"ds-active\" style=\"flex:2\"></i><i class=\"ds-failed\" style=\"flex:1\"></i><i class=\"ds-pending\" style=\"flex:5\"></i></div>",
+      "css": ".ds-segmented-progress { display: flex; width: 100%; min-height: .65rem; overflow: hidden; border-radius: 999px; background: var(--control); } .ds-segmented-progress i { min-width: 0; } .ds-complete { background: var(--success); } .ds-active { background: var(--accent-strong); } .ds-failed { background: var(--danger); } .ds-pending { background: var(--control); }"
+    },
+    {
+      "name": "Evidence Preview",
+      "kind": "custom",
+      "description": "Content-height evidence rows with a label, summary, and path.",
+      "html": "<ul class=\"ds-evidence\"><li><a href=\"#\"><strong>Architecture</strong><p>Runtime boundaries and durable workflow state.</p><span>ARCHITECTURE.md</span></a></li></ul>",
+      "css": ".ds-evidence { margin: 0; padding: 0; list-style: none; font: 14px/1.55 var(--sans); } .ds-evidence li a { display: grid; gap: .15rem; padding: .65rem 0; border-bottom: 1px solid var(--border-soft); color: var(--text); text-decoration: none; } .ds-evidence p { margin: .2rem 0; color: var(--muted); font-size: .76rem; } .ds-evidence span { overflow: hidden; color: var(--subtle); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; } .ds-evidence a:hover strong { color: var(--accent-strong); } .ds-evidence a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Attention Strip",
+      "kind": "card",
+      "description": "A compact findings region reserved for work that needs inspection.",
+      "html": "<section class=\"ds-attention\"><div><h2>Attention</h2><strong>2 open</strong></div><p>Validation found stale sprint evidence.</p></section>",
+      "css": ".ds-attention { padding: 1.15rem; border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border)); border-radius: var(--radius); background: var(--panel); color: var(--text); font: 14px/1.55 var(--sans); } .ds-attention div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; } .ds-attention h2 { margin: 0; font-size: 1.05rem; } .ds-attention strong { color: var(--muted); font-size: .82rem; } .ds-attention p { margin: .75rem 0 0; color: var(--muted); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The governed workbench",
+    "overview": "UltraPlan's project, sprint, and study overviews are dark operating dashboards. They place the entity's current truth first, then expose the evidence needed to judge it. The interface is compact and calm. Fine borders and close tonal steps separate information without turning every fact into a card.\n\nEach overview uses one dashboard grammar, but its previews keep the shape of the underlying work. A roadmap reads as a sequence, a sprint reads as staged execution, and a study reads as a research matrix. Actions sit inside the panel whose state they change. Linked panels become the navigation when they contain no competing controls.",
+    "keyCharacteristics": [
+      "One dominant current-state panel per entity overview",
+      "Truthful progress that distinguishes complete, active, failed, stale, and pending work",
+      "Content-shaped evidence previews instead of interchangeable statistic tiles",
+      "Compact attention regions reserved for findings and degraded health",
+      "Full-width stacking below the 48rem breakpoint"
+    ],
+    "rules": [
+      { "name": "The State Color Rule", "body": "Green, amber, pink, and strong magenta communicate workflow state. Do not use them to decorate neutral content.", "section": "colors" },
+      { "name": "The Quiet Border Rule", "body": "Separate ordinary regions with neutral borders. Warning-colored borders belong only on attention and degraded-health panels.", "section": "colors" },
+      { "name": "The Numeric Truth Rule", "body": "Counts and progress values use tabular numerals. Large type belongs to the state that matters now, not to decorative summary metrics.", "section": "typography" },
+      { "name": "The Current State Rule", "body": "Give one panel clear visual and spatial priority. It must answer what is happening now and what the next valid action is.", "section": "layout" },
+      { "name": "The Flat-by-Default Rule", "body": "Borders and tonal layering establish ordinary hierarchy. Reserve a real shadow for the single dominant current-state panel.", "section": "elevation" },
+      { "name": "The Evidence Keeps Its Shape Rule", "body": "Choose a preview that matches the underlying artifact or process. Do not replace timelines, matrices, sequences, or document excerpts with generic number cards.", "section": "components" },
+      { "name": "The Control Adjacency Rule", "body": "An action belongs beside the state or object it changes. A panel with nested controls is not a whole-panel link.", "section": "components" }
+    ],
+    "dos": [
+      "**Do** make the dominant panel answer current state, progress, and next action with real workflow data.",
+      "**Do** preserve complete, active, failed, stale, and pending distinctions in progress previews.",
+      "**Do** use content-shaped evidence such as timelines, matrices, stage rails, decision lists, and document excerpts.",
+      "**Do** make a control-free dashboard panel one coherent keyboard-focusable link.",
+      "**Do** keep actions inside the panel whose state they change.",
+      "**Do** stack panels in a truthful reading order below 48rem."
+    ],
+    "donts": [
+      "**Don't** fill the overview with equal-weight metric cards.",
+      "**Don't** turn semantic state colors into decoration.",
+      "**Don't** hide failure, stale evidence, or waiting work inside a single completion percentage.",
+      "**Don't** wrap a panel in a link when it contains buttons, forms, or conflicting destinations.",
+      "**Don't** promote empty attention or healthy reliability into a dominant panel.",
+      "**Don't** use decorative shadows on ordinary dashboard panels."
+    ]
+  }
+}
