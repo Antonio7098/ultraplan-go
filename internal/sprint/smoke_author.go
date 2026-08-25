@@ -270,6 +270,14 @@ The writable-path list above is exhaustive, not illustrative:
   checks. Do not execute the harness run command, browsers, product builds,
   product test suites, or the authoritative smoke lane; UltraPlan performs
   independent discovery validation and execution after authoring returns.
+- Creating a test file is not completion. Register every new or adopted test in
+  all harness indexes, suite lists, command branches, and sprint mappings that
+  the existing harness convention requires. Before returning, run the manifest's
+  discovery command again for this sprint. Confirm that it reports a complete
+  sprint mapping, at least one selected test, and every intended coverage ID.
+  If discovery reports zero tests, a missing suite, an incomplete mapping, or
+  stale coverage, repair the registration and repeat discovery. Do not return
+  while authored coverage is present on disk but undiscoverable.
 - Before authoring new coverage, inspect the existing harness tests, suites,
   sprint mappings, and related files for work left by an earlier unfinished
   smoke-authoring run for this sprint. Only an existing file already inside a
