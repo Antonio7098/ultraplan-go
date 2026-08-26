@@ -358,6 +358,36 @@ func TestReviewerPromptUsesFrozenPathsForSharedGovernedInputs(t *testing.T) {
 	}
 }
 
+func TestReviewerPromptIndexesRunStateAndChangedFilesWithoutEmbeddingThem(t *testing.T) {
+	root, sp := reviewFixture(t)
+	runStateMarker := "RUN_STATE_PROMPT_DUPLICATION_MARKER"
+	writeFileContent(t, sp.Path, `{"status":"complete","files":["internal/sprint/review.go"],"testsRun":[],"blockers":[],"marker":"`+runStateMarker+`"}`+"\n", ".run-state.json")
+	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	manifest, findings, err := service.PrepareReview("proj", "01", ReviewRequest{})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare: err=%v findings=%+v", err, findings)
+	}
+	prompt := renderReviewerPrompt(manifest, manifest.Coverage[0])
+	if strings.Contains(prompt, runStateMarker) {
+		t.Fatal("reviewer prompt embedded frozen input content")
+	}
+	changed := ReviewInput{}
+	for _, input := range manifest.Inputs {
+		if input.Path == "target/internal/sprint/review.go" {
+			changed = input
+			break
+		}
+	}
+	if changed.Path == "" {
+		t.Fatal("changed target input missing from manifest")
+	}
+	for _, path := range []string{reviewInputReadPath(manifest, findReviewInput(manifest.Inputs, "execute")), reviewInputReadPath(manifest, changed)} {
+		if !strings.Contains(prompt, path) {
+			t.Fatalf("reviewer prompt omitted frozen read path %q", path)
+		}
+	}
+}
+
 func TestReviewVerdictAndCitationValidation(t *testing.T) {
 	root, _ := reviewFixture(t)
 	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
@@ -473,6 +503,21 @@ func TestReviewRepairPromptRetainsPriorOutputAndFrozenCitationMap(t *testing.T) 
 	coverage := manifest.Coverage[0]
 	prompt := buildReviewRepairPrompt(manifest, coverage, []string{"citation is invalid"}, `{"coverageId":"prior"}`)
 	for _, want := range []string{coverage.ID, "citation is invalid", manifest.Inputs[0].Path, reviewInputReadPath(manifest, manifest.Inputs[0]), `{"coverageId":"prior"}`} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("repair prompt missing %q: %s", want, prompt)
+		}
+	}
+}
+
+func TestReviewRepairPromptExplainsExactValidationFailure(t *testing.T) {
+	details := validationFailureDetails([]agentwrap.ValidationFailure{{
+		ExpectationID: "review-result-contract-testing",
+		Observed:      "citation target/internal/a.go ends at line 90; file has 42 lines",
+		Detail:        "review result failed semantic validation",
+		RepairHint:    "use an allowed logical path and inclusive line range",
+	}})
+	prompt := buildReviewRepairPrompt(ReviewManifest{}, ReviewInput{ID: "contract-testing"}, details, `{"coverageId":"contract-testing"}`)
+	for _, want := range []string{"review-result-contract-testing", "ends at line 90", "failed semantic validation", "use an allowed logical path", "Prior output to correct"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("repair prompt missing %q: %s", want, prompt)
 		}

@@ -290,7 +290,7 @@ func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
 		"theories":                func(q *QA) { q.TheoriesPerShard = 25 },
 		"iterations":              func(q *QA) { q.IterationsPerAttempt = 9 },
 		"commands":                func(q *QA) { q.CommandsPerAttempt = 17 },
-		"retries":                 func(q *QA) { q.RuntimeRetries = 3 },
+		"repairs":                 func(q *QA) { q.OutputRepairAttempts = 3 },
 		"concurrency":             func(q *QA) { q.ConcurrentInvestigators = 9 },
 		"command timeout":         func(q *QA) { q.CommandTimeout = "11m" },
 		"shard timeout":           func(q *QA) { q.ShardTimeout = "31m" },

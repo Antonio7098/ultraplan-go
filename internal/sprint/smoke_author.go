@@ -323,7 +323,7 @@ independently validates discovery coverage and runs the selected suite.`)
 		directSprintArtifactInput(s.root, prepared.Sprint, StagePlan),
 		directSprintArtifactInput(s.root, prepared.Sprint, StageExecute),
 		directSprintArtifactInput(s.root, prepared.Sprint, StageReview),
-		directWorkspaceInput(s.root, "execute-run-state", "run-state", ExecuteRunStateRelPath(prepared.Sprint)),
+		directExecutionHandoffInput(s.root, prepared.Sprint),
 	)
 	return appendDirectInputPacket(b.String(), inputsToInject)
 }

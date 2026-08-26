@@ -100,7 +100,7 @@ qa:
   model: openai/gpt-5.6
   variant: medium
   concurrent_investigators: 2
-  runtime_retries: 1
+  output_repair_attempts: 1
   run_timeout: 45m
 ```
 

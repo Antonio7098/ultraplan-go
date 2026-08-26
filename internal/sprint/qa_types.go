@@ -100,7 +100,7 @@ type QABudgets struct {
 	TheoriesPerShard           int           `json:"theories_per_shard"`
 	IterationsPerAttempt       int           `json:"iterations_per_attempt"`
 	CommandsPerAttempt         int           `json:"commands_per_attempt"`
-	RuntimeRetries             int           `json:"runtime_retries"`
+	OutputRepairAttempts       int           `json:"output_repair_attempts"`
 	ConcurrentInvestigators    int           `json:"concurrent_investigators"`
 	CommandTimeout             time.Duration `json:"command_timeout"`
 	ShardTimeout               time.Duration `json:"shard_timeout"`
@@ -129,7 +129,7 @@ func DefaultQABudgets() QABudgets {
 		TotalShards: 44, PendingEntries: 44, ChangedPathsPerShard: 32,
 		ContextPathsPerShard: 64, ContextExpansions: 2, PathsPerExpansion: 16,
 		BehavioralConcernsPerShard: 12, TheoriesPerShard: 12,
-		IterationsPerAttempt: 4, CommandsPerAttempt: 8, RuntimeRetries: 1,
+		IterationsPerAttempt: 4, CommandsPerAttempt: 8, OutputRepairAttempts: 1,
 		ConcurrentInvestigators: 3, CommandTimeout: 5 * time.Minute,
 		ShardTimeout: 20 * time.Minute, RunTimeout: 60 * time.Minute,
 		CleanupTimeout: 30 * time.Second, CommandOutputBytes: 256 << 10,
@@ -147,7 +147,7 @@ func MaximumQABudgets() QABudgets {
 		TotalShards: 44, PendingEntries: 44, ChangedPathsPerShard: 64,
 		ContextPathsPerShard: 128, ContextExpansions: 4, PathsPerExpansion: 32,
 		BehavioralConcernsPerShard: 24, TheoriesPerShard: 24,
-		IterationsPerAttempt: 8, CommandsPerAttempt: 16, RuntimeRetries: 2,
+		IterationsPerAttempt: 8, CommandsPerAttempt: 16, OutputRepairAttempts: 2,
 		ConcurrentInvestigators: 8, CommandTimeout: 10 * time.Minute,
 		ShardTimeout: 30 * time.Minute, RunTimeout: 90 * time.Minute,
 		CleanupTimeout: 30 * time.Second, CommandOutputBytes: 512 << 10,
@@ -376,6 +376,31 @@ type QAInvestigatorAttempt struct {
 	FailureKind          string              `json:"failure_kind,omitempty"`
 	Retryable            bool                `json:"retryable,omitempty"`
 	StopReason           string              `json:"stop_reason,omitempty"`
+	OutputDiagnostic     *QAOutputDiagnostic `json:"output_diagnostic,omitempty"`
+	Repair               *QARepairDiagnostic `json:"repair,omitempty"`
+}
+
+// QAOutputDiagnostic retains bounded facts about rejected investigator output
+// without persisting the model's response.
+type QAOutputDiagnostic struct {
+	Kind        string `json:"kind"`
+	Detail      string `json:"detail,omitempty"`
+	Source      string `json:"source,omitempty"`
+	OutputBytes int    `json:"output_bytes,omitempty"`
+	EventCount  int    `json:"event_count,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Session     bool   `json:"session"`
+	UsageKnown  bool   `json:"usage_known"`
+}
+
+type QARepairDiagnostic struct {
+	Attempted              bool   `json:"attempted"`
+	MaxAttempts            int    `json:"max_attempts"`
+	AttemptCount           int    `json:"attempt_count"`
+	Exhausted              bool   `json:"exhausted"`
+	ExhaustedReason        string `json:"exhausted_reason,omitempty"`
+	PermissionDenied       bool   `json:"permission_denied"`
+	UnsupportedSameSession bool   `json:"unsupported_same_session"`
 }
 
 type QAUsageSummary struct {
@@ -592,7 +617,7 @@ func validateQABudgets(got QABudgets) error {
 		{"context_expansions", got.ContextExpansions, max.ContextExpansions}, {"paths_per_expansion", got.PathsPerExpansion, max.PathsPerExpansion},
 		{"behavioral_concerns_per_shard", got.BehavioralConcernsPerShard, max.BehavioralConcernsPerShard}, {"theories_per_shard", got.TheoriesPerShard, max.TheoriesPerShard},
 		{"iterations_per_attempt", got.IterationsPerAttempt, max.IterationsPerAttempt}, {"commands_per_attempt", got.CommandsPerAttempt, max.CommandsPerAttempt},
-		{"runtime_retries", got.RuntimeRetries, max.RuntimeRetries}, {"concurrent_investigators", got.ConcurrentInvestigators, max.ConcurrentInvestigators},
+		{"output_repair_attempts", got.OutputRepairAttempts, max.OutputRepairAttempts}, {"concurrent_investigators", got.ConcurrentInvestigators, max.ConcurrentInvestigators},
 		{"command_output_bytes", got.CommandOutputBytes, max.CommandOutputBytes}, {"shard_output_bytes", got.ShardOutputBytes, max.ShardOutputBytes},
 		{"prompt_bytes", got.PromptBytes, max.PromptBytes}, {"recent_progress", got.RecentProgress, max.RecentProgress},
 		{"retained_attempts", got.RetainedAttempts, max.RetainedAttempts}, {"state_bytes", got.StateBytes, max.StateBytes},

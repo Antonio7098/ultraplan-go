@@ -65,7 +65,7 @@ Fix `8c4f83e` (keep repairs in the same session) is visible in sprint 37's metri
 
 ## 5. Problems seen in the recent logs (and status)
 
-- **Prompt bloat → runtime exits (regression, Aug 24).** After `7fab321` removed sprint prompt truncation limits, sprint-36 review prompts jumped from ~235 KB to **~2.0 MB** (8.5×). Of 20 such review attempts 14:50–15:21, several failed with `runtime_exit` (17 review `runtime_exit` failures recorded in total); retries eventually completed but at ~4.4 min median — slower and less reliable than the 235 KB cohort (2.3 min median). Complete-input shipping needs a budget for mutable content (changed target files), or this will keep degrading review fan-out.
+- **Prompt bloat → runtime exits (regression, Aug 24).** After `7fab321` removed sprint prompt truncation limits, sprint-36 review prompts jumped from ~235 KB to **~2.0 MB** (8.5×). Of 20 such review attempts 14:50–15:21, several failed with `runtime_exit` (17 review `runtime_exit` failures recorded in total); retries eventually completed but at ~4.4 min median — slower and less reliable than the 235 KB cohort (2.3 min median). The likely duplication is not the 16.6 KB `.run-state.json`: `renderReviewerPrompt` both points reviewers at a frozen review filesystem and directly embeds every common governed input plus every changed target file. The per-sprint isolated worktree already supplies a complete implementation tree, and the frozen review snapshot already supplies stable exact paths.
 - **Area-reasoning `runtime_exit` ×3** in sprint 37 (Aug 24 14:36–20:15) — addressed by `2da8d09` (recover completed area reasoning after runtime exit); the stage shows complete in flow-state.
 - One smoke timeout in sprint 35 (12-min limit, then 1.5-min success on retry) — harness flakiness, not context-related.
 
@@ -80,10 +80,10 @@ Fix `8c4f83e` (keep repairs in the same session) is visible in sprint 37's metri
 
 What cannot be claimed: a precise live before/after comparison of downstream wall-clock or tool counts for sprints ≤34 — that telemetry predates both the metrics capture and the current OpenCode store, so the baseline rests on the deterministic fixture plus the audit's structural findings.
 
-Biggest open risk: unbounded complete-input prompts (~2 MB reviews) introduced on Aug 24 are actively hurting the same review fan-out the stage was meant to accelerate.
+Biggest open risk: review prompts duplicate the complete frozen filesystem inputs inline, producing ~2 MB requests that actively hurt the same review fan-out the stage was meant to accelerate.
 
 ## 7. Recommendations
 
-1. Re-introduce a bounded budget for mutable blocks (changed files, run state) while keeping governed planning inputs complete.
+1. Keep governed planning inputs complete, but stop embedding implementation files and raw `.run-state.json` in reviewer prompts. Let reviewers read the complete sprint-isolated worktree/frozen review snapshot from the exact paths already listed. The orchestrator can continue loading run state itself to validate execution and derive the changed-path set.
 2. Translate the stable-prefix metadata into native provider cache breakpoints in the agentwrap adapter to make cache hits guaranteed rather than opportunistic.
 3. Persist tool-call counts per run in `.runtime-metrics.json` (currently only in the OpenCode DB) so future A/Bs don't depend on DB retention.

@@ -86,7 +86,7 @@ func runConfig(deps dependencies, args []string) error {
 	fmt.Fprintf(deps.stdout, "qa.theories_per_shard: %d\n", redacted.QA.TheoriesPerShard)
 	fmt.Fprintf(deps.stdout, "qa.iterations_per_attempt: %d\n", redacted.QA.IterationsPerAttempt)
 	fmt.Fprintf(deps.stdout, "qa.commands_per_attempt: %d\n", redacted.QA.CommandsPerAttempt)
-	fmt.Fprintf(deps.stdout, "qa.runtime_retries: %d\n", redacted.QA.RuntimeRetries)
+	fmt.Fprintf(deps.stdout, "qa.output_repair_attempts: %d\n", redacted.QA.OutputRepairAttempts)
 	fmt.Fprintf(deps.stdout, "qa.concurrent_investigators: %d\n", redacted.QA.ConcurrentInvestigators)
 	fmt.Fprintf(deps.stdout, "qa.tree_files: %d\n", redacted.QA.TreeFiles)
 	fmt.Fprintf(deps.stdout, "qa.tree_bytes: %d\n", redacted.QA.TreeBytes)

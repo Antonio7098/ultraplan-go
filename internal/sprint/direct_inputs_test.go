@@ -96,7 +96,7 @@ func TestSmokeAuthorDirectlyInjectsCompletePriorStageArtifacts(t *testing.T) {
 		Target:       filepath.Join(root, "target"),
 	}
 	prompt := service.renderSmokeAuthorPrompt(prepared)
-	for _, id := range []string{"sprint-index", "technical-handbook", "area-reasoning-architecture-md", "reasoning", "plan", "execute", "review", "execute-run-state"} {
+	for _, id := range []string{"sprint-index", "technical-handbook", "area-reasoning-architecture-md", "reasoning", "plan", "execute", "review", "execution-handoff"} {
 		if !strings.Contains(prompt, "ID: "+id) {
 			t.Fatalf("smoke prompt missing direct %s input", id)
 		}
@@ -106,7 +106,7 @@ func TestSmokeAuthorDirectlyInjectsCompletePriorStageArtifacts(t *testing.T) {
 	}
 }
 
-func TestReviewPreviewExplainsDirectGovernedInputs(t *testing.T) {
+func TestReviewPreviewUsesCompactReviewInputsAndFrozenTargetPaths(t *testing.T) {
 	root, _ := reviewFixture(t)
 	service := NewService(root).WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "test/model"}})
 	if _, findings, prepareErr := service.PrepareReview("proj", "01", ReviewRequest{}); prepareErr != nil || len(findings) > 0 {
@@ -123,12 +123,12 @@ func TestReviewPreviewExplainsDirectGovernedInputs(t *testing.T) {
 	for _, block := range preview.Explanation.Blocks {
 		if block.Mode != "" {
 			direct++
-			if block.ID == "requirements" || block.ID == "code-context" {
-				t.Fatalf("shared input duplicated in review suffix: %+v", block)
+			if block.Kind == "target" || block.ID == "run-state" || block.ID == "execute-run-state" {
+				t.Fatalf("review suffix embedded raw target or run state: %+v", block)
 			}
 		}
 	}
-	if direct == 0 || !strings.Contains(preview.Prompt, directInputOpen) {
-		t.Fatalf("review preview omitted direct reviewer inputs")
+	if direct == 0 || !strings.Contains(preview.Prompt, directInputOpen) || !strings.Contains(preview.Prompt, "Frozen input index:") {
+		t.Fatalf("review preview omitted compact inputs or frozen index")
 	}
 }

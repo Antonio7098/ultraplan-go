@@ -196,7 +196,7 @@ type QALimitsSummary struct {
 	TheoriesPerShard           int    `json:"theories_per_shard"`
 	IterationsPerAttempt       int    `json:"iterations_per_attempt"`
 	CommandsPerAttempt         int    `json:"commands_per_attempt"`
-	RuntimeRetries             int    `json:"runtime_retries"`
+	OutputRepairAttempts       int    `json:"output_repair_attempts"`
 	ConcurrentInvestigators    int    `json:"concurrent_investigators"`
 	CommandTimeout             string `json:"command_timeout"`
 	ShardTimeout               string `json:"shard_timeout"`
@@ -271,21 +271,23 @@ type QACommandSummary struct {
 }
 
 type QAInvestigatorAttemptSummary struct {
-	ID                   string                    `json:"id"`
-	Number               int                       `json:"number"`
-	StartedAt            time.Time                 `json:"started_at"`
-	CompletedAt          *time.Time                `json:"completed_at,omitempty"`
-	Duration             string                    `json:"duration,omitempty"`
-	ImplementationBefore string                    `json:"implementation_before"`
-	ImplementationAfter  string                    `json:"implementation_after,omitempty"`
-	ContextRequests      []QAContextRequestSummary `json:"context_requests,omitempty"`
-	Commands             []QACommandSummary        `json:"commands,omitempty"`
-	Evidence             []QAEvidenceSummary       `json:"evidence,omitempty"`
-	Usage                sprint.QAUsageSummary     `json:"usage"`
-	EstimatedCost        *sprint.QACostSummary     `json:"estimated_cost,omitempty"`
-	FailureKind          string                    `json:"failure_kind,omitempty"`
-	Retryable            bool                      `json:"retryable,omitempty"`
-	StopReason           string                    `json:"stop_reason,omitempty"`
+	ID                   string                     `json:"id"`
+	Number               int                        `json:"number"`
+	StartedAt            time.Time                  `json:"started_at"`
+	CompletedAt          *time.Time                 `json:"completed_at,omitempty"`
+	Duration             string                     `json:"duration,omitempty"`
+	ImplementationBefore string                     `json:"implementation_before"`
+	ImplementationAfter  string                     `json:"implementation_after,omitempty"`
+	ContextRequests      []QAContextRequestSummary  `json:"context_requests,omitempty"`
+	Commands             []QACommandSummary         `json:"commands,omitempty"`
+	Evidence             []QAEvidenceSummary        `json:"evidence,omitempty"`
+	Usage                sprint.QAUsageSummary      `json:"usage"`
+	EstimatedCost        *sprint.QACostSummary      `json:"estimated_cost,omitempty"`
+	FailureKind          string                     `json:"failure_kind,omitempty"`
+	Retryable            bool                       `json:"retryable,omitempty"`
+	StopReason           string                     `json:"stop_reason,omitempty"`
+	OutputDiagnostic     *sprint.QAOutputDiagnostic `json:"output_diagnostic,omitempty"`
+	Repair               *sprint.QARepairDiagnostic `json:"repair,omitempty"`
 }
 
 type QABlockerSummary struct {
@@ -1101,7 +1103,7 @@ func qaLimitsProjection(b sprint.QABudgets) QALimitsSummary {
 		ContextExpansions: b.ContextExpansions, PathsPerExpansion: b.PathsPerExpansion,
 		BehavioralConcernsPerShard: b.BehavioralConcernsPerShard, TheoriesPerShard: b.TheoriesPerShard,
 		IterationsPerAttempt: b.IterationsPerAttempt, CommandsPerAttempt: b.CommandsPerAttempt,
-		RuntimeRetries: b.RuntimeRetries, ConcurrentInvestigators: b.ConcurrentInvestigators,
+		OutputRepairAttempts: b.OutputRepairAttempts, ConcurrentInvestigators: b.ConcurrentInvestigators,
 		CommandTimeout: b.CommandTimeout.String(), ShardTimeout: b.ShardTimeout.String(),
 		RunTimeout: b.RunTimeout.String(), CleanupTimeout: b.CleanupTimeout.String(),
 		CommandOutputBytes: b.CommandOutputBytes, ShardOutputBytes: b.ShardOutputBytes,
@@ -1141,7 +1143,7 @@ func qaTheoryProjection(theory sprint.QATheory) QATheorySummary {
 }
 
 func qaAttemptProjection(attempt sprint.QAInvestigatorAttempt) QAInvestigatorAttemptSummary {
-	result := QAInvestigatorAttemptSummary{ID: attempt.ID, Number: attempt.Number, StartedAt: attempt.StartedAt, CompletedAt: attempt.CompletedAt, ImplementationBefore: attempt.ImplementationBefore, ImplementationAfter: attempt.ImplementationAfter, Usage: attempt.Usage, EstimatedCost: attempt.EstimatedCost, FailureKind: displaySafe(attempt.FailureKind), Retryable: attempt.Retryable, StopReason: displaySafe(attempt.StopReason)}
+	result := QAInvestigatorAttemptSummary{ID: attempt.ID, Number: attempt.Number, StartedAt: attempt.StartedAt, CompletedAt: attempt.CompletedAt, ImplementationBefore: attempt.ImplementationBefore, ImplementationAfter: attempt.ImplementationAfter, Usage: attempt.Usage, EstimatedCost: attempt.EstimatedCost, FailureKind: displaySafe(attempt.FailureKind), Retryable: attempt.Retryable, StopReason: displaySafe(attempt.StopReason), OutputDiagnostic: attempt.OutputDiagnostic, Repair: attempt.Repair}
 	if attempt.CompletedAt != nil && !attempt.StartedAt.IsZero() {
 		result.Duration = attempt.CompletedAt.Sub(attempt.StartedAt).Round(time.Millisecond).String()
 	}

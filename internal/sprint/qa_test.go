@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Antonio7098/agentwrap"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
@@ -84,7 +85,7 @@ func (runtime *qaInvestigatorRuntime) StartRun(_ context.Context, req pruntime.R
 		_ = os.WriteFile(filepath.Join(runtime.mutate, "drift.txt"), []byte("drift"), 0o600)
 	}
 	runtime.active.Add(-1)
-	output := qaInvestigatorOutput{SchemaVersion: QASchemaVersion, Theories: []qaInvestigatorTheory{{Claim: "the changed branch may reject valid input", Basis: "a new conditional branch", VerificationSurface: req.Metadata["shard"], ExpectationRefs: []string{"REQ-1"}, SeverityIfConfirmed: "medium", ConfirmationCondition: "the branch rejects the valid case", RefutationCondition: "the branch accepts the valid case", InconclusiveCondition: "the branch cannot be reached with retained evidence", SafeEvidenceStrategy: "inspect the assigned source", Outcome: QATheoryRefuted, OutcomeReason: "the branch preserves the valid case"}}}
+	output := qaInvestigatorOutput{SchemaVersion: QASchemaVersion, Theories: []qaInvestigatorTheory{{Claim: "the changed branch may reject valid input", Basis: "a new conditional branch", VerificationSurface: req.Metadata["shard"], ExpectationRefs: []string{"REQ-1"}, SeverityIfConfirmed: "medium", ConfirmationCondition: "the branch rejects the valid case", RefutationCondition: "the branch accepts the valid case", InconclusiveCondition: "the branch cannot be reached with retained evidence", SafeEvidenceStrategy: "inspect the assigned source", Outcome: QATheoryRefuted, OutcomeReason: "the branch preserves the valid case"}}, Evidence: []QAEvidenceSummary{}, Context: []QAContextRequest{}, Checks: []QAApprovedCheckRef{}}
 	data, _ := json.Marshal(output)
 	mode := runtime.mode
 	if mode == "" {
@@ -237,71 +238,35 @@ func TestQAPermissionRejectsFallbackAndTargetDrift(t *testing.T) {
 	}
 }
 
-func TestQAInvestigationAppliesAndRecordsRuntimeRetryLimit(t *testing.T) {
-	root, _, target, qaMap, _, _, token := qaRunFixture(t)
-	settings := QASettings{Runtime: StageRuntime{Model: "openai/qa", Variant: "high"}, Budgets: qaMap.Budgets}
-	runtime := &qaRetryRuntime{failures: 1}
-	completed, err := withTestQAMapFence(NewService(root).WithQASettings(settings).WithRuntime(runtime), func(QAMap) error { return nil }).runOneQAShard(context.Background(), qaMap, qaMap.Shards[0], target, token)
-	if err != nil {
-		t.Fatal(err)
+func TestQAInvestigatorValidationUsesAgentwrapRepairPolicy(t *testing.T) {
+	budgets := DefaultQABudgets()
+	budgets.OutputRepairAttempts = 2
+	spec := qaInvestigatorValidationSpec(budgets, &qaOutputCapture{})
+	if spec.Repair.MaxAttempts != 2 || spec.Repair.SessionAction != agentwrap.SessionActionContinue || !spec.Repair.AllowFreshSessionFallback || !spec.Repair.FreshSessionFallbackOnError {
+		t.Fatalf("repair config=%+v", spec.Repair)
 	}
-	if runtime.calls.Load() != 2 || len(completed.Attempts) != 2 || completed.Attempts[0].StopReason != "runtime attempt failed" {
-		t.Fatalf("retry history = calls=%d attempts=%+v", runtime.calls.Load(), completed.Attempts)
+	failure := agentwrap.ValidationFailure{Observed: `kind=unknown_field; json: unknown field "extra"`}
+	prompt := spec.Repair.BuildPrompt(agentwrap.RepairContext{Validation: agentwrap.ValidationResult{Failures: []agentwrap.ValidationFailure{failure}}, Attempt: 1, MaxAttempts: 2})
+	if !strings.Contains(prompt, `unknown field "extra"`) || !strings.Contains(prompt, `"schema_version":1`) {
+		t.Fatalf("repair prompt=%q", prompt)
 	}
-
-	exhaustedRuntime := &qaRetryRuntime{failures: 3}
-	blocked, err := withTestQAMapFence(NewService(root).WithQASettings(settings).WithRuntime(exhaustedRuntime), func(QAMap) error { return nil }).runOneQAShard(context.Background(), qaMap, qaMap.Shards[0], target, token)
-	if err == nil {
-		t.Fatal("retry exhaustion was accepted")
-	}
-	typed, ok := AsQAError(err)
-	if !ok || typed.Category != QAErrorBudgetExhausted || !strings.Contains(typed.Detail, "after 2 attempts") || len(blocked.Attempts) != 2 {
-		t.Fatalf("retry exhaustion = error=%v attempts=%+v", err, blocked.Attempts)
+	continued := spec.Repair.OverrideRequest(agentwrap.RepairContext{Attempt: 1}, agentwrap.RunRequest{SessionID: "qa-session", SessionAction: agentwrap.SessionActionContinue})
+	fresh := spec.Repair.OverrideRequest(agentwrap.RepairContext{Attempt: 2}, continued)
+	if continued.SessionID != "qa-session" || continued.SessionAction != agentwrap.SessionActionContinue || fresh.SessionID != "" || fresh.SessionAction != agentwrap.SessionActionFresh {
+		t.Fatalf("continued=%+v fresh=%+v", continued, fresh)
 	}
 }
 
-func TestQAInvestigationRetriesRejectedOutputInSameSession(t *testing.T) {
-	root, _, target, qaMap, _, _, token := qaRunFixture(t)
-	runtime := &qaOutputRetryRuntime{failures: 1}
-	settings := QASettings{Runtime: StageRuntime{Model: "openai/qa", Variant: "high"}, Budgets: qaMap.Budgets}
-	completed, err := withTestQAMapFence(NewService(root).WithQASettings(settings).WithRuntime(runtime), func(QAMap) error { return nil }).runOneQAShard(context.Background(), qaMap, qaMap.Shards[0], target, token)
-	if err != nil {
-		t.Fatal(err)
+func TestQAInvestigatorAgentwrapValidatorReturnsDiagnosticFailure(t *testing.T) {
+	budgets := DefaultQABudgets()
+	spec := qaInvestigatorValidationSpec(budgets, nil)
+	invalid := agentwrap.ValidateRun(context.Background(), agentwrap.RunRequest{}, agentwrap.RunResult{Status: agentwrap.StatusCompleted, TerminalOutput: `{"schema_version":1,"theories":[],"evidence":[],"context_requests":[],"check_requests":[],"extra":true}`}, *spec)
+	if invalid.Passed || len(invalid.Failures) != 1 || !strings.Contains(invalid.Failures[0].Observed, "unknown_field") || !strings.Contains(invalid.Failures[0].Observed, `unknown field "extra"`) {
+		t.Fatalf("invalid validation=%+v", invalid)
 	}
-	if runtime.calls.Load() != 2 || len(completed.Attempts) != 2 {
-		t.Fatalf("output retry history = calls=%d attempts=%+v", runtime.calls.Load(), completed.Attempts)
-	}
-	if completed.Attempts[0].FailureKind != "invalid_output" || !completed.Attempts[0].Retryable || completed.Attempts[0].StopReason != "investigator output rejected" {
-		t.Fatalf("rejected attempt = %+v", completed.Attempts[0])
-	}
-	if got := runtime.requests[1]; got.SessionID != "qa-session" || got.SessionAction != "continue" || !strings.Contains(got.Prompt, "corrected strict QA JSON object") {
-		t.Fatalf("repair request = %+v", got)
-	}
-}
-
-func TestQAInvestigationExhaustsRejectedOutputRetryBudget(t *testing.T) {
-	root, _, target, qaMap, _, _, token := qaRunFixture(t)
-	runtime := &qaOutputRetryRuntime{failures: 3}
-	settings := QASettings{Runtime: StageRuntime{Model: "openai/qa"}, Budgets: qaMap.Budgets}
-	blocked, err := withTestQAMapFence(NewService(root).WithQASettings(settings).WithRuntime(runtime), func(QAMap) error { return nil }).runOneQAShard(context.Background(), qaMap, qaMap.Shards[0], target, token)
-	typed, ok := AsQAError(err)
-	if !ok || typed.Category != QAErrorBudgetExhausted || !strings.Contains(typed.Detail, "output retry limit exhausted after 2 attempts") {
-		t.Fatalf("output retry exhaustion = %v", err)
-	}
-	if runtime.calls.Load() != 2 || len(blocked.Attempts) != 2 {
-		t.Fatalf("output retry exhaustion history = calls=%d attempts=%+v", runtime.calls.Load(), blocked.Attempts)
-	}
-}
-
-func TestQARetryDelayHonorsProviderAndAddsStableJitter(t *testing.T) {
-	providerDelay := 7 * time.Second
-	if got := qaRetryDelay(pruntime.Result{Error: &pruntime.Error{RetryAfter: providerDelay}}, 1, "shard"); got != providerDelay {
-		t.Fatalf("provider retry delay = %s", got)
-	}
-	first := qaRetryDelay(pruntime.Result{}, 1, "shard")
-	second := qaRetryDelay(pruntime.Result{}, 2, "shard")
-	if first < 100*time.Millisecond || first >= 200*time.Millisecond || second < 200*time.Millisecond || second >= 300*time.Millisecond {
-		t.Fatalf("jittered retry delays = %s, %s", first, second)
+	valid := agentwrap.ValidateRun(context.Background(), agentwrap.RunRequest{}, agentwrap.RunResult{Status: agentwrap.StatusCompleted, TerminalOutput: `{"schema_version":1,"theories":[],"evidence":[],"context_requests":[],"check_requests":[]}`}, *spec)
+	if !valid.Passed {
+		t.Fatalf("valid validation=%+v", valid)
 	}
 }
 
@@ -354,19 +319,26 @@ func TestQACancellationPersistsActiveShardWithoutRetry(t *testing.T) {
 }
 
 func TestQAInvestigationOutputIsStrictAndBounded(t *testing.T) {
-	valid := `{"schema_version":1,"theories":[]}`
-	if _, err := decodeQAInvestigatorOutput(pruntime.Result{TerminalOutput: valid}, len(valid)); err != nil {
+	valid := `{"schema_version":1,"theories":[],"evidence":[],"context_requests":[],"check_requests":[]}`
+	if _, _, err := decodeQAInvestigatorOutput(pruntime.Result{TerminalOutput: valid}, len(valid)); err != nil {
 		t.Fatal(err)
 	}
-	for name, content := range map[string]string{"unknown": `{"schema_version":1,"theories":[],"extra":true}`, "trailing": valid + `{}`, "version": `{"schema_version":2,"theories":[]}`} {
+	for name, content := range map[string]string{"unknown": `{"schema_version":1,"theories":[],"evidence":[],"context_requests":[],"check_requests":[],"extra":true}`, "missing": `{"schema_version":1,"theories":[]}`, "trailing": valid + `{}`, "version": `{"schema_version":2,"theories":[],"evidence":[],"context_requests":[],"check_requests":[]}`} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := decodeQAInvestigatorOutput(pruntime.Result{TerminalOutput: content}, 1024); err == nil {
+			if _, _, err := decodeQAInvestigatorOutput(pruntime.Result{TerminalOutput: content}, 1024); err == nil {
 				t.Fatal("invalid output accepted")
 			}
 		})
 	}
-	if _, err := decodeQAInvestigatorOutput(pruntime.Result{TerminalOutput: valid}, len(valid)-1); err == nil {
+	if _, _, err := decodeQAInvestigatorOutput(pruntime.Result{TerminalOutput: valid}, len(valid)-1); err == nil {
 		t.Fatal("oversized output accepted")
+	}
+}
+
+func TestQAOutputDiagnosticsAndRepairPromptExposeSafeParserFailure(t *testing.T) {
+	_, diagnostic, err := decodeQAInvestigatorOutput(pruntime.Result{Status: "completed", SessionID: "session", TerminalOutput: `{"schema_version":1,"theories":[],"extra":true}`}, 1024)
+	if err == nil || diagnostic.Kind != "unknown_field" || !strings.Contains(diagnostic.Detail, `unknown field "extra"`) || diagnostic.OutputBytes == 0 || !diagnostic.Session {
+		t.Fatalf("diagnostic=%+v err=%v", diagnostic, err)
 	}
 }
 

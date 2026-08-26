@@ -382,7 +382,7 @@ QA configuration uses normal precedence: product default, `ultraplan.yml`, then 
 | `theories_per_shard` | `ULTRAPLAN_QA_THEORIES_PER_SHARD` | 12 | 24 |
 | `iterations_per_attempt` | `ULTRAPLAN_QA_ITERATIONS_PER_ATTEMPT` | 4 | 8 |
 | `commands_per_attempt` | `ULTRAPLAN_QA_COMMANDS_PER_ATTEMPT` | 8 | 16 |
-| `runtime_retries` | `ULTRAPLAN_QA_RUNTIME_RETRIES` | 1 | 2 |
+| `output_repair_attempts` | `ULTRAPLAN_QA_OUTPUT_REPAIR_ATTEMPTS` | 1 | 2 |
 | `concurrent_investigators` | `ULTRAPLAN_QA_CONCURRENT_INVESTIGATORS` | 3 | 8 |
 | `command_timeout` | `ULTRAPLAN_QA_COMMAND_TIMEOUT` | 5m | 10m |
 | `shard_timeout` | `ULTRAPLAN_QA_SHARD_TIMEOUT` | 20m | 30m |

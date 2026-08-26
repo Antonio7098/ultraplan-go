@@ -277,12 +277,20 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 		findings = append(findings, ValidatePlanContent(manifest.Contents[ArtifactRelPath(sp, StagePlan)], planManifest)...)
 	}
 	runPath := ExecuteRunStateRelPath(sp)
+	var runContent string
 	if data, readErr := os.ReadFile(filepath.Join(s.root, filepath.FromSlash(runPath))); readErr == nil {
-		manifest.Contents[runPath] = string(data)
-		manifest.Inputs = append(manifest.Inputs, reviewInput("run-state", "governed", "run-state", runPath, string(data)))
+		runContent = string(data)
 		manifest.ChangedPaths = excludeGovernedReviewPaths(reviewChangedPaths(data), manifest.Inputs)
+		handoff, handoffErr := executionHandoffContent(data, manifest.ChangedPaths)
+		if handoffErr != nil {
+			findings = append(findings, finding("Review prerequisites", "execution handoff", runPath, "execute run state cannot be summarized", handoffErr.Error(), "Repair the execute run state before review."))
+		} else {
+			path := executionHandoffPath(sp)
+			manifest.Contents[path] = handoff
+			manifest.Inputs = append(manifest.Inputs, reviewInput("execution-handoff", "execution", "execution handoff", path, handoff))
+		}
 	} else {
-		manifest.Inputs = append(manifest.Inputs, ReviewInput{ID: "run-state", Kind: "governed", Name: "run-state", Path: runPath, Hash: "missing"})
+		manifest.Inputs = append(manifest.Inputs, ReviewInput{ID: "execution-handoff", Kind: "execution", Name: "execution handoff", Path: executionHandoffPath(sp), Hash: "missing"})
 	}
 	if target.Path != "" {
 		identity, identityErr := targetRevisionIdentity(target.Path)
@@ -325,7 +333,7 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 	for _, selected := range idx.ReviewProtocols {
 		resolve(selected, project.SectionReviewProtocols, "protocol", "protocol", false)
 	}
-	if unresolvedExecutePlanTasks(manifest.Contents[ArtifactRelPath(sp, StagePlan)], manifest.Contents[runPath], planManifest) {
+	if unresolvedExecutePlanTasks(manifest.Contents[ArtifactRelPath(sp, StagePlan)], runContent, planManifest) {
 		findings = append(findings, finding("Plan Execution", "tasks", ArtifactRelPath(sp, StagePlan), "plan tasks are not resolved", "one or more unchecked top-level tasks lack an explicit deferred run-state outcome", "Complete each executable task or defer it with an explicit rationale before review."))
 	}
 	// The handbook receives an independent reviewer even though it is also a governed input.
@@ -341,7 +349,7 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 			findings = append(findings, finding("Verification Evidence", command, ArtifactRelPath(sp, StageExecute), "approved verification evidence missing", "execute.md does not record the planned command", "Run the approved command and record its result in execute.md."))
 		}
 	}
-	if run := manifest.Contents[runPath]; run != "" && reviewRunStateIncomplete([]byte(run)) {
+	if runContent != "" && reviewRunStateIncomplete([]byte(runContent)) {
 		findings = append(findings, finding("Plan Execution", "run-state", runPath, "execute is incomplete", "run state contains non-complete tasks or status", "Complete or safely resolve execute before review."))
 	}
 	if len(manifest.ChangedPaths) == 0 {
@@ -365,6 +373,12 @@ func (s Service) PrepareReview(projectRef, sprintRef string, req ReviewRequest) 
 			manifest.Inputs = append(manifest.Inputs, reviewInput("target-"+slugReviewID(rel), "target", rel, "target/"+filepath.ToSlash(rel), string(data)))
 			manifest.Contents["target/"+filepath.ToSlash(rel)] = string(data)
 		}
+	}
+	if patch, available, patchErr := buildReviewPatch(sp, manifest.Target, manifest.ChangedPaths); patchErr != nil {
+		findings = append(findings, finding("Review target", "implementation diff", reviewPatchPath, "cannot create baseline-to-sprint review patch", patchErr.Error(), "Restore the sprint worktree and its recorded baseline before review."))
+	} else if available {
+		manifest.Inputs = append(manifest.Inputs, reviewInput("implementation-diff", "implementation-diff", "baseline-to-sprint patch", reviewPatchPath, patch))
+		manifest.Contents[reviewPatchPath] = patch
 	}
 	sort.Slice(manifest.Coverage, func(i, j int) bool { return manifest.Coverage[i].ID < manifest.Coverage[j].ID })
 	sort.Slice(manifest.Inputs, func(i, j int) bool { return manifest.Inputs[i].Path < manifest.Inputs[j].Path })
@@ -1540,10 +1554,10 @@ func renderReviewerPrompt(m ReviewManifest, c ReviewInput) string {
 	for _, in := range reviewerInputPacket(m, c) {
 		fmt.Fprintf(&b, "- logical `%s`; kind `%s`; read `%s`; sha256 `%s`\n", in.Path, in.Kind, reviewInputReadPath(m, in), in.Hash)
 	}
-	fmt.Fprintln(&b, "\nThe review prompt asset is already applied above. Assets marked `<embedded>` are consumed by the deterministic review orchestrator and do not require a file read.")
+	fmt.Fprintln(&b, "\nStart with the complete baseline-to-sprint implementation diff when it is listed. Read changed files from the frozen target paths only when you need surrounding context, dependency behavior, or final line citations; do not rediscover the repository broadly. The execution handoff is the reviewer-facing execution summary; raw run state is intentionally not supplied. The review prompt asset is already applied above. Assets marked `<embedded>` are consumed by the deterministic review orchestrator and do not require a file read.")
 	var direct []directPromptInput
 	for _, input := range reviewerInputPacket(m, c) {
-		if input.ID == "requirements" || input.ID == "code-context" || input.Path == "target/.identity" {
+		if input.ID == "requirements" || input.ID == "code-context" || input.Kind == "asset" || input.Kind == "target" || input.Path == "target/.identity" {
 			continue
 		}
 		content, ok := m.Contents[input.Path]
@@ -1561,7 +1575,8 @@ func reviewerInputPacket(m ReviewManifest, coverage ReviewInput) []ReviewInput {
 	for _, input := range m.Inputs {
 		// Independent coverage agents receive their own contract or handbook,
 		// never sibling coverage sources. Common governed planning inputs,
-		// protocols, execution evidence, and changed target files remain shared.
+		// protocols, execution evidence, the implementation diff, and readable
+		// changed target paths remain shared.
 		if (input.Kind == "contract" || input.Kind == "handbook") && input.Path != coverage.Path {
 			continue
 		}

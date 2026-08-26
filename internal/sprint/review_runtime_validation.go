@@ -113,8 +113,22 @@ func reviewValidationCheck(coverageID string, problems []string) agentwrap.Valid
 func validationFailureDetails(failures []agentwrap.ValidationFailure) []string {
 	var details []string
 	for _, failure := range failures {
+		var parts []string
 		if value := strings.TrimSpace(failure.Observed); value != "" {
-			details = append(details, value)
+			parts = append(parts, "observed: "+value)
+		}
+		if value := strings.TrimSpace(failure.Detail); value != "" {
+			parts = append(parts, "validation: "+value)
+		}
+		if value := strings.TrimSpace(failure.RepairHint); value != "" {
+			parts = append(parts, "repair: "+value)
+		}
+		if len(parts) > 0 {
+			prefix := strings.TrimSpace(failure.ExpectationID)
+			if prefix == "" {
+				prefix = "review result"
+			}
+			details = append(details, prefix+": "+strings.Join(parts, "; "))
 		}
 	}
 	return details

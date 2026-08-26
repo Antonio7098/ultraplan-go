@@ -844,7 +844,7 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 		ContextExpansions: c.ContextExpansions, PathsPerExpansion: c.PathsPerExpansion,
 		BehavioralConcernsPerShard: c.BehavioralConcernsPerShard, TheoriesPerShard: c.TheoriesPerShard,
 		IterationsPerAttempt: c.IterationsPerAttempt, CommandsPerAttempt: c.CommandsPerAttempt,
-		RuntimeRetries: c.RuntimeRetries, ConcurrentInvestigators: c.ConcurrentInvestigators,
+		OutputRepairAttempts: c.OutputRepairAttempts, ConcurrentInvestigators: c.ConcurrentInvestigators,
 		CommandTimeout: commandTimeout, ShardTimeout: shardTimeout, RunTimeout: runTimeout,
 		CleanupTimeout: cleanupTimeout, CommandOutputBytes: c.CommandOutputBytes,
 		ShardOutputBytes: c.ShardOutputBytes, PromptBytes: c.PromptBytes,
@@ -855,7 +855,7 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 	budgets.ChangedPathsPerShard, budgets.ContextPathsPerShard = configured.ChangedPathsPerShard, configured.ContextPathsPerShard
 	budgets.ContextExpansions, budgets.PathsPerExpansion = configured.ContextExpansions, configured.PathsPerExpansion
 	budgets.BehavioralConcernsPerShard, budgets.TheoriesPerShard = configured.BehavioralConcernsPerShard, configured.TheoriesPerShard
-	budgets.IterationsPerAttempt, budgets.CommandsPerAttempt, budgets.RuntimeRetries = configured.IterationsPerAttempt, configured.CommandsPerAttempt, configured.RuntimeRetries
+	budgets.IterationsPerAttempt, budgets.CommandsPerAttempt, budgets.OutputRepairAttempts = configured.IterationsPerAttempt, configured.CommandsPerAttempt, configured.OutputRepairAttempts
 	budgets.ConcurrentInvestigators = configured.ConcurrentInvestigators
 	budgets.CommandTimeout, budgets.ShardTimeout, budgets.RunTimeout, budgets.CleanupTimeout = configured.CommandTimeout, configured.ShardTimeout, configured.RunTimeout, configured.CleanupTimeout
 	budgets.CommandOutputBytes, budgets.ShardOutputBytes, budgets.PromptBytes = configured.CommandOutputBytes, configured.ShardOutputBytes, configured.PromptBytes

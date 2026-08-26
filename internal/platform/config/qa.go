@@ -27,7 +27,7 @@ type QA struct {
 	TheoriesPerShard           int    `json:"theories_per_shard"`
 	IterationsPerAttempt       int    `json:"iterations_per_attempt"`
 	CommandsPerAttempt         int    `json:"commands_per_attempt"`
-	RuntimeRetries             int    `json:"runtime_retries"`
+	OutputRepairAttempts       int    `json:"output_repair_attempts"`
 	ConcurrentInvestigators    int    `json:"concurrent_investigators"`
 	CommandTimeout             string `json:"command_timeout"`
 	ShardTimeout               string `json:"shard_timeout"`
@@ -55,7 +55,7 @@ func DefaultQA() QA {
 		ChangedPathsPerShard: 32, ContextPathsPerShard: 64,
 		ContextExpansions: 2, PathsPerExpansion: 16,
 		BehavioralConcernsPerShard: 12, TheoriesPerShard: 12,
-		IterationsPerAttempt: 4, CommandsPerAttempt: 8, RuntimeRetries: 1,
+		IterationsPerAttempt: 4, CommandsPerAttempt: 8, OutputRepairAttempts: 1,
 		ConcurrentInvestigators: 3, CommandTimeout: "5m", ShardTimeout: "20m",
 		RunTimeout: "60m", CleanupTimeout: "30s", CommandOutputBytes: 256 << 10,
 		ShardOutputBytes: 1 << 20, PromptBytes: 512 << 10, RecentProgress: 100,
@@ -72,7 +72,7 @@ func maxQA() QA {
 		ChangedPathsPerShard: 64, ContextPathsPerShard: 128,
 		ContextExpansions: 4, PathsPerExpansion: 32,
 		BehavioralConcernsPerShard: 24, TheoriesPerShard: 24,
-		IterationsPerAttempt: 8, CommandsPerAttempt: 16, RuntimeRetries: 2,
+		IterationsPerAttempt: 8, CommandsPerAttempt: 16, OutputRepairAttempts: 2,
 		ConcurrentInvestigators: 8, CommandTimeout: "10m", ShardTimeout: "30m",
 		RunTimeout: "90m", CleanupTimeout: "30s", CommandOutputBytes: 512 << 10,
 		ShardOutputBytes: 2 << 20, PromptBytes: 1 << 20, RecentProgress: 200,
@@ -90,7 +90,7 @@ func qaConfigFields() []string {
 		"qa.context_paths_per_shard", "qa.context_expansions",
 		"qa.paths_per_expansion", "qa.behavioral_concerns_per_shard",
 		"qa.theories_per_shard", "qa.iterations_per_attempt",
-		"qa.commands_per_attempt", "qa.runtime_retries",
+		"qa.commands_per_attempt", "qa.output_repair_attempts",
 		"qa.concurrent_investigators", "qa.command_timeout", "qa.shard_timeout",
 		"qa.run_timeout", "qa.cleanup_timeout", "qa.command_output_bytes",
 		"qa.shard_output_bytes", "qa.prompt_bytes", "qa.recent_progress",
@@ -174,8 +174,8 @@ func setQAField(q *QA, field, value string) (bool, error) {
 		return setQAInteger(field, value, &q.IterationsPerAttempt)
 	case "qa.commands_per_attempt":
 		return setQAInteger(field, value, &q.CommandsPerAttempt)
-	case "qa.runtime_retries":
-		return setQAInteger(field, value, &q.RuntimeRetries)
+	case "qa.output_repair_attempts":
+		return setQAInteger(field, value, &q.OutputRepairAttempts)
 	case "qa.concurrent_investigators":
 		return setQAInteger(field, value, &q.ConcurrentInvestigators)
 	case "qa.command_output_bytes":
@@ -232,7 +232,7 @@ func validateQA(q QA) error {
 		{"context_expansions", q.ContextExpansions, max.ContextExpansions}, {"paths_per_expansion", q.PathsPerExpansion, max.PathsPerExpansion},
 		{"behavioral_concerns_per_shard", q.BehavioralConcernsPerShard, max.BehavioralConcernsPerShard}, {"theories_per_shard", q.TheoriesPerShard, max.TheoriesPerShard},
 		{"iterations_per_attempt", q.IterationsPerAttempt, max.IterationsPerAttempt}, {"commands_per_attempt", q.CommandsPerAttempt, max.CommandsPerAttempt},
-		{"runtime_retries", q.RuntimeRetries, max.RuntimeRetries}, {"concurrent_investigators", q.ConcurrentInvestigators, max.ConcurrentInvestigators},
+		{"output_repair_attempts", q.OutputRepairAttempts, max.OutputRepairAttempts}, {"concurrent_investigators", q.ConcurrentInvestigators, max.ConcurrentInvestigators},
 		{"command_output_bytes", q.CommandOutputBytes, max.CommandOutputBytes}, {"shard_output_bytes", q.ShardOutputBytes, max.ShardOutputBytes},
 		{"prompt_bytes", q.PromptBytes, max.PromptBytes}, {"recent_progress", q.RecentProgress, max.RecentProgress},
 		{"retained_attempts", q.RetainedAttempts, max.RetainedAttempts}, {"state_bytes", q.StateBytes, max.StateBytes},

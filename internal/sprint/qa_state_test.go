@@ -56,7 +56,7 @@ func TestQASettingsRejectEveryInvalidBudgetClass(t *testing.T) {
 	for name, mutate := range map[string]func(*QASettings){
 		"model":    func(s *QASettings) { s.Runtime.Model = "" },
 		"zero":     func(s *QASettings) { s.Budgets.ChangedPaths = 0 },
-		"negative": func(s *QASettings) { s.Budgets.RuntimeRetries = -1 },
+		"negative": func(s *QASettings) { s.Budgets.OutputRepairAttempts = -1 },
 		"maximum": func(s *QASettings) {
 			s.Budgets.ConcurrentInvestigators = MaximumQABudgets().ConcurrentInvestigators + 1
 		},

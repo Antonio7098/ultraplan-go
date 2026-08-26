@@ -146,7 +146,10 @@ func (s Service) RenderQAInvestigatorPrompt(qaMap QAMap, shard QAShard) (string,
 
 Inspect only the assigned changed and context paths. You may read, list, and search those paths. You cannot write files, create tests or fixtures, invoke a shell, mutate Git, promote issues, or repair code. If more context is essential, return a bounded context request. If an existing product-owned check is useful, request its ID. Do not invent an executable, arguments, environment, path, prompt, or output location.
 
-Return exactly one JSON object with no Markdown fence and these fields: schema_version, theories, evidence, context_requests, and check_requests. Each theory draft must contain claim, basis, verification_surface, expectation_refs, severity_if_confirmed, confirmation_condition, refutation_condition, inconclusive_condition, safe_evidence_strategy, outcome, and outcome_reason. The product assigns IDs, implementation fingerprints, attempt history, and timestamps after validation. Outcomes are confirmed, refuted, invalid, inconclusive, blocked, cross_shard, or not_applicable. Context requests cannot approve themselves. Check requests contain only the exact ID and fingerprint from approved_checks.
+Return exactly one JSON object with no Markdown fence or surrounding text. Unknown fields are rejected. All five top-level fields must appear. schema_version must be 1. theories, evidence, context_requests, and check_requests must be JSON arrays. Each theory draft must contain claim, basis, verification_surface, expectation_refs, severity_if_confirmed, confirmation_condition, refutation_condition, inconclusive_condition, safe_evidence_strategy, outcome, and outcome_reason. The product assigns IDs, implementation fingerprints, attempt history, and timestamps after validation. Outcomes are confirmed, refuted, invalid, inconclusive, blocked, cross_shard, or not_applicable. Evidence entries contain kind, summary, paths, check_id, and output_digest. Context requests contain id, paths, reason, approved, and optional denied_reason; approved must be false. Check requests contain only id and fingerprint copied exactly from approved_checks.
+
+A valid minimal response is:
+{"schema_version":1,"theories":[],"evidence":[],"context_requests":[],"check_requests":[]}
 
 Assigned packet:
 ` + string(data) + "\n"
