@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	stdruntime "runtime"
 	"sort"
 	"strings"
@@ -578,6 +579,7 @@ func toAgentwrapRequest(req Request) (agentwrap.RunRequest, error) {
 			metadata = map[string]string{}
 		}
 		metadata[agentwrapopencode.MetadataDatabasePath] = req.RuntimeStorePath
+		metadata[agentwrapopencode.MetadataTempRoot] = filepath.Join(filepath.Dir(req.RuntimeStorePath), "tmp")
 		metadata["runtime_store_owner"] = req.RuntimeStoreOwner
 	}
 	if req.Cache.Key != "" {
