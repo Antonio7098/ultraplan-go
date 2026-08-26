@@ -200,6 +200,24 @@ func TestQATerminalFailurePublicationAndProgressBound(t *testing.T) {
 	}
 }
 
+func TestQATerminalSynthesisFailureRetainsSynthesisArtifact(t *testing.T) {
+	root, sp, _, qaMap, flow, state, token := qaRunFixture(t)
+	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error { return nil })
+	service := NewService(root)
+	synthesis, err := SynthesizeQA(qaMap, qaMap.Shards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.publishTerminalQAFailureWithSynthesis(store, flow, qaMap, qaMap.Shards, synthesis, state, token, errors.New("synthesis failed"))
+	if err == nil || result.Synthesis.ID != synthesis.ID {
+		t.Fatalf("terminal synthesis result=%+v err=%v", result.Synthesis, err)
+	}
+	loaded, loadErr := store.LoadSynthesis(qaMap.SemanticAttemptID, qaMap.Budgets)
+	if loadErr != nil || loaded.ID != synthesis.ID {
+		t.Fatalf("persisted synthesis=%+v err=%v", loaded, loadErr)
+	}
+}
+
 func TestQAPermissionRejectsFallbackAndTargetDrift(t *testing.T) {
 	root, _, target, qaMap, _, _, token := qaRunFixture(t)
 	settings := QASettings{Runtime: StageRuntime{Model: "openai/qa", Variant: "high"}, Budgets: qaMap.Budgets}

@@ -114,6 +114,89 @@ func TestQASynthesisHydrationRequiresRetainedTerminalFollowUpShard(t *testing.T)
 	}
 }
 
+func TestQASynthesisFollowUpsUseOneCumulativeAttemptBudget(t *testing.T) {
+	qaMap, shards := qaSynthesisFixture(t)
+	qaMap.Budgets.FollowUpShards = 3
+	first, err := SynthesizeQA(qaMap, shards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := pendingQASynthesisFollowUps(first, shards, qaMap.Budgets.FollowUpShards)
+	if len(initial) != 2 {
+		t.Fatalf("initial pending follow-ups = %d, want 2", len(initial))
+	}
+	for i := range initial {
+		initial[i].Phase = QAPhaseCompleted
+	}
+	parent := initial[0]
+	identity := QATheoryIdentity{Claim: "new follow-up finding", Basis: "follow-up evidence", VerificationSurface: "linked behavior", ExpectationRefs: []string{"REQ-1"}}
+	theoryID, err := NewQATheoryID(qaMap.Project, qaMap.Sprint, parent.ID, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent.Theories = []QATheory{{SchemaVersion: QASchemaVersion, ID: theoryID, ShardID: parent.ID, Claim: identity.Claim, Basis: identity.Basis, VerificationSurface: identity.VerificationSurface, ExpectationRefs: identity.ExpectationRefs, SeverityIfConfirmed: "medium", ConfirmationCondition: "evidence confirms", RefutationCondition: "evidence refutes", InconclusiveCondition: "evidence unavailable", SafeEvidenceStrategy: "read linked paths", ImplementationFingerprint: qaMap.ImplementationFingerprint, AttemptHistory: []QAInvestigatorAttempt{{ID: qaMap.SemanticAttemptID, Number: 1, StartedAt: time.Now().UTC()}}, Outcome: QATheoryInconclusive, OutcomeReason: "more evidence is required"}}
+	initial[0] = parent
+	retained := append(append([]QAShard(nil), shards...), initial...)
+	second, err := SynthesizeQA(qaMap, retained)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := pendingQASynthesisFollowUps(second, retained, qaMap.Budgets.FollowUpShards)
+	if len(pending) != 1 {
+		t.Fatalf("chained pending follow-ups = %d, want remaining budget of 1", len(pending))
+	}
+	pending[0].Phase = QAPhaseCompleted
+	retained = append(retained, pending[0])
+	if more := pendingQASynthesisFollowUps(second, retained, qaMap.Budgets.FollowUpShards); len(more) != 0 {
+		t.Fatalf("pending follow-ups exceeded cumulative budget: %+v", more)
+	}
+}
+
+func TestFinalizeQASynthesisUsesRetainedTerminalFollowUps(t *testing.T) {
+	qaMap, shards := qaSynthesisFixture(t)
+	synthesis, err := SynthesizeQA(qaMap, shards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained := append([]QAShard(nil), shards...)
+	for _, follow := range synthesis.FollowUpShards {
+		follow.Phase = QAPhaseCompleted
+		retained = append(retained, follow)
+	}
+	if err := finalizeQASynthesisFollowUps(&synthesis, qaMap, retained); err != nil {
+		t.Fatal(err)
+	}
+	if len(synthesis.FollowUpShards) != 2 || synthesis.NextAction != "Inspect the retained theory outcomes." {
+		t.Fatalf("final synthesis = %+v", synthesis)
+	}
+	for _, follow := range synthesis.FollowUpShards {
+		if follow.Phase != QAPhaseCompleted {
+			t.Fatalf("non-terminal final follow-up = %+v", follow)
+		}
+	}
+	firstBytes, err := NormalizedQASynthesisBytes(synthesis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, j := 0, len(retained)-1; i < j; i, j = i+1, j-1 {
+		retained[i], retained[j] = retained[j], retained[i]
+	}
+	second, err := SynthesizeQA(qaMap, retained)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := finalizeQASynthesisFollowUps(&second, qaMap, retained); err != nil {
+		t.Fatal(err)
+	}
+	secondBytes, err := NormalizedQASynthesisBytes(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(firstBytes, secondBytes) {
+		t.Fatalf("final synthesis is not deterministic:\n%s\n%s", firstBytes, secondBytes)
+	}
+}
+
 func qaSynthesisFixture(t *testing.T) (QAMap, []QAShard) {
 	t.Helper()
 	input := qaMapInputFixture()

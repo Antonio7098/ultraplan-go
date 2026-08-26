@@ -384,12 +384,16 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 		return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
 	}
 	emitQA(req.Progress, QAProgress{Phase: QAPhaseSynthesizing, Event: "synthesis_started", Completed: state.CompletedShards, Total: state.TotalShards, Message: "QA synthesis started"})
-	synthesis, err := SynthesizeQA(mapResult.Map, shards)
-	if err != nil {
-		return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
-	}
-	if len(synthesis.FollowUpShards) > 0 {
-		follow := append([]QAShard(nil), synthesis.FollowUpShards...)
+	var synthesis QASynthesis
+	for {
+		synthesis, err = SynthesizeQA(mapResult.Map, shards)
+		if err != nil {
+			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
+		}
+		follow := pendingQASynthesisFollowUps(synthesis, shards, mapResult.Map.Budgets.FollowUpShards)
+		if len(follow) == 0 {
+			break
+		}
 		state.TotalShards += len(follow)
 		shards = append(shards, follow...)
 		shards, state, runErr = s.runQAShardBatch(runCtx, store, flow, mapResult.Map, manifest.Target, shards, state, req)
@@ -400,13 +404,9 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 			}
 			return QARunResult{Project: sp.Project, Sprint: sp.Slug, State: state, Map: mapResult.Map, Shards: shards}, runErr
 		}
-		synthesis, err = SynthesizeQA(mapResult.Map, shards)
-		if err != nil {
-			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
-		}
 	}
-	if err := hydrateQASynthesisFollowUps(&synthesis, shards); err != nil {
-		return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
+	if err := finalizeQASynthesisFollowUps(&synthesis, mapResult.Map, shards); err != nil {
+		return s.publishTerminalQAFailureWithSynthesis(store, flow, mapResult.Map, shards, synthesis, state, req.WriterToken, err)
 	}
 	state.OutcomeCounts = cloneQAOutcomeCounts(synthesis.OutcomeCounts)
 	state.Phase = QAPhaseCompleted
@@ -552,11 +552,23 @@ func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMa
 }
 
 func (s Service) publishTerminalQAFailure(store QAStore, flow FlowState, qaMap QAMap, shards []QAShard, state QAState, token QAWriterToken, runErr error) (QARunResult, error) {
+	return s.publishTerminalQAFailureRecord(store, flow, qaMap, shards, nil, state, token, runErr)
+}
+
+func (s Service) publishTerminalQAFailureWithSynthesis(store QAStore, flow FlowState, qaMap QAMap, shards []QAShard, synthesis QASynthesis, state QAState, token QAWriterToken, runErr error) (QARunResult, error) {
+	return s.publishTerminalQAFailureRecord(store, flow, qaMap, shards, &synthesis, state, token, runErr)
+}
+
+func (s Service) publishTerminalQAFailureRecord(store QAStore, flow FlowState, qaMap QAMap, shards []QAShard, synthesis *QASynthesis, state QAState, token QAWriterToken, runErr error) (QARunResult, error) {
 	state = terminalQAState(state, runErr, s.now().UTC())
-	if publishErr := store.Publish(QAPublication{State: state, Flow: flow}, token); publishErr != nil {
+	if publishErr := store.Publish(QAPublication{Synthesis: synthesis, State: state, Flow: flow}, token); publishErr != nil {
 		return QARunResult{Project: qaMap.Project, Sprint: qaMap.Sprint, State: state, Map: qaMap, Shards: shards}, errors.Join(runErr, publishErr)
 	}
-	return QARunResult{Project: qaMap.Project, Sprint: qaMap.Sprint, State: state, Map: qaMap, Shards: shards}, runErr
+	result := QARunResult{Project: qaMap.Project, Sprint: qaMap.Sprint, State: state, Map: qaMap, Shards: shards}
+	if synthesis != nil {
+		result.Synthesis = *synthesis
+	}
+	return result, runErr
 }
 
 func hydrateQASynthesisFollowUps(synthesis *QASynthesis, shards []QAShard) error {
@@ -570,6 +582,71 @@ func hydrateQASynthesisFollowUps(synthesis *QASynthesis, shards []QAShard) error
 			return NewQAError(QAErrorInvalidState, "synthesize", "a proposed follow-up shard did not reach a retained terminal state", nil)
 		}
 		synthesis.FollowUpShards[i] = current
+	}
+	return nil
+}
+
+func pendingQASynthesisFollowUps(synthesis QASynthesis, shards []QAShard, limit int) []QAShard {
+	retained := make(map[string]struct{}, len(shards))
+	followUpCount := 0
+	for _, shard := range shards {
+		retained[shard.ID] = struct{}{}
+		if shard.Kind == QAShardFollowUp {
+			followUpCount++
+		}
+	}
+	remaining := limit - followUpCount
+	if remaining <= 0 {
+		return nil
+	}
+	pending := make([]QAShard, 0, remaining)
+	for _, follow := range synthesis.FollowUpShards {
+		if _, ok := retained[follow.ID]; ok {
+			continue
+		}
+		pending = append(pending, follow)
+		if len(pending) == remaining {
+			break
+		}
+	}
+	return pending
+}
+
+func finalizeQASynthesisFollowUps(synthesis *QASynthesis, qaMap QAMap, shards []QAShard) error {
+	followUps := make([]QAShard, 0, qaMap.Budgets.FollowUpShards)
+	for _, shard := range shards {
+		if shard.Kind != QAShardFollowUp {
+			continue
+		}
+		if shard.Phase != QAPhaseCompleted && shard.Phase != QAPhaseBlocked {
+			return NewQAError(QAErrorInvalidState, "synthesize", "a retained follow-up shard did not reach a terminal state", nil)
+		}
+		followUps = append(followUps, shard)
+	}
+	if len(followUps) > qaMap.Budgets.FollowUpShards {
+		return NewQAError(QAErrorBudgetExhausted, "synthesize", "retained follow-up shards exceed the configured budget", nil)
+	}
+	sort.Slice(followUps, func(i, j int) bool { return followUps[i].ID < followUps[j].ID })
+	synthesis.FollowUpShards = followUps
+	followIDs := make([]string, 0, len(followUps))
+	for _, follow := range followUps {
+		followIDs = append(followIDs, follow.ID)
+	}
+	challengeIDs := make([]string, 0, len(synthesis.Challenges))
+	for _, challenge := range synthesis.Challenges {
+		challengeIDs = append(challengeIDs, challenge.ID)
+	}
+	id, err := NewQASynthesisID(qaMap.Project, qaMap.Sprint, qaMap.SemanticAttemptID, QASynthesisIdentity{MapID: qaMap.ID, TheoryIDs: synthesis.TheoryIDs, ChallengeIDs: challengeIDs, FollowUpIDs: followIDs, PolicyFingerprint: qaMap.PolicyFingerprint})
+	if err != nil {
+		return err
+	}
+	synthesis.ID = id
+	synthesis.NextAction = "Inspect the retained theory outcomes."
+	if len(synthesis.Blockers) > 0 {
+		synthesis.NextAction = "Inspect the retained shard blockers and resume only after their stated prerequisites are restored."
+	}
+	if err := ValidateQASynthesis(*synthesis, qaMap.Budgets); err != nil {
+		return NewQAError(QAErrorInvalidState, "synthesize", err.Error(), err)
 	}
 	return nil
 }
