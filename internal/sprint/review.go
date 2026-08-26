@@ -612,8 +612,12 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 	}
 	if ctx.Err() != nil {
 		result.Status = ReviewCancelled
-		result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "cancelled", Message: ctx.Err().Error()})
-		return s.persistReviewFailure(projectRef, sprintRef, result, completed, len(coverage), ctx.Err())
+		cause := context.Cause(ctx)
+		if cause == nil {
+			cause = ctx.Err()
+		}
+		result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "cancelled", Message: safeReviewText(s.root, cause.Error())})
+		return s.persistReviewFailure(projectRef, sprintRef, result, completed, len(coverage), reviewCancellationCause(coverage, cause))
 	}
 	if result.Verdict == ReviewVerdictBlocked {
 		result.Status = ReviewFailed
@@ -658,6 +662,25 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 		_ = s.deleteCompletedSession(ctx, sessionID)
 	}
 	return result, nil
+}
+
+func reviewCancellationCause(coverage []ReviewCoverageResult, cancellation error) error {
+	var failures error
+	for _, result := range coverage {
+		message := strings.TrimSpace(result.Error)
+		if message == "" || message == context.Canceled.Error() || message == context.DeadlineExceeded.Error() {
+			continue
+		}
+		coverageID := strings.TrimSpace(result.CoverageID)
+		if coverageID == "" {
+			coverageID = "unknown"
+		}
+		failures = errors.Join(failures, fmt.Errorf("review coverage %s failed: %s", coverageID, message))
+	}
+	if failures == nil {
+		return cancellation
+	}
+	return errors.Join(failures, cancellation)
 }
 
 func (s Service) persistReviewFailure(projectRef, sprintRef string, result ReviewResult, completed, total int, cause error) (ReviewResult, error) {
@@ -945,12 +968,12 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 		out.Error = "runtime could not enforce review permission policy"
 		return
 	}
-	if ctx.Err() != nil {
-		out.Error = safeReviewText(s.root, ctx.Err().Error())
-		return
-	}
 	candidate, problems := extractValidatedReviewResult(s.root, m, c.ID, r)
 	if err == nil && len(problems) == 0 {
+		if ctx.Err() != nil {
+			out.Error = safeReviewText(s.root, context.Cause(ctx).Error())
+			return
+		}
 		return candidate, sessionID
 	}
 	// The production AgentWrap stack already performed its bounded repairs.
@@ -958,14 +981,21 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 	// fallback here so the product boundary remains deterministic in tests and
 	// alternate adapters.
 	if r.Validation.Configured {
-		if len(problems) == 0 && !r.Validation.Passed && len(r.Validation.Details) > 0 {
-			problems = append(problems, r.Validation.Details...)
-		}
-		if len(problems) > 0 {
-			out.Error = safeReviewText(s.root, strings.Join(problems, "; "))
+		if !r.Validation.Passed && len(r.Validation.Details) > 0 {
+			out.Error = safeReviewText(s.root, strings.Join(r.Validation.Details, "; "))
 		} else if err != nil {
-			out.Error = safeReviewText(s.root, err.Error())
+			if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+				out.Error = safeReviewText(s.root, context.Cause(ctx).Error())
+			} else {
+				out.Error = safeReviewText(s.root, err.Error())
+			}
+		} else if len(problems) > 0 {
+			out.Error = safeReviewText(s.root, strings.Join(problems, "; "))
 		}
+		return
+	}
+	if ctx.Err() != nil {
+		out.Error = safeReviewText(s.root, context.Cause(ctx).Error())
 		return
 	}
 	if len(problems) == 0 && err != nil {
@@ -995,13 +1025,24 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 			out.Error = "runtime could not enforce review permission policy during repair"
 			return
 		}
-		if ctx.Err() != nil {
-			out.Error = safeReviewText(s.root, ctx.Err().Error())
-			return
-		}
 		candidate, problems = extractValidatedReviewResult(s.root, m, c.ID, repaired)
 		if repairErr == nil && len(problems) == 0 {
+			if ctx.Err() != nil {
+				out.Error = safeReviewText(s.root, context.Cause(ctx).Error())
+				return
+			}
 			return candidate, sessionID
+		}
+		if ctx.Err() != nil {
+			switch {
+			case repairErr != nil && !errors.Is(repairErr, context.Canceled) && !errors.Is(repairErr, context.DeadlineExceeded):
+				out.Error = safeReviewText(s.root, repairErr.Error())
+			case len(problems) > 0 && strings.TrimSpace(repaired.TerminalOutput) != "":
+				out.Error = safeReviewText(s.root, strings.Join(problems, "; "))
+			default:
+				out.Error = safeReviewText(s.root, context.Cause(ctx).Error())
+			}
+			return
 		}
 		if len(problems) == 0 && repairErr != nil {
 			problems = []string{safeReviewText(s.root, repairErr.Error())}

@@ -3,6 +3,7 @@ package sprint
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,10 @@ type mutateReviewRuntime struct {
 }
 
 type contextReviewRuntime struct{}
+
+type cancellingValidationReviewRuntime struct {
+	cancel context.CancelFunc
+}
 
 type repairReviewRuntime struct{ calls atomic.Int32 }
 
@@ -89,6 +94,14 @@ func (r *rejectedReviewRuntime) StartRun(_ context.Context, req pruntime.Request
 func (contextReviewRuntime) StartRun(ctx context.Context, _ pruntime.Request) (pruntime.Result, error) {
 	<-ctx.Done()
 	return pruntime.Result{}, ctx.Err()
+}
+
+func (r cancellingValidationReviewRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {
+	r.cancel()
+	return pruntime.Result{Validation: pruntime.ValidationSummary{
+		Configured: true,
+		Details:    []string{"repair failed because required evidence was missing"},
+	}}, context.Canceled
 }
 
 func (r *mutateReviewRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
@@ -717,6 +730,38 @@ func TestReviewCancellationAndBlockedPreflightDoNotPass(t *testing.T) {
 	}
 	if got := safeReviewText("/workspace", "token=secret /workspace/file"); strings.Contains(got, "secret") || strings.Contains(got, "/workspace") {
 		t.Fatalf("unsafe diagnostic %q", got)
+	}
+}
+
+func TestReviewCancellationCauseKeepsOriginatingCoverageFailure(t *testing.T) {
+	err := reviewCancellationCause([]ReviewCoverageResult{
+		{CoverageID: "contract-documentation", Error: "structured review result remained invalid after bounded repair: missing evidence"},
+		{CoverageID: "contract-cli-surface", Error: context.Canceled.Error()},
+	}, context.Canceled)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error lost cancellation classification: %v", err)
+	}
+	message := err.Error()
+	if !strings.Contains(message, "contract-documentation") || !strings.Contains(message, "missing evidence") || !strings.Contains(message, context.Canceled.Error()) {
+		t.Fatalf("error does not expose root failure and cancellation: %q", message)
+	}
+}
+
+func TestReviewCancellationExposesRuntimeValidationFailure(t *testing.T) {
+	root, _ := reviewFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	service := NewService(root).
+		WithRuntime(cancellingValidationReviewRuntime{cancel: cancel}).
+		WithStageRuntime(map[PlanningStage]StageRuntime{StageReview: {Model: "openai/gpt-5.6"}})
+	result, err := service.Review(ctx, "proj", "01", ReviewRequest{Concurrency: 1})
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("result=%+v error=%v, want observable cancellation", result, err)
+	}
+	if !strings.Contains(err.Error(), "required evidence was missing") {
+		t.Fatalf("root validation failure was swallowed: %v", err)
+	}
+	if !reviewDiagnosticsContain(result.Diagnostics, "required evidence was missing") {
+		t.Fatalf("persisted diagnostics do not contain root failure: %+v", result.Diagnostics)
 	}
 }
 
