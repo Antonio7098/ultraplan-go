@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
 )
@@ -85,6 +87,16 @@ func RunQAInvestigation(ctx context.Context, req QAInvestigationRequest) (QAEvid
 	commandResults := make([]QACommandResult, 0, 1)
 	outcome := QAEvidencePass
 	reason := "check_passed"
+	if req.Plan.Executable == "" {
+		switch req.Plan.CheckID {
+		case "text-integrity":
+			outcome, reason = validateQATextIntegrity(workspace, req.Plan)
+		case "go-source-integrity":
+			outcome, reason = validateQAGoSourceIntegrity(workspace, req.Plan)
+		default:
+			outcome, reason = QAEvidenceBlocked, "no_applicable_check"
+		}
+	}
 	if req.Plan.Executable != "" {
 		started := req.Now().UTC()
 		result, runErr := workspace.Run(ctx, req.Runner, ".", pprocess.Request{Executable: req.Plan.Executable, Args: append([]string(nil), req.Plan.Args...), Env: pprocess.SortedEnvironment(req.Environment), Timeout: req.Plan.Timeout, StdoutLimit: req.Plan.OutputLimit, StderrLimit: req.Plan.OutputLimit, CleanupGrace: req.Budgets.CleanupTimeout})
@@ -100,6 +112,8 @@ func RunQAInvestigation(ctx context.Context, req QAInvestigationRequest) (QAEvid
 		}
 		if result.StdoutTruncated || result.StderrTruncated {
 			outcome, reason = QAEvidenceBlocked, "output_truncated"
+		} else if runErr == nil && req.Plan.RequireEmptyStdout && len(result.Stdout) > 0 {
+			outcome, reason = QAEvidenceFail, "unexpected_stdout"
 		}
 	}
 	after, identityErr := workspace.Identity(context.WithoutCancel(ctx), limits)
@@ -144,6 +158,34 @@ func RunQAInvestigation(ctx context.Context, req QAInvestigationRequest) (QAEvid
 	return QAEvidenceRecord{SchemaVersion: QAEvidenceSchemaVersion, ID: id, PlanID: req.Plan.ID, AttemptID: req.Plan.AttemptID, ShardID: req.Plan.ShardID, WorkspaceID: hashOpaque(workspace.Path), WorkspaceIdentity: identity, TargetIdentityBefore: targetBefore.Digest, TargetIdentityAfter: targetAfterDigest, GovernedInputFingerprint: req.Plan.GovernedInputFingerprint, ImplementationFingerprint: req.Plan.ImplementationFingerprint, MapFingerprint: req.Plan.MapFingerprint, Commands: commandResults, ChangedPaths: changedPaths, Outcome: outcome, ReasonCode: reason, Repeatable: outcome == QAEvidencePass, Contained: true, Cleanup: cleanup, CompletedAt: req.Now().UTC()}, nil
 }
 
+func validateQATextIntegrity(workspace pprocess.IsolationWorkspace, plan QAEvidencePlan) (QAEvidenceOutcome, string) {
+	for _, rel := range plan.ApprovedPaths {
+		path, err := workspace.Resolve(rel)
+		if err != nil {
+			return QAEvidenceBlocked, "text_path_invalid"
+		}
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > int64(plan.OutputLimit) {
+			return QAEvidenceFail, "text_content_invalid"
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return QAEvidenceBlocked, "text_read_incomplete"
+		}
+		if !utf8.Valid(content) || len(strings.TrimSpace(string(content))) == 0 {
+			return QAEvidenceFail, "text_content_invalid"
+		}
+	}
+	return QAEvidencePass, "text_integrity_passed"
+}
+
+func validateQAGoSourceIntegrity(workspace pprocess.IsolationWorkspace, plan QAEvidencePlan) (QAEvidenceOutcome, string) {
+	if err := validateGoSourcePaths(workspace.Path, plan.Args); err != nil {
+		return QAEvidenceFail, "go_source_invalid"
+	}
+	return QAEvidencePass, "go_source_integrity_passed"
+}
+
 func FreezeQAEvidencePlan(project, sprint string, plan QAEvidencePlan, budgets QABudgets, now time.Time) (QAEvidencePlan, error) {
 	plan.SchemaVersion = QAEvidenceSchemaVersion
 	plan.TheoryIDs = normalizeQAStrings(plan.TheoryIDs)
@@ -157,14 +199,16 @@ func FreezeQAEvidencePlan(project, sprint string, plan QAEvidencePlan, budgets Q
 		Expectations        []string
 		Conditions          []string
 		Paths               []string
+		CheckID             string
 		Executable          string
 		Args                []string
 		Environment         []string
 		Timeout             time.Duration
 		Output              int
+		RequireEmptyStdout  bool
 		Analyzers           int
 		Governed, Impl, Map string
-	}{plan.Kind, plan.TheoryIDs, plan.ExpectationRefs, []string{plan.ConfirmationCondition, plan.RefutationCondition, plan.InconclusiveCondition}, plan.ApprovedPaths, plan.Executable, plan.Args, plan.EnvironmentNames, plan.Timeout, plan.OutputLimit, plan.AnalyzerCalls, plan.GovernedInputFingerprint, plan.ImplementationFingerprint, plan.MapFingerprint})
+	}{plan.Kind, plan.TheoryIDs, plan.ExpectationRefs, []string{plan.ConfirmationCondition, plan.RefutationCondition, plan.InconclusiveCondition}, plan.ApprovedPaths, plan.CheckID, plan.Executable, plan.Args, plan.EnvironmentNames, plan.Timeout, plan.OutputLimit, plan.RequireEmptyStdout, plan.AnalyzerCalls, plan.GovernedInputFingerprint, plan.ImplementationFingerprint, plan.MapFingerprint})
 	if err != nil {
 		return QAEvidencePlan{}, err
 	}

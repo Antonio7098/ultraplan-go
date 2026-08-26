@@ -734,6 +734,11 @@ func (r *SQLiteRepository) ProposeTerminal(ctx context.Context, fence Fence, pro
 	if len(proposal.Reason) > MaxSafeValueBytes || len(proposal.ProposedBy) > MaxSafeValueBytes {
 		return Snapshot{}, false, invalidField("terminal", "contains an unbounded reason or proposer")
 	}
+	if proposal.Persistence != nil {
+		if proposal.Persistence.Code == "" || len(proposal.Persistence.Operation) > MaxSafeValueBytes || strings.ContainsAny(proposal.Persistence.Operation, "\x00\r\n") {
+			return Snapshot{}, false, invalidField("terminal.persistence", "must contain a bounded code and operation")
+		}
+	}
 	now := r.now()
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -757,7 +762,11 @@ func (r *SQLiteRepository) ProposeTerminal(ctx context.Context, fence Fence, pro
 		return current, false, nil
 	}
 	sequence := current.LastSequence + 1
-	payload, err := marshalBounded(map[string]string{"outcome": string(proposal.Outcome), "reason": proposal.Reason}, MaxSafeValueBytes*2)
+	payloadValue := map[string]any{"outcome": string(proposal.Outcome), "reason": proposal.Reason}
+	if proposal.Persistence != nil {
+		payloadValue["persistence"] = proposal.Persistence
+	}
+	payload, err := marshalBounded(payloadValue, MaxSafeValueBytes*2)
 	if err != nil {
 		return Snapshot{}, false, err
 	}

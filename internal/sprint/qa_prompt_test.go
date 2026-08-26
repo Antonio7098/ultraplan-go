@@ -73,7 +73,7 @@ func TestApprovedQACheckCatalogUsesExplicitReadOnlyArgv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(checks) != 1 || checks[0].Executable != "gofmt" || len(checks[0].Args) != 2 || checks[0].Args[0] != "-d" || !validFingerprint(checks[0].Fingerprint) {
+	if len(checks) != 2 || checks[0].Executable != "gofmt" || len(checks[0].Args) != 2 || checks[0].Args[0] != "-d" || !checks[0].RequireEmptyOut || checks[1].ID != "go-source-integrity" || !validFingerprint(checks[0].Fingerprint) {
 		t.Fatalf("checks = %+v", checks)
 	}
 	again, err := ApprovedQAChecks(target, []string{"README.md", "internal/a.go"}, DefaultQABudgets())
@@ -106,6 +106,7 @@ func TestQACheckPolicyRejectsShellGitWritesEscapesAndEnvironment(t *testing.T) {
 type qaProcessRunner struct {
 	target string
 	drift  bool
+	stdout string
 	seen   pprocess.Request
 }
 
@@ -116,7 +117,7 @@ func (runner *qaProcessRunner) Run(_ context.Context, request pprocess.Request) 
 			return pprocess.Result{}, err
 		}
 	}
-	return pprocess.Result{ExitCode: 0, Stdout: "diff"}, nil
+	return pprocess.Result{ExitCode: 0, Stdout: runner.stdout}, nil
 }
 
 func TestRunApprovedQACheckRejectsUnownedAndDetectsTargetDrift(t *testing.T) {
@@ -145,6 +146,11 @@ func TestRunApprovedQACheckRejectsUnownedAndDetectsTargetDrift(t *testing.T) {
 	if _, err := service.RunApprovedQACheck(context.Background(), qaMap, descriptor, QAApprovedCheckRef{ID: "other", Fingerprint: descriptor.Fingerprint}); err == nil {
 		t.Fatal("unowned check accepted")
 	}
+	runner.stdout = "diff"
+	if _, err := service.RunApprovedQACheck(context.Background(), qaMap, descriptor, ref); err == nil {
+		t.Fatal("gofmt diff output was accepted")
+	}
+	runner.stdout = ""
 	if _, err := service.RunApprovedQACheck(context.Background(), qaMap, descriptor, ref); err != nil {
 		t.Fatal(err)
 	}

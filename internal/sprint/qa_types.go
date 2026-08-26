@@ -126,7 +126,7 @@ type QABudgets struct {
 func DefaultQABudgets() QABudgets {
 	return QABudgets{
 		ChangedPaths: 512, PrimaryShards: 32, BoundaryShards: 8, FollowUpShards: 4,
-		TotalShards: 44, PendingEntries: 44, ChangedPathsPerShard: 32,
+		TotalShards: 44, PendingEntries: 44, ChangedPathsPerShard: 12,
 		ContextPathsPerShard: 64, ContextExpansions: 2, PathsPerExpansion: 16,
 		BehavioralConcernsPerShard: 12, TheoriesPerShard: 12,
 		IterationsPerAttempt: 4, CommandsPerAttempt: 8, OutputRepairAttempts: 1,
@@ -136,7 +136,7 @@ func DefaultQABudgets() QABudgets {
 		ShardOutputBytes: 1 << 20, PromptBytes: 512 << 10, RecentProgress: 100,
 		RetainedAttempts: 8, StateBytes: 128 << 20,
 		TreeFiles: 200_000, TreeBytes: 2 << 30, FileBytes: 32 << 20,
-		GeneratedChecks: 64, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256,
+		GeneratedChecks: 88, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256,
 		Issues: 200, AnalyzerCalls: 3, EvaluatorCalls: 3,
 	}
 }
@@ -377,6 +377,9 @@ type QAInvestigatorAttempt struct {
 	Commands             []QACommandSummary  `json:"commands,omitempty"`
 	Evidence             []QAEvidenceSummary `json:"evidence,omitempty"`
 	Usage                QAUsageSummary      `json:"usage"`
+	RuntimeEvents        int64               `json:"runtime_events"`
+	RetainedEvents       int                 `json:"retained_events"`
+	ObservedToolCalls    int                 `json:"observed_tool_calls"`
 	EstimatedCost        *QACostSummary      `json:"estimated_cost,omitempty"`
 	FailureKind          string              `json:"failure_kind,omitempty"`
 	Retryable            bool                `json:"retryable,omitempty"`
@@ -429,6 +432,7 @@ type QACostSummary struct {
 	Amount   float64 `json:"amount"`
 	Currency string  `json:"currency"`
 	Estimate bool    `json:"estimate"`
+	Source   string  `json:"source"`
 }
 
 type QATheory struct {

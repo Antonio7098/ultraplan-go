@@ -508,6 +508,15 @@ type TerminalProposal struct {
 	Outcome    TerminalOutcome
 	Reason     string
 	ProposedBy string
+	Persistence *PersistenceFailure
+}
+
+// PersistenceFailure records why run-control stopped an active runtime. It is
+// deliberately limited to the stable error code and operation. Driver errors
+// can contain paths or other local details and must stay in the diagnostic log.
+type PersistenceFailure struct {
+	Code      ErrorCode `json:"code"`
+	Operation string    `json:"operation,omitempty"`
 }
 
 const (

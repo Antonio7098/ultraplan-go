@@ -3,6 +3,8 @@ package sprint
 import (
 	"context"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +23,7 @@ type QACheckDescriptor struct {
 	Environment      []string      `json:"environment"`
 	Timeout          time.Duration `json:"timeout"`
 	OutputLimit      int           `json:"output_limit"`
+	RequireEmptyOut  bool          `json:"require_empty_stdout,omitempty"`
 	Fingerprint      string        `json:"fingerprint"`
 }
 
@@ -72,23 +75,31 @@ func ApprovedQAChecks(target string, changedPaths []string, budgets QABudgets) (
 	if len(goPaths) == 0 {
 		return nil, nil
 	}
-	descriptor := QACheckDescriptor{ID: "go-format-diff", Executable: "gofmt", Args: append([]string{"-d"}, goPaths...), WorkingDirectory: filepath.Clean(target), Timeout: budgets.CommandTimeout, OutputLimit: budgets.CommandOutputBytes}
-	if err := validateQACheckDescriptor(target, descriptor, budgets); err != nil {
-		return nil, err
+	descriptors := []QACheckDescriptor{
+		{ID: "go-format-diff", Executable: "gofmt", Args: append([]string{"-d"}, goPaths...), WorkingDirectory: filepath.Clean(target), Timeout: budgets.CommandTimeout, OutputLimit: budgets.CommandOutputBytes, RequireEmptyOut: true},
+		{ID: "go-source-integrity", Args: append([]string(nil), goPaths...), WorkingDirectory: filepath.Clean(target), Timeout: budgets.CommandTimeout, OutputLimit: budgets.CommandOutputBytes},
 	}
-	fingerprint := descriptor
-	fingerprint.Fingerprint = ""
-	digest, err := fingerprintQAValue(fingerprint)
-	if err != nil {
-		return nil, err
+	for i := range descriptors {
+		if err := validateQACheckDescriptor(target, descriptors[i], budgets); err != nil {
+			return nil, err
+		}
+		fingerprint := descriptors[i]
+		fingerprint.Fingerprint = ""
+		digest, err := fingerprintQAValue(fingerprint)
+		if err != nil {
+			return nil, err
+		}
+		descriptors[i].Fingerprint = digest
 	}
-	descriptor.Fingerprint = digest
-	return []QACheckDescriptor{descriptor}, nil
+	return descriptors, nil
 }
 
 func validateQACheckDescriptor(target string, descriptor QACheckDescriptor, budgets QABudgets) error {
-	if strings.TrimSpace(descriptor.ID) == "" || strings.TrimSpace(descriptor.Executable) == "" {
-		return fmt.Errorf("QA check requires ID and executable")
+	if strings.TrimSpace(descriptor.ID) == "" {
+		return fmt.Errorf("QA check requires an ID")
+	}
+	if strings.TrimSpace(descriptor.Executable) == "" && descriptor.ID != "go-source-integrity" {
+		return fmt.Errorf("QA check requires an executable")
 	}
 	executable := strings.ToLower(filepath.Base(descriptor.Executable))
 	switch executable {
@@ -266,6 +277,16 @@ func (s Service) RunApprovedQACheck(ctx context.Context, qaMap QAMap, descriptor
 	if err != nil {
 		return QACommandSummary{}, NewQAError(QAErrorStaleInput, "run check", "cannot capture target identity", err)
 	}
+	if descriptor.ID == "go-source-integrity" {
+		if err := validateGoSourcePaths(descriptor.WorkingDirectory, descriptor.Args); err != nil {
+			return QACommandSummary{CheckID: descriptor.ID, DescriptorFingerprint: descriptor.Fingerprint, ExitCode: 1}, NewQAError(QAErrorInvalidState, "run check", "Go source integrity check failed", err)
+		}
+		after, identityErr := targetIdentity(descriptor.WorkingDirectory)
+		if identityErr != nil || after != before {
+			return QACommandSummary{}, NewQAError(QAErrorPermissionDenied, "run check", "target identity changed during the approved check", identityErr)
+		}
+		return QACommandSummary{CheckID: descriptor.ID, DescriptorFingerprint: descriptor.Fingerprint, ExitCode: 0}, nil
+	}
 	env := make([]string, 0, len(descriptor.Environment))
 	for _, name := range descriptor.Environment {
 		if value, ok := os.LookupEnv(name); ok {
@@ -284,5 +305,22 @@ func (s Service) RunApprovedQACheck(ctx context.Context, qaMap QAMap, descriptor
 	if summary.OutputBytes > descriptor.OutputLimit*2 || summary.Truncated {
 		return summary, NewQAError(QAErrorBudgetExhausted, "run check", "approved check output limit was exhausted", nil)
 	}
+	if descriptor.RequireEmptyOut && len(result.Stdout) > 0 {
+		return summary, NewQAError(QAErrorInvalidState, "run check", "approved check produced disallowed standard output", nil)
+	}
 	return summary, nil
+}
+
+func validateGoSourcePaths(root string, paths []string) error {
+	files := token.NewFileSet()
+	for _, rel := range paths {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if !inside(root, path) {
+			return fmt.Errorf("Go source path escapes the target")
+		}
+		if _, err := parser.ParseFile(files, path, nil, parser.AllErrors); err != nil {
+			return err
+		}
+	}
+	return nil
 }

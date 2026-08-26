@@ -374,7 +374,7 @@ QA configuration uses normal precedence: product default, `ultraplan.yml`, then 
 | `follow_up_shards` | `ULTRAPLAN_QA_FOLLOW_UP_SHARDS` | 4 | 4 |
 | `total_shards` | `ULTRAPLAN_QA_TOTAL_SHARDS` | 44 | 44 |
 | `pending_entries` | `ULTRAPLAN_QA_PENDING_ENTRIES` | 44 | 44 |
-| `changed_paths_per_shard` | `ULTRAPLAN_QA_CHANGED_PATHS_PER_SHARD` | 32 | 64 |
+| `changed_paths_per_shard` | `ULTRAPLAN_QA_CHANGED_PATHS_PER_SHARD` | 12 | 64 |
 | `context_paths_per_shard` | `ULTRAPLAN_QA_CONTEXT_PATHS_PER_SHARD` | 64 | 128 |
 | `context_expansions` | `ULTRAPLAN_QA_CONTEXT_EXPANSIONS` | 2 | 4 |
 | `paths_per_expansion` | `ULTRAPLAN_QA_PATHS_PER_EXPANSION` | 16 | 32 |
@@ -397,7 +397,7 @@ QA configuration uses normal precedence: product default, `ultraplan.yml`, then 
 | `tree_files` | `ULTRAPLAN_QA_TREE_FILES` | 200000 | 400000 |
 | `tree_bytes` | `ULTRAPLAN_QA_TREE_BYTES` | 2147483648 | 4294967296 |
 | `file_bytes` | `ULTRAPLAN_QA_FILE_BYTES` | 33554432 | 67108864 |
-| `generated_checks` | `ULTRAPLAN_QA_GENERATED_CHECKS` | 64 | 128 |
+| `generated_checks` | `ULTRAPLAN_QA_GENERATED_CHECKS` | 88 | 128 |
 | `generated_patch_bytes` | `ULTRAPLAN_QA_GENERATED_PATCH_BYTES` | 2097152 | 4194304 |
 | `evidence_records` | `ULTRAPLAN_QA_EVIDENCE_RECORDS` | 256 | 512 |
 | `issues` | `ULTRAPLAN_QA_ISSUES` | 200 | 200 |

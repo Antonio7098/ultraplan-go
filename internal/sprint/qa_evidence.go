@@ -51,11 +51,13 @@ type QAEvidencePlan struct {
 	RefutationCondition       string        `json:"refutation_condition"`
 	InconclusiveCondition     string        `json:"inconclusive_condition"`
 	ApprovedPaths             []string      `json:"approved_paths"`
+	CheckID                   string        `json:"check_id,omitempty"`
 	Executable                string        `json:"executable,omitempty"`
 	Args                      []string      `json:"args,omitempty"`
 	EnvironmentNames          []string      `json:"environment_names,omitempty"`
 	Timeout                   time.Duration `json:"timeout"`
 	OutputLimit               int           `json:"output_limit"`
+	RequireEmptyStdout        bool          `json:"require_empty_stdout,omitempty"`
 	AnalyzerCalls             int           `json:"analyzer_calls"`
 	CleanupRequired           bool          `json:"cleanup_required"`
 	GovernedInputFingerprint  string        `json:"governed_input_fingerprint"`
@@ -219,6 +221,9 @@ func ValidateQAEvidencePlan(plan QAEvidencePlan, budgets QABudgets) error {
 		if err := validateQAPath(path); err != nil {
 			return err
 		}
+	}
+	if plan.CheckID != "" && !safeQAName(plan.CheckID) {
+		return fmt.Errorf("QA evidence plan check ID is invalid")
 	}
 	if plan.Executable != "" {
 		switch strings.ToLower(filepath.Base(plan.Executable)) {

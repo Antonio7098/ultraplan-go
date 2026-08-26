@@ -52,7 +52,7 @@ func DefaultQA() QA {
 	return QA{
 		ChangedPaths: 512, PrimaryShards: 32, BoundaryShards: 8,
 		FollowUpShards: 4, TotalShards: 44, PendingEntries: 44,
-		ChangedPathsPerShard: 32, ContextPathsPerShard: 64,
+		ChangedPathsPerShard: 12, ContextPathsPerShard: 64,
 		ContextExpansions: 2, PathsPerExpansion: 16,
 		BehavioralConcernsPerShard: 12, TheoriesPerShard: 12,
 		IterationsPerAttempt: 4, CommandsPerAttempt: 8, OutputRepairAttempts: 1,
@@ -61,7 +61,7 @@ func DefaultQA() QA {
 		ShardOutputBytes: 1 << 20, PromptBytes: 512 << 10, RecentProgress: 100,
 		RetainedAttempts: 8, StateBytes: 128 << 20,
 		TreeFiles: 200_000, TreeBytes: 2 << 30, FileBytes: 32 << 20,
-		GeneratedChecks: 64, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256, Issues: 200,
+		GeneratedChecks: 88, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256, Issues: 200,
 	}
 }
 

@@ -480,9 +480,9 @@ func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMa
 		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorPermissionDenied, "admission", "cannot create the private QA workspace parent", err)
 	}
 	defer os.RemoveAll(workspaceParent)
-	plans := make([]QAEvidencePlan, 0, len(shards))
-	records := make([]QAEvidenceRecord, 0, len(shards))
-	candidates := make([]QAIssueCandidate, 0)
+	plans := make([]QAEvidencePlan, 0, len(shards)*2)
+	records := make([]QAEvidenceRecord, 0, len(shards)*2)
+	candidateByKey := make(map[string]QAIssueCandidate)
 	evaluators := make([]QAModelObservation, 0)
 	completedEvidence := 0
 	for _, shard := range shards {
@@ -494,52 +494,79 @@ func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMa
 			continue
 		}
 		emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_started", ShardID: shard.ID, Completed: completedEvidence, Total: len(shards), Message: "Running isolated evidence check"})
-		descriptors, checkErr := ApprovedQAChecks(target, shard.ChangedPaths, qaMap.Budgets)
+		descriptors, checkErr := ApprovedQAChecks(target, approvedPaths, qaMap.Budgets)
 		if checkErr != nil {
 			return QAEvidencePublication{}, QAAssessmentRecord{}, checkErr
 		}
-		descriptor := QACheckDescriptor{Executable: "true", Timeout: qaMap.Budgets.CommandTimeout, OutputLimit: qaMap.Budgets.CommandOutputBytes}
-		if len(descriptors) > 0 {
-			descriptor = descriptors[0]
+		if len(descriptors) == 0 {
+			checkID := "no-applicable-check"
+			if qaHasTextEvidencePaths(approvedPaths) {
+				checkID = "text-integrity"
+			}
+			descriptors = []QACheckDescriptor{{ID: checkID, Timeout: qaMap.Budgets.CommandTimeout, OutputLimit: qaMap.Budgets.CommandOutputBytes}}
 		}
-		executable, lookupErr := exec.LookPath(descriptor.Executable)
-		if lookupErr != nil {
-			return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorAdmissionBlocked, "plan evidence", "an approved check executable is unavailable", lookupErr)
-		}
-		plan, planErr := FreezeQAEvidencePlan(sp.Project, sp.Slug, QAEvidencePlan{
-			AttemptID: qaMap.SemanticAttemptID, ShardID: shard.ID, ExpectationRefs: shard.ExpectationRefs,
-			Kind: QACheckFact, ConfirmationCondition: "approved check exits successfully", RefutationCondition: "approved check exits unsuccessfully", InconclusiveCondition: "approved check is incomplete",
-			ApprovedPaths: approvedPaths, Executable: executable, Args: append([]string(nil), descriptor.Args...), Timeout: descriptor.Timeout, OutputLimit: descriptor.OutputLimit,
-			CleanupRequired: true, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint, MapFingerprint: mapFingerprint,
-		}, qaMap.Budgets, s.now().UTC())
-		if planErr != nil {
-			return QAEvidencePublication{}, QAAssessmentRecord{}, planErr
-		}
-		record, runErr := RunQAInvestigation(ctx, QAInvestigationRequest{Project: sp.Project, Sprint: sp.Slug, TargetRoot: target, WorkspaceParent: workspaceParent, ProtectedRoots: []string{s.root, target}, Plan: plan, Budgets: qaMap.Budgets, ExpectedTargetID: targetTreeIdentity.Digest, Now: s.now})
-		if runErr != nil {
-			return QAEvidencePublication{}, QAAssessmentRecord{}, runErr
-		}
-		if record.Outcome == QAEvidenceFail {
-			observations, finalOutcome, evaluationErr := s.evaluateFailedEvidence(ctx, sp, record, plan)
-			evaluators = append(evaluators, observations...)
-			if evaluationErr != nil {
-				record.Outcome, record.ReasonCode = QAEvidenceBlocked, "evaluator_incomplete"
-			} else {
-				record.Outcome = finalOutcome
-				record.Repeatable = finalOutcome == QAEvidenceFail
-				record.ReasonCode = "failed_shard_evaluated"
+		for _, descriptor := range descriptors {
+			confirmed := make([]QATheory, 0, len(shard.Theories))
+			confirmedIDs := make([]string, 0, len(shard.Theories))
+			for _, theory := range shard.Theories {
+				if theory.Outcome == QATheoryConfirmed && qaTheoryUsesCheck(theory, descriptor.ID) {
+					confirmed = append(confirmed, theory)
+					confirmedIDs = append(confirmedIDs, theory.ID)
+				}
+			}
+			executable := ""
+			if descriptor.Executable != "" {
+				var lookupErr error
+				executable, lookupErr = exec.LookPath(descriptor.Executable)
+				if lookupErr != nil {
+					return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorAdmissionBlocked, "plan evidence", "an approved check executable is unavailable", lookupErr)
+				}
+			}
+			plan, planErr := FreezeQAEvidencePlan(sp.Project, sp.Slug, QAEvidencePlan{
+				AttemptID: qaMap.SemanticAttemptID, ShardID: shard.ID, TheoryIDs: confirmedIDs, ExpectationRefs: shard.ExpectationRefs,
+				Kind: QACheckFact, ConfirmationCondition: "approved check exits successfully and satisfies its output policy", RefutationCondition: "approved check exits unsuccessfully or violates its output policy", InconclusiveCondition: "approved check is unavailable or incomplete",
+				ApprovedPaths: approvedPaths, CheckID: descriptor.ID, Executable: executable, Args: append([]string(nil), descriptor.Args...), Timeout: descriptor.Timeout, OutputLimit: descriptor.OutputLimit, RequireEmptyStdout: descriptor.RequireEmptyOut,
+				CleanupRequired: true, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint, MapFingerprint: mapFingerprint,
+			}, qaMap.Budgets, s.now().UTC())
+			if planErr != nil {
+				return QAEvidencePublication{}, QAAssessmentRecord{}, planErr
+			}
+			record, runErr := RunQAInvestigation(ctx, QAInvestigationRequest{Project: sp.Project, Sprint: sp.Slug, TargetRoot: target, WorkspaceParent: workspaceParent, ProtectedRoots: []string{s.root, target}, Plan: plan, Budgets: qaMap.Budgets, ExpectedTargetID: targetTreeIdentity.Digest, Now: s.now})
+			if runErr != nil {
+				return QAEvidencePublication{}, QAAssessmentRecord{}, runErr
+			}
+			plans, records = append(plans, plan), append(records, record)
+			completedEvidence++
+			emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_completed", ShardID: shard.ID, Completed: completedEvidence, Total: len(shards), Message: "Isolated evidence check complete"})
+			if record.Outcome != QAEvidenceFail {
+				continue
+			}
+			if len(confirmed) == 0 {
+				key := shard.ID + "\x00" + descriptor.ID
+				candidateByKey[key] = QAIssueCandidate{Title: "Approved QA check failed", Claim: "approved check " + descriptor.ID + " failed in the isolated copy", IssueClass: "behavior", Severity: "medium", Location: approvedPaths[0], EvidenceIDs: []string{record.ID}, RepairEligible: true, RegressionCandidate: true}
+				continue
+			}
+			for _, theory := range confirmed {
+				candidate := candidateByKey[theory.ID]
+				candidate.Claim, candidate.Title, candidate.Location = theory.Claim, theory.Claim, theory.VerificationSurface
+				candidate.IssueClass, candidate.Severity = "behavior", theory.SeverityIfConfirmed
+				candidate.RepairEligible, candidate.RegressionCandidate = true, true
+				candidate.EvidenceIDs = normalizeQAStrings(append(candidate.EvidenceIDs, record.ID))
+				candidateByKey[theory.ID] = candidate
 			}
 		}
-		plans, records = append(plans, plan), append(records, record)
-		completedEvidence++
-		emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_completed", ShardID: shard.ID, Completed: completedEvidence, Total: len(shards), Message: "Isolated evidence check complete"})
-		if record.Outcome == QAEvidenceFail {
-			title, claim, location := "Approved QA check failed", "an approved check failed in the isolated copy", approvedPaths[0]
-			if len(shard.Theories) > 0 {
-				title, claim, location = shard.Theories[0].Claim, shard.Theories[0].Claim, shard.Theories[0].VerificationSurface
-			}
-			candidates = append(candidates, QAIssueCandidate{Title: title, Claim: claim, IssueClass: "behavior", Severity: "medium", Location: location, EvidenceIDs: []string{record.ID}, RepairEligible: true, RegressionCandidate: true})
-		}
+	}
+	candidateKeys := make([]string, 0, len(candidateByKey))
+	for key := range candidateByKey {
+		candidateKeys = append(candidateKeys, key)
+	}
+	sort.Strings(candidateKeys)
+	if len(candidateKeys) > qaMap.Budgets.Issues {
+		candidateKeys = candidateKeys[:qaMap.Budgets.Issues]
+	}
+	candidates := make([]QAIssueCandidate, 0, len(candidateKeys))
+	for _, key := range candidateKeys {
+		candidates = append(candidates, candidateByKey[key])
 	}
 	adjudication, err := AdjudicateQA(QAAdjudicationRequest{Project: sp.Project, Sprint: sp.Slug, AttemptID: qaMap.SemanticAttemptID, MapFingerprint: mapFingerprint, Plans: plans, Evidence: records, Candidates: candidates, Evaluators: evaluators, Budgets: qaMap.Budgets, Now: s.now().UTC()})
 	if err != nil {
@@ -564,6 +591,32 @@ func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMa
 		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorStaleInput, "publish evidence", "implementation changed during evidence production", err)
 	}
 	return QAEvidencePublication{Plans: plans, Records: records, Adjudication: &adjudication, Assessment: &assessment, Report: []byte(report), Budgets: qaMap.Budgets}, assessment, nil
+}
+
+func qaHasTextEvidencePaths(paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	for _, path := range paths {
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".html", ".css", ".js":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func qaTheoryUsesCheck(theory QATheory, checkID string) bool {
+	if strings.TrimSpace(checkID) == "" {
+		return false
+	}
+	for _, evidence := range theory.Evidence {
+		if evidence.CheckID == checkID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s Service) publishTerminalQAFailure(store QAStore, flow FlowState, qaMap QAMap, shards []QAShard, state QAState, token QAWriterToken, runErr error) (QARunResult, error) {
@@ -846,12 +899,16 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 	}
 	completed := s.now().UTC()
 	after, afterErr := targetIdentity(target)
-	attempt := QAInvestigatorAttempt{ID: fmt.Sprintf("%s/%s/1", token.OperationalAttemptID, shard.ID), Number: 1, StartedAt: started, CompletedAt: &completed, ImplementationBefore: before, ImplementationAfter: after, Usage: qaUsageSummary(result.Usage)}
+	runtimeEvents := result.EventStats.Total
+	if runtimeEvents == 0 {
+		runtimeEvents = int64(len(result.Events))
+	}
+	attempt := QAInvestigatorAttempt{ID: fmt.Sprintf("%s/%s/1", token.OperationalAttemptID, shard.ID), Number: 1, StartedAt: started, CompletedAt: &completed, ImplementationBefore: before, ImplementationAfter: after, Usage: qaUsageSummary(result.Usage), RuntimeEvents: runtimeEvents, RetainedEvents: len(result.Events), ObservedToolCalls: qaObservedToolCalls(result.Events)}
 	if result.Repair.Configured {
 		attempt.Repair = &QARepairDiagnostic{Attempted: result.Repair.Attempted, MaxAttempts: result.Repair.MaxAttempts, AttemptCount: result.Repair.AttemptCount, Exhausted: result.Repair.Exhausted, ExhaustedReason: result.Repair.ExhaustedReason, PermissionDenied: result.Repair.PermissionDenied, UnsupportedSameSession: result.Repair.UnsupportedSameSession}
 	}
-	if result.EstimatedCost != nil {
-		attempt.EstimatedCost = &QACostSummary{Amount: result.EstimatedCost.Amount, Currency: result.EstimatedCost.Currency, Estimate: result.EstimatedCost.Estimate}
+	if result.EstimatedCost != nil && result.EstimatedCost.Source != "unpriced" && (result.EstimatedCost.Source != "" || result.EstimatedCost.Amount != 0) {
+		attempt.EstimatedCost = &QACostSummary{Amount: result.EstimatedCost.Amount, Currency: result.EstimatedCost.Currency, Estimate: result.EstimatedCost.Estimate, Source: result.EstimatedCost.Source}
 	}
 	if afterErr != nil || after != before {
 		attempt.StopReason = "implementation identity drift"
@@ -1129,6 +1186,18 @@ func cloneQAOutcomeCounts(input map[QATheoryOutcome]int) map[QATheoryOutcome]int
 		result[outcome] = count
 	}
 	return result
+}
+
+func qaObservedToolCalls(events []pruntime.Event) int {
+	count := 0
+	for _, event := range events {
+		kind := strings.ToLower(strings.TrimSpace(event.Kind))
+		typeName := strings.ToLower(strings.TrimSpace(event.Type))
+		if strings.Contains(kind, "tool") || strings.Contains(typeName, "tool_use") || strings.Contains(typeName, "tool.call") {
+			count++
+		}
+	}
+	return count
 }
 
 func emitQA(progress func(QAProgress), event QAProgress) {

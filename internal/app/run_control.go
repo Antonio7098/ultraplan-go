@@ -17,6 +17,8 @@ import (
 
 const runControlLease = runcontrol.OwnerLeaseDuration
 
+const runControlPersistenceRetry = 30 * time.Second
+
 // runControlState owns one repository handle per workspace for the lifetime of
 // the process. dependencies is copied throughout command dispatch, so keeping
 // this state behind a pointer prevents accidental duplicate connection pools.
@@ -25,13 +27,15 @@ type runControlState struct {
 	repos    map[string]*runcontrol.SQLiteRepository
 	loggers  map[string]*runcontrol.LocalFileLogger
 	policies map[string]runcontrol.RetentionPolicy
+	maintenance map[string]context.CancelFunc
+	maintenanceWG sync.WaitGroup
 	owner    runcontrol.Owner
 	initErr  error
 }
 
 func newRunControlState() *runControlState {
 	owner, err := currentRunOwner()
-	return &runControlState{repos: make(map[string]*runcontrol.SQLiteRepository), loggers: make(map[string]*runcontrol.LocalFileLogger), policies: make(map[string]runcontrol.RetentionPolicy), owner: owner, initErr: err}
+	return &runControlState{repos: make(map[string]*runcontrol.SQLiteRepository), loggers: make(map[string]*runcontrol.LocalFileLogger), policies: make(map[string]runcontrol.RetentionPolicy), maintenance: make(map[string]context.CancelFunc), owner: owner, initErr: err}
 }
 
 func (s *runControlState) repository(ctx context.Context, workspaceRoot string, policies ...runcontrol.RetentionPolicy) (*runcontrol.SQLiteRepository, error) {
@@ -71,13 +75,43 @@ func (s *runControlState) repository(ctx context.Context, workspaceRoot string, 
 	s.repos[workspaceRoot] = repository
 	s.loggers[workspaceRoot] = logger
 	s.policies[workspaceRoot] = retention
+	maintenanceCtx, maintenanceCancel := context.WithCancel(context.Background())
+	s.maintenance[workspaceRoot] = maintenanceCancel
+	s.maintenanceWG.Add(1)
+	go s.maintain(maintenanceCtx, repository)
 	return repository, nil
+}
+
+func (s *runControlState) maintain(ctx context.Context, repository runcontrol.Repository) {
+	defer s.maintenanceWG.Done()
+	ticker := time.NewTicker(runcontrol.ReconciliationInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			maintenanceCtx, cancel := context.WithTimeout(ctx, runcontrol.ReconciliationInterval)
+			_ = retryRunControlOperation(maintenanceCtx, func(callCtx context.Context) error {
+				_, err := repository.Reconcile(callCtx, runcontrol.NativeProcessProbe{}, runcontrol.ReconcileOptions{})
+				return err
+			})
+			cancel()
+		}
+	}
 }
 
 func (s *runControlState) Close() {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	for root, cancel := range s.maintenance {
+		cancel()
+		delete(s.maintenance, root)
+	}
+	s.mu.Unlock()
+	s.maintenanceWG.Wait()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for root, repository := range s.repos {
@@ -181,8 +215,8 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 		FencingGeneration: attempt.FencingGeneration,
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	runCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	req.Metadata = cloneRuntimeMetadata(req.Metadata)
 	req.Metadata["run_control_run_id"] = string(snapshot.RunID)
 	configuredOnEvent := req.OnEvent
@@ -198,7 +232,7 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 		defer eventMu.Unlock()
 		if persistenceErr == nil {
 			persistenceErr = value
-			cancel()
+			cancel(value)
 		}
 	}
 	req.OnEvent = func(event runtimepkg.Event) {
@@ -236,7 +270,7 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 		}
 		if _, _, appendErr := appendRunEventWithRetry(runCtx, r.repository, fence, draft); appendErr != nil {
 			persistenceErr = fmt.Errorf("persist runtime event: %w", appendErr)
-			cancel()
+			cancel(persistenceErr)
 			return
 		}
 		if draft.Type == runcontrol.EventProgress {
@@ -254,7 +288,6 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 		ticker := time.NewTicker(runcontrol.OwnerTickInterval)
 		defer ticker.Stop()
 		lastHeartbeat := time.Now()
-		lastReconcile := time.Now()
 		for {
 			select {
 			case <-runCtx.Done():
@@ -273,7 +306,7 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 						setPersistenceErr(fmt.Errorf("acknowledge durable cancellation: %w", err))
 						return
 					}
-					cancel()
+					cancel(context.Canceled)
 					return
 				}
 				if now.Sub(lastHeartbeat) >= runcontrol.HeartbeatInterval {
@@ -285,16 +318,6 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 						return
 					}
 					lastHeartbeat = now
-				}
-				if now.Sub(lastReconcile) >= runcontrol.ReconciliationInterval {
-					if _, err := r.repository.Reconcile(runCtx, runcontrol.NativeProcessProbe{}, runcontrol.ReconcileOptions{}); err != nil {
-						if runCtx.Err() != nil {
-							return
-						}
-						setPersistenceErr(fmt.Errorf("reconcile durable runs: %w", err))
-						return
-					}
-					lastReconcile = now
 				}
 			}
 		}
@@ -314,7 +337,7 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 		}
 	}
 	eventMu.Unlock()
-	cancel()
+	cancel(nil)
 	<-controlDone
 	eventMu.Lock()
 	persistErr := persistenceErr
@@ -323,6 +346,7 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		_, _, terminalErr := proposeRunTerminalWithRetry(terminalCtx, r.repository, fence, runcontrol.TerminalProposal{
 			Outcome: runcontrol.TerminalPersistenceLost, Reason: "durable event persistence failed", ProposedBy: r.owner.ID,
+			Persistence: persistenceFailure(persistErr),
 		})
 		terminalCancel()
 		if terminalErr != nil {
@@ -343,14 +367,18 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 }
 
 func appendRunEventWithRetry(ctx context.Context, repository runcontrol.Repository, fence runcontrol.Fence, draft runcontrol.EventDraft) (runcontrol.Event, runcontrol.Snapshot, error) {
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(runControlPersistenceRetry)
+	wait := 25 * time.Millisecond
 	for {
 		event, snapshot, err := repository.Append(ctx, fence, draft)
 		if err == nil || !retryableRunControlError(err) || !time.Now().Before(deadline) {
 			return event, snapshot, err
 		}
-		if err := waitRunControlRetry(ctx, deadline); err != nil {
+		if err := waitRunControlRetry(ctx, deadline, wait); err != nil {
 			return runcontrol.Event{}, runcontrol.Snapshot{}, err
+		}
+		if wait < time.Second {
+			wait *= 2
 		}
 	}
 }
@@ -361,7 +389,7 @@ func proposeRunTerminalWithRetry(ctx context.Context, repository runcontrol.Repo
 		if err == nil || !retryableRunControlError(err) {
 			return snapshot, won, err
 		}
-		if err := waitRunControlRetry(ctx, time.Now().Add(250*time.Millisecond)); err != nil {
+		if err := waitRunControlRetry(ctx, time.Now().Add(250*time.Millisecond), 100*time.Millisecond); err != nil {
 			return runcontrol.Snapshot{}, false, err
 		}
 	}
@@ -371,10 +399,10 @@ func retryableRunControlError(err error) bool {
 	return errors.Is(err, runcontrol.ErrUnavailable) || errors.Is(err, runcontrol.ErrBusy)
 }
 
-func waitRunControlRetry(ctx context.Context, deadline time.Time) error {
+func waitRunControlRetry(ctx context.Context, deadline time.Time, requested time.Duration) error {
 	wait := time.Until(deadline)
-	if wait > 100*time.Millisecond {
-		wait = 100 * time.Millisecond
+	if wait > requested {
+		wait = requested
 	}
 	if wait <= 0 {
 		return context.DeadlineExceeded
@@ -387,6 +415,31 @@ func waitRunControlRetry(ctx context.Context, deadline time.Time) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func retryRunControlOperation(ctx context.Context, operation func(context.Context) error) error {
+	deadline := time.Now().Add(runControlPersistenceRetry)
+	wait := 25 * time.Millisecond
+	for {
+		err := operation(ctx)
+		if err == nil || !retryableRunControlError(err) || !time.Now().Before(deadline) {
+			return err
+		}
+		if err := waitRunControlRetry(ctx, deadline, wait); err != nil {
+			return err
+		}
+		if wait < time.Second {
+			wait *= 2
+		}
+	}
+}
+
+func persistenceFailure(err error) *runcontrol.PersistenceFailure {
+	var persistenceErr *runcontrol.Error
+	if !errors.As(err, &persistenceErr) {
+		return &runcontrol.PersistenceFailure{Code: runcontrol.CodeUnavailable}
+	}
+	return &runcontrol.PersistenceFailure{Code: persistenceErr.Code, Operation: boundedSafe(persistenceErr.Operation)}
 }
 
 func targetFromRuntimeRequest(req runtimepkg.Request) runcontrol.Target {

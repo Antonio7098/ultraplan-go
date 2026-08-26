@@ -114,3 +114,51 @@ func TestQAInvestigationRejectsOriginalTargetLeak(t *testing.T) {
 		t.Fatalf("target leak error = %v", err)
 	}
 }
+
+func TestQAInvestigationAppliesOutputPolicyAndBlocksMissingCheck(t *testing.T) {
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(target, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	budgets := DefaultQABudgets()
+	budgets.CommandTimeout = 5 * time.Second
+	budgets.ShardTimeout = 5 * time.Second
+	limits := pprocess.IsolationLimits{MaxFiles: budgets.TreeFiles, MaxBytes: budgets.TreeBytes, MaxFileSize: budgets.FileBytes, Timeout: budgets.ShardTimeout}
+	targetIdentity, err := pprocess.IdentifyTree(context.Background(), target, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID, _ := NewQASemanticAttemptID("alpha", "37-evidence", QASemanticIdentity{ChangedPaths: []string{"a.go"}})
+	shardID, _ := NewQAShardID("alpha", "37-evidence", attemptID, QAShardIdentity{Kind: QAShardPrimary, ChangedPaths: []string{"a.go"}, BehavioralConcerns: []string{"format"}, ExpectationRefs: []string{"REQ-1"}})
+	base := QAEvidencePlan{AttemptID: attemptID, ShardID: shardID, ExpectationRefs: []string{"REQ-1"}, Kind: QACheckFact, ConfirmationCondition: "check passes", RefutationCondition: "check fails", InconclusiveCondition: "check unavailable", ApprovedPaths: []string{"a.go"}, Timeout: time.Second, OutputLimit: 128, CleanupRequired: true, GovernedInputFingerprint: testQAFingerprint, ImplementationFingerprint: strings.Repeat("b", 64), MapFingerprint: strings.Repeat("c", 64)}
+	formatPlan := base
+	formatPlan.CheckID, formatPlan.Executable, formatPlan.Args, formatPlan.RequireEmptyStdout = "go-format-diff", "gofmt", []string{"-d", "a.go"}, true
+	formatPlan, err = FreezeQAEvidencePlan("alpha", "37-evidence", formatPlan, budgets, time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := RunQAInvestigation(context.Background(), QAInvestigationRequest{Project: "alpha", Sprint: "37-evidence", TargetRoot: target, WorkspaceParent: t.TempDir(), ProtectedRoots: []string{target}, Plan: formatPlan, Budgets: budgets, ExpectedTargetID: targetIdentity.Digest, Runner: &qaProcessRunner{stdout: "diff"}, Now: func() time.Time { return time.Unix(2, 0) }})
+	if err != nil {
+		if typed, ok := AsQAError(err); ok && typed.Category == QAErrorAdmissionBlocked {
+			t.Skip("native protected-root isolation is unavailable")
+		}
+		t.Fatal(err)
+	}
+	if record.Outcome != QAEvidenceFail || record.ReasonCode != "unexpected_stdout" {
+		t.Fatalf("format evidence = %+v", record)
+	}
+
+	missingPlan := base
+	missingPlan.CheckID = "no-applicable-check"
+	missingPlan, err = FreezeQAEvidencePlan("alpha", "37-evidence", missingPlan, budgets, time.Unix(3, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err = RunQAInvestigation(context.Background(), QAInvestigationRequest{Project: "alpha", Sprint: "37-evidence", TargetRoot: target, WorkspaceParent: t.TempDir(), ProtectedRoots: []string{target}, Plan: missingPlan, Budgets: budgets, ExpectedTargetID: targetIdentity.Digest, Now: func() time.Time { return time.Unix(4, 0) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Outcome != QAEvidenceBlocked || record.ReasonCode != "no_applicable_check" {
+		t.Fatalf("missing-check evidence = %+v", record)
+	}
+}
