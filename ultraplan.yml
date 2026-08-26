@@ -2,9 +2,9 @@ version: 1
 runtime:
   default: opencode
 models:
-  default: openrouter/stealth/ox-alpha
-  primary: openrouter/stealth/ox-alpha
-  backup: openrouter/stealth/ox-alpha
+  default: opencode/muse-spark-1.2-contributor-free
+  primary: opencode/muse-spark-1.2-contributor-free
+  backup: opencode/muse-spark-1.2-contributor-free
 execution:
   default_variant: high
   default_parallel: 5
@@ -25,7 +25,7 @@ planning:
   reasoning_variant: high
   plan_model: openai/gpt-5.6-sol
   plan_variant: high
-  review_model: openrouter/stealth/ox-alpha
+  review_model: opencode/muse-spark-1.2-contributor-free
   smoke_model: openai/gpt-5.6-sol
   smoke_variant: low
   execute_model: openai/gpt-5.6-sol
