@@ -40,6 +40,32 @@ func TestCreateSprintWorkspaceFreezesBaselineAndReusesWorktree(t *testing.T) {
 	}
 }
 
+func TestQAWorkspaceProvenanceDistinguishesCurrentCheckoutFromBaseline(t *testing.T) {
+	source := gitFixture(t)
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "Project One", "01 Parallel Work")
+	service := NewService(root)
+	targetRef, findings := service.resolveSprintTarget(sp, projectIndexForTarget(source), true)
+	if len(findings) != 0 {
+		t.Fatalf("create findings = %+v", findings)
+	}
+	record, err := loadSprintWorkspace(sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetRef.Path, "after-baseline.txt"), []byte("current checkout\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitTest(t, targetRef.Path, "add", "after-baseline.txt")
+	runGitTest(t, targetRef.Path, "commit", "-m", "after baseline")
+	head := mustGitOutput(t, targetRef.Path, "rev-parse", "HEAD")
+	target := QATargetIdentity{GitHead: head}
+	addQAWorkspaceProvenance(&target, sp, targetRef.Path)
+	if target.WorkspaceBranch != record.Branch || target.WorkspaceBaseline != record.Baseline || target.BaselineRelation != "ahead_of_baseline" || target.CommitsSinceBase != 1 {
+		t.Fatalf("QA target provenance = %+v", target)
+	}
+}
+
 func TestCreateSprintWorkspaceRejectsDirtySource(t *testing.T) {
 	source := gitFixture(t)
 	if err := os.WriteFile(filepath.Join(source, "uncommitted.txt"), []byte("dirty\n"), 0o644); err != nil {

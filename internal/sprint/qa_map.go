@@ -115,13 +115,15 @@ func (s Service) QAMap(projectRef, sprintRef string) (QAMapResult, error) {
 	if err != nil {
 		return QAMapResult{}, err
 	}
+	target := QATargetIdentity{Fingerprint: implementationFingerprint, Scope: "current_checkout", GitHead: gitHead, GitIndex: gitIndex, GitWorktree: gitWorktree}
+	addQAWorkspaceProvenance(&target, sp, manifest.Target)
 	input := QAMapInput{
 		Project: sp.Project, Sprint: sp.Slug, ChangedPaths: changed, ContextPaths: context,
 		ExpectationRefs: expectations, RiskTags: qaRiskTags(changed), InputRefs: inputRefs,
 		GovernedInputFingerprint: governedFingerprint, ImplementationFingerprint: implementationFingerprint,
 		ReviewFingerprint: flow.Review.Fingerprint, PolicyFingerprint: policyFingerprint,
 		CheckCatalogFingerprint: checkCatalogFingerprint,
-		Target:                  QATargetIdentity{Fingerprint: implementationFingerprint, GitHead: gitHead, GitIndex: gitIndex, GitWorktree: gitWorktree},
+		Target:                  target,
 		Settings:                settings,
 		ApprovedChecks:          checkRefs,
 	}
@@ -134,6 +136,33 @@ func (s Service) QAMap(projectRef, sprintRef string) (QAMapResult, error) {
 		return QAMapResult{}, err
 	}
 	return QAMapResult{Map: qaMap, NormalizedBytes: data, DryRun: true}, nil
+}
+
+func addQAWorkspaceProvenance(target *QATargetIdentity, sp Sprint, targetPath string) {
+	record, err := loadSprintWorkspace(sp)
+	if err != nil || filepath.Clean(record.Path) != filepath.Clean(targetPath) {
+		return
+	}
+	target.WorkspaceBranch = record.Branch
+	target.WorkspaceBaseline = record.Baseline
+	if record.Baseline == "" || target.GitHead == "" {
+		return
+	}
+	if record.Baseline == target.GitHead {
+		target.BaselineRelation = "at_baseline"
+		return
+	}
+	if err := exec.Command("git", "-C", targetPath, "merge-base", "--is-ancestor", record.Baseline, target.GitHead).Run(); err != nil {
+		target.BaselineRelation = "diverged"
+		return
+	}
+	output, err := exec.Command("git", "-C", targetPath, "rev-list", "--count", record.Baseline+".."+target.GitHead).Output()
+	if err != nil {
+		target.BaselineRelation = "ahead_of_baseline"
+		return
+	}
+	target.BaselineRelation = "ahead_of_baseline"
+	_, _ = fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &target.CommitsSinceBase)
 }
 
 func BuildQAMap(input QAMapInput) (QAMap, error) {

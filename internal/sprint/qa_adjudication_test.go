@@ -78,3 +78,20 @@ func TestQAAdmissionFailsClosed(t *testing.T) {
 		t.Fatal("unproven isolation admitted")
 	}
 }
+
+func TestDeriveQAAssessmentNextActionMatchesPromotedIssues(t *testing.T) {
+	review := VerificationStage{Fresh: true, ExecutionStatus: string(ReviewCompleted), Verdict: string(ReviewPassWithFindings)}
+	evidence := []QAEvidenceRecord{{ID: "evidence"}}
+	adjudication := QAAdjudication{AcceptedIDs: []string{"evidence"}}
+
+	assessment, next := DeriveQAAssessment(review, evidence, adjudication, nil, nil)
+	if assessment != AssessmentPassWithFindings || next != "Review the current Conformance Review findings." {
+		t.Fatalf("review-only findings assessment=%q next=%q", assessment, next)
+	}
+
+	adjudication.Issues = []QAIssue{{ID: "issue"}}
+	assessment, next = DeriveQAAssessment(review, evidence, adjudication, nil, nil)
+	if assessment != AssessmentPassWithFindings || next != "Review the promoted issues before governed repair." {
+		t.Fatalf("promoted issue assessment=%q next=%q", assessment, next)
+	}
+}

@@ -275,11 +275,16 @@ type QAFlowSummary struct {
 }
 
 type QATargetIdentity struct {
-	Fingerprint string            `json:"fingerprint"`
-	GitHead     string            `json:"git_head,omitempty"`
-	GitIndex    string            `json:"git_index,omitempty"`
-	GitWorktree string            `json:"git_worktree,omitempty"`
-	Categories  map[string]string `json:"categories,omitempty"`
+	Fingerprint       string            `json:"fingerprint"`
+	Scope             string            `json:"scope,omitempty"`
+	GitHead           string            `json:"git_head,omitempty"`
+	GitIndex          string            `json:"git_index,omitempty"`
+	GitWorktree       string            `json:"git_worktree,omitempty"`
+	WorkspaceBranch   string            `json:"workspace_branch,omitempty"`
+	WorkspaceBaseline string            `json:"workspace_baseline,omitempty"`
+	BaselineRelation  string            `json:"baseline_relation,omitempty"`
+	CommitsSinceBase  int               `json:"commits_since_baseline,omitempty"`
+	Categories        map[string]string `json:"categories,omitempty"`
 }
 
 type QAApprovedCheckRef struct {

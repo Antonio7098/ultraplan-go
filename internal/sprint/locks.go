@@ -80,13 +80,7 @@ func (s Service) ReconcileInterruptedMutation(ctx context.Context, projectRef, s
 				if qaErr != nil {
 					return false, qaErr
 				}
-				switch qaState.Phase {
-				case QAPhaseQueued, QAPhaseRunning, QAPhaseSynthesizing:
-					qaState.Phase = QAPhaseInterrupted
-					qaState.Run.Lifecycle = QARunTerminal
-					qaState.Run.TerminalResult = QATerminalInterrupted
-					qaState.Blocker = &QABlocker{Category: QAErrorConflict, Scope: "attempt", Summary: "the prior QA owner stopped before recording a terminal result", NextAction: "Run qa recover, then qa resume with a new durable owner."}
-					qaState.NextAction = qaState.Blocker.NextAction
+				if reconcileInterruptedQAState(&qaState) {
 					qaState.UpdatedAt = now
 					if err := qaStore.SaveRecoveredState(qaState, flow); err != nil {
 						return false, err

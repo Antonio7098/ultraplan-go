@@ -170,11 +170,16 @@ type QAEffectiveSourceSummary struct {
 }
 
 type QATargetIdentitySummary struct {
-	Fingerprint string            `json:"fingerprint"`
-	GitHead     string            `json:"git_head,omitempty"`
-	GitIndex    string            `json:"git_index,omitempty"`
-	GitWorktree string            `json:"git_worktree,omitempty"`
-	Categories  map[string]string `json:"categories,omitempty"`
+	Fingerprint       string            `json:"fingerprint"`
+	Scope             string            `json:"scope,omitempty"`
+	GitHead           string            `json:"git_head,omitempty"`
+	GitIndex          string            `json:"git_index,omitempty"`
+	GitWorktree       string            `json:"git_worktree,omitempty"`
+	WorkspaceBranch   string            `json:"workspace_branch,omitempty"`
+	WorkspaceBaseline string            `json:"workspace_baseline,omitempty"`
+	BaselineRelation  string            `json:"baseline_relation,omitempty"`
+	CommitsSinceBase  int               `json:"commits_since_baseline,omitempty"`
+	Categories        map[string]string `json:"categories,omitempty"`
 }
 
 type QACoverageSummary struct {
@@ -1078,7 +1083,7 @@ func qaEffectiveSourcesProjection(sources []sprint.QAEffectiveSource) []QAEffect
 }
 
 func qaTargetProjection(target sprint.QATargetIdentity) QATargetIdentitySummary {
-	result := QATargetIdentitySummary{Fingerprint: target.Fingerprint, GitHead: target.GitHead, GitIndex: target.GitIndex, GitWorktree: target.GitWorktree, Categories: make(map[string]string, len(target.Categories))}
+	result := QATargetIdentitySummary{Fingerprint: target.Fingerprint, Scope: target.Scope, GitHead: target.GitHead, GitIndex: target.GitIndex, GitWorktree: target.GitWorktree, WorkspaceBranch: target.WorkspaceBranch, WorkspaceBaseline: target.WorkspaceBaseline, BaselineRelation: target.BaselineRelation, CommitsSinceBase: target.CommitsSinceBase, Categories: make(map[string]string, len(target.Categories))}
 	for key, value := range target.Categories {
 		result.Categories[displaySafe(key)] = displaySafe(value)
 	}

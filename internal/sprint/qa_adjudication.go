@@ -220,8 +220,11 @@ func DeriveQAAssessment(review VerificationStage, evidence []QAEvidenceRecord, a
 			return AssessmentBlocked, "Restore valid containing smoke evidence."
 		}
 	}
-	if len(adjudication.Issues) > 0 || review.Verdict == string(ReviewPassWithFindings) {
+	if len(adjudication.Issues) > 0 {
 		return AssessmentPassWithFindings, "Review the promoted issues before governed repair."
+	}
+	if review.Verdict == string(ReviewPassWithFindings) {
+		return AssessmentPassWithFindings, "Review the current Conformance Review findings."
 	}
 	return AssessmentPass, "QA evidence is current and complete."
 }

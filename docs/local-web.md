@@ -352,3 +352,12 @@ smoke-suite status. Issue cursors are opaque and bound to the current attempt.
 Disconnects and event gaps are observation failures only; the page refreshes
 authoritative app state after reconnect, session rotation, terminal events, or
 recovery.
+
+```text
+GET /api/v1/projects/{project}/sprints/{sprint}/qa/evidence/{qa-v2-evidence-id}
+GET /api/v1/projects/{project}/sprints/{sprint}/qa/adjudication
+GET /api/v1/projects/{project}/sprints/{sprint}/qa/issues
+GET /api/v1/projects/{project}/sprints/{sprint}/qa/issues/{qa-v2-issue-id}
+GET /api/v1/projects/{project}/sprints/{sprint}/qa/assessment
+GET /api/v1/projects/{project}/sprints/{sprint}/qa/smoke-suite
+```

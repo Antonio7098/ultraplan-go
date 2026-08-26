@@ -59,6 +59,30 @@ func TestQASynthesisIsDeterministicAndCapsFollowUp(t *testing.T) {
 	}
 }
 
+func TestQASynthesisFollowUpIncludesApprovedContextRequests(t *testing.T) {
+	qaMap, shards := qaSynthesisFixture(t)
+	want := "internal/web/routes.go"
+	for i := range shards {
+		for _, theory := range shards[i].Theories {
+			if theory.Outcome != QATheoryInconclusive && theory.Outcome != QATheoryCrossShard {
+				continue
+			}
+			shards[i].Attempts = []QAInvestigatorAttempt{{ContextRequests: []QAContextRequest{{ID: "implementation-routes", Paths: []string{want}, Reason: "verify documented routes", Approved: true}}}}
+			result, err := SynthesizeQA(qaMap, shards)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, follow := range result.FollowUpShards {
+				if len(follow.ParentTheoryIDs) == 1 && follow.ParentTheoryIDs[0] == theory.ID && containsString(follow.ContextPaths, want) {
+					return
+				}
+			}
+			t.Fatalf("approved context %q was not carried into follow-up shards: %+v", want, result.FollowUpShards)
+		}
+	}
+	t.Fatal("fixture has no follow-up theory")
+}
+
 func TestQASynthesisChallengerRecordsAreValidatedAndFingerprintPureOutput(t *testing.T) {
 	qaMap, shards := qaSynthesisFixture(t)
 	identity := QAChallengeIdentity{TheoryIDs: []string{shards[0].Theories[0].ID}, Claim: "The retained evidence may not cover the boundary.", Basis: "The theory is scoped to one producer.", SafeEvidenceStrategy: "Compare the retained consumer evidence.", EvidenceRefs: []string{"consumer-boundary"}}
