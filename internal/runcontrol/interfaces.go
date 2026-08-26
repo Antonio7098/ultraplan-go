@@ -64,6 +64,13 @@ type Repository interface {
 	Close() error
 }
 
+// BatchAppender is an optional repository capability used by high-volume
+// event producers. Repository remains narrow so decorators can fall back to
+// ordered single-event appends without implementing batching.
+type BatchAppender interface {
+	AppendBatch(context.Context, Fence, []EventDraft) ([]Event, Snapshot, error)
+}
+
 // Control is the adapter-neutral service capability. Keeping this interface
 // separate permits app composition to decorate durable operations without
 // exposing SQL or transport details.

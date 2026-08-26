@@ -154,6 +154,77 @@ func TestStructuredRunLogsUseSafeBoundedCorrelationFields(t *testing.T) {
 	}
 }
 
+func TestAppendBatchCommitsOrderedEventsInOneTransaction(t *testing.T) {
+	ctx := context.Background()
+	repository := openTestRepository(t, t.TempDir())
+	defer repository.Close()
+	run, err := repository.Accept(ctx, Acceptance{Target: Target{Kind: "study", Operation: "analysis"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := Owner{ID: "batch-owner", Process: ProcessIdentity{PID: 1}}
+	attempt, _, err := repository.Claim(ctx, Claim{RunID: run.RunID, Owner: owner, Lease: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fence := Fence{RunID: run.RunID, AttemptID: attempt.ID, OwnerID: owner.ID, FencingGeneration: attempt.FencingGeneration}
+	events, snapshot, err := repository.AppendBatch(ctx, fence, []EventDraft{
+		{Type: EventMessage, Payload: map[string]string{"message": "one"}},
+		{Type: EventProgress, Payload: map[string]string{"message": "two"}},
+		{Type: EventArtifact, Payload: map[string]string{"message": "three"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 3 || events[0].Sequence+2 != events[2].Sequence || snapshot.LastSequence != events[2].Sequence {
+		t.Fatalf("events = %+v snapshot sequence = %d", events, snapshot.LastSequence)
+	}
+	stored, err := repository.Events(ctx, run.RunID, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 3 || stored[0].Payload["message"] != "one" || stored[2].Payload["message"] != "three" {
+		t.Fatalf("stored batch = %+v", stored)
+	}
+	health, err := repository.Health(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.Metrics.Append.Count != 1 {
+		t.Fatalf("append transaction count = %d, want 1", health.Metrics.Append.Count)
+	}
+}
+
+func TestAppendBatchRejectsWholeBatchBeforeWriting(t *testing.T) {
+	ctx := context.Background()
+	repository := openTestRepository(t, t.TempDir())
+	defer repository.Close()
+	run, err := repository.Accept(ctx, Acceptance{Target: Target{Kind: "runtime", Operation: "test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := Owner{ID: "batch-owner", Process: ProcessIdentity{PID: 1}}
+	attempt, _, err := repository.Claim(ctx, Claim{RunID: run.RunID, Owner: owner, Lease: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fence := Fence{RunID: run.RunID, AttemptID: attempt.ID, OwnerID: owner.ID, FencingGeneration: attempt.FencingGeneration}
+	_, _, err = repository.AppendBatch(ctx, fence, []EventDraft{
+		{Type: EventLifecycle, Lifecycle: LifecycleCancelling},
+		{Type: EventLifecycle, Lifecycle: LifecycleRunning},
+	})
+	if err == nil {
+		t.Fatal("invalid batch unexpectedly committed")
+	}
+	stored, readErr := repository.Events(ctx, run.RunID, 0, 10)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(stored) != 0 {
+		t.Fatalf("partial batch committed: %+v", stored)
+	}
+}
+
 func TestSQLiteRepositoryPersistsCommittedStateAcrossReopen(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

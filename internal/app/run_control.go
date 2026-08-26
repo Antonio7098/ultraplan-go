@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"sort"
 	"strings"
 	"sync"
@@ -19,18 +20,34 @@ const runControlLease = runcontrol.OwnerLeaseDuration
 
 const runControlPersistenceRetry = 30 * time.Second
 
+const (
+	runtimeEventBatchSize   = 32
+	runtimeEventBatchWindow = 25 * time.Millisecond
+	runtimeEventQueueSize   = 256
+)
+
+type queuedRuntimeEvent struct {
+	event runtimepkg.Event
+	draft runcontrol.EventDraft
+}
+
+// Reconciliation only repairs abandoned ownership after the grace period. A
+// one-minute process-level pass is frequent enough and avoids competing with
+// every active run for the SQLite writer lock.
+const runControlMaintenanceInterval = time.Minute
+
 // runControlState owns one repository handle per workspace for the lifetime of
 // the process. dependencies is copied throughout command dispatch, so keeping
 // this state behind a pointer prevents accidental duplicate connection pools.
 type runControlState struct {
-	mu       sync.Mutex
-	repos    map[string]*runcontrol.SQLiteRepository
-	loggers  map[string]*runcontrol.LocalFileLogger
-	policies map[string]runcontrol.RetentionPolicy
-	maintenance map[string]context.CancelFunc
+	mu            sync.Mutex
+	repos         map[string]*runcontrol.SQLiteRepository
+	loggers       map[string]*runcontrol.LocalFileLogger
+	policies      map[string]runcontrol.RetentionPolicy
+	maintenance   map[string]context.CancelFunc
 	maintenanceWG sync.WaitGroup
-	owner    runcontrol.Owner
-	initErr  error
+	owner         runcontrol.Owner
+	initErr       error
 }
 
 func newRunControlState() *runControlState {
@@ -67,10 +84,13 @@ func (s *runControlState) repository(ctx context.Context, workspaceRoot string, 
 		return nil, fmt.Errorf("open run-control diagnostic log: %w", err)
 	}
 	repository.SetLogger(logger)
-	if _, err := repository.Reconcile(ctx, runcontrol.NativeProcessProbe{}, runcontrol.ReconcileOptions{}); err != nil {
+	if err := retryRunControlOperation(ctx, func(callCtx context.Context) error {
+		_, maintainErr := repository.Maintain(callCtx, runcontrol.NativeProcessProbe{})
+		return maintainErr
+	}); err != nil {
 		_ = repository.Close()
 		_ = logger.Close()
-		return nil, fmt.Errorf("startup run reconciliation failed: %w", err)
+		return nil, fmt.Errorf("startup run maintenance failed: %w", err)
 	}
 	s.repos[workspaceRoot] = repository
 	s.loggers[workspaceRoot] = logger
@@ -82,19 +102,19 @@ func (s *runControlState) repository(ctx context.Context, workspaceRoot string, 
 	return repository, nil
 }
 
-func (s *runControlState) maintain(ctx context.Context, repository runcontrol.Repository) {
+func (s *runControlState) maintain(ctx context.Context, repository *runcontrol.SQLiteRepository) {
 	defer s.maintenanceWG.Done()
-	ticker := time.NewTicker(runcontrol.ReconciliationInterval)
+	ticker := time.NewTicker(runControlMaintenanceInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			maintenanceCtx, cancel := context.WithTimeout(ctx, runcontrol.ReconciliationInterval)
+			maintenanceCtx, cancel := context.WithTimeout(ctx, runControlMaintenanceInterval)
 			_ = retryRunControlOperation(maintenanceCtx, func(callCtx context.Context) error {
-				_, err := repository.Reconcile(callCtx, runcontrol.NativeProcessProbe{}, runcontrol.ReconcileOptions{})
-				return err
+				_, maintainErr := repository.Maintain(callCtx, runcontrol.NativeProcessProbe{})
+				return maintainErr
 			})
 			cancel()
 		}
@@ -235,10 +255,56 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 			cancel(value)
 		}
 	}
+	eventPersistCtx, stopEventPersistence := context.WithCancel(context.Background())
+	eventQueue := make(chan queuedRuntimeEvent, runtimeEventQueueSize)
+	eventWriterDone := make(chan struct{})
+	go func() {
+		defer close(eventWriterDone)
+		for {
+			first, ok := <-eventQueue
+			if !ok {
+				return
+			}
+			batch := []queuedRuntimeEvent{first}
+			timer := time.NewTimer(runtimeEventBatchWindow)
+		collect:
+			for len(batch) < runtimeEventBatchSize {
+				select {
+				case item, open := <-eventQueue:
+					if !open {
+						timer.Stop()
+						break collect
+					}
+					batch = append(batch, item)
+				case <-timer.C:
+					break collect
+				}
+			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			drafts := make([]runcontrol.EventDraft, len(batch))
+			for i := range batch {
+				drafts[i] = batch[i].draft
+			}
+			if _, _, appendErr := appendRunEventsWithRetry(eventPersistCtx, r.repository, fence, drafts); appendErr != nil {
+				setPersistenceErr(fmt.Errorf("persist runtime event batch: %w", appendErr))
+				return
+			}
+			if configuredOnEvent != nil {
+				for _, item := range batch {
+					configuredOnEvent(item.event)
+				}
+			}
+		}
+	}()
 	req.OnEvent = func(event runtimepkg.Event) {
 		eventMu.Lock()
-		defer eventMu.Unlock()
 		if persistenceErr != nil {
+			eventMu.Unlock()
 			return
 		}
 		draft := runtimeEventDraft(req, event)
@@ -257,6 +323,7 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 			}
 			progressOmitted++
 			progressOmittedLast = eventAt
+			eventMu.Unlock()
 			return
 		}
 		if progressOmitted > 0 {
@@ -268,17 +335,14 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 			draft.Omission.LastAt = &progressOmittedLast
 			progressOmitted = 0
 		}
-		if _, _, appendErr := appendRunEventWithRetry(runCtx, r.repository, fence, draft); appendErr != nil {
-			persistenceErr = fmt.Errorf("persist runtime event: %w", appendErr)
-			cancel(persistenceErr)
-			return
-		}
 		if draft.Type == runcontrol.EventProgress {
 			progressKey = key
 			progressCommittedAt = eventAt
 		}
-		if configuredOnEvent != nil {
-			configuredOnEvent(event)
+		eventMu.Unlock()
+		select {
+		case eventQueue <- queuedRuntimeEvent{event: event, draft: draft}:
+		case <-runCtx.Done():
 		}
 	}
 
@@ -293,7 +357,12 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 			case <-runCtx.Done():
 				return
 			case now := <-ticker.C:
-				snapshot, err := r.repository.Snapshot(runCtx, fence.RunID)
+				var snapshot runcontrol.Snapshot
+				err := retryRunControlOperation(runCtx, func(callCtx context.Context) error {
+					var snapshotErr error
+					snapshot, snapshotErr = r.repository.Snapshot(callCtx, fence.RunID)
+					return snapshotErr
+				})
 				if err != nil {
 					if runCtx.Err() != nil {
 						return
@@ -302,7 +371,11 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 					return
 				}
 				if snapshot.Cancellation.State == runcontrol.CancellationRequested {
-					if _, _, err := r.repository.AcknowledgeCancellation(runCtx, fence); err != nil {
+					err := retryRunControlOperation(runCtx, func(callCtx context.Context) error {
+						_, _, acknowledgeErr := r.repository.AcknowledgeCancellation(callCtx, fence)
+						return acknowledgeErr
+					})
+					if err != nil {
 						setPersistenceErr(fmt.Errorf("acknowledge durable cancellation: %w", err))
 						return
 					}
@@ -310,7 +383,11 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 					return
 				}
 				if now.Sub(lastHeartbeat) >= runcontrol.HeartbeatInterval {
-					if _, err := r.repository.Heartbeat(runCtx, fence, runControlLease); err != nil {
+					err := retryRunControlOperation(runCtx, func(callCtx context.Context) error {
+						_, heartbeatErr := r.repository.Heartbeat(callCtx, fence, runControlLease)
+						return heartbeatErr
+					})
+					if err != nil {
 						if runCtx.Err() != nil {
 							return
 						}
@@ -323,9 +400,11 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 		}
 	}()
 	result, runErr := r.base.StartRun(runCtx, req)
+	close(eventQueue)
+	<-eventWriterDone
 	eventMu.Lock()
 	if persistenceErr == nil && progressOmitted > 0 {
-		_, _, appendErr := appendRunEventWithRetry(runCtx, r.repository, fence, runcontrol.EventDraft{
+		_, _, appendErr := appendRunEventWithRetry(eventPersistCtx, r.repository, fence, runcontrol.EventDraft{
 			Type: runcontrol.EventOmission,
 			Omission: &runcontrol.Omission{
 				Reason: "equivalent progress coalesced", Count: progressOmitted,
@@ -337,6 +416,7 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 		}
 	}
 	eventMu.Unlock()
+	stopEventPersistence()
 	cancel(nil)
 	<-controlDone
 	eventMu.Lock()
@@ -367,15 +447,43 @@ func (r controlledRuntime) StartRun(ctx context.Context, req runtimepkg.Request)
 }
 
 func appendRunEventWithRetry(ctx context.Context, repository runcontrol.Repository, fence runcontrol.Fence, draft runcontrol.EventDraft) (runcontrol.Event, runcontrol.Snapshot, error) {
+	events, snapshot, err := appendRunEventsWithRetry(ctx, repository, fence, []runcontrol.EventDraft{draft})
+	if err != nil {
+		return runcontrol.Event{}, runcontrol.Snapshot{}, err
+	}
+	return events[0], snapshot, nil
+}
+
+func appendRunEventsWithRetry(ctx context.Context, repository runcontrol.Repository, fence runcontrol.Fence, drafts []runcontrol.EventDraft) ([]runcontrol.Event, runcontrol.Snapshot, error) {
 	deadline := time.Now().Add(runControlPersistenceRetry)
 	wait := 25 * time.Millisecond
 	for {
-		event, snapshot, err := repository.Append(ctx, fence, draft)
-		if err == nil || !retryableRunControlError(err) || !time.Now().Before(deadline) {
-			return event, snapshot, err
+		var events []runcontrol.Event
+		var snapshot runcontrol.Snapshot
+		var err error
+		if batcher, ok := repository.(runcontrol.BatchAppender); ok {
+			events, snapshot, err = batcher.AppendBatch(ctx, fence, drafts)
+		} else {
+			events = make([]runcontrol.Event, 0, len(drafts))
+			for _, draft := range drafts {
+				var event runcontrol.Event
+				event, snapshot, err = repository.Append(ctx, fence, draft)
+				if err != nil {
+					break
+				}
+				events = append(events, event)
+			}
 		}
-		if err := waitRunControlRetry(ctx, deadline, wait); err != nil {
-			return runcontrol.Event{}, runcontrol.Snapshot{}, err
+		if err == nil || !retryableRunControlError(err) || !time.Now().Before(deadline) {
+			return events, snapshot, err
+		}
+		// A repository without atomic batch support may have committed a prefix.
+		// Retrying the whole slice would duplicate those events.
+		if _, ok := repository.(runcontrol.BatchAppender); !ok && len(events) > 0 {
+			return events, snapshot, err
+		}
+		if err := waitRunControlRetry(ctx, deadline, jitterRunControlWait(wait)); err != nil {
+			return nil, runcontrol.Snapshot{}, err
 		}
 		if wait < time.Second {
 			wait *= 2
@@ -425,13 +533,21 @@ func retryRunControlOperation(ctx context.Context, operation func(context.Contex
 		if err == nil || !retryableRunControlError(err) || !time.Now().Before(deadline) {
 			return err
 		}
-		if err := waitRunControlRetry(ctx, deadline, wait); err != nil {
+		if err := waitRunControlRetry(ctx, deadline, jitterRunControlWait(wait)); err != nil {
 			return err
 		}
 		if wait < time.Second {
 			wait *= 2
 		}
 	}
+}
+
+func jitterRunControlWait(wait time.Duration) time.Duration {
+	if wait <= 1 {
+		return wait
+	}
+	spread := wait / 2
+	return wait - spread/2 + time.Duration(rand.Int64N(int64(spread)+1))
 }
 
 func persistenceFailure(err error) *runcontrol.PersistenceFailure {

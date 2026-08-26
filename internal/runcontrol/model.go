@@ -505,9 +505,9 @@ func NormalizeEventDraft(draft EventDraft) EventDraft {
 }
 
 type TerminalProposal struct {
-	Outcome    TerminalOutcome
-	Reason     string
-	ProposedBy string
+	Outcome     TerminalOutcome
+	Reason      string
+	ProposedBy  string
 	Persistence *PersistenceFailure
 }
 

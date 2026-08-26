@@ -224,7 +224,7 @@ func (m *durableOperationManager) controlOperation(ctx context.Context, owned *o
 	defer close(owned.done)
 	ticker := time.NewTicker(runcontrol.OwnerTickInterval)
 	defer ticker.Stop()
-	lastHeartbeat, lastReconcile := time.Now(), time.Now()
+	lastHeartbeat := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -232,13 +232,22 @@ func (m *durableOperationManager) controlOperation(ctx context.Context, owned *o
 		case <-owned.stop:
 			return
 		case now := <-ticker.C:
-			snapshot, err := m.repository.Snapshot(ctx, owned.fence.RunID)
+			var snapshot runcontrol.Snapshot
+			err := retryRunControlOperation(ctx, func(callCtx context.Context) error {
+				var snapshotErr error
+				snapshot, snapshotErr = m.repository.Snapshot(callCtx, owned.fence.RunID)
+				return snapshotErr
+			})
 			if err != nil {
 				owned.cancel()
 				return
 			}
 			if snapshot.Cancellation.State == runcontrol.CancellationRequested {
-				if _, _, err := m.repository.AcknowledgeCancellation(ctx, owned.fence); err != nil {
+				err := retryRunControlOperation(ctx, func(callCtx context.Context) error {
+					_, _, acknowledgeErr := m.repository.AcknowledgeCancellation(callCtx, owned.fence)
+					return acknowledgeErr
+				})
+				if err != nil {
 					owned.cancel()
 					return
 				}
@@ -246,18 +255,15 @@ func (m *durableOperationManager) controlOperation(ctx context.Context, owned *o
 				return
 			}
 			if now.Sub(lastHeartbeat) >= runcontrol.HeartbeatInterval {
-				if _, err := m.repository.Heartbeat(ctx, owned.fence, runcontrol.OwnerLeaseDuration); err != nil {
+				err := retryRunControlOperation(ctx, func(callCtx context.Context) error {
+					_, heartbeatErr := m.repository.Heartbeat(callCtx, owned.fence, runcontrol.OwnerLeaseDuration)
+					return heartbeatErr
+				})
+				if err != nil {
 					owned.cancel()
 					return
 				}
 				lastHeartbeat = now
-			}
-			if now.Sub(lastReconcile) >= runcontrol.ReconciliationInterval {
-				if _, err := m.repository.Reconcile(ctx, runcontrol.NativeProcessProbe{}, runcontrol.ReconcileOptions{}); err != nil {
-					owned.cancel()
-					return
-				}
-				lastReconcile = now
 			}
 		}
 	}

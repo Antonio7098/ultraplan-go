@@ -356,28 +356,34 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 
 	var result agentwrap.RunResult
 	var waitErr error
+	var controllingCause error
 	select {
 	case waited := <-waitCh:
 		result = waited.result
 		waitErr = waited.err
 	case <-ctx.Done():
+		controllingCause = context.Cause(ctx)
+		if controllingCause == nil {
+			controllingCause = ctx.Err()
+		}
 		_ = run.Cancel(context.Background())
 		select {
 		case waited := <-waitCh:
 			result = waited.result
 			waitErr = waited.err
 		case <-time.After(5 * time.Second):
+			status, runtimeError := controlledStopResult(controllingCause)
 			mapped := Result{
-				Status:           "cancelled",
+				Status:           status,
 				FinishedAt:       time.Now(),
-				Error:            &Error{Category: "cancellation", Operation: "run", UserDetail: ctx.Err().Error()},
+				Error:            runtimeError,
 				RuntimeStorePath: req.RuntimeStorePath,
 			}
-			retainRuntimeStore(req.RuntimeStorePath, req.RuntimeStoreOwner, ctx.Err())
-			return mapped, ctx.Err()
+			retainRuntimeStore(req.RuntimeStorePath, req.RuntimeStoreOwner, controllingCause)
+			return mapped, controllingCause
 		}
-		if waitErr == nil {
-			waitErr = ctx.Err()
+		if waitErr == nil || !errors.Is(controllingCause, context.Canceled) && !errors.Is(controllingCause, context.DeadlineExceeded) {
+			waitErr = controllingCause
 		}
 	}
 
@@ -408,6 +414,8 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 		} else if errors.Is(waitErr, context.DeadlineExceeded) {
 			mapped.Status = "failed"
 			mapped.Error = &Error{Category: "timeout", Operation: "run", UserDetail: waitErr.Error()}
+		} else if controllingCause != nil {
+			mapped.Status, mapped.Error = controlledStopResult(controllingCause)
 		}
 		return mapped, mapError(waitErr)
 	}
@@ -417,6 +425,17 @@ func (a Adapter) StartRun(ctx context.Context, req Request) (Result, error) {
 	}
 	retainRuntimeStore(req.RuntimeStorePath, req.RuntimeStoreOwner, nil)
 	return mapped, nil
+}
+
+func controlledStopResult(cause error) (string, *Error) {
+	switch {
+	case errors.Is(cause, context.Canceled):
+		return "cancelled", &Error{Category: "cancellation", Operation: "run", UserDetail: context.Canceled.Error()}
+	case errors.Is(cause, context.DeadlineExceeded):
+		return "failed", &Error{Category: "timeout", Operation: "run", UserDetail: context.DeadlineExceeded.Error()}
+	default:
+		return "failed", &Error{Category: "control", Operation: "run", UserDetail: "runtime stopped because its controlling service failed"}
+	}
 }
 
 type eventCollection struct {

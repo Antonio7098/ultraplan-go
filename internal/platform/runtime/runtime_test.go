@@ -496,6 +496,25 @@ func TestStartRunCancelsUnderlyingRunWhenContextCancelled(t *testing.T) {
 	}
 }
 
+func TestStartRunPreservesNonCancellationContextCause(t *testing.T) {
+	cause := errors.New("durable persistence failed")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	run := &fakeRun{id: "run-control-failure", waitForCancel: true}
+	adapter := NewAdapter(fakeRuntime{run: run})
+	cancel(cause)
+
+	result, err := adapter.StartRun(ctx, Request{Prompt: "hello"})
+	if !errors.Is(err, cause) {
+		t.Fatalf("err = %v, want controlling cause", err)
+	}
+	if !run.cancelled {
+		t.Fatal("underlying run was not cancelled")
+	}
+	if result.Status != "failed" || result.Error == nil || result.Error.Category != "control" {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 type fakeRuntime struct {
 	run *fakeRun
 }

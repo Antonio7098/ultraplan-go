@@ -21,7 +21,7 @@ import (
 const (
 	DatabaseRelativePath = ".ultraplan/run-control.db"
 	BusyTimeout          = 5 * time.Second
-	defaultMaxOpenConns  = 4
+	defaultMaxOpenConns  = 1
 	maxOpenConns         = 16
 	defaultEventPage     = 200
 	maxEventPage         = 512
@@ -606,108 +606,143 @@ func (r *SQLiteRepository) Snapshot(ctx context.Context, runID RunID) (Snapshot,
 }
 
 func (r *SQLiteRepository) Append(ctx context.Context, fence Fence, draft EventDraft) (eventResult Event, snapshotResult Snapshot, resultErr error) {
+	events, snapshot, err := r.AppendBatch(ctx, fence, []EventDraft{draft})
+	if err != nil {
+		return Event{}, Snapshot{}, err
+	}
+	return events[0], snapshot, nil
+}
+
+// AppendBatch commits ordered events and their snapshot projection in one
+// immediate transaction. Either every event becomes visible or none does.
+func (r *SQLiteRepository) AppendBatch(ctx context.Context, fence Fence, drafts []EventDraft) (eventsResult []Event, snapshotResult Snapshot, resultErr error) {
 	metricStarted := time.Now()
 	defer func() { r.metrics.append.observe(metricStarted, resultErr) }()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := fence.Validate(); err != nil {
-		return Event{}, Snapshot{}, err
+		return nil, Snapshot{}, err
 	}
-	draft = sanitizeEventDraft(NormalizeEventDraft(draft))
+	if len(drafts) == 0 || len(drafts) > maxEventPage {
+		return nil, Snapshot{}, invalidField("event_batch", fmt.Sprintf("must contain between 1 and %d events", maxEventPage))
+	}
+	normalized := make([]EventDraft, len(drafts))
+	payloads := make([]string, len(drafts))
+	omissions := make([]any, len(drafts))
 	if usage, err := r.storageBytes(); err != nil {
-		return Event{}, Snapshot{}, err
-	} else if usage >= r.retention.HardQuotaBytes && !reservedEventType(draft.Type) {
-		return Event{}, Snapshot{}, runError(CodeQuota, "append_quota", fence.RunID, "hard quota permits only reserved lifecycle recovery writes", true, nil)
-	}
-	if err := validateEventDraft(draft); err != nil {
-		return Event{}, Snapshot{}, err
-	}
-	payload, err := marshalBounded(draft.Payload, MaxSafeValueBytes*8)
-	if err != nil {
-		return Event{}, Snapshot{}, err
-	}
-	var omissionJSON any
-	if draft.Omission != nil {
-		encoded, err := marshalBounded(draft.Omission, MaxSafeValueBytes*2)
-		if err != nil {
-			return Event{}, Snapshot{}, err
+		return nil, Snapshot{}, err
+	} else if usage >= r.retention.HardQuotaBytes {
+		for _, draft := range drafts {
+			if !reservedEventType(draft.Type) {
+				return nil, Snapshot{}, runError(CodeQuota, "append_quota", fence.RunID, "hard quota permits only reserved lifecycle recovery writes", true, nil)
+			}
 		}
-		omissionJSON = encoded
+	}
+	for i, draft := range drafts {
+		draft = sanitizeEventDraft(NormalizeEventDraft(draft))
+		if err := validateEventDraft(draft); err != nil {
+			return nil, Snapshot{}, err
+		}
+		payload, err := marshalBounded(draft.Payload, MaxSafeValueBytes*8)
+		if err != nil {
+			return nil, Snapshot{}, err
+		}
+		normalized[i] = draft
+		payloads[i] = payload
+		if draft.Omission != nil {
+			encoded, err := marshalBounded(draft.Omission, MaxSafeValueBytes*2)
+			if err != nil {
+				return nil, Snapshot{}, err
+			}
+			omissions[i] = encoded
+		}
 	}
 	now := r.now()
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return Event{}, Snapshot{}, ctxErr
+			return nil, Snapshot{}, ctxErr
 		}
-		return Event{}, Snapshot{}, classifyStoreError("append_begin", "begin event append failed", err)
+		return nil, Snapshot{}, classifyStoreError("append_begin", "begin event batch append failed", err)
 	}
 	defer tx.Rollback()
 	if err := verifyFence(ctx, tx, fence); err != nil {
-		return Event{}, Snapshot{}, err
+		return nil, Snapshot{}, err
 	}
 	var lastSequence uint64
 	var lifecycle string
 	if err := tx.QueryRowContext(ctx, `SELECT last_sequence, lifecycle FROM runs WHERE run_id = ?`, string(fence.RunID)).Scan(&lastSequence, &lifecycle); err != nil {
-		return Event{}, Snapshot{}, mapRunLookupError("append", fence.RunID, err)
+		return nil, Snapshot{}, mapRunLookupError("append_batch", fence.RunID, err)
 	}
 	current := Lifecycle(lifecycle)
 	if current.IsTerminal() {
-		return Event{}, Snapshot{}, runError(CodeTerminal, "append", fence.RunID, "terminal run journal is immutable", false, nil)
+		return nil, Snapshot{}, runError(CodeTerminal, "append_batch", fence.RunID, "terminal run journal is immutable", false, nil)
 	}
 	nextLifecycle := current
-	if draft.Lifecycle != "" {
-		if !validActiveTransition(current, draft.Lifecycle) {
-			return Event{}, Snapshot{}, runError(CodeInvariant, "append", fence.RunID, fmt.Sprintf("invalid lifecycle transition %s -> %s", current, draft.Lifecycle), false, nil)
+	omissionCount := uint64(0)
+	events := make([]Event, 0, len(normalized))
+	for i, draft := range normalized {
+		if draft.Lifecycle != "" {
+			if !validActiveTransition(nextLifecycle, draft.Lifecycle) {
+				return nil, Snapshot{}, runError(CodeInvariant, "append_batch", fence.RunID, fmt.Sprintf("invalid lifecycle transition %s -> %s", nextLifecycle, draft.Lifecycle), false, nil)
+			}
+			nextLifecycle = draft.Lifecycle
 		}
-		nextLifecycle = draft.Lifecycle
-	}
-	sequence := lastSequence + 1
-	if _, err := tx.ExecContext(ctx, `
+		sequence := lastSequence + uint64(i) + 1
+		if _, err := tx.ExecContext(ctx, `
 INSERT INTO events (run_id, sequence, committed_at, event_type, attempt_id, stage_id, task_id, payload_json, omission_json)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, string(fence.RunID), sequence, formatTime(now), string(draft.Type),
-		string(fence.AttemptID), draft.Stage, draft.Task, payload, omissionJSON); err != nil {
-		return Event{}, Snapshot{}, classifyStoreError("append_event", "persist ordered event failed", err)
+			string(fence.AttemptID), draft.Stage, draft.Task, payloads[i], omissions[i]); err != nil {
+			return nil, Snapshot{}, classifyStoreError("append_event", "persist ordered event batch failed", err)
+		}
+		if draft.Omission != nil {
+			omissionCount += draft.Omission.Count
+		}
+		events = append(events, Event{
+			RunID: fence.RunID, Sequence: sequence, CommittedAt: now, Type: draft.Type,
+			AttemptID: fence.AttemptID, Stage: draft.Stage, Task: draft.Task,
+			Payload: clonePayload(draft.Payload), Omission: cloneOmission(draft.Omission),
+		})
 	}
-	omissionCount := uint64(0)
-	if draft.Omission != nil {
-		omissionCount = draft.Omission.Count
-	}
+	finalSequence := lastSequence + uint64(len(normalized))
 	result, err := tx.ExecContext(ctx, `
 UPDATE runs SET last_sequence = ?, lifecycle = ?, omission_total = omission_total + ?, updated_at = ?
 WHERE run_id = ? AND last_sequence = ? AND current_attempt_id = ? AND terminal_outcome IS NULL`,
-		sequence, string(nextLifecycle), omissionCount, formatTime(now), string(fence.RunID), lastSequence, string(fence.AttemptID))
+		finalSequence, string(nextLifecycle), omissionCount, formatTime(now), string(fence.RunID), lastSequence, string(fence.AttemptID))
 	if err != nil {
-		return Event{}, Snapshot{}, classifyStoreError("append_snapshot", "update durable event snapshot failed", err)
+		return nil, Snapshot{}, classifyStoreError("append_snapshot", "update durable event batch snapshot failed", err)
 	}
 	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		return Event{}, Snapshot{}, runError(CodeStaleFence, "append", fence.RunID, "event writer lost its authoritative fence", false, err)
+		return nil, Snapshot{}, runError(CodeStaleFence, "append_batch", fence.RunID, "event writer lost its authoritative fence", false, err)
 	}
-	if err := compactRunJournal(ctx, tx, fence.RunID, sequence); err != nil {
-		return Event{}, Snapshot{}, err
+	if err := compactRunJournal(ctx, tx, fence.RunID, finalSequence); err != nil {
+		return nil, Snapshot{}, err
 	}
 	snapshot, err := loadSnapshot(ctx, tx, fence.RunID)
 	if err != nil {
-		return Event{}, Snapshot{}, err
+		return nil, Snapshot{}, err
 	}
 	if err := snapshot.Validate(); err != nil {
-		return Event{}, Snapshot{}, err
+		return nil, Snapshot{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return Event{}, Snapshot{}, classifyStoreError("append_commit", "commit ordered event failed", err)
+		return nil, Snapshot{}, classifyStoreError("append_commit", "commit ordered event batch failed", err)
 	}
-	event := Event{
-		RunID: fence.RunID, Sequence: sequence, CommittedAt: now, Type: draft.Type,
-		AttemptID: fence.AttemptID, Stage: draft.Stage, Task: draft.Task,
-		Payload: clonePayload(draft.Payload), Omission: cloneOmission(draft.Omission),
+	r.notify(fence.RunID, finalSequence)
+	if len(events) == 1 {
+		r.log(ctx, LogDebug, "run event committed",
+			LogField{Key: "run_id", Value: string(fence.RunID)}, LogField{Key: "attempt_id", Value: string(fence.AttemptID)},
+			LogField{Key: "sequence", Value: strconv.FormatUint(finalSequence, 10)}, LogField{Key: "event_type", Value: string(events[0].Type)},
+			LogField{Key: "lifecycle", Value: string(snapshot.Lifecycle)})
+	} else {
+		r.log(ctx, LogDebug, "run event batch committed",
+			LogField{Key: "run_id", Value: string(fence.RunID)}, LogField{Key: "attempt_id", Value: string(fence.AttemptID)},
+			LogField{Key: "first_sequence", Value: strconv.FormatUint(lastSequence+1, 10)}, LogField{Key: "last_sequence", Value: strconv.FormatUint(finalSequence, 10)},
+			LogField{Key: "event_count", Value: strconv.Itoa(len(events))},
+			LogField{Key: "lifecycle", Value: string(snapshot.Lifecycle)})
 	}
-	r.notify(fence.RunID, sequence)
-	r.log(ctx, LogDebug, "run event committed",
-		LogField{Key: "run_id", Value: string(fence.RunID)}, LogField{Key: "attempt_id", Value: string(fence.AttemptID)},
-		LogField{Key: "sequence", Value: strconv.FormatUint(sequence, 10)}, LogField{Key: "event_type", Value: string(draft.Type)},
-		LogField{Key: "lifecycle", Value: string(snapshot.Lifecycle)})
-	return event, snapshot, nil
+	return events, snapshot, nil
 }
 
 func reservedEventType(eventType EventType) bool {
@@ -762,9 +797,10 @@ func (r *SQLiteRepository) ProposeTerminal(ctx context.Context, fence Fence, pro
 		return current, false, nil
 	}
 	sequence := current.LastSequence + 1
-	payloadValue := map[string]any{"outcome": string(proposal.Outcome), "reason": proposal.Reason}
+	payloadValue := map[string]string{"outcome": string(proposal.Outcome), "reason": proposal.Reason}
 	if proposal.Persistence != nil {
-		payloadValue["persistence"] = proposal.Persistence
+		payloadValue["persistence_code"] = string(proposal.Persistence.Code)
+		payloadValue["persistence_operation"] = proposal.Persistence.Operation
 	}
 	payload, err := marshalBounded(payloadValue, MaxSafeValueBytes*2)
 	if err != nil {
