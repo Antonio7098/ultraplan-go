@@ -123,7 +123,7 @@ func SynthesizeQAWithChallenges(qaMap QAMap, shards []QAShard, challenges []QACh
 	followUps := make([]QAShard, 0, len(followCandidates))
 	for _, theory := range followCandidates {
 		parent := shardByTheory[theory.ID]
-		context := normalizeQAStrings(append(append([]string(nil), parent.ChangedPaths...), parent.ContextPaths...))
+		context := qaFollowUpContext(parent)
 		if len(context) > qaMap.Budgets.ContextPathsPerShard {
 			context = context[:qaMap.Budgets.ContextPathsPerShard]
 		}
@@ -164,6 +164,31 @@ func SynthesizeQAWithChallenges(qaMap QAMap, shards []QAShard, challenges []QACh
 		return QASynthesis{}, NewQAError(QAErrorInvalidState, "synthesize", err.Error(), err)
 	}
 	return result, nil
+}
+
+func qaFollowUpContext(parent QAShard) []string {
+	var requested []string
+	for _, attempt := range parent.Attempts {
+		for _, request := range attempt.ContextRequests {
+			if request.Approved {
+				requested = append(requested, request.Paths...)
+			}
+		}
+	}
+	requested = normalizeQAStrings(requested)
+	inherited := normalizeQAStrings(append(append([]string(nil), parent.ChangedPaths...), parent.ContextPaths...))
+	seen := make(map[string]struct{}, len(requested)+len(inherited))
+	context := make([]string, 0, len(requested)+len(inherited))
+	for _, paths := range [][]string{requested, inherited} {
+		for _, path := range paths {
+			if _, duplicate := seen[path]; duplicate {
+				continue
+			}
+			seen[path] = struct{}{}
+			context = append(context, path)
+		}
+	}
+	return context
 }
 
 func NormalizedQASynthesisBytes(value QASynthesis) ([]byte, error) {

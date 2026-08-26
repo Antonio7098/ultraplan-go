@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -212,19 +213,7 @@ func (s Service) RecoverQA(ctx context.Context, projectRef, sprintRef string) (Q
 	if flow.QA == nil || *flow.QA != *expectedSummary {
 		changed = true
 	}
-	switch state.Phase {
-	case QAPhaseQueued, QAPhaseRunning, QAPhaseSynthesizing:
-		changed = true
-		state.Phase = QAPhaseInterrupted
-		state.Run.Lifecycle = QARunTerminal
-		state.Run.TerminalResult = QATerminalInterrupted
-		state.Blocker = &QABlocker{Category: QAErrorConflict, Scope: "attempt", Summary: "the prior process stopped while QA work was active", NextAction: "Run qa resume to continue current valid shards with a new owner."}
-		state.NextAction = state.Blocker.NextAction
-	case QAPhaseMapped:
-		changed = true
-		state.Phase = QAPhaseInterrupted
-		state.NextAction = "Run qa resume to claim and execute the mapped shards."
-	}
+	changed = reconcileInterruptedQAState(&state) || changed
 	if current, mapErr := s.QAMap(projectRef, sprintRef); mapErr != nil || current.Map.SemanticAttemptID != state.CurrentAttemptID {
 		changed = true
 		state.Phase = QAPhaseStale
@@ -246,6 +235,24 @@ func (s Service) RecoverQA(ctx context.Context, projectRef, sprintRef string) (Q
 		}
 	}
 	return s.QAStatus(projectRef, sprintRef)
+}
+
+func reconcileInterruptedQAState(state *QAState) bool {
+	switch state.Phase {
+	case QAPhaseMapped:
+		state.Phase = QAPhaseInterrupted
+		state.NextAction = "Run qa resume to claim and execute the mapped shards."
+		return true
+	case QAPhaseQueued, QAPhaseRunning, QAPhaseSynthesizing:
+		state.Phase = QAPhaseInterrupted
+		state.Run.Lifecycle = QARunTerminal
+		state.Run.TerminalResult = QATerminalInterrupted
+		state.Blocker = &QABlocker{Category: QAErrorConflict, Scope: "attempt", Summary: "the prior QA owner stopped before recording a terminal result", NextAction: "Run qa resume to continue current valid shards with a new owner."}
+		state.NextAction = state.Blocker.NextAction
+		return true
+	default:
+		return false
+	}
 }
 
 type qaInvestigatorOutput struct {
@@ -896,7 +903,8 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 	}
 	attempt.ContextRequests = append([]QAContextRequest(nil), output.Context...)
 	attempt.Evidence = append([]QAEvidenceSummary(nil), output.Evidence...)
-	for _, contextRequest := range attempt.ContextRequests {
+	for i := range attempt.ContextRequests {
+		contextRequest := &attempt.ContextRequests[i]
 		if contextRequest.Approved {
 			return shard, NewQAError(QAErrorPermissionDenied, "investigate shard", "runtime cannot self-approve context expansion", nil)
 		}
@@ -908,6 +916,9 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 				return shard, NewQAError(QAErrorPermissionDenied, "investigate shard", err.Error(), err)
 			}
 		}
+		approved, reason := approveQAContextPaths(target, contextRequest.Paths)
+		contextRequest.Approved = approved
+		contextRequest.DeniedReason = reason
 	}
 	checks, err := ApprovedQAChecks(target, qaMap.Coverage.ChangedPaths, qaMap.Budgets)
 	if err != nil {
@@ -953,6 +964,24 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 	shard.Phase = QAPhaseCompleted
 	shard.Blocker = nil
 	return shard, nil
+}
+
+func approveQAContextPaths(target string, paths []string) (bool, string) {
+	for _, rel := range paths {
+		full := filepath.Join(target, filepath.FromSlash(rel))
+		resolved, err := filepath.EvalSymlinks(full)
+		if err != nil {
+			return false, "requested context path is unavailable"
+		}
+		if !inside(target, resolved) {
+			return false, "requested context path escapes the QA target"
+		}
+		info, err := os.Stat(resolved)
+		if err != nil || !info.Mode().IsRegular() {
+			return false, "requested context path is not a regular file"
+		}
+	}
+	return true, ""
 }
 
 func qaSafeDiagnostic(value string) string {

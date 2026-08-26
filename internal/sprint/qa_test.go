@@ -353,6 +353,32 @@ func TestQAInvestigationOutputIsStrictAndBounded(t *testing.T) {
 	}
 }
 
+func TestApproveQAContextPathsRequiresContainedRegularFiles(t *testing.T) {
+	target := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(target, "internal", "web"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "internal", "web", "routes.go"), []byte("package web\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if approved, reason := approveQAContextPaths(target, []string{"internal/web/routes.go"}); !approved || reason != "" {
+		t.Fatalf("contained context denied: approved=%t reason=%q", approved, reason)
+	}
+	if approved, reason := approveQAContextPaths(target, []string{"internal/web/missing.go"}); approved || reason == "" {
+		t.Fatalf("missing context approved: approved=%t reason=%q", approved, reason)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.go")
+	if err := os.WriteFile(outside, []byte("package outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(target, "internal", "web", "outside.go")); err != nil {
+		t.Fatal(err)
+	}
+	if approved, reason := approveQAContextPaths(target, []string{"internal/web/outside.go"}); approved || reason != "requested context path escapes the QA target" {
+		t.Fatalf("escaping context approval: approved=%t reason=%q", approved, reason)
+	}
+}
+
 func TestQAOutputDiagnosticsAndRepairPromptExposeSafeParserFailure(t *testing.T) {
 	_, diagnostic, err := decodeQAInvestigatorOutput(pruntime.Result{Status: "completed", SessionID: "session", TerminalOutput: `{"schema_version":1,"theories":[],"extra":true}`}, 1024)
 	if err == nil || diagnostic.Kind != "unknown_field" || !strings.Contains(diagnostic.Detail, `unknown field "extra"`) || diagnostic.OutputBytes == 0 || !diagnostic.Session {

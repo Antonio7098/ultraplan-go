@@ -135,3 +135,34 @@ func TestReconcileInterruptedMutationRejectsUnrecognizedMalformedRunState(t *tes
 		t.Fatalf("error=%v, want ErrExecuteRunStateMalformed", err)
 	}
 }
+
+func TestReconcileInterruptedQAStateCoversEveryPhase(t *testing.T) {
+	active := []QAPhaseStatus{QAPhaseMapped, QAPhaseQueued, QAPhaseRunning, QAPhaseSynthesizing}
+	for _, phase := range active {
+		t.Run(string(phase), func(t *testing.T) {
+			state := QAState{Phase: phase, Run: QARunCorrelation{Lifecycle: QARunActive}}
+			if !reconcileInterruptedQAState(&state) || state.Phase != QAPhaseInterrupted {
+				t.Fatalf("phase %q was not reconciled: %+v", phase, state)
+			}
+			if phase == QAPhaseMapped {
+				if state.Run.Lifecycle != QARunActive || state.Blocker != nil {
+					t.Fatalf("mapped state acquired terminal run facts: %+v", state)
+				}
+				return
+			}
+			if state.Run.Lifecycle != QARunTerminal || state.Run.TerminalResult != QATerminalInterrupted || state.Blocker == nil {
+				t.Fatalf("active state lacks terminal interruption facts: %+v", state)
+			}
+		})
+	}
+
+	terminal := []QAPhaseStatus{QAPhaseMissing, QAPhaseCompleted, QAPhaseBlocked, QAPhaseCancelled, QAPhaseInterrupted, QAPhaseStale, QAPhaseInvalid}
+	for _, phase := range terminal {
+		t.Run(string(phase), func(t *testing.T) {
+			state := QAState{Phase: phase}
+			if reconcileInterruptedQAState(&state) || state.Phase != phase {
+				t.Fatalf("terminal phase %q changed: %+v", phase, state)
+			}
+		})
+	}
+}
