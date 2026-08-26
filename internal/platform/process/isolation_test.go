@@ -31,9 +31,20 @@ func TestIsolationCopiesNonGitTreeRunsAndCleans(t *testing.T) {
 	if err != nil || string(data) != "untracked\n" {
 		t.Fatalf("copied data = %q, %v", data, err)
 	}
+	copiedInfo, err := os.Stat(filepath.Join(workspace.Path, "nested", "dirty.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copiedInfo.Mode().Perm() != 0o644 {
+		t.Fatalf("copied mode = %v", copiedInfo.Mode().Perm())
+	}
 	result, err := workspace.Run(context.Background(), DirectRunner{}, "nested", Request{Executable: "sh", Args: []string{"-c", "printf isolated"}, Env: SortedEnvironment(map[string]string{"PATH": os.Getenv("PATH")}), Timeout: time.Second})
 	if err != nil || result.Stdout != "isolated" {
 		t.Fatalf("run result = %+v, %v", result, err)
+	}
+	changed, err := workspace.ChangedPaths(context.Background(), limits)
+	if err != nil || len(changed) != 0 {
+		t.Fatalf("read-only workspace changes = %v, %v", changed, err)
 	}
 	cleanup := workspace.Cleanup()
 	if !cleanup.Attempted || !cleanup.Complete {

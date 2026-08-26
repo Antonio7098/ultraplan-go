@@ -257,9 +257,13 @@ func ValidateQAEvidence(record QAEvidenceRecord, plan QAEvidencePlan, budgets QA
 	if len(record.Commands) > budgets.CommandsPerAttempt || len(record.Analyzers) != plan.AnalyzerCalls || record.CompletedAt.IsZero() {
 		return fmt.Errorf("QA evidence exceeds plan bounds")
 	}
+	unapprovedPath := ""
 	for _, path := range record.ChangedPaths {
-		if err := validateQAPath(path); err != nil || !qaPathApproved(path, plan.ApprovedPaths) {
-			return fmt.Errorf("QA evidence changed an unapproved path")
+		if err := validateQAPath(path); err != nil {
+			return fmt.Errorf("QA evidence contains an invalid changed path %q", path)
+		}
+		if unapprovedPath == "" && !qaPathApproved(path, plan.ApprovedPaths) {
+			unapprovedPath = path
 		}
 	}
 	if record.Patch != nil && (filepath.IsAbs(record.Patch.Path) || !validFingerprint(record.Patch.Digest)) {
@@ -270,6 +274,9 @@ func ValidateQAEvidence(record QAEvidenceRecord, plan QAEvidencePlan, budgets QA
 	}
 	if !validEvidenceOutcome(record.Outcome) || strings.TrimSpace(record.ReasonCode) == "" {
 		return fmt.Errorf("QA evidence outcome is invalid")
+	}
+	if unapprovedPath != "" && (record.Outcome != QAEvidenceBlocked || record.ReasonCode != "path_not_approved") {
+		return fmt.Errorf("QA evidence changed unapproved path %q without a blocked scope-violation outcome", unapprovedPath)
 	}
 	seenSessions := map[string]struct{}{}
 	for _, observation := range record.Analyzers {

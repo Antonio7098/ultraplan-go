@@ -60,6 +60,7 @@ type IsolationWorkspace struct {
 	Source       TreeIdentity
 	Capabilities IsolationCapabilities
 	CreatedAt    time.Time
+	baseline     map[string]treeEntryIdentity
 }
 
 type CleanupResult struct {
@@ -120,6 +121,18 @@ func CreateIsolation(ctx context.Context, req IsolationRequest) (IsolationWorksp
 		return IsolationWorkspace{}, err
 	}
 	created.Source = identity
+	baselineIdentity, baseline, err := collectTreeIdentity(copyCtx, root, req.Limits)
+	if err != nil || baselineIdentity.Digest != identity.Digest {
+		cleanupErr := os.RemoveAll(root)
+		if err == nil {
+			err = fmt.Errorf("isolated copy identity does not match its source")
+		}
+		if cleanupErr != nil {
+			return IsolationWorkspace{}, errors.Join(err, fmt.Errorf("remove inconsistent isolation workspace: %w", cleanupErr))
+		}
+		return IsolationWorkspace{}, err
+	}
+	created.baseline = baseline
 	return created, nil
 }
 
@@ -190,6 +203,23 @@ func CompareTrees(ctx context.Context, beforeRoot, afterRoot string, limits Isol
 	if err != nil {
 		return nil, err
 	}
+	return compareTreeEntries(before, after), nil
+}
+
+// ChangedPaths reports changes made inside the disposable workspace relative
+// to the immutable snapshot captured when the copy was created.
+func (w IsolationWorkspace) ChangedPaths(ctx context.Context, limits IsolationLimits) ([]string, error) {
+	if w.baseline == nil {
+		return nil, fmt.Errorf("isolation workspace baseline is unavailable")
+	}
+	_, after, err := collectTreeIdentity(ctx, w.Path, limits)
+	if err != nil {
+		return nil, err
+	}
+	return compareTreeEntries(w.baseline, after), nil
+}
+
+func compareTreeEntries(before, after map[string]treeEntryIdentity) []string {
 	seen := make(map[string]struct{}, len(before)+len(after))
 	for path := range before {
 		seen[path] = struct{}{}
@@ -206,7 +236,7 @@ func CompareTrees(ctx context.Context, beforeRoot, afterRoot string, limits Isol
 		}
 	}
 	sort.Strings(changed)
-	return changed, nil
+	return changed
 }
 
 func (w IsolationWorkspace) Cleanup() CleanupResult {
@@ -324,7 +354,7 @@ func copyBoundedTree(ctx context.Context, source, target string, limits Isolatio
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(destination, data, info.Mode().Perm()&0o700); err != nil {
+		if err := os.WriteFile(destination, data, info.Mode().Perm()); err != nil {
 			return err
 		}
 		_, _ = io.WriteString(hash, filepath.ToSlash(rel))

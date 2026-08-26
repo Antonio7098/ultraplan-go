@@ -14,7 +14,7 @@ import (
 func TestQAInvestigationWritableCopyPreservesTargetAndCleans(t *testing.T) {
 	target := t.TempDir()
 	targetFile := filepath.Join(target, "source.txt")
-	if err := os.WriteFile(targetFile, []byte("original\n"), 0o600); err != nil {
+	if err := os.WriteFile(targetFile, []byte("original\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	budgets := DefaultQABudgets()
@@ -73,6 +73,17 @@ func TestQAInvestigationWritableCopyPreservesTargetAndCleans(t *testing.T) {
 	}
 	if record.Outcome != QAEvidencePass || !record.Cleanup.Complete || !record.Contained {
 		t.Fatalf("evidence = %+v", record)
+	}
+	scopeViolation := record
+	scopeViolation.ChangedPaths = append(scopeViolation.ChangedPaths, "outside.txt")
+	scopeViolation.Outcome = QAEvidenceBlocked
+	scopeViolation.ReasonCode = "path_not_approved"
+	if err := ValidateQAEvidence(scopeViolation, plan, budgets); err != nil {
+		t.Fatalf("blocked scope violation was not retainable: %v", err)
+	}
+	scopeViolation.Outcome = QAEvidencePass
+	if err := ValidateQAEvidence(scopeViolation, plan, budgets); err == nil {
+		t.Fatal("unapproved path was accepted without a blocked scope-violation outcome")
 	}
 	data, readErr := os.ReadFile(targetFile)
 	if readErr != nil || string(data) != "original\n" {

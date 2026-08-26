@@ -60,6 +60,11 @@ func RunQAInvestigation(ctx context.Context, req QAInvestigationRequest) (QAEvid
 			_ = workspace.Cleanup()
 		}
 	}()
+	if workspace.Source.Digest != targetBefore.Digest {
+		result := workspace.Cleanup()
+		cleanup.WorkspaceRemoved, cleanup.Complete, cleanup.Diagnostic = result.Complete, result.Complete, result.Error
+		return QAEvidenceRecord{}, NewQAError(QAErrorStaleInput, "investigate", "protected target changed while creating the isolated workspace", nil)
+	}
 	capabilities := workspace.Capabilities
 	if !capabilities.PrivateWorkspace || !capabilities.ContainedCopy || !capabilities.ProcessGroup || !capabilities.DescendantCleanup || !capabilities.WorkspaceRemoval || !capabilities.NativeProtectedRootDeny {
 		result := workspace.Cleanup()
@@ -101,7 +106,7 @@ func RunQAInvestigation(ctx context.Context, req QAInvestigationRequest) (QAEvid
 	if identityErr != nil {
 		outcome, reason = QAEvidenceBlocked, "workspace_identity_failed"
 	}
-	changedPaths, changesErr := pprocess.CompareTrees(context.WithoutCancel(ctx), req.TargetRoot, workspace.Path, limits)
+	changedPaths, changesErr := workspace.ChangedPaths(context.WithoutCancel(ctx), limits)
 	if changesErr != nil {
 		outcome, reason = QAEvidenceBlocked, "workspace_changes_incomplete"
 	}

@@ -418,7 +418,7 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	if req.EvidenceProducing {
 		bundle, assessment, evidenceErr := s.buildQAEvidencePublication(runCtx, sp, mapResult.Map, manifest.Target, shards, req.Progress)
 		if evidenceErr != nil {
-			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, evidenceErr)
+			return s.publishTerminalQAFailureWithSynthesis(store, flow, mapResult.Map, shards, synthesis, state, req.WriterToken, evidenceErr)
 		}
 		evidencePublication = &bundle
 		state.NextAction = assessment.NextAction
@@ -440,6 +440,10 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 }
 
 func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMap QAMap, target string, shards []QAShard, progress func(QAProgress)) (QAEvidencePublication, QAAssessmentRecord, error) {
+	implementationBefore, err := targetIdentity(target)
+	if err != nil || implementationBefore != qaMap.ImplementationFingerprint {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorStaleInput, "admission", "implementation no longer matches the frozen QA map", err)
+	}
 	status, err := s.VerificationStatus(sp.Project, sp.Slug)
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorAdmissionBlocked, "admission", "verification prerequisites are unavailable", err)
@@ -456,7 +460,7 @@ func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMa
 		return QAEvidencePublication{}, QAAssessmentRecord{}, err
 	}
 	limits := pprocess.IsolationLimits{MaxFiles: qaMap.Budgets.TreeFiles, MaxBytes: qaMap.Budgets.TreeBytes, MaxFileSize: qaMap.Budgets.FileBytes, Timeout: qaMap.Budgets.ShardTimeout}
-	targetIdentity, err := pprocess.IdentifyTree(ctx, target, limits)
+	targetTreeIdentity, err := pprocess.IdentifyTree(ctx, target, limits)
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorPermissionDenied, "admission", "cannot freeze the protected target identity", err)
 	}
@@ -504,7 +508,7 @@ func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMa
 		if planErr != nil {
 			return QAEvidencePublication{}, QAAssessmentRecord{}, planErr
 		}
-		record, runErr := RunQAInvestigation(ctx, QAInvestigationRequest{Project: sp.Project, Sprint: sp.Slug, TargetRoot: target, WorkspaceParent: workspaceParent, ProtectedRoots: []string{s.root, target}, Plan: plan, Budgets: qaMap.Budgets, ExpectedTargetID: targetIdentity.Digest, Now: s.now})
+		record, runErr := RunQAInvestigation(ctx, QAInvestigationRequest{Project: sp.Project, Sprint: sp.Slug, TargetRoot: target, WorkspaceParent: workspaceParent, ProtectedRoots: []string{s.root, target}, Plan: plan, Budgets: qaMap.Budgets, ExpectedTargetID: targetTreeIdentity.Digest, Now: s.now})
 		if runErr != nil {
 			return QAEvidencePublication{}, QAAssessmentRecord{}, runErr
 		}
@@ -547,6 +551,10 @@ func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMa
 	report, err := RenderQAReport(sp.Project, sp.Slug, qaMap.GovernedInputFingerprint, records, adjudication, assessment)
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, err
+	}
+	implementationAfter, err := targetIdentity(target)
+	if err != nil || implementationAfter != implementationBefore {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorStaleInput, "publish evidence", "implementation changed during evidence production", err)
 	}
 	return QAEvidencePublication{Plans: plans, Records: records, Adjudication: &adjudication, Assessment: &assessment, Report: []byte(report), Budgets: qaMap.Budgets}, assessment, nil
 }

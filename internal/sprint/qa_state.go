@@ -660,6 +660,59 @@ func (store QAStore) publishEvidence(bundle *QAEvidencePublication, state *QASta
 	}
 	plans := make(map[string]QAEvidencePlan, len(bundle.Plans))
 	patches := make(map[string]string, len(bundle.Patches))
+	for _, plan := range bundle.Plans {
+		if err := ValidateQAEvidencePlan(plan, bundle.Budgets); err != nil || plan.AttemptID != state.CurrentAttemptID {
+			return NewQAError(QAErrorMalformedEvidence, "publish plan", "invalid frozen evidence plan", err)
+		}
+		if _, duplicate := plans[plan.ID]; duplicate {
+			return NewQAError(QAErrorMalformedEvidence, "publish plan", "duplicate frozen evidence plan", nil)
+		}
+		plans[plan.ID] = plan
+	}
+	for _, patch := range bundle.Patches {
+		if !validQAV2ID(patch.ID, "patch") || len(patch.Content) == 0 || len(patch.Content) > bundle.Budgets.GeneratedPatchBytes || bytes.IndexByte(patch.Content, 0) >= 0 {
+			return NewQAError(QAErrorMalformedEvidence, "publish patch", "invalid generated patch", nil)
+		}
+		if _, duplicate := patches[patch.ID]; duplicate {
+			return NewQAError(QAErrorMalformedEvidence, "publish patch", "duplicate generated patch", nil)
+		}
+		patches[patch.ID] = hashBytes(normalizePatch(patch.Content))
+	}
+	seenEvidence := make(map[string]struct{}, len(bundle.Records))
+	for _, record := range bundle.Records {
+		plan, ok := plans[record.PlanID]
+		if !ok {
+			return NewQAError(QAErrorMalformedEvidence, "publish evidence", "evidence references an unavailable plan", nil)
+		}
+		if err := ValidateQAEvidence(record, plan, bundle.Budgets); err != nil {
+			return NewQAError(QAErrorMalformedEvidence, "publish evidence", err.Error(), err)
+		}
+		if _, duplicate := seenEvidence[record.ID]; duplicate {
+			return NewQAError(QAErrorMalformedEvidence, "publish evidence", "duplicate evidence record", nil)
+		}
+		seenEvidence[record.ID] = struct{}{}
+		if record.Patch != nil {
+			patchID := strings.TrimSuffix(filepath.Base(record.Patch.Path), ".patch")
+			expected := QAPatchRelPath(store.sprint, state.CurrentAttemptID, patchID)
+			digest, available := patches[patchID]
+			if record.Patch.Path != expected || !available || record.Patch.Digest != digest {
+				return NewQAError(QAErrorMalformedEvidence, "publish evidence", "patch reference is not contained in the current attempt", nil)
+			}
+		}
+	}
+	if bundle.Adjudication != nil {
+		if err := validateQAAdjudication(*bundle.Adjudication, state.CurrentAttemptID, bundle.Budgets); err != nil {
+			return NewQAError(QAErrorMalformedEvidence, "publish adjudication", err.Error(), err)
+		}
+	}
+	if bundle.Assessment != nil {
+		if err := validateQAAssessment(*bundle.Assessment, state.CurrentAttemptID); err != nil {
+			return NewQAError(QAErrorMalformedEvidence, "publish assessment", err.Error(), err)
+		}
+	}
+	if len(bundle.Report) > 0 && !bytes.HasPrefix(bundle.Report, []byte("# QA")) {
+		return NewQAError(QAErrorMalformedEvidence, "publish report", "canonical QA report must start with # QA", nil)
+	}
 	for i := range bundle.Plans {
 		plan := bundle.Plans[i]
 		if err := ValidateQAEvidencePlan(plan, bundle.Budgets); err != nil || plan.AttemptID != state.CurrentAttemptID {

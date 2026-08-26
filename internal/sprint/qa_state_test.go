@@ -306,6 +306,17 @@ func TestQAEvidencePublicationLoadsAndRollsBackCanonicalFiles(t *testing.T) {
 	state.Phase, state.CompletedShards, state.Run.Lifecycle, state.Run.TerminalResult = QAPhaseCompleted, 1, QARunTerminal, QATerminalCompleted
 	state.NextAction = assessment.NextAction
 	publication := QAPublication{State: state, Flow: flow, Evidence: &QAEvidencePublication{Plans: []QAEvidencePlan{plan}, Records: []QAEvidenceRecord{evidence}, Patches: []QAPatchRecord{{ID: patchID, Content: patchContent}}, Adjudication: &adjudication, Assessment: &assessment, Report: []byte(report), Budgets: initial.Map.Budgets}}
+	malformed := publication
+	malformedEvidence := evidence
+	malformedEvidence.ChangedPaths = []string{"outside.go"}
+	malformed.Evidence = &QAEvidencePublication{Plans: []QAEvidencePlan{plan}, Records: []QAEvidenceRecord{malformedEvidence}, Patches: []QAPatchRecord{{ID: patchID, Content: patchContent}}, Adjudication: &adjudication, Assessment: &assessment, Report: []byte(report), Budgets: initial.Map.Budgets}
+	if err := store.Publish(malformed, token); err == nil {
+		t.Fatal("malformed evidence publication succeeded")
+	}
+	planPath := filepath.Join(root, filepath.FromSlash(QAEvidencePlanRelPath(sp, state.CurrentAttemptID, plan.ID)))
+	if _, err := os.Stat(planPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("malformed bundle wrote a plan before rejection: %v", err)
+	}
 	if err := store.Publish(publication, token); err != nil {
 		t.Fatal(err)
 	}
