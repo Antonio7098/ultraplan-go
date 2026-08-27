@@ -91,6 +91,39 @@ func TestInspectMergeAcceptsAndFingerprintsDirtySprintWorktree(t *testing.T) {
 	}
 }
 
+func TestFlowMergeRequestContinuesOnlyMatchingActiveMerge(t *testing.T) {
+	source := gitFixture(t)
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "41-merge")
+	target, findings := NewService(root).resolveSprintTarget(sp, projectIndexForTarget(source), true)
+	if len(findings) != 0 {
+		t.Fatalf("findings = %+v", findings)
+	}
+	writeFileContent(t, target.Path, "sprint\n", "merged.txt")
+	runGitTest(t, target.Path, "add", "merged.txt")
+	runGitTest(t, target.Path, "commit", "-m", "sprint change")
+	sourceCommit := mustGitOutput(t, target.Path, "rev-parse", "HEAD")
+	service := NewService(root)
+	state := MergeState{SchemaVersion: mergeStateSchemaVersion, Project: sp.Project, Sprint: sp.Slug, Status: MergeFailed, SourceCommit: sourceCommit}
+	if err := service.saveMergeState(sp, state); err != nil {
+		t.Fatal(err)
+	}
+	if got := service.mergeRequestForFlow("proj", "41", MergeRequest{Confirm: true}); got.Continue {
+		t.Fatal("flow continued without an active merge")
+	}
+	runGitTest(t, source, "merge", "--no-ff", "--no-commit", sourceCommit)
+	if got := service.mergeRequestForFlow("proj", "41", MergeRequest{Confirm: true}); !got.Continue {
+		t.Fatal("flow did not continue the matching active merge")
+	}
+	state.SourceCommit = strings.Repeat("0", 40)
+	if err := service.saveMergeState(sp, state); err != nil {
+		t.Fatal(err)
+	}
+	if got := service.mergeRequestForFlow("proj", "41", MergeRequest{Confirm: true}); got.Continue {
+		t.Fatal("flow continued a stale active merge")
+	}
+}
+
 func TestCommitSprintSnapshotCapturesTrackedAndUntrackedChanges(t *testing.T) {
 	source := gitFixture(t)
 	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("modified\n"), 0o644); err != nil {

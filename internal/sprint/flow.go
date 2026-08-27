@@ -196,11 +196,34 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 			}
 			return FlowResult{Project: verified.Project, Sprint: verified.Sprint, To: req.To, Message: verified.Verification.NextAction}, verifyErr
 		}
-		merged, mergeErr := s.RunMerge(ctx, projectRef, sprintRef, req.Merge)
+		merged, mergeErr := s.RunMerge(ctx, projectRef, sprintRef, s.mergeRequestForFlow(projectRef, sprintRef, req.Merge))
 		return FlowResult{Project: merged.Inspection.Project, Sprint: merged.Inspection.Sprint, To: req.To, Message: "merge " + string(merged.State.Status)}, mergeErr
 	}
 	result.To = req.To
 	return result, nil
+}
+
+func (s Service) mergeRequestForFlow(projectRef, sprintRef string, req MergeRequest) MergeRequest {
+	if req.Continue {
+		return req
+	}
+	state, err := s.LoadMergeState(projectRef, sprintRef)
+	if err != nil || state.Status != MergeFailed && state.Status != MergeConflicts {
+		return req
+	}
+	sp, err := s.resolveMutationSprint(projectRef, sprintRef)
+	if err != nil {
+		return req
+	}
+	record, err := loadSprintWorkspace(sp)
+	if err != nil {
+		return req
+	}
+	mergeHead, err := gitOutput(record.SourceRoot, "rev-parse", "-q", "--verify", "MERGE_HEAD")
+	if err == nil && strings.TrimSpace(mergeHead) == state.SourceCommit {
+		req.Continue = true
+	}
+	return req
 }
 
 // FlowStage runs exactly one planning stage. It preserves the stage's normal
