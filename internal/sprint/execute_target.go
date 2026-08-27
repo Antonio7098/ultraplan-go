@@ -13,15 +13,16 @@ import (
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
-const sprintWorkspaceSchemaVersion = 1
+const sprintWorkspaceSchemaVersion = 2
 
 type SprintWorkspace struct {
-	SchemaVersion int       `json:"schemaVersion"`
-	SourceRoot    string    `json:"sourceRoot"`
-	Path          string    `json:"path"`
-	Branch        string    `json:"branch"`
-	Baseline      string    `json:"baseline"`
-	CreatedAt     time.Time `json:"createdAt"`
+	SchemaVersion     int       `json:"schemaVersion"`
+	SourceRoot        string    `json:"sourceRoot"`
+	Path              string    `json:"path"`
+	Branch            string    `json:"branch"`
+	IntegrationBranch string    `json:"integrationBranch"`
+	Baseline          string    `json:"baseline"`
+	CreatedAt         time.Time `json:"createdAt"`
 }
 
 func sprintWorkspacePath(sp Sprint) string { return filepath.Join(sp.Path, ".workspace.json") }
@@ -90,7 +91,17 @@ func loadSprintWorkspace(sp Sprint) (SprintWorkspace, error) {
 	if err := json.Unmarshal(data, &record); err != nil {
 		return SprintWorkspace{}, fmt.Errorf("decode sprint workspace: %w", err)
 	}
-	if record.SchemaVersion != sprintWorkspaceSchemaVersion || record.SourceRoot == "" || record.Path == "" || record.Branch == "" || record.Baseline == "" {
+	if record.SchemaVersion == 1 && record.IntegrationBranch == "" {
+		// Version 1 did not retain the source branch. Resolve it only when the
+		// source checkout still points at the recorded baseline.
+		branch, branchErr := gitOutput(record.SourceRoot, "branch", "--show-current")
+		head, headErr := gitOutput(record.SourceRoot, "rev-parse", "HEAD")
+		if branchErr == nil && headErr == nil && strings.TrimSpace(branch) != "" && gitCommand(record.SourceRoot, "merge-base", "--is-ancestor", record.Baseline, strings.TrimSpace(head)) == nil {
+			record.IntegrationBranch = strings.TrimSpace(branch)
+			record.SchemaVersion = sprintWorkspaceSchemaVersion
+		}
+	}
+	if record.SchemaVersion != sprintWorkspaceSchemaVersion || record.SourceRoot == "" || record.Path == "" || record.Branch == "" || record.IntegrationBranch == "" || record.Baseline == "" {
 		return SprintWorkspace{}, fmt.Errorf("invalid sprint workspace record")
 	}
 	return record, nil
@@ -154,6 +165,13 @@ func createSprintWorkspace(sp Sprint, source string, now time.Time) (SprintWorks
 		return SprintWorkspace{}, fmt.Errorf("resolve target HEAD: %w", err)
 	}
 	branch := "ultraplan/" + safeGitComponent(sp.Project) + "/" + safeGitComponent(sp.Slug)
+	integrationBranch, err := gitOutput(source, "branch", "--show-current")
+	if err != nil {
+		return SprintWorkspace{}, fmt.Errorf("resolve integration branch: %w", err)
+	}
+	if strings.TrimSpace(integrationBranch) == "" {
+		return SprintWorkspace{}, fmt.Errorf("resolve integration branch: detached HEAD is not supported")
+	}
 	parent := filepath.Join(filepath.Dir(root), "."+filepath.Base(root)+"-ultraplan-worktrees")
 	path := filepath.Join(parent, safeGitComponent(sp.Project), safeGitComponent(sp.Slug))
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
@@ -166,7 +184,7 @@ func createSprintWorkspace(sp Sprint, source string, now time.Time) (SprintWorks
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return SprintWorkspace{}, fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(output)), err)
 	}
-	record := SprintWorkspace{SchemaVersion: sprintWorkspaceSchemaVersion, SourceRoot: root, Path: path, Branch: branch, Baseline: strings.TrimSpace(baseline), CreatedAt: now}
+	record := SprintWorkspace{SchemaVersion: sprintWorkspaceSchemaVersion, SourceRoot: root, Path: path, Branch: branch, IntegrationBranch: strings.TrimSpace(integrationBranch), Baseline: strings.TrimSpace(baseline), CreatedAt: now}
 	data, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return SprintWorkspace{}, err

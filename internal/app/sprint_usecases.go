@@ -28,6 +28,7 @@ type SprintSummary struct {
 	Execute           ExecuteSummary
 	Review            ReviewSummary
 	Smoke             SmokeSummary
+	Merge             MergeSummary
 	QA                QAResult
 	Findings          []DisplayFinding
 	Artifacts         []DisplayArtifact
@@ -64,6 +65,13 @@ type SmokeSummary struct {
 	Issues                       []sprint.SmokeIssue
 	Override                     *sprint.DiagnosticOverride
 	CoverageMapping              *sprint.SmokeCoverageMapping
+}
+
+type MergeSummary struct {
+	Available bool
+	Status    string
+	Commit    string
+	Error     string
 }
 
 // QAUseCases is the adapter-independent QA boundary. Its DTOs contain bounded
@@ -506,6 +514,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 						{Label: "execute", Path: sprint.ArtifactRelPath(sp, sprint.StageExecute), Kind: "markdown"},
 						{Label: "review", Path: sprint.ArtifactRelPath(sp, sprint.StageReview), Kind: "markdown"},
 						{Label: "smoke", Path: sprint.ArtifactRelPath(sp, sprint.StageSmoke), Kind: "markdown"},
+						{Label: "merge", Path: sprint.ArtifactRelPath(sp, sprint.StageMerge), Kind: "markdown"},
 						{Label: "flow-state", Path: sprint.FlowStateRelPath(sp), Kind: "json"},
 						{Label: "run-state", Path: sprint.ExecuteRunStateRelPath(sp), Kind: "json"},
 					},
@@ -564,6 +573,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				Execute:           summarizeExecute(status.ExecuteState),
 				Review:            review,
 				Smoke:             summarizeSmoke(status.Smoke),
+				Merge:             summarizeMerge(status.Merge),
 				QA:                qaSummary,
 				Assessment:        string(status.Verification.Assessment),
 				NextAction:        status.Verification.NextAction,
@@ -602,10 +612,11 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				DisplayArtifact{Label: "execute", Path: sprint.ArtifactRelPath(sp, sprint.StageExecute), Kind: "markdown"},
 				DisplayArtifact{Label: "review", Path: sprint.ArtifactRelPath(sp, sprint.StageReview), Kind: "markdown"},
 				DisplayArtifact{Label: "smoke", Path: sprint.ArtifactRelPath(sp, sprint.StageSmoke), Kind: "markdown"},
+				DisplayArtifact{Label: "merge", Path: sprint.ArtifactRelPath(sp, sprint.StageMerge), Kind: "markdown"},
 				DisplayArtifact{Label: "flow-state", Path: sprint.FlowStateRelPath(sp), Kind: "json"},
 				DisplayArtifact{Label: "run-state", Path: sprint.ExecuteRunStateRelPath(sp), Kind: "json"},
 			)
-			for _, stage := range []sprint.PlanningStage{sprint.StageRequirements, sprint.StageCodeContext, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview, sprint.StageSmoke} {
+			for _, stage := range []sprint.PlanningStage{sprint.StageRequirements, sprint.StageCodeContext, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview, sprint.StageSmoke, sprint.StageMerge} {
 				result, err := validateSprintStage(service, p.Name, sp.Slug, stage)
 				if err != nil {
 					continue
@@ -639,7 +650,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 }
 
 func sortSprintArtifacts(items []DisplayArtifact) {
-	order := map[string]int{"requirements": 0, "code-context": 1, "sprint-index": 2, "technical-handbook": 3, "reasoning": 4, "plan": 5, "execute": 6, "review": 7, "smoke": 8, "flow-state": 9, "run-state": 10}
+	order := map[string]int{"requirements": 0, "code-context": 1, "sprint-index": 2, "technical-handbook": 3, "reasoning": 4, "plan": 5, "execute": 6, "review": 7, "smoke": 8, "merge": 9, "flow-state": 10, "run-state": 11}
 	sort.SliceStable(items, func(i, j int) bool {
 		left, leftOK := order[items[i].Label]
 		right, rightOK := order[items[j].Label]
@@ -675,6 +686,8 @@ func validateSprintStage(service sprint.Service, projectRef, sprintRef string, s
 		return service.ValidateReview(projectRef, sprintRef)
 	case sprint.StageSmoke:
 		return service.ValidateSmoke(projectRef, sprintRef)
+	case sprint.StageMerge:
+		return service.ValidateMerge(projectRef, sprintRef)
 	default:
 		return sprint.ValidationResult{}, fmt.Errorf("unsupported validation stage %q", stage)
 	}
@@ -686,6 +699,13 @@ func summarizeSmoke(state *sprint.SmokeStageState) SmokeSummary {
 	}
 	state.CoverageMapping.EnsureMatrix()
 	return SmokeSummary{Available: true, Status: string(state.Status), Verdict: string(state.Verdict), RunID: state.RunID, Error: displayReasons(state.Diagnostics), Stale: state.Stale, Reconciliation: state.Reconciliation, CoverageMapping: state.CoverageMapping}
+}
+
+func summarizeMerge(state *sprint.MergeState) MergeSummary {
+	if state == nil {
+		return MergeSummary{}
+	}
+	return MergeSummary{Available: true, Status: string(state.Status), Commit: state.MergeCommit, Error: state.Diagnostic}
 }
 
 func summarizeReview(state *sprint.ReviewStageState) ReviewSummary {

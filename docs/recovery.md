@@ -67,6 +67,8 @@ smoke evidence. Do not hand-edit state JSON to mark a stage complete.
 
 The governed sprint chain continues through execute, review, and smoke using the shared `sprint verify` transition. Verification does not authorize issue management, remediation, or agent-driven Git mutation. Configured stage publication runs only after canonical validation and persistence.
 
+Final integration uses `sprint merge`. Inspect `.merge-state.json` and `sprint merge status` before recovery. A `conflicts` or `failed` state with the recorded `MERGE_HEAD` still active can resume with `sprint merge continue --yes`. Use `sprint merge abort --yes` only when discarding the active merge is intended. UltraPlan will not continue if the recorded source commit, target branch, merge head, or allowed conflict paths drifted.
+
 ## Verify Recovery
 
 - Interrupted review: run `sprint <project> <sprint> status` to inspect completed coverage and retained sessions, then rerun `review`, `verify`, or `flow`. Compatible attempts resume by default.

@@ -2,7 +2,7 @@
 
 UltraPlan Go is a local-first CLI for durable architecture studies and governed sprint delivery. It initializes study workspaces, runs source and dimension analyses through agentwrap/OpenCode, synthesizes reports, validates artifacts, executes sprint plans, runs resumable automated reviews, drives review-gated smoke verification, and embeds manually invoked skills for every sprint stage.
 
-This release includes study workflows and the grounded governed sprint chain `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan -> execute -> review -> smoke`, including integrated `sprint verify`, durable review resume, focused review reruns, explicit diagnostic smoke overrides, and opt-in Git publication after completed stages. `code-context.md` stores repository-relative references only; later agent-backed stages receive one byte-stable shared prefix containing the exact requirements and context-pack bytes plus bounded transient live source evidence. Agents may still inspect additional repository files. Issue management, hosted SaaS, multi-user collaboration, general Git automation beyond stage publication and sprint worktree creation, retrieval/indexing, UltraPlan cache ownership, signing, notarization, tags, and artifact upload remain deferred.
+This release includes study workflows and the grounded governed sprint chain `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan -> execute -> review -> smoke -> merge`, including integrated `sprint verify`, durable review resume, focused review reruns, explicit diagnostic smoke overrides, and a governed final merge into the branch recorded when UltraPlan creates the sprint worktree. The merge command computes Git inputs, locking, staging, validation, commit creation, and recovery itself. An agent writes the description and edits only conflicted paths. `code-context.md` stores repository-relative references only; later agent-backed stages receive one byte-stable shared prefix containing the exact requirements and context-pack bytes plus bounded transient live source evidence. Agents may still inspect additional repository files. Issue management, hosted SaaS, multi-user collaboration, arbitrary Git automation, retrieval/indexing, UltraPlan cache ownership, signing, notarization, tags, and artifact upload remain deferred.
 
 Phase 3 operators should start with the [CLI reference](docs/cli-reference.md), [recovery runbook](docs/recovery.md), [JSON schema contract](docs/phase3-json-schemas.md), and [legacy verification migration guide](docs/phase3-migration.md). The authoritative product requirements, technical requirements, architecture, roadmap, and sprint plans live in the adjacent `ultraplan-go-workspace/projects/ultraplan-go/` planning workspace; this repository does not duplicate them.
 
@@ -125,6 +125,8 @@ ultraplan sprint <project> <sprint> flow --to requirements --dry-run
 ultraplan sprint <project> <sprint> flow --to plan --dry-run
 ultraplan sprint <project> <sprint> flow --to execute --dry-run
 ultraplan sprint <project> <sprint> execute --resume
+ultraplan sprint <project> <sprint> merge --dry-run
+ultraplan sprint <project> <sprint> merge --yes
 ```
 
 ## Documentation

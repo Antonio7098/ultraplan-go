@@ -57,6 +57,9 @@ func runSprint(deps dependencies, args []string) error {
 		case "verify":
 			_, err := deps.stdout.Write([]byte(sprintVerifyHelp()))
 			return err
+		case "merge":
+			_, err := deps.stdout.Write([]byte(sprintMergeHelp()))
+			return err
 		case "execute":
 			_, err := deps.stdout.Write([]byte(sprintExecuteHelp()))
 			return err
@@ -72,7 +75,7 @@ func runSprint(deps dependencies, args []string) error {
 		if len(args) == 2 {
 			return classified(ExitUsage, "sprint: expected '<project> <sprint> status'")
 		}
-		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|metrics|validate|prompt|flow|execute|review|conformance-review|qa|smoke|verify>'")
+		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|metrics|validate|prompt|flow|execute|review|conformance-review|qa|smoke|verify|merge>'")
 	}
 	if args[2] == "conformance-review" {
 		args[2] = "review"
@@ -166,6 +169,8 @@ func runSprint(deps dependencies, args []string) error {
 			result, err = service.ValidateReview(args[0], args[1])
 		case sprint.StageSmoke:
 			result, err = service.ValidateSmoke(args[0], args[1])
+		case sprint.StageMerge:
+			result, err = service.ValidateMerge(args[0], args[1])
 		default:
 			return classified(ExitUsage, "sprint.validate: unsupported stage %q", args[3])
 		}
@@ -232,6 +237,9 @@ func runSprint(deps dependencies, args []string) error {
 		if !req.DryRun {
 			if req.To == sprint.StageSmoke && !req.Smoke.NonInteractive {
 				return classified(ExitUsage, "sprint.flow: --yes is required for smoke execution")
+			}
+			if req.To == sprint.StageMerge && !req.Merge.Confirm {
+				return classified(ExitUsage, "sprint.flow: --yes is required for merge execution")
 			}
 			req.Progress = renderSprintFlowProgress(deps)
 			durable, err = beginDurableCLICommand(deps, OperationRequest{Kind: OperationFlow, Project: args[0], Sprint: args[1], Stage: string(req.To)})
@@ -326,6 +334,74 @@ func runSprint(deps dependencies, args []string) error {
 			return classified(ExitValidation, "sprint.verify: assessment %s", result.Verification.Assessment)
 		}
 		return nil
+	case "merge":
+		mergeCommand, parseErr := parseSprintMergeArgs(args[3:])
+		if parseErr != nil {
+			return classified(ExitUsage, "sprint.merge: %w", parseErr)
+		}
+		switch mergeCommand.Action {
+		case "inspect":
+			inspection, inspectErr := service.InspectMerge(args[0], args[1])
+			if mergeCommand.JSON {
+				_ = json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.merge.inspect", "status": map[bool]string{true: "ready", false: "blocked"}[inspection.Ready], "result": inspection})
+			} else {
+				renderSprintMergeInspection(deps, inspection)
+			}
+			if inspectErr != nil {
+				return mapSprintError("sprint.merge.inspect", inspectErr)
+			}
+			if !inspection.Ready {
+				return classified(ExitValidation, "sprint.merge.inspect: merge is not ready")
+			}
+			return nil
+		case "status":
+			state, stateErr := service.LoadMergeState(args[0], args[1])
+			if stateErr != nil {
+				return mapSprintError("sprint.merge.status", stateErr)
+			}
+			if mergeCommand.JSON {
+				return json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.merge.status", "status": state.Status, "result": state})
+			}
+			renderSprintMergeState(deps, state)
+			return nil
+		case "abort":
+			if !mergeCommand.Request.Confirm {
+				return classified(ExitUsage, "sprint.merge: abort requires --yes")
+			}
+			state, abortErr := service.AbortMerge(args[0], args[1])
+			if mergeCommand.JSON {
+				_ = json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.merge.abort", "status": state.Status, "result": state})
+			} else {
+				renderSprintMergeState(deps, state)
+			}
+			if abortErr != nil {
+				return mapSprintError("sprint.merge.abort", abortErr)
+			}
+			return nil
+		default:
+			mergeService := service
+			if !mergeCommand.Request.DryRun {
+				mergeService, err = sprintRuntimeService(deps, root)
+				if err != nil {
+					return err
+				}
+			}
+			result, mergeErr := mergeService.RunMerge(deps.ctx, args[0], args[1], mergeCommand.Request)
+			if mergeCommand.JSON {
+				status := string(result.State.Status)
+				if status == "" {
+					status = "failed"
+				}
+				_ = json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.merge", "status": status, "result": result})
+			} else {
+				renderSprintMergeInspection(deps, result.Inspection)
+				renderSprintMergeState(deps, result.State)
+			}
+			if mergeErr != nil {
+				return mapSprintError("sprint.merge", mergeErr)
+			}
+			return nil
+		}
 	case "execute":
 		req, err := parseSprintExecuteArgs(args[3:])
 		if err != nil {
@@ -1022,6 +1098,7 @@ func planningStageRuntime(c config.Config) map[sprint.PlanningStage]sprint.Stage
 		},
 		sprint.StageReview: {Model: c.Planning.ReviewModel, Variant: c.Planning.ReviewVariant},
 		sprint.StageSmoke:  {Model: c.Planning.SmokeModel, Variant: c.Planning.SmokeVariant},
+		sprint.StageMerge:  {Model: c.Planning.ReviewModel, Variant: c.Planning.ReviewVariant},
 	}
 }
 
@@ -1133,6 +1210,7 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 			req.Review.Restart = true
 		case "--yes", "--non-interactive":
 			req.Smoke.NonInteractive, req.Smoke.OverrideConfirmed = true, true
+			req.Merge.Confirm = true
 		case "--force-review":
 			req.Smoke.ForceReview = true
 		case "--override-reason":
@@ -1146,15 +1224,61 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 		}
 	}
 	if req.To == "" {
-		return req, fmt.Errorf("--to requirements, --to code-context, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, --to plan, --to execute, --to review, or --to smoke is required")
+		return req, fmt.Errorf("--to requirements, --to code-context, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, --to plan, --to execute, --to review, --to smoke, or --to merge is required")
 	}
-	if req.To != sprint.StageRequirements && req.To != sprint.StageCodeContext && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan && req.To != sprint.StageExecute && req.To != sprint.StageReview && req.To != sprint.StageSmoke {
+	if req.To != sprint.StageRequirements && req.To != sprint.StageCodeContext && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan && req.To != sprint.StageExecute && req.To != sprint.StageReview && req.To != sprint.StageSmoke && req.To != sprint.StageMerge {
 		return req, fmt.Errorf("unsupported flow target %q", req.To)
 	}
 	if req.Smoke.ForceReview && strings.TrimSpace(req.Smoke.OverrideRationale) == "" {
 		return req, fmt.Errorf("--force-review requires --override-reason")
 	}
 	return req, nil
+}
+
+type sprintMergeCommand struct {
+	Action  string
+	JSON    bool
+	Request sprint.MergeRequest
+}
+
+func parseSprintMergeArgs(args []string) (sprintMergeCommand, error) {
+	command := sprintMergeCommand{Action: "run"}
+	if len(args) > 0 {
+		switch args[0] {
+		case "inspect", "status", "continue", "abort":
+			command.Action = args[0]
+			args = args[1:]
+			command.Request.Continue = command.Action == "continue"
+		}
+	}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--dry-run":
+			command.Request.DryRun = true
+		case "--yes":
+			command.Request.Confirm = true
+		case "--json":
+			command.JSON = true
+		case "--model":
+			if i+1 >= len(args) {
+				return command, fmt.Errorf("--model requires a provider/model value")
+			}
+			i++
+			command.Request.ModelOverride = args[i]
+		default:
+			return command, fmt.Errorf("unsupported argument %q", args[i])
+		}
+	}
+	if command.Action == "run" && !command.Request.DryRun && !command.Request.Confirm {
+		return command, fmt.Errorf("--yes is required")
+	}
+	if command.Action == "continue" && !command.Request.Confirm {
+		return command, fmt.Errorf("continue requires --yes")
+	}
+	if (command.Action == "inspect" || command.Action == "status") && (command.Request.Confirm || command.Request.DryRun || command.Request.ModelOverride != "") {
+		return command, fmt.Errorf("%s accepts only --json", command.Action)
+	}
+	return command, nil
 }
 
 func parseSprintReviewArgs(args []string) (sprint.ReviewRequest, bool, error) {
@@ -1321,6 +1445,13 @@ func renderSprintStatus(deps dependencies, status sprint.StatusSummary) {
 	fmt.Fprintf(deps.stdout, "Sprint: %s\n", status.Sprint)
 	fmt.Fprintf(deps.stdout, "Sprint root: %s\n", status.SprintRoot)
 	fmt.Fprintf(deps.stdout, "Flow state: %s\n", status.FlowStatePath)
+	if status.Merge != nil {
+		fmt.Fprintf(deps.stdout, "Merge: %s", status.Merge.Status)
+		if status.Merge.MergeCommit != "" {
+			fmt.Fprintf(deps.stdout, " commit=%s", status.Merge.MergeCommit)
+		}
+		fmt.Fprintln(deps.stdout)
+	}
 	fmt.Fprintln(deps.stdout, "Stages:")
 	for _, stage := range status.Stages {
 		fmt.Fprintf(deps.stdout, "  %s: %s (%s)", stage.Stage, stage.Status, stage.Path)
@@ -1535,6 +1666,32 @@ func renderSprintSmoke(deps dependencies, result sprint.SmokeResult) {
 	}
 }
 
+func renderSprintMergeInspection(deps dependencies, value sprint.MergeInspection) {
+	fmt.Fprintf(deps.stdout, "Merge %s/%s\n", value.Project, value.Sprint)
+	fmt.Fprintf(deps.stdout, "  source: %s %s\n", value.SourceBranch, value.SourceCommit)
+	fmt.Fprintf(deps.stdout, "  target: %s %s\n", value.TargetBranch, value.TargetCommit)
+	fmt.Fprintf(deps.stdout, "  ready: %t\n", value.Ready)
+	for _, diagnostic := range value.Diagnostics {
+		fmt.Fprintf(deps.stdout, "  diagnostic: %s\n", diagnostic)
+	}
+	for _, path := range value.LikelyConflicts {
+		fmt.Fprintf(deps.stdout, "  likely conflict: %s\n", path)
+	}
+}
+
+func renderSprintMergeState(deps dependencies, value sprint.MergeState) {
+	if value.Status == "" {
+		return
+	}
+	fmt.Fprintf(deps.stdout, "  merge status: %s\n", value.Status)
+	if value.MergeCommit != "" {
+		fmt.Fprintf(deps.stdout, "  merge commit: %s\n", value.MergeCommit)
+	}
+	if value.Diagnostic != "" {
+		fmt.Fprintf(deps.stdout, "  diagnostic: %s\n", value.Diagnostic)
+	}
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -1622,6 +1779,11 @@ Usage:
   ultraplan sprint <project> <sprint> qa recover [--json]
   ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
   ultraplan sprint <project> <sprint> verify [--to review|smoke] [--focus-review <id>] [--restart-review] [--level <id>|--suite <id>|--test <id>] [--yes] [--json]
+  ultraplan sprint <project> <sprint> merge [--dry-run|--yes] [--model <provider/model>] [--json]
+  ultraplan sprint <project> <sprint> merge inspect [--json]
+  ultraplan sprint <project> <sprint> merge status [--json]
+  ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/model>] [--json]
+  ultraplan sprint <project> <sprint> merge abort --yes [--json]
   execute <project> <sprint> is available as the sprint execute action above.
 
 Commands:
@@ -1735,6 +1897,23 @@ Usage:
   ultraplan sprint <project> <sprint> verify [--to review|smoke] [--focus-review <coverage-id>] [--restart-review] [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
 
 Requires complete execute evidence, obtains a current review, then applies the review gate before smoke. Focused review results promote only with complete same-fingerprint retained coverage. Test/level smoke is diagnostic unless the harness proves containing coverage. A review override requires --yes and a rationale, remains diagnostic, and cannot improve the overall assessment.
+`
+}
+
+func sprintMergeHelp() string {
+	return `ultraplan sprint <project> <sprint> merge
+
+Usage:
+  ultraplan sprint <project> <sprint> merge --dry-run [--json]
+  ultraplan sprint <project> <sprint> merge --yes [--model <provider/model>] [--json]
+  ultraplan sprint <project> <sprint> merge inspect [--json]
+  ultraplan sprint <project> <sprint> merge status [--json]
+  ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/model>] [--json]
+  ultraplan sprint <project> <sprint> merge abort --yes [--json]
+
+Inspects and merges the recorded sprint worktree into its recorded integration
+branch. UltraPlan owns Git mutation. An agent writes the merge description and
+edits only conflicted paths when reconciliation is required.
 `
 }
 

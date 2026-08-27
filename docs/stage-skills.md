@@ -14,6 +14,7 @@ UltraPlan embeds one project skill for each governed sprint stage:
 | execute | `$ultraplan-execute` |
 | review | `$ultraplan-review` |
 | smoke | `$ultraplan-smoke` |
+| merge | `$ultraplan-merge` |
 | cross-stage review/smoke reconciliation | `$ultraplan-reconcile-review-smoke` |
 
 The skills are interactive forms of the built-in stage prompts. They preserve

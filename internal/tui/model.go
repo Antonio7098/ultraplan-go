@@ -458,6 +458,7 @@ func (m Model) navItems() []navItem {
 				{Label: "Execute", Path: artifactByLabel(s.Artifacts, "execute")},
 				{Label: "Conformance Review", Path: artifactByLabel(s.Artifacts, "review")},
 				{Label: "Smoke", Path: artifactByLabel(s.Artifacts, "smoke")},
+				{Label: "Merge", Path: artifactByLabel(s.Artifacts, "merge")},
 				{Label: "Flow State", Path: artifactByLabel(s.Artifacts, "flow-state")},
 				{Label: "Run State", Path: artifactByLabel(s.Artifacts, "run-state")},
 				{Label: "QA", Route: &Route{Kind: RouteSprintQA, Project: route.Project, Sprint: route.Sprint}},
@@ -470,7 +471,10 @@ func (m Model) navItems() []navItem {
 			}
 			items = append(items,
 				navItem{Label: "Dry Run Flow to smoke", Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
-				navItem{Label: "Run Flow to smoke [RUNTIME + EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}})
+				navItem{Label: "Run Flow to smoke [RUNTIME + EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
+				navItem{Label: "Inspect Flow to merge", Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "merge"}},
+				navItem{Label: "Run Flow to merge [RUNTIME + GIT]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: "merge"}},
+				navItem{Label: "Validate merge", Validation: &app.ValidationRequest{Subject: app.ValidationSprint, Project: route.Project, Sprint: route.Sprint, Stage: "merge"}})
 			for _, stage := range stages {
 				items = append(items,
 					navItem{Label: "Dry Run Flow to " + stageLabel(stage), Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: stage}},

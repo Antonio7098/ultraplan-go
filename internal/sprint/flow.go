@@ -66,6 +66,7 @@ type FlowRequest struct {
 	StageOverrides map[PlanningStage]StageRuntime
 	Review         ReviewRequest
 	Smoke          SmokeRequest
+	Merge          MergeRequest
 	Progress       func(FlowProgress)
 }
 
@@ -102,6 +103,13 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 				message = firstNonEmptyString(verified.ReviewResult.Prompt, verified.ReviewResult.Message, message)
 			}
 			return FlowResult{Project: verified.Project, Sprint: verified.Sprint, To: req.To, DryRun: true, Message: message}, verifyErr
+		}
+		if req.To == StageMerge {
+			inspection, inspectErr := s.InspectMerge(projectRef, sprintRef)
+			if inspectErr == nil && !inspection.Ready {
+				inspectErr = fmt.Errorf("merge is not ready: %s", strings.Join(inspection.Diagnostics, "; "))
+			}
+			return FlowResult{Project: inspection.Project, Sprint: inspection.Sprint, To: req.To, DryRun: true, Message: "merge readiness inspected"}, inspectErr
 		}
 		stages = []PlanningStage{req.To}
 	} else {
@@ -179,6 +187,17 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 		verified, verifyErr := s.Verify(ctx, projectRef, sprintRef, VerifyRequest{To: req.To, Review: req.Review, Smoke: req.Smoke, Progress: req.Progress})
 		message := fmt.Sprintf("verification assessment=%s next=%s", verified.Verification.Assessment, verified.Verification.NextAction)
 		return FlowResult{Project: verified.Project, Sprint: verified.Sprint, To: req.To, Message: message}, verifyErr
+	}
+	if req.To == StageMerge {
+		verified, verifyErr := s.Verify(ctx, projectRef, sprintRef, VerifyRequest{To: StageSmoke, Review: req.Review, Smoke: req.Smoke, Progress: req.Progress})
+		if verifyErr != nil || (verified.Verification.Assessment != AssessmentPass && verified.Verification.Assessment != AssessmentPassWithFindings) {
+			if verifyErr == nil {
+				verifyErr = fmt.Errorf("verification assessment %s does not permit merge", verified.Verification.Assessment)
+			}
+			return FlowResult{Project: verified.Project, Sprint: verified.Sprint, To: req.To, Message: verified.Verification.NextAction}, verifyErr
+		}
+		merged, mergeErr := s.RunMerge(ctx, projectRef, sprintRef, req.Merge)
+		return FlowResult{Project: merged.Inspection.Project, Sprint: merged.Inspection.Sprint, To: req.To, Message: "merge " + string(merged.State.Status)}, mergeErr
 	}
 	result.To = req.To
 	return result, nil
@@ -275,7 +294,7 @@ func flowStages(target PlanningStage) ([]PlanningStage, error) {
 		end = 6
 	case StagePlan:
 		end = 7
-	case StageExecute, StageReview, StageSmoke:
+	case StageExecute, StageReview, StageSmoke, StageMerge:
 		end = 8
 	}
 	return append([]PlanningStage(nil), ordered[:end]...), nil
@@ -427,8 +446,8 @@ func safeError(err error) string {
 }
 
 func validateFlowTarget(stage PlanningStage) error {
-	if stage != StageRequirements && stage != StageCodeContext && stage != StageSprintIndex && stage != StageTechnicalHandbook && stage != StageAreaReasoning && stage != StageReasoning && stage != StagePlan && stage != StageExecute && stage != StageReview && stage != StageSmoke {
-		return fmt.Errorf("unsupported sprint flow target %q; supports requirements, code-context, sprint-index, technical-handbook, area-reasoning, reasoning, plan, execute, review, and smoke", stage)
+	if stage != StageRequirements && stage != StageCodeContext && stage != StageSprintIndex && stage != StageTechnicalHandbook && stage != StageAreaReasoning && stage != StageReasoning && stage != StagePlan && stage != StageExecute && stage != StageReview && stage != StageSmoke && stage != StageMerge {
+		return fmt.Errorf("unsupported sprint flow target %q; supports requirements, code-context, sprint-index, technical-handbook, area-reasoning, reasoning, plan, execute, review, smoke, and merge", stage)
 	}
 	return nil
 }

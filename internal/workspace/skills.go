@@ -225,6 +225,26 @@ Verify the implemented sprint against the current review gate and the project's 
 
 Perform the smoke verification yourself: inspect the declared harness, run the selected checks directly with your tools, capture the required evidence, and create or update the governed smoke artifact according to the resolved contract. Do not call ` + "`sprint smoke`" + `, ` + "`verify --to smoke`" + `, or ` + "`flow --to smoke`" + ` to execute or complete the stage. Then use validation and status commands to verify and reconcile the result. A failed or blocked result is not a pass. Do not bypass a stale or missing review gate unless the user explicitly requests a supported diagnostic override.`,
 		},
+		{
+			Stage:            "merge",
+			Name:             "ultraplan-merge",
+			DisplayName:      "UltraPlan Merge",
+			ShortDescription: "Merge a verified sprint worktree into its recorded integration branch",
+			Prerequisites:    []string{"completed execute stage", "fresh acceptable review and smoke evidence", "clean recorded sprint and integration worktrees"},
+			Prompt: `# Sprint Merge
+
+Use UltraPlan's governed merge command. UltraPlan resolves both worktrees, freezes commit identities, generates the description, owns every Git mutation, and invokes restricted conflict reconciliation only when Git reports conflicts.`,
+			CanonicalFlow: true,
+			StageWorkflow: `Inspect readiness first:
+
+    ultraplan sprint <project> <sprint> merge --dry-run
+
+After the user confirms the Git mutation, run:
+
+    ultraplan sprint <project> <sprint> merge --yes
+
+If an interrupted conflict reconciliation is resumable, use ` + "`merge continue --yes`" + `. Use ` + "`merge abort --yes`" + ` only when the user explicitly asks to discard the active merge. Do not run Git merge, add, commit, reset, checkout, branch, or push commands yourself.`,
+		},
 	}
 }
 

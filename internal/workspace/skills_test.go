@@ -24,8 +24,8 @@ func TestMaterialiseAllStageSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	skills := StageSkills()
-	if len(skills) != 11 {
-		t.Fatalf("stage skill count = %d, want 11", len(skills))
+	if len(skills) != 12 {
+		t.Fatalf("stage skill count = %d, want 12", len(skills))
 	}
 	for _, skill := range skills {
 		base := filepath.Join(root, ".agents", "skills", skill.Name)
@@ -176,12 +176,12 @@ func TestReconciliationSkillCoversFindingTriageAndSmokeHarnessReadiness(t *testi
 	}
 }
 
-func TestOnlyReviewAndCodeContextDelegateStageExecutionToCLI(t *testing.T) {
+func TestOnlyGovernedRuntimeStagesDelegateStageExecutionToCLI(t *testing.T) {
 	for _, skill := range StageSkills() {
 		body := renderStageSkill(skill)
 		ownsStageWork := strings.Contains(body, "The invoking agent owns the actual stage work") ||
 			(skill.Stage == "execute" && strings.Contains(body, "Act as the execution agent and perform the entire stage manually")) ||
-			(skill.Stage == "code-context" && strings.Contains(body, "manual-only skill deliberately delegates"))
+			((skill.Stage == "code-context" || skill.Stage == "merge") && strings.Contains(body, "manual-only skill deliberately delegates"))
 		if !ownsStageWork {
 			t.Fatalf("%s skill is missing the agent-owned execution contract", skill.Name)
 		}
@@ -198,6 +198,14 @@ func TestOnlyReviewAndCodeContextDelegateStageExecutionToCLI(t *testing.T) {
 				}
 				if !strings.Contains(body, want) {
 					t.Fatalf("code-context skill missing canonical delegation %q", want)
+				}
+			}
+			continue
+		}
+		if skill.Stage == "merge" {
+			for _, want := range []string{"merge --dry-run", "merge --yes", "merge continue --yes", "merge abort --yes"} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("merge skill missing canonical delegation %q", want)
 				}
 			}
 			continue

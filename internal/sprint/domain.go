@@ -241,6 +241,8 @@ type StatusSummary struct {
 	ReviewPath                string             `json:"review_path"`
 	Smoke                     *SmokeStageState   `json:"smoke,omitempty"`
 	SmokePath                 string             `json:"smoke_path"`
+	Merge                     *MergeState        `json:"merge,omitempty"`
+	MergePath                 string             `json:"merge_path"`
 	QA                        *QAFlowSummary     `json:"qa,omitempty"`
 	Verification              VerificationStatus `json:"verification"`
 }

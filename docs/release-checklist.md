@@ -4,10 +4,10 @@ This checklist gates the local Phase 3 CLI and TUI release. It does not publish,
 
 ## Scope
 
-- Study workflows and governed sprint delivery through `execute -> review -> smoke`.
+- Study workflows and governed sprint delivery through `execute -> review -> smoke -> merge`.
 - CLI and TUI support integrated `verify`, resumable/focused review, review-gated smoke, status, validation, cancellation, and recovery.
 - Local numeric-loopback browser UI with guarded operations and bounded SSE.
-- No issue management, hosted SaaS, remote/multi-user collaboration, or Git automation beyond configured stage publication and sprint worktree creation.
+- No issue management, hosted SaaS, remote/multi-user collaboration, or Git automation beyond configured stage publication, sprint worktree creation, and governed sprint merge.
 - Runtime integration remains through agentwrap/OpenCode.
 
 ## Offline Gates

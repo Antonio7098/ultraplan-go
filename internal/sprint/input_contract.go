@@ -40,6 +40,9 @@ func InputContract(stage PlanningStage) StageInputContract {
 		contract.Forbidden = []string{"sibling-coverage-sources"}
 	case StageSmoke:
 		contract.Required = append(append([]string{}, shared...), "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "execution-evidence", "review-outcome", "execution-handoff", "smoke-harness")
+	case StageMerge:
+		contract.Required = []string{"workspace-record", "source-commit", "target-commit", "merge-base", "changed-paths", "review-outcome", "smoke-outcome"}
+		contract.Forbidden = []string{"unrecorded-target-branch", "unapproved-conflict-paths"}
 	}
 	return contract
 }

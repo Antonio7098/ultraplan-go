@@ -325,6 +325,12 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 		verification.Assessment = AssessmentNotApplicable
 		verification.NextAction = "Historical terminal execution evidence is preserved; modern review and smoke evidence is not available."
 	}
+	var mergeState *MergeState
+	if loadedMerge, mergeErr := s.LoadMergeState(projectRef, sprintRef); mergeErr == nil {
+		mergeState = &loadedMerge
+	} else if !errors.Is(mergeErr, os.ErrNotExist) {
+		return StatusSummary{}, mergeErr
+	}
 	return StatusSummary{
 		Project:                   sp.Project,
 		Sprint:                    sp.Slug,
@@ -339,6 +345,8 @@ func (s Service) Status(projectRef, sprintRef string) (StatusSummary, error) {
 		ReviewPath:                ArtifactRelPath(sp, StageReview),
 		Smoke:                     refreshed.Smoke,
 		SmokePath:                 ArtifactRelPath(sp, StageSmoke),
+		Merge:                     mergeState,
+		MergePath:                 mergeArtifactRelPath(sp),
 		QA:                        refreshed.QA,
 		Verification:              verification,
 	}, nil

@@ -1,6 +1,6 @@
 # CLI Reference
 
-This release includes study commands and governed sprint planning, execute, resumable automated review, integrated `verify`, focused review reruns, review-gated deep smoke, opt-in Git publication after completed stages, the terminal dashboard, and a loopback-only browser dashboard with guarded operations and SSE progress. Issue management, general Git automation beyond stage publication and sprint worktree creation, and hosted services remain deferred.
+This release includes study commands and governed sprint planning, execute, resumable automated review, integrated `verify`, focused review reruns, review-gated deep smoke, governed sprint-worktree merge, opt-in Git publication after completed stages, the terminal dashboard, and a loopback-only browser dashboard with guarded operations and SSE progress. Issue management, arbitrary Git automation outside stage publication, worktree creation, and sprint merge, and hosted services remain deferred.
 
 ## Global Usage
 
@@ -50,10 +50,10 @@ ultraplan skills materialise [all|stage] [--path <dir>] [--dry-run] [--force]
 ```
 
 Writes manually invoked sprint-stage skills to
-`.agents/skills/ultraplan-<stage>/`. With no selection, all eleven skills are
+`.agents/skills/ultraplan-<stage>/`. With no selection, all twelve skills are
 materialised. Supported stages are `reconcile`, `requirements`, `code-context`, `sprint-index`,
 `technical-handbook`, `area-reasoning`, `reasoning`, `plan`, `execute`,
-`review`, and `smoke`.
+`review`, `smoke`, and `merge`.
 
 Each generated skill includes `SKILL.md` and `agents/openai.yaml`. Implicit
 invocation is disabled. The `SKILL.md` embeds the canonical stage prompt and
@@ -303,7 +303,7 @@ ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-r
 ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run] [--yes]
 ```
 
-Runs or previews the governed stage flow through smoke. Cumulative planning order is `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan`; `flow --to plan` dispatches code-context exactly once when it is not already complete and valid. A code-context rerun reads the configured implementation target with restricted permissions and atomically replaces only `code-context.md`. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. Review and smoke use the same sprint-owned transition as `verify`. Compatible interrupted reviews resume by default; `--restart-review` discards retained review progress. A non-dry-run smoke transition requires `--yes`.
+Runs or previews the governed stage flow through merge. Cumulative planning order is `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan`; `flow --to plan` dispatches code-context exactly once when it is not already complete and valid. A code-context rerun reads the configured implementation target with restricted permissions and atomically replaces only `code-context.md`. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. Review and smoke use the same sprint-owned transition as `verify`. Compatible interrupted reviews resume by default; `--restart-review` discards retained review progress. Smoke and merge mutations require `--yes`. `flow --to merge --yes` completes verification before it starts integration.
 
 ### `ultraplan sprint <project> <sprint> execute`
 
@@ -431,6 +431,19 @@ Example:
 ```bash
 ultraplan sprint ultraplan-go 28-review-to-smoke-flow verify --to smoke --yes
 ```
+
+### `ultraplan sprint <project> <sprint> merge`
+
+```text
+ultraplan sprint <project> <sprint> merge --dry-run [--json]
+ultraplan sprint <project> <sprint> merge --yes [--model <provider/model>] [--json]
+ultraplan sprint <project> <sprint> merge inspect [--json]
+ultraplan sprint <project> <sprint> merge status [--json]
+ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/model>] [--json]
+ultraplan sprint <project> <sprint> merge abort --yes [--json]
+```
+
+Merges the recorded sprint branch into the integration branch captured in `.workspace.json`. Admission requires clean recorded worktrees and current acceptable review and smoke evidence. UltraPlan freezes both commit IDs, takes a repository merge lock, asks an agent for a structured description, and runs `git merge --no-ff --no-commit`. UltraPlan alone stages and commits. If Git reports conflicts, a restricted agent may edit only the conflicted paths before deterministic validation and staging. `.merge-state.json` makes conflicts resumable, and `merge.md` records the completed commit and reconciliation evidence.
 
 ### `ultraplan code`
 

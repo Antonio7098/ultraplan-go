@@ -31,6 +31,8 @@ func ArtifactRelPath(s Sprint, stage PlanningStage) string {
 		return base + "/review.md"
 	case StageSmoke:
 		return base + "/smoke.md"
+	case StageMerge:
+		return base + "/merge.md"
 	default:
 		return base
 	}

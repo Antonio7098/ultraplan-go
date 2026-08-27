@@ -44,6 +44,7 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 			})
 			flow.Review = sprint.ReviewRequest{Restart: req.RestartReview}
 			flow.Smoke = sprint.SmokeRequest{NonInteractive: true, OverrideConfirmed: req.ForceReview, ForceReview: req.ForceReview, OverrideRationale: req.OverrideRationale}
+			flow.Merge = sprint.MergeRequest{Confirm: true, ModelOverride: req.Model}
 			r, e := runSprintFlow(ctx, service, req.Project, req.Sprint, flow)
 			result.Message = r.Message
 			result = operationWithSprintFindings(result, r.Findings)

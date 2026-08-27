@@ -847,6 +847,10 @@ func (u *webUseCases) PromptBundle(ctx context.Context, project, slug, stageName
 		result.Scope = "Prepared after smoke harness discovery"
 		result.UnavailableReason = "The smoke prompt is assembled only after the governed harness and acceptance coverage are discovered."
 		return result, nil
+	case sprint.StageMerge:
+		result.Scope = "Prepared from frozen Git identities after merge admission"
+		result.UnavailableReason = "The merge description prompt is assembled only after UltraPlan validates both recorded worktrees and current verification evidence."
+		return result, nil
 	default:
 		return WebPromptBundleResult{}, ErrWebNotFound
 	}
@@ -1211,6 +1215,14 @@ func sprintRunStages(item SprintSummary) []StageSummary {
 		}
 	}
 	stages = append(stages, StageSummary{Name: "smoke", Status: smokeStatus, Error: item.Smoke.Error})
+	mergeStatus := "waiting"
+	if item.Merge.Available {
+		mergeStatus = item.Merge.Status
+		if mergeStatus == "" {
+			mergeStatus = "ready"
+		}
+	}
+	stages = append(stages, StageSummary{Name: "merge", Status: mergeStatus, Error: item.Merge.Error})
 	for index := range stages {
 		contract := sprint.InputContract(sprint.PlanningStage(stages[index].Name))
 		stages[index].PromptContract = &contract
