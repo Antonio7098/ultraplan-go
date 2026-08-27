@@ -3,7 +3,7 @@
   "run_id": "run-20260702T124628Z",
   "study": "agent-harness-study",
   "created_at": "2026-07-02T12:46:28.105235824Z",
-  "updated_at": "2026-08-27T14:40:45.884426869Z",
+  "updated_at": "2026-08-27T15:08:38.931309958Z",
   "filters": {},
   "config_summary": {
     "runtime": "opencode",
@@ -398968,7 +398968,7 @@
     {
       "id": "analysis:agent-harness-study:16.01:artifact-lifecycle:agent-framework:directory",
       "kind": "analysis",
-      "status": "running",
+      "status": "retrying",
       "study": "agent-harness-study",
       "dimension": "16.01",
       "dimension_ref": "16.01-artifact-lifecycle",
@@ -398977,95 +398977,50 @@
       "output_path": "studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/agent-framework.md",
       "attempts": 6,
       "created_at": "2026-07-02T12:46:28.105235824Z",
-      "updated_at": "2026-08-27T14:40:45.869716841Z",
+      "updated_at": "2026-08-27T14:52:28.539550163Z",
       "started_at": "2026-08-27T14:27:49.55730919Z",
+      "completed_at": "2026-08-27T14:52:28.539550163Z",
+      "retry_after": "2026-08-27T14:52:29.539576493Z",
+      "last_error": {
+        "code": "runtime.failed",
+        "message": "rate_limit: opencode run: rate_limit: [REDACTED] [openrouter/minimax/minimax-m3:free:rate_limit ([REDACTED]) → openrouter/minimax/minimax-m3:free:rate_limit ([REDACTED])]",
+        "detail": "[REDACTED]"
+      },
       "validation": {
         "status": "failed",
-        "checked_at": "2026-08-27T13:57:39.762658883Z",
+        "checked_at": "2026-08-27T14:52:28.539550163Z",
         "path": "/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/agent-framework.md",
         "passed_checks": 0,
         "failed_checks": 1,
         "message": "read validation artifact: /home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/agent-framework.md: open /home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/agent-framework.md: no such file or directory"
       },
       "agent": {
-        "policy": {},
-        "permissions": {},
-        "cleanup": {},
-        "repair": {},
-        "usage": {
-          "input_tokens_known": false,
-          "output_tokens_known": false,
-          "total_tokens_known": false,
-          "reasoning_tokens_known": false,
-          "cache_read_tokens_known": false,
-          "cache_write_tokens_known": false,
-          "turns_known": false
-        }
-      },
-      "session": {
-        "session_id": "ses_fbc5604aaffePqUxOeUy0vo1QC",
+        "runtime": "openrouter",
+        "run_id": "opencode-2",
+        "status": "failed",
         "provider": "openrouter",
         "model": "minimax/minimax-m3:free",
-        "work_dir": "/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study",
-        "input_fingerprint": "74595a29d7e5dcb3c4c22394c8a6b33a14a46d920fbdea454a332570ee56f55f",
-        "updated_at": "2026-08-27T14:40:45.869710695Z"
-      }
-    },
-    {
-      "id": "analysis:agent-harness-study:16.01:artifact-lifecycle:langgraph:directory",
-      "kind": "analysis",
-      "status": "pending",
-      "study": "agent-harness-study",
-      "dimension": "16.01",
-      "dimension_ref": "16.01-artifact-lifecycle",
-      "source": "langgraph",
-      "source_kind": "directory",
-      "output_path": "studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/langgraph.md",
-      "attempts": 4,
-      "created_at": "2026-07-02T12:46:28.105235824Z",
-      "updated_at": "2026-08-27T14:27:47.071268359Z",
-      "started_at": "2026-08-27T13:57:40.181119158Z",
-      "completed_at": "2026-08-27T14:22:15.410590467Z",
-      "last_error": {
-        "code": "runtime.failed",
-        "message": "rate_limit: opencode run: rate_limit: timestamp=2026-08-27T14:09:56.013Z level=INFO run=d708a3d0 message=\"creating instance\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:09:56.018Z level=INFO run=d708a3d0 message=fromDirectory directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:09:56.142Z level=INFO run=d708a3d0 message=bootstrapping directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:09:56.160Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/config.json\ntimestamp=2026-08-27T14:09:56.162Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/opencode.json\ntimestamp=2026-08-27T14:09:56.162Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/opencode.jsonc\ntimestamp=2026-08-27T14:09:56.222Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.opencode/opencode.json\ntimestamp=2026-08-27T14:09:56.223Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.opencode/opencode.jsonc\ntimestamp=2026-08-27T14:09:56.355Z level=INFO run=d708a3d0 message=\"all LSPs are disabled\"\ntimestamp=2026-08-27T14:09:56.357Z level=INFO run=d708a3d0 message=\"all formatters are disabled\"\ntimestamp=2026-08-27T14:09:56.357Z level=INFO run=d708a3d0 message=init\ntimestamp=2026-08-27T14:09:56.716Z level=INFO run=d708a3d0 message=\"event connected\"\ntimestamp=2026-08-27T14:09:57.628Z level=INFO run=d708a3d0 message=loop session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe step=0\ntimestamp=2026-08-27T14:09:57.651Z level=INFO run=d708a3d0 message=\"shell tool using shell\" shell=/bin/bash\ntimestamp=2026-08-27T14:09:57.703Z level=WARN run=d708a3d0 message=\"duplicate skill name\" name=find-skills existing=/home/antonioborgerees/.claude/skills/find-skills/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/find-skills/SKILL.md\ntimestamp=2026-08-27T14:09:57.705Z level=WARN run=d708a3d0 message=\"duplicate skill name\" name=unslop existing=/home/antonioborgerees/.agents/skills/unslop/SKILL.md duplicate=/home/antonioborgerees/.claude/skills/unslop/SKILL.md\ntimestamp=2026-08-27T14:09:57.706Z level=WARN run=d708a3d0 message=\"duplicate skill name\" name=impeccable existing=/home/antonioborgerees/.agents/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md\ntimestamp=2026-08-27T14:09:57.706Z level=WARN run=d708a3d0 message=\"duplicate skill name\" name=impeccable existing=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md\ntimestamp=2026-08-27T14:09:57.707Z level=INFO run=d708a3d0 message=init count=5\ntimestamp=2026-08-27T14:09:57.865Z level=INFO run=d708a3d0 message=\"watcher backend\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study platform=linux backend=inotify\ntimestamp=2026-08-27T14:09:57.882Z level=INFO run=d708a3d0 message=\"project copy refresh started\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14\ntimestamp=2026-08-27T14:09:58.400Z level=INFO run=d708a3d0 message=\"booting location services\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study workspaceID=undefined\ntimestamp=2026-08-27T14:09:58.407Z level=INFO run=d708a3d0 message=\"project copy refresh done\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14 updated=[] removed=[]\ntimestamp=2026-08-27T14:09:58.420Z level=INFO run=d708a3d0 message=process session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe messageID=msg_0438e59840018XptYyv8rN4U7g\ntimestamp=2026-08-27T14:09:58.423Z level=INFO run=d708a3d0 message=stream providerID=opencode modelID=muse-spark-1.2-contributor-free session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe small=false agent=build mode=primary\ntimestamp=2026-08-27T14:09:58.434Z level=INFO run=d708a3d0 message=\"llm runtime selected\" llm.runtime=ai-sdk llm.provider=opencode llm.model=muse-spark-1.2-con... [truncated 24 bytes]",
-        "detail": "status=0 headers=map[] message=\"\" body=\"timestamp=2026-08-27T14:09:56.013Z level=INFO run=d708a3d0 message=\\\"creating instance\\\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\\ntimestamp=2026-08-27T14:09:56.018Z level=INFO run=d708a3d0 message=fromDirectory directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\\ntimestamp=2026-08-27T14:09:56.142Z level=INFO run=d708a3d0 message=bootstrapping directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\\ntimestamp=2026-08-27T14:09:56.160Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/config.json\\ntimestamp=2026-08-27T14:09:56.162Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/opencode.json\\ntimestamp=2026-08-27T14:09:56.162Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/opencode.jsonc\\ntimestamp=2026-08-27T14:09:56.222Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.opencode/opencode.json\\ntimestamp=2026-08-27T14:09:56.223Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.opencode/opencode.jsonc\\ntimestamp=2026-08-27T14:09:56.355Z level=INFO run=d708a3d0 message=\\\"all LSPs are disabled\\\"\\ntimestamp=2026-08-27T14:09:56.357Z level=INFO run=d708a3d0 message=\\\"all formatters are disabled\\\"\\ntimestamp=2026-08-27T14:09:56.357Z level=INFO run=d708a3d0 message=init\\ntimestamp=2026-08-27T14:09:56.716Z level=INFO run=d708a3d0 message=\\\"event connected\\\"\\ntimestamp=2026-08-27T14:09:57.628Z level=INFO run=d708a3d0 message=loop session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe step=0\\ntimestamp=2026-08-27T14:09:57.651Z level=INFO run=d708a3d0 message=\\\"shell tool using shell\\\" shell=/bin/bash\\ntimestamp=2026-08-27T14:09:57.703Z level=WARN run=d708a3d0 message=\\\"duplicate skill name\\\" name=find-skills existing=/home/antonioborgerees/.claude/skills/find-skills/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/find-skills/SKILL.md\\ntimestamp=2026-08-27T14:09:57.705Z level=WARN run=d708a3d0 message=\\\"duplicate skill name\\\" name=unslop existing=/home/antonioborgerees/.agents/skills/unslop/SKILL.md duplicate=/home/antonioborgerees/.claude/skills/unslop/SKILL.md\\ntimestamp=2026-08-27T14:09:57.706Z level=WARN run=d708a3d0 message=\\\"duplicate skill name\\\" name=impeccable existing=/home/antonioborgerees/.agents/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md\\ntimestamp=2026-08-27T14:09:57.706Z level=WARN run=d708a3d0 message=\\\"duplicate skill name\\\" name=impeccable existing=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md\\ntimestamp=2026-08-27T14:09:57.707Z level=INFO run=d708a3d0 message=init count=5\\ntimestamp=2026-08-27T14:09:57.865Z level=INFO run=d708a3d0 message=\\\"watcher backend\\\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study platform=linux backend=inotify\\ntimestamp=2026-08-27T14:09:57.882Z level=INFO run=d708a3d0 message=\\\"project copy refresh started\\\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14\\ntimestamp=2026-08-27T14:09:58.400Z level=INFO run=d708a3d0 message=\\\"booting location services\\\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study workspaceID=undefined\\ntimestamp=2026-08-27T14:09:58.407Z level=INFO run=d708a3d0 message=\\\"project copy refresh done\\\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14 updated=[] removed=[]\\ntimestamp=2026-08-27T14:09:58.420Z level=INFO run=d708a3d0 message=process session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe messageID=msg_0438e59840018XptYyv8rN4U7g\\ntimestamp=2026-08-27T14:09:58.423Z level=INFO run=d708a3d0 message=stream providerID=opencode modelID=muse-spark-1.2-contributor-free session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe small=false agent=build mode=primary\\ntimestamp=2026-08-27T14:09:58.434Z level=INFO run=d708a3d0 message=\\\"llm runtime selected\\\" llm.runtime=ai... [truncated 24 bytes]"
-      },
-      "validation": {
-        "status": "failed",
-        "checked_at": "2026-08-27T14:22:15.410590467Z",
-        "path": "/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/langgraph.md",
-        "passed_checks": 0,
-        "failed_checks": 1,
-        "message": "read validation artifact: /home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/langgraph.md: open /home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/langgraph.md: no such file or directory"
-      },
-      "agent": {
-        "runtime": "opencode",
-        "run_id": "opencode-53",
-        "status": "failed",
-        "provider": "opencode",
-        "model": "muse-spark-1.2-contributor-free",
         "attempts": [
           {
             "attempt": 1,
             "attempt_on_target": 1,
-            "run_id": "opencode-52",
+            "run_id": "opencode-1",
             "status": "failed",
-            "provider": "opencode",
-            "model": "muse-spark-1.2-contributor-free",
+            "provider": "openrouter",
+            "model": "minimax/minimax-m3:free",
             "error_category": "rate_limit",
-            "error_detail": "status=0 headers=map[] message=\"\" body=\"timestamp=2026-08-27T13:57:45.577Z level=INFO run=85467079 message=\\\"creating instance\\\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\\ntimestamp=2026-08-27T13:57:45.581Z level=INFO run=85467079 message=fromDirectory directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\\ntimestamp=2026-08-27T13:57:45.675Z level=INFO run=85467079 message=bootstrapping directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\\ntimestamp=2026-08-27T13:57:45.685Z level=INFO run=85467079 message=loading path=/home/antonioborgerees/.config/opencode/config.json\\ntimestamp=2026-08-27T13:57:45.692Z level=INFO run=85467079 message=loading path=/home/antonioborgerees/.config/opencode/opencode.json\\ntimestamp=2026-08-27T13:57:45.693Z level=INFO run=85467079 message=loading path=/home/antonioborgerees/.config/opencode/opencode.jsonc\\ntimestamp=2026-08-27T13:57:45.734Z level=INFO run=85467079 message=loading path=/home/antonioborgerees/.opencode/opencode.json\\ntimestamp=2026-08-27T13:57:45.735Z level=INFO run=85467079 message=loading path=/home/antonioborgerees/.opencode/opencode.jsonc\\ntimestamp=2026-08-27T13:57:45.845Z level=INFO run=85467079 message=\\\"all LSPs are disabled\\\"\\ntimestamp=2026-08-27T13:57:45.846Z level=INFO run=85467079 message=\\\"all formatters are disabled\\\"\\ntimestamp=2026-08-27T13:57:45.846Z level=INFO run=85467079 message=init\\ntimestamp=2026-08-27T13:57:46.117Z level=INFO run=85467079 message=\\\"event connected\\\"\\ntimestamp=2026-08-27T13:57:46.795Z level=INFO run=85467079 message=loop session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe step=0\\ntimestamp=2026-08-27T13:57:46.814Z level=INFO run=85467079 message=\\\"shell tool using shell\\\" shell=/bin/bash\\ntimestamp=2026-08-27T13:57:46.843Z level=WARN run=85467079 message=\\\"duplicate skill name\\\" name=find-skills existing=/home/antonioborgerees/.agents/skills/find-skills/SKILL.md duplicate=/home/antonioborgerees/.claude/skills/find-skills/SKILL.md\\ntimestamp=2026-08-27T13:57:46.844Z level=WARN run=85467079 message=\\\"duplicate skill name\\\" name=impeccable existing=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md\\ntimestamp=2026-08-27T13:57:46.844Z level=WARN run=85467079 message=\\\"duplicate skill name\\\" name=impeccable existing=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/impeccable/SKILL.md\\ntimestamp=2026-08-27T13:57:46.844Z level=WARN run=85467079 message=\\\"duplicate skill name\\\" name=unslop existing=/home/antonioborgerees/.claude/skills/unslop/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/unslop/SKILL.md\\ntimestamp=2026-08-27T13:57:46.844Z level=INFO run=85467079 message=init count=5\\ntimestamp=2026-08-27T13:57:46.994Z level=INFO run=85467079 message=\\\"watcher backend\\\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study platform=linux backend=inotify\\ntimestamp=2026-08-27T13:57:47.008Z level=INFO run=85467079 message=\\\"project copy refresh started\\\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14\\ntimestamp=2026-08-27T13:57:47.487Z level=INFO run=85467079 message=\\\"project copy refresh done\\\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14 updated=[] removed=[]\\ntimestamp=2026-08-27T13:57:47.503Z level=INFO run=85467079 message=\\\"booting location services\\\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study workspaceID=undefined\\ntimestamp=2026-08-27T13:57:47.520Z level=INFO run=85467079 message=process session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe messageID=msg_0438332b3001ZtfrpVWqp6hMH4\\ntimestamp=2026-08-27T13:57:47.522Z level=INFO run=85467079 message=stream providerID=opencode modelID=muse-spark-1.2-contributor-free session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe small=false agent=build mode=primary\\ntimestamp=2026-08-27T13:57:47.534Z level=INFO run=85467079 message=\\\"llm runtime selected\\\" llm.r... [truncated 24 bytes]",
+            "error_detail": "[REDACTED]",
             "rate_limited": true
           },
           {
             "attempt": 2,
             "attempt_on_target": 2,
-            "run_id": "opencode-53",
+            "run_id": "opencode-2",
             "status": "failed",
-            "provider": "opencode",
-            "model": "muse-spark-1.2-contributor-free",
+            "provider": "openrouter",
+            "model": "minimax/minimax-m3:free",
             "error_category": "rate_limit",
-            "error_detail": "status=0 headers=map[] message=\"\" body=\"timestamp=2026-08-27T14:09:56.013Z level=INFO run=d708a3d0 message=\\\"creating instance\\\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\\ntimestamp=2026-08-27T14:09:56.018Z level=INFO run=d708a3d0 message=fromDirectory directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\\ntimestamp=2026-08-27T14:09:56.142Z level=INFO run=d708a3d0 message=bootstrapping directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\\ntimestamp=2026-08-27T14:09:56.160Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/config.json\\ntimestamp=2026-08-27T14:09:56.162Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/opencode.json\\ntimestamp=2026-08-27T14:09:56.162Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/opencode.jsonc\\ntimestamp=2026-08-27T14:09:56.222Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.opencode/opencode.json\\ntimestamp=2026-08-27T14:09:56.223Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.opencode/opencode.jsonc\\ntimestamp=2026-08-27T14:09:56.355Z level=INFO run=d708a3d0 message=\\\"all LSPs are disabled\\\"\\ntimestamp=2026-08-27T14:09:56.357Z level=INFO run=d708a3d0 message=\\\"all formatters are disabled\\\"\\ntimestamp=2026-08-27T14:09:56.357Z level=INFO run=d708a3d0 message=init\\ntimestamp=2026-08-27T14:09:56.716Z level=INFO run=d708a3d0 message=\\\"event connected\\\"\\ntimestamp=2026-08-27T14:09:57.628Z level=INFO run=d708a3d0 message=loop session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe step=0\\ntimestamp=2026-08-27T14:09:57.651Z level=INFO run=d708a3d0 message=\\\"shell tool using shell\\\" shell=/bin/bash\\ntimestamp=2026-08-27T14:09:57.703Z level=WARN run=d708a3d0 message=\\\"duplicate skill name\\\" name=find-skills existing=/home/antonioborgerees/.claude/skills/find-skills/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/find-skills/SKILL.md\\ntimestamp=2026-08-27T14:09:57.705Z level=WARN run=d708a3d0 message=\\\"duplicate skill name\\\" name=unslop existing=/home/antonioborgerees/.agents/skills/unslop/SKILL.md duplicate=/home/antonioborgerees/.claude/skills/unslop/SKILL.md\\ntimestamp=2026-08-27T14:09:57.706Z level=WARN run=d708a3d0 message=\\\"duplicate skill name\\\" name=impeccable existing=/home/antonioborgerees/.agents/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md\\ntimestamp=2026-08-27T14:09:57.706Z level=WARN run=d708a3d0 message=\\\"duplicate skill name\\\" name=impeccable existing=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md\\ntimestamp=2026-08-27T14:09:57.707Z level=INFO run=d708a3d0 message=init count=5\\ntimestamp=2026-08-27T14:09:57.865Z level=INFO run=d708a3d0 message=\\\"watcher backend\\\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study platform=linux backend=inotify\\ntimestamp=2026-08-27T14:09:57.882Z level=INFO run=d708a3d0 message=\\\"project copy refresh started\\\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14\\ntimestamp=2026-08-27T14:09:58.400Z level=INFO run=d708a3d0 message=\\\"booting location services\\\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study workspaceID=undefined\\ntimestamp=2026-08-27T14:09:58.407Z level=INFO run=d708a3d0 message=\\\"project copy refresh done\\\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14 updated=[] removed=[]\\ntimestamp=2026-08-27T14:09:58.420Z level=INFO run=d708a3d0 message=process session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe messageID=msg_0438e59840018XptYyv8rN4U7g\\ntimestamp=2026-08-27T14:09:58.423Z level=INFO run=d708a3d0 message=stream providerID=opencode modelID=muse-spark-1.2-contributor-free session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe small=false agent=build mode=primary\\ntimestamp=2026-08-27T14:09:58.434Z level=INFO run=d708a3d0 message=\\\"llm runtime selected\\\" llm.runtime=ai... [truncated 24 bytes]",
+            "error_detail": "[REDACTED]",
             "rate_limited": true
           }
         ],
@@ -399078,14 +399033,14 @@
               "attempt": 1,
               "kind": "retry",
               "reason": "rate limit",
-              "detail": "timestamp=2026-08-27T13:57:45.577Z level=INFO run=85467079 message=\"creating instance\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T13:57:45.581Z level=INFO run=85467079 message=fromDirectory directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T13:57:45.675Z level=INFO run=85467079 message=bootstrapping directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T13:57:45.685Z level=INFO run=85467079 message=loading path=/home/antonioborgerees/.config/opencode/config.json\ntimestamp=2026-08-27T13:57:45.692Z level=INFO run=85467079 message=loading path=/home/antonioborgerees/.config/opencode/opencode.json\ntimestamp=2026-08-27T13:57:45.693Z level=INFO run=85467079 message=loading path=/home/antonioborgerees/.config/opencode/opencode.jsonc\ntimestamp=2026-08-27T13:57:45.734Z level=INFO run=85467079 message=loading path=/home/antonioborgerees/.opencode/opencode.json\ntimestamp=2026-08-27T13:57:45.735Z level=INFO run=85467079 message=loading path=/home/antonioborgerees/.opencode/opencode.jsonc\ntimestamp=2026-08-27T13:57:45.845Z level=INFO run=85467079 message=\"all LSPs are disabled\"\ntimestamp=2026-08-27T13:57:45.846Z level=INFO run=85467079 message=\"all formatters are disabled\"\ntimestamp=2026-08-27T13:57:45.846Z level=INFO run=85467079 message=init\ntimestamp=2026-08-27T13:57:46.117Z level=INFO run=85467079 message=\"event connected\"\ntimestamp=2026-08-27T13:57:46.795Z level=INFO run=85467079 message=loop session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe step=0\ntimestamp=2026-08-27T13:57:46.814Z level=INFO run=85467079 message=\"shell tool using shell\" shell=/bin/bash\ntimestamp=2026-08-27T13:57:46.843Z level=WARN run=85467079 message=\"duplicate skill name\" name=find-skills existing=/home/antonioborgerees/.agents/skills/find-skills/SKILL.md duplicate=/home/antonioborgerees/.claude/skills/find-skills/SKILL.md\ntimestamp=2026-08-27T13:57:46.844Z level=WARN run=85467079 message=\"duplicate skill name\" name=impeccable existing=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md\ntimestamp=2026-08-27T13:57:46.844Z level=WARN run=85467079 message=\"duplicate skill name\" name=impeccable existing=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/impeccable/SKILL.md\ntimestamp=2026-08-27T13:57:46.844Z level=WARN run=85467079 message=\"duplicate skill name\" name=unslop existing=/home/antonioborgerees/.claude/skills/unslop/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/unslop/SKILL.md\ntimestamp=2026-08-27T13:57:46.844Z level=INFO run=85467079 message=init count=5\ntimestamp=2026-08-27T13:57:46.994Z level=INFO run=85467079 message=\"watcher backend\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study platform=linux backend=inotify\ntimestamp=2026-08-27T13:57:47.008Z level=INFO run=85467079 message=\"project copy refresh started\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14\ntimestamp=2026-08-27T13:57:47.487Z level=INFO run=85467079 message=\"project copy refresh done\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14 updated=[] removed=[]\ntimestamp=2026-08-27T13:57:47.503Z level=INFO run=85467079 message=\"booting location services\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study workspaceID=undefined\ntimestamp=2026-08-27T13:57:47.520Z level=INFO run=85467079 message=process session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe messageID=msg_0438332b3001ZtfrpVWqp6hMH4\ntimestamp=2026-08-27T13:57:47.522Z level=INFO run=85467079 message=stream providerID=opencode modelID=muse-spark-1.2-contributor-free session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe small=false agent=build mode=primary\ntimestamp=2026-08-27T13:57:47.534Z level=INFO run=85467079 message=\"llm runtime selected\" llm.runtime=ai-sdk llm.provider=opencode llm.model=muse-spark-1.2-contributor-free\ntimestamp=2026-... [truncated 24 bytes]",
+              "detail": "timestamp=2026-08-27T14:27:55.881Z level=INFO run=e5dee024 message=\"creating instance\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:27:55.884Z level=INFO run=e5dee024 message=fromDirectory directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:27:56.011Z level=INFO run=e5dee024 message=bootstrapping directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:27:56.033Z level=INFO run=e5dee024 message=loading path=/home/antonioborgerees/.config/opencode/config.json\ntimestamp=2026-08-27T14:27:56.035Z level=INFO run=e5dee024 message=loading path=/home/antonioborgerees/.config/opencode/opencode.json\ntimestamp=2026-08-27T14:27:56.050Z level=INFO run=e5dee024 message=loading path=/home/antonioborgerees/.config/opencode/opencode.jsonc\ntimestamp=2026-08-27T14:27:56.135Z level=INFO run=e5dee024 message=loading path=/home/antonioborgerees/.opencode/opencode.json\ntimestamp=2026-08-27T14:27:56.153Z level=INFO run=e5dee024 message=loading path=/home/antonioborgerees/.opencode/opencode.jsonc\ntimestamp=2026-08-27T14:27:56.399Z level=INFO run=e5dee024 message=\"all LSPs are disabled\"\ntimestamp=2026-08-27T14:27:56.406Z level=INFO run=e5dee024 message=\"all formatters are disabled\"\ntimestamp=2026-08-27T14:27:56.406Z level=INFO run=e5dee024 message=init\ntimestamp=2026-08-27T14:27:56.783Z level=INFO run=e5dee024 message=created id=ses_fbc612f10ffeBfgvNXAWDaRm7A slug=brave-sailor version=1.18.23 projectID=bcaadc669123fba08e59cce279c75ed458d1cc14 directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study path=studies/agent-harness-study workspaceID=undefined parentID=undefined title=\"New session - 2026-08-27T14:27:56.783Z\" agent=undefined model=undefined metadata=undefined permission=\"[{\\\"permission\\\":\\\"question\\\",\\\"pattern\\\":\\\"*\\\",\\\"action\\\":\\\"deny\\\"},{\\\"permission\\\":\\\"plan_enter\\\",\\\"pattern\\\":\\\"*\\\",\\\"action\\\":\\\"deny\\\"},{\\\"permission\\\":\\\"plan_exit\\\",\\\"pattern\\\":\\\"*\\\",\\\"action\\\":\\\"deny\\\"}]\" cost=0 tokens.input=0 tokens.output=0 tokens.reasoning=0 tokens.cache.read=0 tokens.cache.write=0 time.created=1787840876783 time.updated=1787840876783\ntimestamp=2026-08-27T14:27:56.822Z level=INFO run=e5dee024 message=\"event connected\"\ntimestamp=2026-08-27T14:27:57.976Z level=INFO run=e5dee024 message=loop session.id=ses_fbc612f10ffeBfgvNXAWDaRm7A step=0\ntimestamp=2026-08-27T14:27:58.008Z level=INFO run=e5dee024 message=\"shell tool using shell\" shell=/bin/bash\ntimestamp=2026-08-27T14:27:58.057Z level=WARN run=e5dee024 message=\"duplicate skill name\" name=impeccable existing=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md\ntimestamp=2026-08-27T14:27:58.057Z level=WARN run=e5dee024 message=\"duplicate skill name\" name=unslop existing=/home/antonioborgerees/.claude/skills/unslop/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/unslop/SKILL.md\ntimestamp=2026-08-27T14:27:58.057Z level=WARN run=e5dee024 message=\"duplicate skill name\" name=find-skills existing=/home/antonioborgerees/.claude/skills/find-skills/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/find-skills/SKILL.md\ntimestamp=2026-08-27T14:27:58.058Z level=WARN run=e5dee024 message=\"duplicate skill name\" name=impeccable existing=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/impeccable/SKILL.md\ntimestamp=2026-08-27T14:27:58.058Z level=INFO run=e5dee024 message=init count=5\ntimestamp=2026-08-27T14:27:58.114Z level=INFO run=e5dee024 message=stream providerID=openrouter modelID=google/gemini-3.7-flash session.id=ses_fbc612f10ffeBfgvNXAWDaRm7A small=true agent=title mode=primary\ntimestamp=2026-08-27T14:27:58.166Z level=INFO run=e5dee024 message=\"llm runtime selected\" llm.runtime=ai-sdk llm.provider=openrouter llm.model=google/gemini-3.7-flash\ntimestamp=2026-08-27T14:27:58.440Z level=INFO run=e5dee024 message=\"watcher backend\" di... [truncated 24 bytes]",
               "delay": "1s"
             },
             {
               "attempt": 2,
               "kind": "stop",
               "reason": "retry exhausted",
-              "detail": "timestamp=2026-08-27T14:09:56.013Z level=INFO run=d708a3d0 message=\"creating instance\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:09:56.018Z level=INFO run=d708a3d0 message=fromDirectory directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:09:56.142Z level=INFO run=d708a3d0 message=bootstrapping directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:09:56.160Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/config.json\ntimestamp=2026-08-27T14:09:56.162Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/opencode.json\ntimestamp=2026-08-27T14:09:56.162Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.config/opencode/opencode.jsonc\ntimestamp=2026-08-27T14:09:56.222Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.opencode/opencode.json\ntimestamp=2026-08-27T14:09:56.223Z level=INFO run=d708a3d0 message=loading path=/home/antonioborgerees/.opencode/opencode.jsonc\ntimestamp=2026-08-27T14:09:56.355Z level=INFO run=d708a3d0 message=\"all LSPs are disabled\"\ntimestamp=2026-08-27T14:09:56.357Z level=INFO run=d708a3d0 message=\"all formatters are disabled\"\ntimestamp=2026-08-27T14:09:56.357Z level=INFO run=d708a3d0 message=init\ntimestamp=2026-08-27T14:09:56.716Z level=INFO run=d708a3d0 message=\"event connected\"\ntimestamp=2026-08-27T14:09:57.628Z level=INFO run=d708a3d0 message=loop session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe step=0\ntimestamp=2026-08-27T14:09:57.651Z level=INFO run=d708a3d0 message=\"shell tool using shell\" shell=/bin/bash\ntimestamp=2026-08-27T14:09:57.703Z level=WARN run=d708a3d0 message=\"duplicate skill name\" name=find-skills existing=/home/antonioborgerees/.claude/skills/find-skills/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/find-skills/SKILL.md\ntimestamp=2026-08-27T14:09:57.705Z level=WARN run=d708a3d0 message=\"duplicate skill name\" name=unslop existing=/home/antonioborgerees/.agents/skills/unslop/SKILL.md duplicate=/home/antonioborgerees/.claude/skills/unslop/SKILL.md\ntimestamp=2026-08-27T14:09:57.706Z level=WARN run=d708a3d0 message=\"duplicate skill name\" name=impeccable existing=/home/antonioborgerees/.agents/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md\ntimestamp=2026-08-27T14:09:57.706Z level=WARN run=d708a3d0 message=\"duplicate skill name\" name=impeccable existing=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md\ntimestamp=2026-08-27T14:09:57.707Z level=INFO run=d708a3d0 message=init count=5\ntimestamp=2026-08-27T14:09:57.865Z level=INFO run=d708a3d0 message=\"watcher backend\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study platform=linux backend=inotify\ntimestamp=2026-08-27T14:09:57.882Z level=INFO run=d708a3d0 message=\"project copy refresh started\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14\ntimestamp=2026-08-27T14:09:58.400Z level=INFO run=d708a3d0 message=\"booting location services\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study workspaceID=undefined\ntimestamp=2026-08-27T14:09:58.407Z level=INFO run=d708a3d0 message=\"project copy refresh done\" projectID=bcaadc669123fba08e59cce279c75ed458d1cc14 updated=[] removed=[]\ntimestamp=2026-08-27T14:09:58.420Z level=INFO run=d708a3d0 message=process session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe messageID=msg_0438e59840018XptYyv8rN4U7g\ntimestamp=2026-08-27T14:09:58.423Z level=INFO run=d708a3d0 message=stream providerID=opencode modelID=muse-spark-1.2-contributor-free session.id=ses_fbca91b21ffeKtsUEqnYKvcAVe small=false agent=build mode=primary\ntimestamp=2026-08-27T14:09:58.434Z level=INFO run=d708a3d0 message=\"llm runtime selected\" llm.runtime=ai-sdk llm.provider=opencode llm.model=muse-spark-1.2-contributor-free\ntimestamp=2026-08-27T14:... [truncated 24 bytes]"
+              "detail": "timestamp=2026-08-27T14:40:07.813Z level=INFO run=d6241b3b message=\"creating instance\" directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:40:07.817Z level=INFO run=d6241b3b message=fromDirectory directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:40:07.934Z level=INFO run=d6241b3b message=bootstrapping directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study\ntimestamp=2026-08-27T14:40:07.955Z level=INFO run=d6241b3b message=loading path=/home/antonioborgerees/.config/opencode/config.json\ntimestamp=2026-08-27T14:40:07.957Z level=INFO run=d6241b3b message=loading path=/home/antonioborgerees/.config/opencode/opencode.json\ntimestamp=2026-08-27T14:40:07.957Z level=INFO run=d6241b3b message=loading path=/home/antonioborgerees/.config/opencode/opencode.jsonc\ntimestamp=2026-08-27T14:40:08.020Z level=INFO run=d6241b3b message=loading path=/home/antonioborgerees/.opencode/opencode.json\ntimestamp=2026-08-27T14:40:08.020Z level=INFO run=d6241b3b message=loading path=/home/antonioborgerees/.opencode/opencode.jsonc\ntimestamp=2026-08-27T14:40:08.169Z level=INFO run=d6241b3b message=\"all LSPs are disabled\"\ntimestamp=2026-08-27T14:40:08.172Z level=INFO run=d6241b3b message=\"all formatters are disabled\"\ntimestamp=2026-08-27T14:40:08.172Z level=INFO run=d6241b3b message=init\ntimestamp=2026-08-27T14:40:08.533Z level=INFO run=d6241b3b message=created id=ses_fbc5604aaffePqUxOeUy0vo1QC slug=nimble-otter version=1.18.23 projectID=bcaadc669123fba08e59cce279c75ed458d1cc14 directory=/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study path=studies/agent-harness-study workspaceID=undefined parentID=undefined title=\"New session - 2026-08-27T14:40:08.533Z\" agent=undefined model=undefined metadata=undefined permission=\"[{\\\"permission\\\":\\\"question\\\",\\\"pattern\\\":\\\"*\\\",\\\"action\\\":\\\"deny\\\"},{\\\"permission\\\":\\\"plan_enter\\\",\\\"pattern\\\":\\\"*\\\",\\\"action\\\":\\\"deny\\\"},{\\\"permission\\\":\\\"plan_exit\\\",\\\"pattern\\\":\\\"*\\\",\\\"action\\\":\\\"deny\\\"}]\" cost=0 tokens.input=0 tokens.output=0 tokens.reasoning=0 tokens.cache.read=0 tokens.cache.write=0 time.created=1787841608533 time.updated=1787841608533\ntimestamp=2026-08-27T14:40:08.570Z level=INFO run=d6241b3b message=\"event connected\"\ntimestamp=2026-08-27T14:40:09.913Z level=INFO run=d6241b3b message=loop session.id=ses_fbc5604aaffePqUxOeUy0vo1QC step=0\ntimestamp=2026-08-27T14:40:09.944Z level=INFO run=d6241b3b message=\"shell tool using shell\" shell=/bin/bash\ntimestamp=2026-08-27T14:40:10.033Z level=INFO run=d6241b3b message=stream providerID=openrouter modelID=google/gemini-3.7-flash session.id=ses_fbc5604aaffePqUxOeUy0vo1QC small=true agent=title mode=primary\ntimestamp=2026-08-27T14:40:10.089Z level=WARN run=d6241b3b message=\"duplicate skill name\" name=impeccable existing=/home/antonioborgerees/.claude/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md\ntimestamp=2026-08-27T14:40:10.089Z level=WARN run=d6241b3b message=\"duplicate skill name\" name=find-skills existing=/home/antonioborgerees/.claude/skills/find-skills/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/find-skills/SKILL.md\ntimestamp=2026-08-27T14:40:10.089Z level=WARN run=d6241b3b message=\"duplicate skill name\" name=impeccable existing=/home/antonioborgerees/.config/opencode/skills/impeccable/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/impeccable/SKILL.md\ntimestamp=2026-08-27T14:40:10.089Z level=WARN run=d6241b3b message=\"duplicate skill name\" name=unslop existing=/home/antonioborgerees/.claude/skills/unslop/SKILL.md duplicate=/home/antonioborgerees/.agents/skills/unslop/SKILL.md\ntimestamp=2026-08-27T14:40:10.090Z level=INFO run=d6241b3b message=init count=5\ntimestamp=2026-08-27T14:40:10.107Z level=INFO run=d6241b3b message=\"llm runtime selected\" llm.runtime=ai-sdk llm.provider=openrouter llm.model=google/gemini-3.7-flash\ntimestamp=2026-08-27T14:40:10.417Z level=INFO run=d6241b3b message=\"watcher backend\" di... [truncated 24 bytes]"
             }
           ]
         },
@@ -399110,27 +399065,1138 @@
           "turns_known": false
         },
         "events": {
-          "total": 14,
-          "retained": 14,
+          "total": 201,
+          "retained": 200,
+          "dropped": 1,
           "limit": 200
         },
         "memory": {
-          "start_alloc_bytes": 43326848,
-          "peak_alloc_bytes": 44033984,
-          "end_alloc_bytes": 31309296,
-          "samples": 3
+          "start_alloc_bytes": 44328800,
+          "peak_alloc_bytes": 134557568,
+          "end_alloc_bytes": 110938888,
+          "samples": 6
         },
-        "started_at": "2026-08-27T14:09:54.260202196Z",
-        "finished_at": "2026-08-27T14:21:56.27363886Z",
-        "duration_ms": 722013
+        "warnings": [
+          "runtime retained last 200 events and dropped 1 earlier events from in-memory result"
+        ],
+        "omissions": [
+          {
+            "field": "events",
+            "reason": "1 runtime events omitted from study state after retaining last 200"
+          },
+          {
+            "field": "events.opencode-1:4.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:5.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:6.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:7.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:8.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:9.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:10.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:11.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:12.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:13.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:14.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:15.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:16.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:17.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:18.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:19.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:20.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:21.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:22.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:23.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:24.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:25.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:26.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:27.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:28.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:29.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:30.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:31.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-1:32.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:4.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:5.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:6.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:7.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:8.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:9.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:10.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:11.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:12.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:13.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:14.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:15.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:16.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:17.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:18.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:19.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:30.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:45.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:46.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:48.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:49.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:50.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:51.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:52.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:53.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:54.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:56.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:57.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:73.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:74.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:76.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:77.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:78.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:79.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:80.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:81.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:82.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:84.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:85.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:86.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:87.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:88.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:89.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:90.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:92.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:93.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:94.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:95.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:96.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:97.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:98.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:100.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:101.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:102.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:103.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:104.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:107.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:108.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:109.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:110.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:112.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:113.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:114.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:115.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:116.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:118.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:119.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:120.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:121.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:122.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:123.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-2:125.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          }
+        ],
+        "started_at": "2026-08-27T14:40:05.725655072Z",
+        "finished_at": "2026-08-27T14:52:07.730523925Z",
+        "duration_ms": 722004
       },
       "session": {
-        "session_id": "ses_fbca91b21ffeKtsUEqnYKvcAVe",
-        "provider": "opencode",
-        "model": "muse-spark-1.2-contributor-free",
+        "session_id": "ses_fbc5604aaffePqUxOeUy0vo1QC",
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3:free",
         "work_dir": "/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study",
-        "input_fingerprint": "9bb7ae1b9c39353d3acd952396ef87e8609ffd2791a330bdf50ad3257251cf63",
-        "updated_at": "2026-08-27T14:22:01.895784852Z"
+        "input_fingerprint": "74595a29d7e5dcb3c4c22394c8a6b33a14a46d920fbdea454a332570ee56f55f",
+        "updated_at": "2026-08-27T14:52:13.330151988Z"
+      }
+    },
+    {
+      "id": "analysis:agent-harness-study:16.01:artifact-lifecycle:langgraph:directory",
+      "kind": "analysis",
+      "status": "cancelled",
+      "study": "agent-harness-study",
+      "dimension": "16.01",
+      "dimension_ref": "16.01-artifact-lifecycle",
+      "source": "langgraph",
+      "source_kind": "directory",
+      "output_path": "studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/langgraph.md",
+      "attempts": 5,
+      "created_at": "2026-07-02T12:46:28.105235824Z",
+      "updated_at": "2026-08-27T15:08:38.322443716Z",
+      "started_at": "2026-08-27T14:52:29.146764465Z",
+      "completed_at": "2026-08-27T15:08:38.322443716Z",
+      "last_error": {
+        "code": "runtime.cancelled",
+        "message": "cancellation: validation: cancellation: validation run was cancelled [openrouter/minimax/minimax-m3:free]",
+        "detail": "validation: cancellation: validation run was cancelled"
+      },
+      "validation": {
+        "status": "failed",
+        "checked_at": "2026-08-27T15:08:38.322443716Z",
+        "path": "/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/langgraph.md",
+        "passed_checks": 0,
+        "failed_checks": 1,
+        "message": "read validation artifact: /home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/langgraph.md: open /home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study/reports/source/16.01-artifact-lifecycle/langgraph.md: no such file or directory"
+      },
+      "agent": {
+        "runtime": "openrouter",
+        "status": "cancelled",
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3:free",
+        "policy": {},
+        "permissions": {},
+        "cleanup": {},
+        "repair": {},
+        "usage": {
+          "input_tokens_known": false,
+          "output_tokens_known": false,
+          "total_tokens_known": false,
+          "reasoning_tokens_known": false,
+          "cache_read_tokens_known": false,
+          "cache_write_tokens_known": false,
+          "turns_known": false
+        },
+        "events": {
+          "total": 306,
+          "retained": 200,
+          "dropped": 106,
+          "limit": 200
+        },
+        "memory": {
+          "start_alloc_bytes": 44737872,
+          "peak_alloc_bytes": 139192832,
+          "end_alloc_bytes": 119791864,
+          "samples": 7
+        },
+        "warnings": [
+          "runtime retained last 200 events and dropped 106 earlier events from in-memory result"
+        ],
+        "omissions": [
+          {
+            "field": "events",
+            "reason": "106 runtime events omitted from study state after retaining last 200"
+          },
+          {
+            "field": "events.opencode-3:108.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:109.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:110.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:111.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:113.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:114.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:116.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:118.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:119.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:120.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:121.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:123.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:124.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:125.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:126.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:128.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:129.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:130.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:131.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:132.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:133.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:135.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:136.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:137.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:139.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:140.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:141.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:142.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:143.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:144.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:146.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:147.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:148.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:149.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:151.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:152.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:153.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:154.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:156.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:157.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:158.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:160.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:161.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:162.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:164.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:165.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:166.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:168.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:169.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:170.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:172.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:173.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:174.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:176.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:177.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:178.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:181.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:182.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:183.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:184.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:187.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:188.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:189.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:190.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:193.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:194.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:195.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:196.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:197.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:198.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:200.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:201.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:202.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:204.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:205.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:206.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:207.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:209.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:210.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:211.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:212.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:213.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:215.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:216.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:217.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:219.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:221.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:222.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:225.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:226.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:227.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:228.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:229.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:230.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:231.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:233.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:234.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-3:235.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:4.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:5.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:6.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:7.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:8.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:9.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:10.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:11.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:12.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:13.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:14.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:15.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:16.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:17.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:18.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:19.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:20.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:21.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:22.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:23.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:24.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:25.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:26.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:27.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:28.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:29.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:30.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:31.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:32.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:33.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:34.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:35.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:39.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:40.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:41.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:42.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:43.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:44.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:46.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:47.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:48.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:49.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:50.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:51.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:52.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:54.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:55.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:56.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:57.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:58.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:59.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:61.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:62.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:63.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:64.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:65.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          },
+          {
+            "field": "events.opencode-4:66.raw",
+            "reason": "unsafe raw payload bytes omitted by default"
+          }
+        ]
+      },
+      "session": {
+        "session_id": "ses_fbc3f6dabffeS89ncmkplT4m53",
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3:free",
+        "work_dir": "/home/antonioborgerees/coding/ultraplan/ultraplan-go/studies/agent-harness-study",
+        "input_fingerprint": "d0c008a3ad4cab1cfde3a84e4f0fba228919e0ae4be6eb6095595c0c349a7f37",
+        "updated_at": "2026-08-27T15:07:27.156123356Z"
       }
     },
     {

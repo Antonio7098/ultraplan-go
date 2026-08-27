@@ -1,7 +1,7 @@
 # Study Run Summary
 
 - Study: `agent-harness-study`
-- Updated: `2026-08-27T14:27:52Z`
+- Updated: `2026-08-27T15:08:39Z`
 - Study progress state: `.ultraplan/run-state.json`
 - Ledger: `.ultraplan/runs/tasks.jsonl`
 
@@ -9,10 +9,10 @@
 
 | Metric | Value |
 | --- | ---: |
-| Runs recorded | 1076 |
+| Runs recorded | 1077 |
 | Completed | 833 |
 | Failed | 110 |
-| Cancelled | 133 |
+| Cancelled | 134 |
 | Skipped | 0 |
 | Remaining tasks | 70 |
 | Dimensions seen | 108 |
@@ -36,7 +36,7 @@
 | 12.03-prompt-evaluation-experiments | pydantic-ai | analysis | pending |
 | 12.04-prompt-rollback-change-control | agent-framework | analysis | pending |
 | 12.04-prompt-rollback-change-control | langfuse | analysis | pending |
-| 16.01-artifact-lifecycle | langgraph | analysis | retrying |
+| 16.01-artifact-lifecycle | agent-framework | analysis | retrying |
 | 16.01-artifact-lifecycle | openhands | analysis | pending |
 | 16.01-artifact-lifecycle | temporal | analysis | pending |
 | 16.02-diff-review-rollback | agent-framework | analysis | pending |
@@ -183,7 +183,7 @@
 | 15.01-coordination-topology | 8 | 7 | 1 | 7m43s | - | - |
 | 15.02-message-routing-termination | 8 | 7 | 1 | 12m53s | - | - |
 | 15.03-shared-state-conflict-resolution | 7 | 7 | 0 | 14m23s | - | - |
-| 16.01-artifact-lifecycle | 1 | 0 | 0 | 5m36s | - | - |
+| 16.01-artifact-lifecycle | 2 | 0 | 0 | 10m52s | - | - |
 | 17.01-sandbox-boundary | 4 | 4 | 0 | 8m51s | - | - |
 | 17.02-filesystem-network-process-controls | 6 | 5 | 1 | 7m19s | - | - |
 | 18.01-dataset-golden-task-management | 10 | 9 | 1 | 8m21s | - | - |
@@ -213,7 +213,7 @@
 | agent-framework | 140 | 104 | 11 | 15m03s | 15537994 | 0.0000 USD |
 | crewai | 101 | 79 | 5 | 37m26s | - | - |
 | langfuse | 57 | 39 | 8 | 8m48s | 9182246 | 0.0000 USD |
-| langgraph | 105 | 91 | 5 | 26m19s | 35979503 | 0.0000 USD |
+| langgraph | 106 | 91 | 5 | 26m13s | 35979503 | 0.0000 USD |
 | letta | 89 | 68 | 8 | 22m11s | 12264464 | 0.0000 USD |
 | opa | 40 | 31 | 3 | 7m38s | - | - |
 | openai-agents-sdk | 96 | 81 | 7 | 7m22s | 19387549 | 0.0000 USD |
@@ -228,12 +228,14 @@
 | minimax-coding-plan / minimax-coding-plan / MiniMax-M3 | 384 | 308 | 24 | 36m58s | 110870742 | 0.0000 USD |
 | opencode / - / minimax-coding-plan/MiniMax-M3 | 55 | 1 | 49 | 5s | - | - |
 | opencode / opencode / muse-spark-1.2-contributor-free | 141 | 105 | 0 | 8m01s | - | - |
+| openrouter / openrouter / minimax/minimax-m3:free | 1 | 0 | 0 | 16m09s | - | - |
 | openrouter / openrouter / stealth/ox-alpha | 496 | 419 | 37 | 12m04s | - | - |
 
 ## Recent Runs
 
 | Completed | Dimension | Source | Kind | Status | Duration | Model | Tokens | Cost |
 | --- | --- | --- | --- | --- | ---: | --- | ---: | ---: |
+| 2026-08-27T15:08:38Z | 16.01-artifact-lifecycle | langgraph | analysis | cancelled | 16m09s | minimax/minimax-m3:free | - | - |
 | 2026-08-27T14:27:51Z | 16.01-artifact-lifecycle | agent-framework | analysis | cancelled | 5m36s | muse-spark-1.2-contributor-free | - | - |
 | 2026-08-27T12:37:24Z | 06.07-plan-observability-evaluation | (synthesis) | synthesis | completed | 3m24s | muse-spark-1.2-contributor-free | - | - |
 | 2026-08-27T12:34:00Z | 06.07-plan-observability-evaluation | pydantic-ai | analysis | completed | 5m23s | muse-spark-1.2-contributor-free | - | - |
@@ -253,7 +255,6 @@
 | 2026-08-27T11:53:19Z | 06.04-planner-executor-contract | openai-agents-sdk | analysis | completed | 2m09s | muse-spark-1.2-contributor-free | - | - |
 | 2026-08-27T11:51:09Z | 06.04-planner-executor-contract | langgraph | analysis | completed | 2m12s | muse-spark-1.2-contributor-free | - | - |
 | 2026-08-27T11:48:57Z | 06.04-planner-executor-contract | crewai | analysis | completed | 2m33s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-27T11:46:23Z | 06.04-planner-executor-contract | agent-framework | analysis | completed | 4m48s | muse-spark-1.2-contributor-free | - | - |
 
 ## Slowest Runs
 
@@ -266,14 +267,15 @@
 | 2026-07-28T08:48:45Z | 04.05-tool-permissions-approval-metadata | langgraph | analysis | cancelled | 838m24s | MiniMax-M3 | - | - |
 | 2026-07-28T08:48:45Z | 04.04-tool-context-dependency-injection | langgraph | analysis | cancelled | 838m24s | MiniMax-M3 | - | - |
 | 2026-07-28T08:48:45Z | 04.05-tool-permissions-approval-metadata | crewai | analysis | cancelled | 838m24s | MiniMax-M3 | - | - |
-| 2026-07-15T08:58:47Z | 03.03-tool-calling-roundtrip-control | (synthesis) | synthesis | completed | 736m16s | MiniMax-M3 | - | - |
 | 2026-07-15T08:58:47Z | 03.05-reflection-reask-self-correction | (synthesis) | synthesis | completed | 736m16s | MiniMax-M3 | - | - |
+| 2026-07-15T08:58:47Z | 03.03-tool-calling-roundtrip-control | (synthesis) | synthesis | completed | 736m16s | MiniMax-M3 | - | - |
 | 2026-07-15T08:58:47Z | 03.06-stuck-doom-loop-detection | crewai | analysis | cancelled | 736m16s | MiniMax-M3 | - | - |
 
 ## Failed Or Cancelled Runs
 
 | Completed | Dimension | Source | Status | Error |
 | --- | --- | --- | --- | --- |
+| 2026-08-27T15:08:38Z | 16.01-artifact-lifecycle | langgraph | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/minimax/minimax-m3:free] |
 | 2026-08-27T14:27:51Z | 16.01-artifact-lifecycle | agent-framework | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
 | 2026-08-27T09:59:12Z | 06.01-planning-location-responsibility | openhands | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
 | 2026-08-27T09:59:12Z | 06.02-task-decomposition-representation | crewai | cancelled | cancellation: persist runtime event: context canceled [opencode/muse-spark-1.2-contributor-free] |
