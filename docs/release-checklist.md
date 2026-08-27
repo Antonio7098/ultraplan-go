@@ -138,7 +138,7 @@ Confirm docs and evidence contain no:
 - Focused race checks pass with `go test -race ./internal/sprint ./internal/app ./internal/tui ./internal/web`; the full `go test -race ./...` gate also passes.
 - `go test ./...`, `go vet ./...`, `go build ./cmd/ultraplan`, and `git diff --check` pass with retained evidence.
 - Real-runtime dogfood records two stable maps, read-only shard/synthesis state, durable progress, explicit cancellation/recovery, and clean content plus Git identity. Missing prerequisites are recorded as blocked and do not satisfy the gate.
-- Sprint 37 evidence production/smoke integration/adjudication/issues and Sprint 38 repair remain explicitly deferred.
+- Sprint 38 manual repair source may ship only after current Sprint 37 evidence admits one real issue and all manual repair gates below pass. Until then packet admission and automatic mode remain unavailable; missing dogfood evidence is a blocked release gate, not an inferred pass.
 
 ## Platform Notes
 
@@ -202,4 +202,18 @@ Sprint 35 local release evidence (2026-08-21):
 
 Disposable copies reduce accidental target mutation but are not a hostile
 multi-tenant sandbox. Evaluator majority does not prove independent truth.
-QA retains patches as evidence only and exposes no apply or repair operation.
+QA retains patches as evidence only and cannot apply them. The separate repair
+protocol may apply one explicitly confirmed, product-derived, journaled patch
+for one current repair-eligible issue; it cannot reuse ordinary QA runtime
+authority or change Conformance Review, smoke, QA evidence, tests, governed
+inputs, configuration, repository controls, or Git state.
+
+## Bounded manual repair release gate
+
+- Prove deterministic packet bytes and rejection of stale, incomplete, cross-attempt, protected-path, target-drift, and ambiguous issue authority without runtime construction or target mutation.
+- Prove durable accept, writer claim, single-use confirmation, and dispatch ordering for CLI, TUI, browser, and the shared runner. Acceptance or confirmation persistence failure must start no child.
+- Exercise isolation, exact scope, preimage checks, hard-link and symlink rejection, private preimage staging, apply-journal updates, atomic replacement, partial-failure compensation, and crash recovery. No committed apply may repeat.
+- Prove the ordered exact, shard, theory, follow-up, QA, and repaired-target smoke ladder. Conformance Review runs once before repair admission.
+- Compare bounded CLI text/JSON, TUI, browser HTML/JSON, durable operation, repair state, result, and flow summary. Verify hostile text escaping and absence of patch bodies, production bytes, prompts, private preimages, environment values, and raw output.
+- Run `go test ./...`, `go test -race ./...`, `go vet ./...`, `go build ./cmd/ultraplan`, and `git diff --check`.
+- Retain one real manual `verified` or `verified_with_findings` run with current target, complete ladder, proven cleanup, interface captures, and Architecture/Sprint/Deep Smoke reviews. If the prerequisite evidence is missing, record `blocked` and keep automatic mode unavailable.

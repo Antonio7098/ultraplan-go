@@ -19,6 +19,8 @@ const (
 	QAEvidenceSchemaVersion = 2
 	QAIDScope               = "qa-v1"
 	QAEvidenceIDScope       = "qa-v2"
+	QARepairSchemaVersion   = 1
+	QARepairIDScope         = "repair-v1"
 )
 
 type QAPhaseStatus string
@@ -280,6 +282,386 @@ type QATargetIdentity struct {
 	GitIndex    string            `json:"git_index,omitempty"`
 	GitWorktree string            `json:"git_worktree,omitempty"`
 	Categories  map[string]string `json:"categories,omitempty"`
+}
+
+type RepairMode string
+
+const (
+	RepairModeManual    RepairMode = "manual"
+	RepairModeAutomatic RepairMode = "automatic"
+)
+
+type RepairPhase string
+
+const (
+	RepairPhasePrepared      RepairPhase = "prepared"
+	RepairPhaseConfirmed     RepairPhase = "confirmed"
+	RepairPhaseProposing     RepairPhase = "proposing"
+	RepairPhaseApplying      RepairPhase = "applying"
+	RepairPhaseReverifying   RepairPhase = "reverifying"
+	RepairPhaseCleaning      RepairPhase = "cleaning"
+	RepairPhaseTerminalizing RepairPhase = "terminalizing"
+	RepairPhaseTerminal      RepairPhase = "terminal"
+	RepairPhaseInterrupted   RepairPhase = "interrupted"
+	RepairPhaseStale         RepairPhase = "stale"
+)
+
+type RepairOutcome string
+
+const (
+	RepairOutcomeVerified             RepairOutcome = "verified"
+	RepairOutcomeVerifiedWithFindings RepairOutcome = "verified_with_findings"
+	RepairOutcomeFailed               RepairOutcome = "failed"
+	RepairOutcomeBlocked              RepairOutcome = "blocked"
+	RepairOutcomeEscalated            RepairOutcome = "escalated"
+	RepairOutcomeStalled              RepairOutcome = "stalled"
+)
+
+type RepairGateKind string
+
+const (
+	RepairGateExactReproducer RepairGateKind = "exact_reproducer"
+	RepairGatePrimaryShards   RepairGateKind = "primary_shards"
+	RepairGateLinkedTheories  RepairGateKind = "linked_theories"
+	RepairGateFollowUpShards  RepairGateKind = "follow_up_shards"
+	RepairGateContainingQA    RepairGateKind = "containing_qa"
+	RepairGateContainingSmoke RepairGateKind = "containing_smoke"
+)
+
+type RepairGateStatus string
+
+const (
+	RepairGatePending RepairGateStatus = "pending"
+	RepairGateRunning RepairGateStatus = "running"
+	RepairGatePassed  RepairGateStatus = "passed"
+	RepairGateFailed  RepairGateStatus = "failed"
+	RepairGateBlocked RepairGateStatus = "blocked"
+	RepairGateSkipped RepairGateStatus = "skipped"
+)
+
+type RepairStopReason string
+
+const (
+	RepairStopNone                RepairStopReason = ""
+	RepairStopVerified            RepairStopReason = "verified"
+	RepairStopRequiredCheckFailed RepairStopReason = "required_check_failed"
+	RepairStopPrerequisite        RepairStopReason = "prerequisite_unavailable"
+	RepairStopCancellation        RepairStopReason = "cancelled"
+	RepairStopCleanupUncertain    RepairStopReason = "cleanup_uncertain"
+	RepairStopScopeGrowth         RepairStopReason = "scope_growth"
+	RepairStopSeverityGrowth      RepairStopReason = "severity_growth"
+	RepairStopTargetDrift         RepairStopReason = "target_drift"
+	RepairStopGovernedDrift       RepairStopReason = "governed_input_drift"
+	RepairStopDesignDecision      RepairStopReason = "design_decision"
+	RepairStopContradiction       RepairStopReason = "contradictory_expectations"
+	RepairStopUnsupportedChange   RepairStopReason = "unsupported_change"
+	RepairStopUncertainEvidence   RepairStopReason = "uncertain_evidence"
+	RepairStopUnknownSchema       RepairStopReason = "unknown_schema"
+	RepairStopStagnation          RepairStopReason = "stagnation"
+	RepairStopRepeatedPatch       RepairStopReason = "repeated_patch"
+	RepairStopRepeatedTarget      RepairStopReason = "repeated_target"
+	RepairStopCycleLimit          RepairStopReason = "cycle_limit"
+	RepairStopReopeningLimit      RepairStopReason = "reopening_limit"
+)
+
+type RepairBudgets struct {
+	MaxCycles         int           `json:"max_cycles"`
+	MaxMutationCycles int           `json:"max_mutation_cycles"`
+	MaxReopenings     int           `json:"max_reopenings"`
+	StagnationLimit   int           `json:"stagnation_limit"`
+	MaxFilesPerCycle  int           `json:"max_files_per_cycle"`
+	MaxFilesPerRun    int           `json:"max_files_per_run"`
+	MaxBytesPerCycle  int64         `json:"max_bytes_per_cycle"`
+	MaxBytesPerRun    int64         `json:"max_bytes_per_run"`
+	MaxPatchBytes     int           `json:"max_patch_bytes"`
+	WallTime          time.Duration `json:"wall_time"`
+	RuntimeAttempts   int           `json:"runtime_attempts"`
+	ModelTurns        int           `json:"model_turns"`
+	CommandCount      int           `json:"command_count"`
+	CommandTimeout    time.Duration `json:"command_timeout"`
+	OutputBytes       int           `json:"output_bytes"`
+	RetainedCycles    int           `json:"retained_cycles"`
+	CleanupTimeout    time.Duration `json:"cleanup_timeout"`
+}
+
+func DefaultRepairBudgets() RepairBudgets {
+	return RepairBudgets{
+		MaxCycles: 3, MaxMutationCycles: 3, MaxReopenings: 1, StagnationLimit: 1,
+		MaxFilesPerCycle: 8, MaxFilesPerRun: 16, MaxBytesPerCycle: 256 << 10,
+		MaxBytesPerRun: 512 << 10, MaxPatchBytes: 512 << 10, WallTime: 45 * time.Minute,
+		RuntimeAttempts: 3, ModelTurns: 12, CommandCount: 32, CommandTimeout: 10 * time.Minute,
+		OutputBytes: 1 << 20, RetainedCycles: 8, CleanupTimeout: 30 * time.Second,
+	}
+}
+
+func MaximumRepairBudgets() RepairBudgets {
+	return RepairBudgets{
+		MaxCycles: 5, MaxMutationCycles: 5, MaxReopenings: 2, StagnationLimit: 2,
+		MaxFilesPerCycle: 16, MaxFilesPerRun: 32, MaxBytesPerCycle: 1 << 20,
+		MaxBytesPerRun: 2 << 20, MaxPatchBytes: 1 << 20, WallTime: 90 * time.Minute,
+		RuntimeAttempts: 5, ModelTurns: 20, CommandCount: 64, CommandTimeout: 15 * time.Minute,
+		OutputBytes: 2 << 20, RetainedCycles: 12, CleanupTimeout: 60 * time.Second,
+	}
+}
+
+type RepairConsumed struct {
+	Cycles          int   `json:"cycles"`
+	MutationCycles  int   `json:"mutation_cycles"`
+	Reopenings      int   `json:"reopenings"`
+	StagnantCycles  int   `json:"stagnant_cycles"`
+	ChangedFiles    int   `json:"changed_files"`
+	ChangedBytes    int64 `json:"changed_bytes"`
+	RuntimeAttempts int   `json:"runtime_attempts"`
+	ModelTurns      int   `json:"model_turns"`
+	Commands        int   `json:"commands"`
+	OutputBytes     int   `json:"output_bytes"`
+}
+
+type RepairCheckDescriptor struct {
+	ID               string         `json:"id"`
+	Gate             RepairGateKind `json:"gate"`
+	Executable       string         `json:"executable"`
+	Args             []string       `json:"args,omitempty"`
+	Workdir          string         `json:"workdir,omitempty"`
+	EnvironmentNames []string       `json:"environment_names,omitempty"`
+	Timeout          time.Duration  `json:"timeout"`
+	OutputLimit      int            `json:"output_limit"`
+	Expected         string         `json:"expected"`
+	SourcePlanID     string         `json:"source_plan_id,omitempty"`
+}
+
+type RepairIssuePacket struct {
+	SchemaVersion             int                     `json:"schema_version"`
+	Project                   string                  `json:"project"`
+	Sprint                    string                  `json:"sprint"`
+	QAAttemptID               string                  `json:"qa_attempt_id"`
+	RepairRunID               string                  `json:"repair_run_id"`
+	Issue                     QAIssue                 `json:"issue"`
+	RootCauseGroup            QARootCauseGroup        `json:"root_cause_group"`
+	AdjudicationID            string                  `json:"adjudication_id"`
+	EvidenceIDs               []string                `json:"evidence_ids"`
+	PlanIDs                   []string                `json:"plan_ids"`
+	MapID                     string                  `json:"map_id"`
+	ShardIDs                  []string                `json:"shard_ids"`
+	TheoryIDs                 []string                `json:"theory_ids,omitempty"`
+	ExpectationRefs           []string                `json:"expectation_refs"`
+	ExactReproducer           RepairCheckDescriptor   `json:"exact_reproducer"`
+	Checks                    []RepairCheckDescriptor `json:"checks"`
+	AllowedPaths              []string                `json:"allowed_paths"`
+	ForbiddenPaths            []string                `json:"forbidden_paths"`
+	AcceptanceCriteria        []string                `json:"acceptance_criteria"`
+	Mode                      RepairMode              `json:"mode"`
+	Budgets                   RepairBudgets           `json:"budgets"`
+	BudgetSources             []QAEffectiveSource     `json:"budget_sources"`
+	Target                    QATargetIdentity        `json:"target"`
+	GovernedInputFingerprint  string                  `json:"governed_input_fingerprint"`
+	ImplementationFingerprint string                  `json:"implementation_fingerprint"`
+	ReviewFingerprint         string                  `json:"review_fingerprint"`
+	SmokeFingerprint          string                  `json:"smoke_fingerprint"`
+	PolicyFingerprint         string                  `json:"policy_fingerprint"`
+	IsolationFingerprint      string                  `json:"isolation_fingerprint"`
+	PreparedAt                time.Time               `json:"prepared_at"`
+	PacketDigest              string                  `json:"packet_digest"`
+}
+
+type RepairConfirmation struct {
+	SchemaVersion            int              `json:"schema_version"`
+	Project                  string           `json:"project"`
+	Sprint                   string           `json:"sprint"`
+	QAAttemptID              string           `json:"qa_attempt_id"`
+	RepairRunID              string           `json:"repair_run_id"`
+	PacketDigest             string           `json:"packet_digest"`
+	Target                   QATargetIdentity `json:"target"`
+	Mode                     RepairMode       `json:"mode"`
+	AutomaticOptIn           bool             `json:"automatic_opt_in"`
+	Budgets                  RepairBudgets    `json:"budgets"`
+	GovernedInputFingerprint string           `json:"governed_input_fingerprint"`
+	PolicyFingerprint        string           `json:"policy_fingerprint"`
+	OperationRunID           string           `json:"operation_run_id"`
+	OperationalAttemptID     string           `json:"operational_attempt_id"`
+	FencingGeneration        uint64           `json:"fencing_generation"`
+	Confirmer                string           `json:"confirmer"`
+	ConfirmedAt              time.Time        `json:"confirmed_at"`
+	ConfirmationDigest       string           `json:"confirmation_digest"`
+}
+
+type RepairFreshness struct {
+	Current bool     `json:"current"`
+	Reasons []string `json:"reasons,omitempty"`
+}
+
+type RepairState struct {
+	SchemaVersion int              `json:"schema_version"`
+	Project       string           `json:"project"`
+	Sprint        string           `json:"sprint"`
+	QAAttemptID   string           `json:"qa_attempt_id"`
+	RepairRunID   string           `json:"repair_run_id"`
+	Mode          RepairMode       `json:"mode"`
+	Phase         RepairPhase      `json:"phase"`
+	Freshness     RepairFreshness  `json:"freshness"`
+	Run           QARunCorrelation `json:"run"`
+	Packet        *QAArtifactRef   `json:"packet,omitempty"`
+	Confirmation  *QAArtifactRef   `json:"confirmation,omitempty"`
+	CurrentCycle  int              `json:"current_cycle"`
+	EarliestCycle int              `json:"earliest_retained_cycle"`
+	Consumed      RepairConsumed   `json:"consumed"`
+	Deadline      time.Time        `json:"deadline"`
+	Outcome       RepairOutcome    `json:"outcome,omitempty"`
+	StopReason    RepairStopReason `json:"stop_reason,omitempty"`
+	Blocker       *QABlocker       `json:"blocker,omitempty"`
+	Result        *QAArtifactRef   `json:"result,omitempty"`
+	NextAction    string           `json:"next_action"`
+	UpdatedAt     time.Time        `json:"updated_at"`
+}
+
+type RepairScopeRecord struct {
+	SchemaVersion int              `json:"schema_version"`
+	RepairRunID   string           `json:"repair_run_id"`
+	Cycle         int              `json:"cycle"`
+	Before        QATargetIdentity `json:"before"`
+	After         QATargetIdentity `json:"after"`
+	IntendedPaths []string         `json:"intended_paths"`
+	ActualPaths   []string         `json:"actual_paths"`
+	ChangedBytes  int64            `json:"changed_bytes"`
+	Enforced      bool             `json:"enforced"`
+	Reason        string           `json:"reason,omitempty"`
+}
+
+type RepairGateResult struct {
+	Gate       RepairGateKind   `json:"gate"`
+	Status     RepairGateStatus `json:"status"`
+	Reason     string           `json:"reason,omitempty"`
+	NextAction string           `json:"next_action,omitempty"`
+	ExitCode   int              `json:"exit_code,omitempty"`
+	Duration   time.Duration    `json:"duration,omitempty"`
+	OutputHash string           `json:"output_digest,omitempty"`
+	Diagnostic string           `json:"diagnostic,omitempty"`
+}
+
+type RepairReverification struct {
+	SchemaVersion         int                `json:"schema_version"`
+	RepairRunID           string             `json:"repair_run_id"`
+	Cycle                 int                `json:"cycle"`
+	Gates                 []RepairGateResult `json:"gates"`
+	IssueIDsBefore        []string           `json:"issue_ids_before"`
+	IssueIDsAfter         []string           `json:"issue_ids_after"`
+	HighestSeverityBefore string             `json:"highest_severity_before,omitempty"`
+	HighestSeverityAfter  string             `json:"highest_severity_after,omitempty"`
+	ScopeGrew             bool               `json:"scope_grew"`
+	SeverityGrew          bool               `json:"severity_grew"`
+	Contradiction         bool               `json:"contradiction"`
+	CompletedAt           time.Time          `json:"completed_at"`
+}
+
+type RepairCleanup struct {
+	SchemaVersion         int           `json:"schema_version"`
+	RepairRunID           string        `json:"repair_run_id"`
+	Cycle                 int           `json:"cycle"`
+	ProcessTreeTerminated bool          `json:"process_tree_terminated"`
+	WorkspaceRemoved      bool          `json:"workspace_removed"`
+	CompensationKnown     bool          `json:"compensation_known"`
+	TargetCurrent         bool          `json:"target_current"`
+	LeaseReleased         bool          `json:"lease_released"`
+	Complete              bool          `json:"complete"`
+	Duration              time.Duration `json:"duration"`
+	Diagnostic            string        `json:"diagnostic,omitempty"`
+}
+
+type RepairProgressFact struct {
+	ExactFailureRemoved bool   `json:"exact_failure_removed"`
+	IssueCountBefore    int    `json:"issue_count_before"`
+	IssueCountAfter     int    `json:"issue_count_after"`
+	SeverityBefore      string `json:"severity_before,omitempty"`
+	SeverityAfter       string `json:"severity_after,omitempty"`
+}
+
+type RepairCycle struct {
+	SchemaVersion  int                `json:"schema_version"`
+	RepairRunID    string             `json:"repair_run_id"`
+	Number         int                `json:"number"`
+	Proposal       *QAArtifactRef     `json:"proposal,omitempty"`
+	Scope          *QAArtifactRef     `json:"scope,omitempty"`
+	Reverification *QAArtifactRef     `json:"reverification,omitempty"`
+	Cleanup        *QAArtifactRef     `json:"cleanup,omitempty"`
+	Progress       RepairProgressFact `json:"progress"`
+	StopReason     RepairStopReason   `json:"stop_reason,omitempty"`
+	StartedAt      time.Time          `json:"started_at"`
+	CompletedAt    *time.Time         `json:"completed_at,omitempty"`
+}
+
+type RepairApplyOperation struct {
+	Path            string `json:"path"`
+	PreimageDigest  string `json:"preimage_digest,omitempty"`
+	PreimagePath    string `json:"preimage_path,omitempty"`
+	PostimageDigest string `json:"postimage_digest,omitempty"`
+	StagedPath      string `json:"staged_path,omitempty"`
+	Applied         bool   `json:"applied"`
+	Restored        bool   `json:"restored"`
+}
+
+type RepairApplyJournal struct {
+	SchemaVersion int                    `json:"schema_version"`
+	RepairRunID   string                 `json:"repair_run_id"`
+	Cycle         int                    `json:"cycle"`
+	State         string                 `json:"state"`
+	Operations    []RepairApplyOperation `json:"operations"`
+	UpdatedAt     time.Time              `json:"updated_at"`
+}
+
+type RepairResult struct {
+	SchemaVersion     int              `json:"schema_version"`
+	Project           string           `json:"project"`
+	Sprint            string           `json:"sprint"`
+	QAAttemptID       string           `json:"qa_attempt_id"`
+	RepairRunID       string           `json:"repair_run_id"`
+	Mode              RepairMode       `json:"mode"`
+	Outcome           RepairOutcome    `json:"outcome"`
+	Reason            string           `json:"reason"`
+	StopReason        RepairStopReason `json:"stop_reason"`
+	Consumed          RepairConsumed   `json:"consumed"`
+	Target            QATargetIdentity `json:"target"`
+	CleanupComplete   bool             `json:"cleanup_complete"`
+	ProductionApplied bool             `json:"production_applied"`
+	CompleteLadder    bool             `json:"complete_ladder"`
+	UnresolvedIssues  []string         `json:"unresolved_issues,omitempty"`
+	Evidence          []QAArtifactRef  `json:"evidence"`
+	NextAction        string           `json:"next_action"`
+	CompletedAt       time.Time        `json:"completed_at"`
+}
+
+type ManualRepairProof struct {
+	SchemaVersion             int              `json:"schema_version"`
+	Project                   string           `json:"project"`
+	Sprint                    string           `json:"sprint"`
+	RepairRunID               string           `json:"repair_run_id"`
+	PacketDigest              string           `json:"packet_digest"`
+	ResultDigest              string           `json:"result_digest"`
+	Outcome                   RepairOutcome    `json:"outcome"`
+	Target                    QATargetIdentity `json:"target"`
+	ProtocolFingerprint       string           `json:"protocol_fingerprint"`
+	ImplementationFingerprint string           `json:"implementation_fingerprint"`
+	PolicyFingerprint         string           `json:"policy_fingerprint"`
+	IsolationFingerprint      string           `json:"isolation_fingerprint"`
+	GovernedInputFingerprint  string           `json:"governed_input_fingerprint"`
+	RuntimeFingerprint        string           `json:"runtime_fingerprint"`
+	CleanupComplete           bool             `json:"cleanup_complete"`
+	ProductionApplied         bool             `json:"production_applied"`
+	CompleteLadder            bool             `json:"complete_ladder"`
+	PublishedAt               time.Time        `json:"published_at"`
+}
+
+type RepairFlowSummary struct {
+	Phase        RepairPhase      `json:"phase"`
+	Fresh        bool             `json:"fresh"`
+	Mode         RepairMode       `json:"mode"`
+	RepairRunID  string           `json:"repair_run_id"`
+	QAAttemptID  string           `json:"qa_attempt_id"`
+	CurrentCycle int              `json:"current_cycle"`
+	Outcome      RepairOutcome    `json:"outcome,omitempty"`
+	StopReason   RepairStopReason `json:"stop_reason,omitempty"`
+	StatePath    string           `json:"state_path"`
+	StateDigest  string           `json:"state_digest"`
+	NextAction   string           `json:"next_action"`
 }
 
 type QAApprovedCheckRef struct {

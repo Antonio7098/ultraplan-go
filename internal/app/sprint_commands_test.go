@@ -35,6 +35,7 @@ func TestSprintHelpIsRegistered(t *testing.T) {
 		{"sprint", "proj", "01", "review", "--help"},
 		{"sprint", "proj", "01", "conformance-review", "--help"},
 		{"sprint", "proj", "01", "qa", "--help"},
+		{"sprint", "proj", "01", "repair", "--help"},
 	} {
 		stdout, stderr, status = runForTest(args)
 		if status != ExitOK || stderr != "" {
@@ -48,11 +49,62 @@ func TestSprintHelpIsRegistered(t *testing.T) {
 			assertContains(t, stdout, "qa recover")
 			assertContains(t, stdout, "Completed means bounded investigation ended")
 		}
+		if len(args) > 3 && args[2] == "01" && args[3] == "repair" {
+			assertContains(t, stdout, "repair start")
+			assertContains(t, stdout, "Automatic mode requires")
+		}
 	}
 	reviewHelp, _, _ := runForTest([]string{"sprint", "proj", "01", "review", "--help"})
 	aliasHelp, _, _ := runForTest([]string{"sprint", "proj", "01", "conformance-review", "--help"})
 	if reviewHelp != aliasHelp {
 		t.Fatal("conformance-review help did not use the exact review handler")
+	}
+}
+
+func TestParseSprintRepairRequiresSeparateManualConfirmation(t *testing.T) {
+	prepare, err := parseSprintRepairArgs([]string{"prepare", "--issue", "qa-v1-issue-current", "--json"})
+	if err != nil || prepare.Action != "prepare" || prepare.IssueID == "" || !prepare.JSON {
+		t.Fatalf("prepare=%+v err=%v", prepare, err)
+	}
+	start, err := parseSprintRepairArgs([]string{"start", "--run", "repair-v1-run-aaaaaaaaaaaaaaaaaaaaaaaa", "--confirmer", "operator", "--yes", "--json"})
+	if err != nil || !start.Yes || start.Confirmer != "operator" {
+		t.Fatalf("start=%+v err=%v", start, err)
+	}
+	for _, args := range [][]string{
+		{"prepare", "--issue", "issue", "--yes"},
+		{"start", "--run", "run", "--confirmer", "operator"},
+		{"start", "--run", "run", "--yes"},
+		{"resume", "--run", "run"},
+	} {
+		if _, err := parseSprintRepairArgs(args); err == nil {
+			t.Fatalf("expected invalid repair arguments: %v", args)
+		}
+	}
+}
+
+func TestSprintRepairStatusJSONIsOneBoundedDocument(t *testing.T) {
+	dir := initializedWorkspace(t)
+	writeCommandSprintProject(t, dir, "proj", "01-alpha")
+	stdout, stderr, status := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "repair", "status", "--json"})
+	if status != ExitOK || stderr != "" {
+		t.Fatalf("status=%d stdout=%s stderr=%s", status, stdout, stderr)
+	}
+	var payload struct {
+		SchemaVersion int                `json:"schema_version"`
+		Operation     string             `json:"operation"`
+		Status        string             `json:"status"`
+		Result        RepairStatusResult `json:"result"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(stdout))
+	if err := decoder.Decode(&payload); err != nil {
+		t.Fatalf("decode repair status: %v\n%s", err, stdout)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err == nil {
+		t.Fatalf("repair status has trailing output: %s", stdout)
+	}
+	if payload.SchemaVersion != 1 || payload.Operation != "sprint.repair.status" || payload.Status != "ok" || payload.Result.Phase != string(sprint.RepairPhaseStale) || payload.Result.Fresh {
+		t.Fatalf("repair status payload=%+v", payload)
 	}
 }
 
@@ -208,6 +260,55 @@ func TestQACommandErrorClassesAndStableCodes(t *testing.T) {
 				t.Fatalf("stable code = %q, want %q", got, test.code)
 			}
 		})
+	}
+}
+
+func TestSprintRepairArgsRejectionTable(t *testing.T) {
+	tests := map[string][]string{
+		"unknown": {"explode"}, "prepare yes": {"prepare", "--issue", "id", "--yes"}, "prepare run": {"prepare", "--issue", "id", "--run", "run"},
+		"start missing": {"start", "--run", "run"},
+		"bad cycles":    {"prepare", "--issue", "id", "--max-cycles", "0"}, "resume issue": {"resume", "--run", "run", "--yes", "--issue", "id"},
+		"cancel yes": {"cancel", "--run", "run", "--yes"}, "status issue": {"status", "--issue", "id"},
+	}
+	for name, args := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseSprintRepairArgs(args); err == nil {
+				t.Fatal("invalid arguments accepted")
+			}
+		})
+	}
+}
+
+func TestStableRepairErrorIncludesCategoryCorrelationAndTimestamp(t *testing.T) {
+	stamp := time.Unix(123, 0).UTC()
+	cause := sprint.NewQAError(sprint.QAErrorConflict, "start repair", "owned elsewhere", nil)
+	mapped := mapQACommandError(cause)
+	out := stableRepairCommandError(mapped, cause, RepairStatusResult{RepairRunID: "repair-v1-run-aaaaaaaaaaaaaaaaaaaaaaaa", UpdatedAt: stamp}, "start")
+	for key := range map[string]bool{"category": true, "correlation_id": true, "timestamp": true, "severity": true, "operation": true, "component": true, "retryable": true} {
+		if _, ok := out[key]; !ok {
+			t.Errorf("missing %s: %+v", key, out)
+		}
+	}
+}
+
+func TestRepairBudgetsForUsesTypedConfigAndReportsSources(t *testing.T) {
+	effective, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgets, sources, err := repairBudgetsFor(effective, sprint.RepairModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if budgets.MaxCycles != 1 || budgets.MaxMutationCycles != 1 || len(sources) != 17 {
+		t.Fatalf("budgets=%+v sources=%+v", budgets, sources)
+	}
+	seen := map[string]string{}
+	for _, source := range sources {
+		seen[source.Field] = source.Source
+	}
+	if seen["qa.repair.max_cycles"] != "manual_policy" || seen["qa.repair.max_files_per_run"] != "default" {
+		t.Fatalf("sources=%+v", seen)
 	}
 }
 

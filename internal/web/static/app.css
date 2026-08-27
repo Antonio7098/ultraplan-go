@@ -290,6 +290,21 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .artifact-list li, .findings li { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; padding: .7rem 0; border-bottom: 1px solid var(--border-soft); }
 .artifact-list code, .reviewer-card code { color: var(--muted); overflow-wrap: anywhere; }
 .operation-actions, .stage-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+.repair-workbench { display: grid; gap: 1rem; }
+.repair-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.repair-heading h2, .repair-authority h3 { margin: 0; }
+.repair-heading p { max-width: 68ch; margin: .35rem 0 0; color: var(--muted); }
+.repair-state { padding: clamp(1rem, 2vw, 1.4rem); border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklab, var(--accent) 7%, var(--panel)); box-shadow: 0 16px 42px rgb(0 0 0 / 17%); }
+.repair-state .metadata { margin-top: 0; }
+.repair-authority { display: grid; grid-template-columns: minmax(13rem, .6fr) minmax(0, 1.4fr); gap: 1rem 1.5rem; align-items: start; padding-block: 1rem; border-block: 1px solid var(--border); }
+.repair-authority > .metadata { margin: 0; }
+.repair-authority details { min-width: 0; margin: 0; padding: .75rem; border: 1px solid var(--border); background: var(--panel); }
+.repair-authority summary { cursor: pointer; font-weight: 650; }
+.repair-authority code { overflow-wrap: anywhere; }
+.repair-actions > form { display: flex; align-items: end; gap: .6rem; flex-wrap: wrap; }
+.repair-actions label { display: grid; gap: .3rem; min-width: min(24rem, 100%); color: var(--muted); font-size: .78rem; }
+.repair-actions input { width: 100%; }
+@media (max-width: 48rem) { .repair-heading, .repair-authority { grid-template-columns: 1fr; } .repair-heading { display: grid; } .repair-actions, .repair-actions > form { display: grid; width: 100%; } }
 .stage-operation-form { display: grid; gap: .75rem; }
 .stage-operation-form select { max-width: 24rem; }
 .action-kind { display: block; color: var(--muted); font-size: .72rem; }
@@ -707,6 +722,37 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .qa-fact-strip dt { color: var(--subtle); font-size: .7rem; }
 .qa-fact-strip dd { margin: .18rem 0; color: var(--text); font-size: 1.35rem; font-weight: 720; font-variant-numeric: tabular-nums; }
 .qa-fact-strip small { display: block; color: var(--subtle); line-height: 1.25; }
+.qa-process-map { margin: 0; padding: 1rem 0 1.2rem; border-bottom: 1px solid var(--border); scroll-margin-top: 1rem; }
+.qa-process-track { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 1rem 0 0; padding: 0; list-style: none; counter-reset: qa-stage; }
+.qa-process-track li { position: relative; min-width: 0; counter-increment: qa-stage; }
+.qa-process-track li::before { content: ""; position: absolute; top: 1.05rem; left: 0; right: 0; height: 2px; background: var(--border); }
+.qa-process-track li:nth-child(4n+1)::before { left: 1.05rem; }
+.qa-process-track li:nth-child(4n)::before { right: calc(100% - 1.05rem); }
+.qa-process-track li:nth-child(n+5) { margin-top: 1.15rem; }
+.qa-process-track a { position: relative; display: grid; grid-template-columns: 2.1rem minmax(0, 1fr); gap: .65rem; min-height: 7.7rem; padding: 0 .8rem .65rem 0; color: var(--muted); text-decoration: none; }
+.qa-process-track a:focus-visible { border-radius: .5rem; outline: 2px solid var(--focus); outline-offset: 3px; }
+.qa-process-marker { z-index: 1; display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border: 2px solid var(--border); border-radius: 50%; background: var(--panel); color: var(--subtle); font-size: .68rem; font-weight: 750; }
+.qa-process-marker::before { content: counter(qa-stage); }
+.qa-process-copy { display: grid; align-content: start; gap: .2rem; min-width: 0; padding-top: .05rem; }
+.qa-process-copy strong { color: var(--text); font-size: .84rem; }
+.qa-process-copy small { min-height: 2.4em; color: var(--subtle); font-size: .69rem; line-height: 1.25; }
+.qa-process-copy b { color: var(--muted); font-size: .72rem; font-variant-numeric: tabular-nums; }
+.qa-process-copy em { overflow: hidden; color: var(--subtle); font-family: var(--mono); font-size: .62rem; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.qa-process-track li[data-stage-state="complete"]::before { background: var(--success); }
+.qa-process-track li[data-stage-state="complete"] .qa-process-marker { border-color: var(--success); background: var(--success); color: var(--bg); }
+.qa-process-track li[data-stage-state="complete"] .qa-process-marker::before { content: "✓"; }
+.qa-process-track li[data-stage-state="active"] .qa-process-marker { border-color: var(--accent-strong); background: var(--accent-soft); color: var(--accent-strong); box-shadow: 0 4px 18px color-mix(in oklab, var(--accent) 28%, transparent); animation: qa-stage-arrival 700ms cubic-bezier(.16, 1, .3, 1) both; }
+.qa-process-track li[data-stage-state="failed"] .qa-process-marker { border-color: var(--danger); background: var(--error-surface); color: var(--danger); }
+.qa-process-track li[data-stage-state="failed"] .qa-process-marker::before { content: "!"; }
+.qa-process-track li[data-stage-state="failed"] .qa-process-copy strong { color: var(--danger); }
+.qa-process-legend { display: flex; flex-wrap: wrap; gap: .45rem 1rem; margin-top: .25rem; color: var(--subtle); font-size: .68rem; }
+.qa-process-legend span { display: inline-flex; align-items: center; gap: .38rem; }
+.qa-process-legend span::before { content: ""; width: .5rem; height: .5rem; border: 1px solid var(--border); border-radius: 50%; background: var(--panel); }
+.qa-process-legend [data-state="complete"]::before { border-color: var(--success); background: var(--success); }
+.qa-process-legend [data-state="active"]::before { border-color: var(--accent-strong); background: var(--accent-soft); }
+.qa-process-legend [data-state="failed"]::before { border-color: var(--danger); background: var(--error-surface); }
+.qa-canonical-outcome { padding: 1rem; border: 1px solid var(--border); background: var(--bg); scroll-margin-top: 1rem; }
+@keyframes qa-stage-arrival { from { filter: blur(3px); transform: scale(.72); } to { filter: blur(0); transform: scale(1); } }
 .qa-cockpit-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(17rem, 20rem); gap: var(--space-4, 1rem); align-items: start; }
 .qa-cockpit-main { display: grid; gap: var(--space-4, 1rem); min-width: 0; }
 .qa-shards, .qa-synthesis, .qa-cockpit-rail > section, .qa-cockpit-rail > details { margin: 0; border: 1px solid var(--border); background: var(--bg); }
@@ -815,6 +861,10 @@ footer { min-height: 3.25rem; display: flex; align-items: center; justify-conten
   .run-workspace > .run-rail { position: static; max-height: none; overflow: visible; }
   .run-identity { flex-direction: column; align-items: flex-start; }
   .qa-cockpit-grid { grid-template-columns: 1fr; }
+  .qa-process-track { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qa-process-track li:nth-child(n+3) { margin-top: 1rem; }
+  .qa-process-track li:nth-child(odd)::before { left: 1.05rem; right: 0; }
+  .qa-process-track li:nth-child(even)::before { right: calc(100% - 1.05rem); left: 0; }
   .qa-cockpit-rail { position: static; max-height: none; overflow: visible; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 45rem) {
@@ -844,6 +894,11 @@ footer { min-height: 3.25rem; display: flex; align-items: center; justify-conten
   .study-progress-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .task-distribution { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .qa-command-deck, .qa-scope-grid, .qa-synthesis-grid, .qa-check-catalog, .qa-condition-grid, .qa-cockpit-rail { grid-template-columns: 1fr; }
+  .qa-process-track { grid-template-columns: 1fr; }
+  .qa-process-track li { margin-top: 0 !important; }
+  .qa-process-track li::before { top: 0; bottom: 0; left: 1rem !important; right: auto !important; width: 2px; height: auto; }
+  .qa-process-track li:last-child::before { bottom: calc(100% - 1.05rem); }
+  .qa-process-track a { min-height: 6.25rem; padding-right: 0; }
   .qa-progress-panel { padding-right: 0; }
   .qa-next-action { padding-left: 0; border-left: 0; border-top: 1px solid var(--border); }
   .qa-fact-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }

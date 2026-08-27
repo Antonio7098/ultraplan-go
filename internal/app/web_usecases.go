@@ -135,6 +135,7 @@ type WebUseCases interface {
 	WebModelQueries
 	WebOperations
 	RunUseCases
+	RepairUseCases
 }
 
 type WebUseCaseOptions struct {
@@ -448,8 +449,22 @@ func (u *webUseCases) AcceptOperation(ctx context.Context, confirmation Confirma
 	return u.durable.AcceptOperation(ctx, confirmation, digest)
 }
 
+func (u *webUseCases) DispatchOperation(ctx context.Context, runID string) (AcceptedOperation, error) {
+	if u.durable == nil {
+		return AcceptedOperation{}, ErrWebUnavailable
+	}
+	return u.durable.DispatchOperation(ctx, runID)
+}
+
+func (u *webUseCases) ConfirmAcceptedOperation(ctx context.Context, accepted AcceptedOperation, confirmation Confirmation) error {
+	return u.dashboard.ConfirmAcceptedOperation(ctx, accepted, confirmation)
+}
+
 func (u *webUseCases) QAMap(ctx context.Context, req QARequest) (QAResult, error) {
 	return u.dashboard.QAMap(ctx, req)
+}
+func (u *webUseCases) RepairStatus(ctx context.Context, req RepairRequest) (RepairStatusResult, error) {
+	return u.dashboard.RepairStatus(ctx, req)
 }
 func (u *webUseCases) QAStatus(ctx context.Context, req QARequest) (QAResult, error) {
 	return u.dashboard.QAStatus(ctx, req)

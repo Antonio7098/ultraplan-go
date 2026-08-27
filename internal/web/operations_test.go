@@ -42,6 +42,48 @@ type deadlineWebOperations struct {
 	finished        chan struct{}
 }
 
+type orderedRepairOperations struct {
+	*fakeWebOperations
+	mu         sync.Mutex
+	calls      []string
+	confirmErr error
+}
+
+func (o *orderedRepairOperations) record(call string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.calls = append(o.calls, call)
+}
+
+func (o *orderedRepairOperations) AcceptOperation(ctx context.Context, _ app.Confirmation, _ string) (app.AcceptedOperation, error) {
+	o.record("accept")
+	return app.AcceptedOperation{RunID: "run_repair", Context: ctx, Lifecycle: "claimed"}, nil
+}
+
+func (o *orderedRepairOperations) ConfirmAcceptedOperation(context.Context, app.AcceptedOperation, app.Confirmation) error {
+	o.record("confirm")
+	return o.confirmErr
+}
+
+func (o *orderedRepairOperations) DispatchOperation(ctx context.Context, _ string) (app.AcceptedOperation, error) {
+	o.record("dispatch")
+	return app.AcceptedOperation{RunID: "run_repair", Context: ctx, Lifecycle: "running"}, nil
+}
+
+func (o *orderedRepairOperations) RecordOperationEvent(context.Context, string, app.OperationEvent) (bool, error) {
+	return true, nil
+}
+
+func (o *orderedRepairOperations) FinishOperation(context.Context, string, app.OperationState, error) error {
+	o.record("finish")
+	return nil
+}
+
+func (o *orderedRepairOperations) RunOperation(ctx context.Context, req app.OperationRequest, emit func(app.OperationEvent)) (app.OperationResult, error) {
+	o.record("run")
+	return o.fakeWebOperations.RunOperation(ctx, req, emit)
+}
+
 func newDeadlineWebOperations() *deadlineWebOperations {
 	return &deadlineWebOperations{
 		fakeWebOperations: newFakeWebOperations(),
@@ -156,6 +198,50 @@ func TestOperationHubLifecycleCancellationAndSessionOwnership(t *testing.T) {
 	_, requested, err = hub.cancelOperation("session-a", doc.ID, "user_request")
 	if err != nil || requested {
 		t.Fatalf("idempotent cancel requested=%t err=%v", requested, err)
+	}
+}
+
+func TestRepairStartConfirmsAfterAcceptanceAndBeforeDispatch(t *testing.T) {
+	ops := &orderedRepairOperations{fakeWebOperations: newFakeWebOperations()}
+	hub := newOperationHub(context.Background(), ops, time.Now, func() string { return "repair" })
+	prepared, err := ops.PrepareOperation(context.Background(), app.OperationRequest{Kind: app.OperationRepairStart, Project: "alpha", Sprint: "38", RepairRunID: "qa-repair-v1-run-aaaaaaaaaaaaaaaaaaaaaaaa", RepairConfirmer: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hub.start("session", prepared); err != nil {
+		t.Fatal(err)
+	}
+	<-ops.started
+	ops.mu.Lock()
+	calls := append([]string(nil), ops.calls...)
+	ops.mu.Unlock()
+	if len(calls) < 4 || strings.Join(calls[:4], ",") != "accept,confirm,dispatch,run" {
+		t.Fatalf("repair ordering=%v", calls)
+	}
+	close(ops.release)
+	<-ops.done
+}
+
+func TestRepairConfirmationFailureStartsNoDispatchOrRuntime(t *testing.T) {
+	ops := &orderedRepairOperations{fakeWebOperations: newFakeWebOperations(), confirmErr: errors.New("confirmation persistence failed")}
+	hub := newOperationHub(context.Background(), ops, time.Now, func() string { return "repair" })
+	prepared, err := ops.PrepareOperation(context.Background(), app.OperationRequest{Kind: app.OperationRepairStart, Project: "alpha", Sprint: "38", RepairRunID: "qa-repair-v1-run-aaaaaaaaaaaaaaaaaaaaaaaa", RepairConfirmer: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hub.start("session", prepared); err == nil || !strings.Contains(err.Error(), "confirmation persistence failed") {
+		t.Fatalf("start error=%v", err)
+	}
+	ops.mu.Lock()
+	calls := append([]string(nil), ops.calls...)
+	ops.mu.Unlock()
+	if strings.Join(calls, ",") != "accept,confirm,finish" {
+		t.Fatalf("failure ordering=%v", calls)
+	}
+	select {
+	case <-ops.started:
+		t.Fatal("runtime started after confirmation failure")
+	default:
 	}
 }
 

@@ -217,6 +217,9 @@ func loadFile(path string, e *Effective) error {
 					listField = field
 					continue
 				}
+				section = field
+				listField = ""
+				continue
 			}
 			section = key
 			listField = ""

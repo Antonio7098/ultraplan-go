@@ -128,6 +128,80 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 			if e != nil {
 				return failedOperation(result, e)
 			}
+		case OperationRepairPrepare:
+			token, fence, e := qaOwnershipFromContext(ctx)
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			budgets, budgetSources, e := repairBudgetsFor(effective, req.RepairMode)
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			if req.RepairMaxCycles > 0 && req.RepairMaxCycles < budgets.MaxCycles {
+				budgets.MaxCycles = req.RepairMaxCycles
+				if budgets.MaxMutationCycles > budgets.MaxCycles {
+					budgets.MaxMutationCycles = budgets.MaxCycles
+				}
+			}
+			service := useCases.sprintService().WithQAWriterFence(fence)
+			r, e := service.PrepareRepair(ctx, req.Project, req.Sprint, sprint.RepairPrepareRequest{IssueID: req.RepairIssueID, Mode: req.RepairMode, Budgets: budgets, BudgetSources: budgetSources, WriterToken: token})
+			result.RunID = r.State.Run.RunID
+			result.Message = fmt.Sprintf("repair=%s packet=%s phase=%s next=%s", r.Packet.RepairRunID, r.Packet.PacketDigest, r.State.Phase, r.State.NextAction)
+			if e != nil {
+				return failedOperation(result, e)
+			}
+		case OperationRepairStart, OperationRepairResume:
+			token, fence, e := qaOwnershipFromContext(ctx)
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			service, e := sprintRuntimeService(deps, root, tuiSprintRuntimeProgress(emit))
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			service = service.WithQAWriterFence(fence)
+			run := sprint.RepairRunRequest{RepairRunID: req.RepairRunID, WriterToken: token, Progress: func(progress sprint.RepairProgress) {
+				emit(OperationEvent{State: OperationRunning, Stage: string(sprint.VerificationPhaseRepair), Task: req.RepairRunID, Message: progress.Message, PhaseState: string(progress.Phase), Action: string(progress.Gate), Completed: progress.Cycle, Total: 1})
+			}}
+			var r sprint.RepairResult
+			if req.Kind == OperationRepairResume {
+				r, e = service.ResumeRepair(ctx, req.Project, req.Sprint, run)
+			} else {
+				r, e = service.RunRepair(ctx, req.Project, req.Sprint, run)
+			}
+			result.RunID = token.RunID
+			result.SemanticOutcome = string(r.Outcome)
+			result.Message = fmt.Sprintf("repair=%s outcome=%s stop=%s cleanup=%t next=%s", r.RepairRunID, r.Outcome, r.StopReason, r.CleanupComplete, r.NextAction)
+			severity := "info"
+			if r.Outcome == sprint.RepairOutcomeEscalated {
+				severity = "critical"
+			} else if r.Outcome == sprint.RepairOutcomeFailed || r.Outcome == sprint.RepairOutcomeBlocked || r.Outcome == sprint.RepairOutcomeStalled {
+				severity = "error"
+			}
+			emit(OperationEvent{State: operationStateForError(e), Stage: string(sprint.VerificationPhaseRepair), Task: r.RepairRunID, Code: "repair.terminal." + string(r.Outcome), Severity: severity, Project: req.Project, Sprint: req.Sprint, RepairRunID: r.RepairRunID, OperationRunID: token.RunID, OperationalAttemptID: token.OperationalAttemptID, FencingGeneration: token.FencingGeneration, Action: "terminal", Reason: string(r.StopReason), SafeSummary: displaySafe(result.Message)})
+			if e != nil {
+				return failedOperation(result, e)
+			}
+		case OperationRepairRecover:
+			token, fence, e := qaOwnershipFromContext(ctx)
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			service := useCases.sprintService().WithQAWriterFence(fence)
+			r, e := service.RecoverRepair(ctx, req.Project, req.Sprint, sprint.RepairRecoverRequest{RepairRunID: req.RepairRunID, WriterToken: token})
+			result.RunID = token.RunID
+			result.SemanticOutcome = string(r.Outcome)
+			result.Message = fmt.Sprintf("repair=%s recovery_outcome=%s stop=%s cleanup=%t next=%s", r.RepairRunID, r.Outcome, r.StopReason, r.CleanupComplete, r.NextAction)
+			severity := "info"
+			if r.Outcome == sprint.RepairOutcomeEscalated {
+				severity = "critical"
+			} else if r.Outcome != sprint.RepairOutcomeVerified && r.Outcome != sprint.RepairOutcomeVerifiedWithFindings {
+				severity = "error"
+			}
+			emit(OperationEvent{State: operationStateForError(e), Stage: string(sprint.VerificationPhaseRepair), Task: r.RepairRunID, Code: "repair.recovery." + string(r.Outcome), Severity: severity, Project: req.Project, Sprint: req.Sprint, RepairRunID: r.RepairRunID, OperationRunID: token.RunID, OperationalAttemptID: token.OperationalAttemptID, FencingGeneration: token.FencingGeneration, Action: "terminal", Reason: string(r.StopReason), SafeSummary: displaySafe(result.Message)})
+			if e != nil {
+				return failedOperation(result, e)
+			}
 		case OperationStudyStart, OperationStudyResume:
 			flags := runAllFlags{}
 			flags.parallelism = &req.Parallelism

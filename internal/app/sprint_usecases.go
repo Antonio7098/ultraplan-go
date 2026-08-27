@@ -29,6 +29,7 @@ type SprintSummary struct {
 	Review            ReviewSummary
 	Smoke             SmokeSummary
 	QA                QAResult
+	Repair            RepairStatusResult
 	Findings          []DisplayFinding
 	Artifacts         []DisplayArtifact
 	RefreshMayWrite   bool
@@ -74,6 +75,81 @@ type QAUseCases interface {
 	ResumeQA(context.Context, QARequest, func(OperationEvent)) (QAResult, error)
 	CancelQA(context.Context, QARequest) (QACancelResult, error)
 	RecoverQA(context.Context, QARequest) (QAResult, error)
+}
+
+// RepairUseCases is additive to the existing QA boundary. Repair records are
+// projected into bounded product facts; proposal patches and raw runtime data
+// never cross this interface.
+type RepairUseCases interface {
+	RepairStatus(context.Context, RepairRequest) (RepairStatusResult, error)
+}
+
+type RepairRequest struct {
+	Project     string
+	Sprint      string
+	RepairRunID string
+}
+
+type RepairStatusResult struct {
+	SchemaVersion      int                   `json:"schema_version"`
+	Project            string                `json:"project"`
+	Sprint             string                `json:"sprint"`
+	Phase              string                `json:"phase"`
+	Fresh              bool                  `json:"fresh"`
+	FreshnessReasons   []string              `json:"freshness_reasons,omitempty"`
+	RepairRunID        string                `json:"repair_run_id,omitempty"`
+	QAAttemptID        string                `json:"qa_attempt_id,omitempty"`
+	OperationRunID     string                `json:"operation_run_id,omitempty"`
+	OperationalAttempt string                `json:"operational_attempt_id,omitempty"`
+	FencingGeneration  uint64                `json:"fencing_generation,omitempty"`
+	RunLifecycle       string                `json:"run_lifecycle,omitempty"`
+	Mode               string                `json:"mode,omitempty"`
+	Packet             *RepairPacketSummary  `json:"packet,omitempty"`
+	Confirmation       *RepairConfirmSummary `json:"confirmation,omitempty"`
+	CurrentCycle       int                   `json:"current_cycle,omitempty"`
+	EarliestCycle      int                   `json:"earliest_cycle,omitempty"`
+	Outcome            string                `json:"outcome,omitempty"`
+	StopReason         string                `json:"stop_reason,omitempty"`
+	CleanupComplete    bool                  `json:"cleanup_complete"`
+	ProductionApplied  bool                  `json:"production_applied"`
+	CompleteLadder     bool                  `json:"complete_ladder"`
+	UnresolvedIssues   []string              `json:"unresolved_issues,omitempty"`
+	Deadline           time.Time             `json:"deadline,omitempty"`
+	UpdatedAt          time.Time             `json:"updated_at,omitempty"`
+	NextAction         string                `json:"next_action"`
+	Reason             string                `json:"reason,omitempty"`
+	Blocker            *QABlockerSummary     `json:"blocker,omitempty"`
+}
+
+type RepairPacketSummary struct {
+	Digest             string                  `json:"digest"`
+	IssueID            string                  `json:"issue_id"`
+	IssueTitle         string                  `json:"issue_title"`
+	Target             QATargetIdentitySummary `json:"target"`
+	AllowedPaths       []string                `json:"allowed_paths"`
+	ForbiddenPaths     []string                `json:"forbidden_paths"`
+	AcceptanceCriteria []string                `json:"acceptance_criteria"`
+	CheckCount         int                     `json:"check_count"`
+	Budgets            RepairBudgetSummary     `json:"budgets"`
+}
+
+type RepairBudgetSummary struct {
+	MaxCycles         int                        `json:"max_cycles"`
+	MaxMutationCycles int                        `json:"max_mutation_cycles"`
+	MaxFiles          int                        `json:"max_files"`
+	MaxBytes          int64                      `json:"max_bytes"`
+	WallTime          string                     `json:"wall_time"`
+	CommandTimeout    string                     `json:"command_timeout"`
+	Sources           []sprint.QAEffectiveSource `json:"sources"`
+}
+
+type RepairConfirmSummary struct {
+	Digest            string    `json:"digest"`
+	PacketDigest      string    `json:"packet_digest"`
+	Confirmer         string    `json:"confirmer"`
+	OperationRunID    string    `json:"operation_run_id"`
+	FencingGeneration uint64    `json:"fencing_generation"`
+	ConfirmedAt       time.Time `json:"confirmed_at"`
 }
 
 type QAQueries interface {
@@ -526,6 +602,10 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 			qaSummary.ConformanceReviewStatus = string(status.Verification.Review.ExecutionStatus)
 			qaSummary.ConformanceReviewVerdict = string(status.Verification.Review.Verdict)
 			qaSummary.ConformanceReviewFresh = status.Verification.Review.Fresh
+			repairSummary := RepairStatusResult{SchemaVersion: 1, Project: p.Name, Sprint: sp.Slug, Phase: string(sprint.RepairPhaseStale), NextAction: "Prepare one current repair-eligible QA issue."}
+			if repairSnapshot, repairErr := service.RepairStatus(p.Name, sp.Slug); repairErr == nil {
+				repairSummary = repairSnapshotProjection(repairSnapshot)
+			}
 			review := summarizeReview(status.Review)
 			manifest, _, manifestErr := service.PrepareReview(p.Name, sp.Slug, sprint.ReviewRequest{})
 			if manifestErr == nil {
@@ -558,6 +638,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				Review:            review,
 				Smoke:             summarizeSmoke(status.Smoke),
 				QA:                qaSummary,
+				Repair:            repairSummary,
 				Assessment:        string(status.Verification.Assessment),
 				NextAction:        status.Verification.NextAction,
 			}
@@ -721,6 +802,78 @@ func (u dashboardUseCases) QAStatus(ctx context.Context, req QARequest) (QAResul
 		return QAResult{}, mapQAUseCaseError(err)
 	}
 	return u.withQAConformanceReview(req, qaSnapshotProjection(snapshot)), nil
+}
+
+func (u dashboardUseCases) RepairStatus(ctx context.Context, req RepairRequest) (RepairStatusResult, error) {
+	if err := ctx.Err(); err != nil {
+		return RepairStatusResult{}, err
+	}
+	snapshot, err := u.sprintService().RepairStatus(req.Project, req.Sprint)
+	if err != nil {
+		return RepairStatusResult{}, mapQAUseCaseError(err)
+	}
+	if req.RepairRunID != "" && snapshot.State.RepairRunID != req.RepairRunID {
+		return RepairStatusResult{}, fmt.Errorf("repair run %q is not current", req.RepairRunID)
+	}
+	return repairSnapshotProjection(snapshot), nil
+}
+
+func repairSnapshotProjection(snapshot sprint.RepairSnapshot) RepairStatusResult {
+	state := snapshot.State
+	out := RepairStatusResult{
+		SchemaVersion:      1,
+		Project:            state.Project,
+		Sprint:             state.Sprint,
+		Phase:              string(state.Phase),
+		Fresh:              state.Freshness.Current,
+		FreshnessReasons:   append([]string(nil), state.Freshness.Reasons...),
+		RepairRunID:        state.RepairRunID,
+		QAAttemptID:        state.QAAttemptID,
+		OperationRunID:     state.Run.RunID,
+		OperationalAttempt: state.Run.OperationalAttemptID,
+		FencingGeneration:  state.Run.FencingGeneration,
+		RunLifecycle:       string(state.Run.Lifecycle),
+		Mode:               string(state.Mode),
+		CurrentCycle:       state.CurrentCycle,
+		EarliestCycle:      state.EarliestCycle,
+		Outcome:            string(state.Outcome),
+		StopReason:         string(state.StopReason),
+		Deadline:           state.Deadline,
+		UpdatedAt:          state.UpdatedAt,
+		NextAction:         displaySafe(state.NextAction),
+		Blocker:            qaBlockerProjection(state.Blocker),
+	}
+	if packet := snapshot.Packet; packet != nil {
+		out.Packet = &RepairPacketSummary{
+			Digest:             packet.PacketDigest,
+			IssueID:            packet.Issue.ID,
+			IssueTitle:         displaySafe(packet.Issue.Title),
+			Target:             qaTargetProjection(packet.Target),
+			AllowedPaths:       append([]string(nil), packet.AllowedPaths...),
+			ForbiddenPaths:     append([]string(nil), packet.ForbiddenPaths...),
+			AcceptanceCriteria: append([]string(nil), packet.AcceptanceCriteria...),
+			CheckCount:         len(packet.Checks),
+			Budgets: RepairBudgetSummary{
+				MaxCycles: packet.Budgets.MaxCycles, MaxMutationCycles: packet.Budgets.MaxMutationCycles,
+				MaxFiles: packet.Budgets.MaxFilesPerRun, MaxBytes: packet.Budgets.MaxBytesPerRun,
+				WallTime: packet.Budgets.WallTime.String(), CommandTimeout: packet.Budgets.CommandTimeout.String(), Sources: append([]sprint.QAEffectiveSource(nil), packet.BudgetSources...),
+			},
+		}
+	}
+	if confirmation := snapshot.Confirmation; confirmation != nil {
+		out.Confirmation = &RepairConfirmSummary{Digest: confirmation.ConfirmationDigest, PacketDigest: confirmation.PacketDigest, Confirmer: displaySafe(confirmation.Confirmer), OperationRunID: confirmation.OperationRunID, FencingGeneration: confirmation.FencingGeneration, ConfirmedAt: confirmation.ConfirmedAt}
+	}
+	if result := snapshot.Result; result != nil {
+		out.Outcome = string(result.Outcome)
+		out.StopReason = string(result.StopReason)
+		out.CleanupComplete = result.CleanupComplete
+		out.ProductionApplied = result.ProductionApplied
+		out.CompleteLadder = result.CompleteLadder
+		out.UnresolvedIssues = append([]string(nil), result.UnresolvedIssues...)
+		out.NextAction = displaySafe(result.NextAction)
+		out.Reason = displaySafe(result.Reason)
+	}
+	return out
 }
 
 func (u dashboardUseCases) QAShard(ctx context.Context, req QARequest) (QAShardResult, error) {

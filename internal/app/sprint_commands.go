@@ -15,6 +15,7 @@ import (
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
 	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
+	"github.com/Antonio7098/ultraplan-go/internal/runcontrol"
 	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
@@ -66,13 +67,16 @@ func runSprint(deps dependencies, args []string) error {
 		case "qa":
 			_, err := deps.stdout.Write([]byte(sprintQAHelp()))
 			return err
+		case "repair":
+			_, err := deps.stdout.Write([]byte(sprintRepairHelp()))
+			return err
 		}
 	}
 	if len(args) < 3 {
 		if len(args) == 2 {
 			return classified(ExitUsage, "sprint: expected '<project> <sprint> status'")
 		}
-		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|metrics|validate|prompt|flow|execute|review|conformance-review|qa|smoke|verify>'")
+		return classified(ExitUsage, "sprint: expected '<project> <sprint> <status|metrics|validate|prompt|flow|execute|review|conformance-review|qa|repair|smoke|verify>'")
 	}
 	if args[2] == "conformance-review" {
 		args[2] = "review"
@@ -491,6 +495,8 @@ func runSprint(deps dependencies, args []string) error {
 			}
 		}
 		return nil
+	case "repair":
+		return runSprintRepair(deps, root, effective, args[0], args[1], args[3:])
 	case "review":
 		req, jsonOut, err := parseSprintReviewArgs(args[3:])
 		if err != nil {
@@ -695,6 +701,369 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 	return command, nil
 }
 
+type sprintRepairCommand struct {
+	Action    string
+	IssueID   string
+	RunID     string
+	Confirmer string
+	Yes       bool
+	Automatic bool
+	MaxCycles int
+	JSON      bool
+}
+
+func parseSprintRepairArgs(args []string) (sprintRepairCommand, error) {
+	command := sprintRepairCommand{Action: "status"}
+	if len(args) > 0 {
+		command.Action = args[0]
+		args = args[1:]
+	}
+	switch command.Action {
+	case "prepare", "start", "status", "packet", "cycles", "result", "resume", "cancel", "recover":
+	default:
+		return command, fmt.Errorf("unknown repair action %q", command.Action)
+	}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--json":
+			command.JSON = true
+		case "--yes", "--non-interactive":
+			command.Yes = true
+		case "--automatic":
+			command.Automatic = true
+		case "--issue", "--run", "--confirmer", "--max-cycles":
+			flag := args[i]
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return command, fmt.Errorf("%s requires a value", flag)
+			}
+			value := args[i+1]
+			i++
+			switch flag {
+			case "--issue":
+				command.IssueID = value
+			case "--run":
+				command.RunID = value
+			case "--confirmer":
+				command.Confirmer = value
+			case "--max-cycles":
+				n, err := strconv.Atoi(value)
+				if err != nil || n < 1 {
+					return command, errors.New("--max-cycles requires a positive integer")
+				}
+				command.MaxCycles = n
+			}
+		default:
+			return command, fmt.Errorf("unknown repair argument %q", args[i])
+		}
+	}
+	switch command.Action {
+	case "prepare":
+		if command.IssueID == "" {
+			return command, errors.New("repair prepare requires --issue")
+		}
+		if command.RunID != "" || command.Confirmer != "" || command.Yes {
+			return command, errors.New("repair prepare accepts --issue, --automatic, --max-cycles, and --json")
+		}
+		if !command.Automatic && command.MaxCycles > 1 {
+			return command, errors.New("manual repair max cycles must be one")
+		}
+	case "start":
+		if command.RunID == "" || command.Confirmer == "" || !command.Yes {
+			return command, errors.New("repair start requires --run, --confirmer, and --yes")
+		}
+		if command.IssueID != "" || command.MaxCycles != 0 {
+			return command, errors.New("repair start cannot alter the frozen issue or limits")
+		}
+	case "resume":
+		if command.RunID == "" || !command.Yes {
+			return command, errors.New("repair resume requires --run and --yes")
+		}
+		if command.IssueID != "" || command.Confirmer != "" || command.MaxCycles != 0 {
+			return command, errors.New("repair resume cannot alter frozen authority")
+		}
+	case "cancel":
+		if command.RunID == "" {
+			return command, errors.New("repair cancel requires --run with the durable operation run ID")
+		}
+		if command.IssueID != "" || command.Confirmer != "" || command.Yes || command.MaxCycles != 0 {
+			return command, errors.New("repair cancel accepts only --run and --json")
+		}
+	case "status", "packet", "cycles", "result", "recover":
+		if command.IssueID != "" || command.Confirmer != "" || command.Yes || command.MaxCycles != 0 {
+			return command, fmt.Errorf("repair %s accepts only optional --run and --json", command.Action)
+		}
+	}
+	return command, nil
+}
+
+func runSprintRepair(deps dependencies, root workspace.Root, effective config.Effective, projectRef, sprintRef string, args []string) error {
+	command, err := parseSprintRepairArgs(args)
+	if err != nil {
+		return classified(ExitUsage, "sprint.repair: %w", err)
+	}
+	qa, err := qaSettings(effective)
+	if err != nil {
+		return classified(ExitConfig, "repair.config: %w", err)
+	}
+	baseService := sprint.NewService(root.Path).WithPublisher(stagePublisher(effective.Config)).WithStageRuntime(planningStageRuntime(effective.Config)).WithQASettings(qa).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env)))
+	projection := func(service sprint.Service) (RepairStatusResult, error) {
+		snapshot, statusErr := service.RepairStatus(projectRef, sprintRef)
+		if statusErr != nil {
+			return RepairStatusResult{}, statusErr
+		}
+		if command.RunID != "" && snapshot.State.RepairRunID != command.RunID && snapshot.State.Run.RunID != command.RunID {
+			return RepairStatusResult{}, fmt.Errorf("repair run %q is not current", command.RunID)
+		}
+		return repairSnapshotProjection(snapshot), nil
+	}
+	writeResult := func(status string, result RepairStatusResult, runErr error) error {
+		if command.JSON {
+			payload := map[string]any{"schema_version": 1, "operation": "sprint.repair." + command.Action, "status": status, "result": result}
+			if runErr != nil {
+				payload["error"] = stableRepairCommandError(mapQACommandError(runErr), runErr, result, command.Action)
+			}
+			_ = json.NewEncoder(deps.stdout).Encode(payload)
+		} else {
+			renderSprintRepair(deps, command.Action, result)
+		}
+		if runErr != nil {
+			return mapQACommandError(runErr)
+		}
+		return nil
+	}
+	switch command.Action {
+	case "status", "packet", "cycles", "result":
+		result, statusErr := projection(baseService)
+		return writeResult("ok", result, statusErr)
+	case "cancel":
+		repository, _, repositoryErr := runRepository(deps)
+		if repositoryErr != nil {
+			return writeResult("failed", RepairStatusResult{}, repositoryErr)
+		}
+		_, _, cancelErr := repository.RequestCancellation(deps.ctx, runcontrol.RunID(command.RunID), "user_requested")
+		result, statusErr := projection(baseService)
+		return writeResult("cancel_requested", result, errors.Join(cancelErr, statusErr))
+	case "recover":
+		result, statusErr := projection(baseService)
+		if statusErr == nil && result.Phase != string(sprint.RepairPhaseProposing) && result.Phase != string(sprint.RepairPhaseApplying) && result.Phase != string(sprint.RepairPhaseReverifying) && result.Phase != string(sprint.RepairPhaseCleaning) && result.Phase != string(sprint.RepairPhaseInterrupted) {
+			statusErr = sprint.NewQAError(sprint.QAErrorInvalidState, "recover repair", "current repair does not require recovery", nil)
+		}
+		if statusErr != nil {
+			return writeResult("failed", result, statusErr)
+		}
+		durable, durableErr := beginDurableCLICommand(deps, OperationRequest{Kind: OperationRepairRecover, Project: projectRef, Sprint: sprintRef, RepairRunID: result.RepairRunID})
+		if durableErr != nil {
+			return writeResult("failed", result, durableErr)
+		}
+		token, fence, recoverErr := durable.QAWriterToken()
+		if recoverErr == nil {
+			_, recoverErr = baseService.WithQAWriterFence(fence).RecoverRepair(durable.Context(), projectRef, sprintRef, sprint.RepairRecoverRequest{RepairRunID: result.RepairRunID, WriterToken: token})
+		}
+		recoverErr = finishDurableCLICommand(durable, recoverErr)
+		result, statusErr = projection(baseService)
+		recoverErr = errors.Join(recoverErr, statusErr)
+		return writeResult(operationStatusForError(recoverErr), result, recoverErr)
+	case "resume":
+		result, statusErr := projection(baseService)
+		if statusErr != nil {
+			return writeResult("failed", result, statusErr)
+		}
+		durable, durableErr := beginDurableCLICommand(deps, OperationRequest{Kind: OperationRepairResume, Project: projectRef, Sprint: sprintRef, RepairRunID: result.RepairRunID})
+		if durableErr != nil {
+			return writeResult("failed", result, durableErr)
+		}
+		token, fence, resumeErr := durable.QAWriterToken()
+		if resumeErr == nil {
+			_, resumeErr = baseService.WithQAWriterFence(fence).ResumeRepair(durable.Context(), projectRef, sprintRef, sprint.RepairRunRequest{RepairRunID: result.RepairRunID, WriterToken: token})
+		}
+		resumeErr = finishDurableCLICommand(durable, resumeErr)
+		result, statusErr = projection(baseService)
+		resumeErr = errors.Join(resumeErr, statusErr)
+		return writeResult(operationStatusForError(resumeErr), result, resumeErr)
+	case "prepare":
+		return runSprintRepairPrepare(deps, root, effective, baseService, projectRef, sprintRef, command, projection, writeResult)
+	case "start":
+		return runSprintRepairStart(deps, root, effective, baseService, projectRef, sprintRef, command, projection, writeResult)
+	default:
+		return classified(ExitUsage, "sprint.repair: unsupported action %q", command.Action)
+	}
+}
+
+func runSprintRepairPrepare(deps dependencies, root workspace.Root, effective config.Effective, service sprint.Service, projectRef, sprintRef string, command sprintRepairCommand, projection func(sprint.Service) (RepairStatusResult, error), writeResult func(string, RepairStatusResult, error) error) error {
+	repository, _, err := runRepository(deps)
+	if err != nil {
+		return writeResult("failed", RepairStatusResult{}, err)
+	}
+	manager := newDurableOperationManager(repository, deps.runControl.owner)
+	mode := sprint.RepairModeManual
+	if command.Automatic {
+		mode = sprint.RepairModeAutomatic
+	}
+	request := OperationRequest{Kind: OperationRepairPrepare, Project: projectRef, Sprint: sprintRef, RepairIssueID: command.IssueID, RepairMode: mode, RepairMaxCycles: command.MaxCycles}
+	dashboard := dashboardUseCases{root: root.Path, stageRuntime: planningStageRuntime(effective.Config)}
+	prepared, err := dashboard.PrepareOperation(deps.ctx, request)
+	if err != nil {
+		return writeResult("failed", RepairStatusResult{}, err)
+	}
+	accepted, err := manager.AcceptOperation(deps.ctx, prepared, prepared.InputFingerprint)
+	if err != nil {
+		return writeResult("failed", RepairStatusResult{}, err)
+	}
+	if accepted.Existing {
+		result, statusErr := projection(service)
+		return writeResult("existing", result, statusErr)
+	}
+	runner := sharedOperationRunner(deps, root, effective, dashboard)
+	var recordErr error
+	_, err = runner(accepted.Context, request, func(event OperationEvent) {
+		_, recordErr = manager.RecordOperationEvent(accepted.Context, accepted.RunID, event)
+	})
+	err = errors.Join(err, recordErr)
+	finishCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	finishErr := manager.FinishOperation(finishCtx, accepted.RunID, operationStateForError(err), err)
+	cancel()
+	err = errors.Join(err, finishErr)
+	result, statusErr := projection(service)
+	err = errors.Join(err, statusErr)
+	return writeResult(operationStatusForError(err), result, err)
+}
+
+func repairBudgetsFor(effective config.Effective, mode sprint.RepairMode) (sprint.RepairBudgets, []sprint.QAEffectiveSource, error) {
+	c := effective.Config.QA.Repair
+	parse := func(field, value string) (time.Duration, error) {
+		d, err := time.ParseDuration(value)
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", field, err)
+		}
+		return d, nil
+	}
+	wall, err := parse("qa.repair.wall_time", c.WallTime)
+	if err != nil {
+		return sprint.RepairBudgets{}, nil, err
+	}
+	command, err := parse("qa.repair.command_timeout", c.CommandTimeout)
+	if err != nil {
+		return sprint.RepairBudgets{}, nil, err
+	}
+	cleanup, err := parse("qa.repair.cleanup_timeout", c.CleanupTimeout)
+	if err != nil {
+		return sprint.RepairBudgets{}, nil, err
+	}
+	budgets := sprint.RepairBudgets{MaxCycles: c.MaxCycles, MaxMutationCycles: c.MaxMutationCycles, MaxReopenings: c.MaxReopenings, StagnationLimit: c.StagnationLimit, MaxFilesPerCycle: c.MaxFilesPerCycle, MaxFilesPerRun: c.MaxFilesPerRun, MaxBytesPerCycle: c.MaxBytesPerCycle, MaxBytesPerRun: c.MaxBytesPerRun, MaxPatchBytes: c.MaxPatchBytes, WallTime: wall, RuntimeAttempts: c.RuntimeAttempts, ModelTurns: c.ModelTurns, CommandCount: c.CommandCount, CommandTimeout: command, OutputBytes: c.OutputBytes, RetainedCycles: c.RetainedCycles, CleanupTimeout: cleanup}
+	if mode == sprint.RepairModeManual {
+		budgets.MaxCycles, budgets.MaxMutationCycles = 1, 1
+	}
+	if err := sprint.ValidateLowerRepairBudgets(budgets, sprint.MaximumRepairBudgets()); err != nil {
+		return sprint.RepairBudgets{}, nil, err
+	}
+	sources := make([]sprint.QAEffectiveSource, 0, 17)
+	for _, field := range config.QAConfigFields() {
+		if strings.HasPrefix(field, "qa.repair.") {
+			source := effective.Sources[field]
+			if mode == sprint.RepairModeManual && (field == "qa.repair.max_cycles" || field == "qa.repair.max_mutation_cycles") {
+				source = "manual_policy"
+			}
+			sources = append(sources, sprint.QAEffectiveSource{Field: field, Source: source})
+		}
+	}
+	return budgets, sources, nil
+}
+
+func runSprintRepairStart(deps dependencies, root workspace.Root, effective config.Effective, service sprint.Service, projectRef, sprintRef string, command sprintRepairCommand, projection func(sprint.Service) (RepairStatusResult, error), writeResult func(string, RepairStatusResult, error) error) error {
+	repository, _, err := runRepository(deps)
+	if err != nil {
+		return writeResult("failed", RepairStatusResult{}, err)
+	}
+	manager := newDurableOperationManager(repository, deps.runControl.owner)
+	dashboard := dashboardUseCases{root: root.Path, stageRuntime: planningStageRuntime(effective.Config)}
+	mode := sprint.RepairModeManual
+	if command.Automatic {
+		mode = sprint.RepairModeAutomatic
+	}
+	request := OperationRequest{Kind: OperationRepairStart, Project: projectRef, Sprint: sprintRef, RepairRunID: command.RunID, RepairMode: mode, RepairAutomaticOptIn: command.Automatic, RepairConfirmer: command.Confirmer}
+	prepared, err := dashboard.PrepareOperation(deps.ctx, request)
+	if err != nil {
+		return writeResult("failed", RepairStatusResult{}, err)
+	}
+	accepted, err := manager.AcceptOperation(deps.ctx, prepared, prepared.InputFingerprint)
+	if err != nil {
+		return writeResult("failed", RepairStatusResult{}, err)
+	}
+	if accepted.Existing {
+		result, statusErr := projection(service)
+		return writeResult("existing", result, statusErr)
+	}
+	if err = dashboard.ConfirmAcceptedOperation(accepted.Context, accepted, prepared); err == nil {
+		accepted, err = manager.DispatchOperation(deps.ctx, accepted.RunID)
+	}
+	var result RepairStatusResult
+	if err == nil {
+		runner := sharedOperationRunner(deps, root, effective, dashboard)
+		var recordErr error
+		_, err = runner(accepted.Context, request, func(event OperationEvent) {
+			_, recordErr = manager.RecordOperationEvent(accepted.Context, accepted.RunID, event)
+			if event.PhaseState != "" {
+				fmt.Fprintf(deps.stderr, "[repair] phase=%s cycle=%d: %s\n", event.PhaseState, event.Completed, config.RedactValue("repair.progress", event.Message))
+			}
+		})
+		err = errors.Join(err, recordErr)
+		result, _ = projection(service)
+	}
+	finishCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	finishErr := manager.FinishOperation(finishCtx, accepted.RunID, operationStateForError(err), err)
+	cancel()
+	err = errors.Join(err, finishErr)
+	if result.SchemaVersion == 0 {
+		result, _ = projection(service)
+	}
+	status := operationStatusForError(err)
+	if err == nil && result.Outcome != string(sprint.RepairOutcomeVerified) && result.Outcome != string(sprint.RepairOutcomeVerifiedWithFindings) {
+		err = sprint.NewQAError(sprint.QAErrorInvalidState, "run repair", "repair ended without a verified outcome", nil)
+		status = "failed"
+	}
+	return writeResult(status, result, err)
+}
+
+func operationStateForError(err error) OperationState {
+	if err != nil {
+		return OperationFailed
+	}
+	return OperationComplete
+}
+
+func operationStatusForError(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "complete"
+}
+
+func renderSprintRepair(deps dependencies, view string, result RepairStatusResult) {
+	fmt.Fprintf(deps.stdout, "Repair %s\n  sprint: %s/%s\n  phase: %s\n  fresh: %t\n", view, result.Project, result.Sprint, result.Phase, result.Fresh)
+	if result.RepairRunID != "" {
+		fmt.Fprintf(deps.stdout, "  repair run: %s\n", result.RepairRunID)
+	}
+	if result.Packet != nil {
+		fmt.Fprintf(deps.stdout, "  packet: %s\n  issue: %s %s\n  target: %s\n  limits: cycles=%d applies=%d files=%d bytes=%d wall=%s\n", result.Packet.Digest, result.Packet.IssueID, result.Packet.IssueTitle, result.Packet.Target.Fingerprint, result.Packet.Budgets.MaxCycles, result.Packet.Budgets.MaxMutationCycles, result.Packet.Budgets.MaxFiles, result.Packet.Budgets.MaxBytes, result.Packet.Budgets.WallTime)
+	}
+	if result.Confirmation != nil {
+		fmt.Fprintf(deps.stdout, "  confirmation: %s by %s\n", result.Confirmation.Digest, result.Confirmation.Confirmer)
+	}
+	if result.CurrentCycle > 0 {
+		fmt.Fprintf(deps.stdout, "  cycle: %d (earliest retained %d)\n", result.CurrentCycle, result.EarliestCycle)
+	}
+	if result.Outcome != "" {
+		fmt.Fprintf(deps.stdout, "  outcome: %s\n  stop reason: %s\n  cleanup complete: %t\n", result.Outcome, result.StopReason, result.CleanupComplete)
+	}
+	if result.Blocker != nil {
+		fmt.Fprintf(deps.stdout, "  blocker: %s %s\n", result.Blocker.Category, result.Blocker.Summary)
+	}
+	if result.Reason != "" {
+		fmt.Fprintf(deps.stdout, "  reason: %s\n", result.Reason)
+	}
+	fmt.Fprintf(deps.stdout, "  next: %s\n", result.NextAction)
+}
+
 func renderSprintQA(deps dependencies, result QAResult) {
 	if result.Phase == string(sprint.QAPhaseCompleted) {
 		fmt.Fprintln(deps.stdout, "QA completed")
@@ -776,7 +1145,7 @@ func sprintRuntimeService(deps dependencies, root workspace.Root, observers ...f
 	if err != nil {
 		return sprint.Service{}, classified(ExitConfig, "qa.config: %w", err)
 	}
-	return sprint.NewService(root.Path).WithRuntime(controlled, req).WithPublisher(stagePublisher(effective.Config)).WithRuntimeProgress(progress).WithStageRuntime(planningStageRuntime(effective.Config)).WithQASettings(qa).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env))), nil
+	return sprint.NewService(root.Path).WithRuntime(controlled, req).WithRepairRuntime(controlled).WithPublisher(stagePublisher(effective.Config)).WithRuntimeProgress(progress).WithStageRuntime(planningStageRuntime(effective.Config)).WithQASettings(qa).WithReviewConcurrency(effective.Config.Execution.DefaultParallel).WithSmokeSettings(smokeSettings(effective, envLookup(deps.env))), nil
 }
 
 func qaSettings(effective config.Effective) (sprint.QASettings, error) {
@@ -1575,6 +1944,27 @@ func stableQACommandError(mapped, cause error, result QAResult) map[string]any {
 	return out
 }
 
+func stableRepairCommandError(mapped, cause error, result RepairStatusResult, action string) map[string]any {
+	base := stableCommandError(mapped)
+	out := map[string]any{"code": base["code"], "message": base["message"], "recovery": base["recovery"], "severity": "error", "operation": "sprint.repair." + action, "component": "sprint", "retryable": false}
+	if typed, ok := sprint.AsQAError(cause); ok {
+		out["category"] = string(typed.Category)
+		out["recovery"] = typed.Recovery
+		out["retryable"] = typed.Category == sprint.QAErrorConflict || typed.Category == sprint.QAErrorRuntimeUnavailable
+	}
+	if result.RepairRunID != "" {
+		out["correlation_id"] = result.RepairRunID
+	} else if result.OperationRunID != "" {
+		out["correlation_id"] = result.OperationRunID
+	}
+	stamp := result.UpdatedAt
+	if stamp.IsZero() {
+		stamp = time.Now().UTC()
+	}
+	out["timestamp"] = stamp.UTC().Format(time.RFC3339Nano)
+	return out
+}
+
 func sprintHelp() string {
 	return `ultraplan sprint
 
@@ -1620,6 +2010,13 @@ Usage:
   ultraplan sprint <project> <sprint> qa status [--json]
   ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
   ultraplan sprint <project> <sprint> qa recover [--json]
+  ultraplan sprint <project> <sprint> repair prepare --issue <current-issue-id> [--automatic] [--max-cycles <n>] [--json]
+  ultraplan sprint <project> <sprint> repair start --run <repair-run-id> --confirmer <identity> --yes [--automatic] [--json]
+  ultraplan sprint <project> <sprint> repair status [--run <repair-run-id>] [--json]
+  ultraplan sprint <project> <sprint> repair packet|cycles|result [--run <repair-run-id>] [--json]
+  ultraplan sprint <project> <sprint> repair resume --run <repair-run-id> --yes [--json]
+  ultraplan sprint <project> <sprint> repair cancel --run <durable-operation-run-id> [--json]
+  ultraplan sprint <project> <sprint> repair recover [--run <repair-run-id>] [--json]
   ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
   ultraplan sprint <project> <sprint> verify [--to review|smoke] [--focus-review <id>] [--restart-review] [--level <id>|--suite <id>|--test <id>] [--yes] [--json]
   execute <project> <sprint> is available as the sprint execute action above.
@@ -1634,6 +2031,7 @@ Commands:
   <project> <sprint> review            Run Conformance Review and atomically write review.md.
   <project> <sprint> conformance-review  Compatibility alias for the exact review handler.
   <project> <sprint> qa                Map, run, resume, inspect, cancel, or recover bounded QA in disposable copies.
+  <project> <sprint> repair            Prepare, explicitly confirm, run, and inspect bounded manual repair.
   <project> <sprint> smoke             Run the cataloged external harness and atomically write smoke.md.
   <project> <sprint> verify            Run the shared execute-evidence -> review -> smoke transition.
 
@@ -1685,6 +2083,22 @@ Usage:
   ultraplan sprint <project> <sprint> qa recover [--json]
 
 Runs bounded QA after current execute and Conformance Review evidence. Normal evidence work uses disposable writable copies while the implementation target stays immutable. --suite smoke routes through the canonical external smoke harness, requires --yes, and cannot resume. Start and resume are durably accepted before runtime work. Status and dry-run are read-only; recovery is runtime-free. Completed means bounded investigation ended, not that QA passed. QA never changes the independent Conformance Review verdict.
+`
+}
+
+func sprintRepairHelp() string {
+	return `ultraplan sprint <project> <sprint> repair
+
+Usage:
+  ultraplan sprint <project> <sprint> repair prepare --issue <current-issue-id> [--json]
+  ultraplan sprint <project> <sprint> repair start --run <repair-run-id> --confirmer <identity> --yes [--json]
+  ultraplan sprint <project> <sprint> repair status [--run <repair-run-id>] [--json]
+  ultraplan sprint <project> <sprint> repair packet|cycles|result [--run <repair-run-id>] [--json]
+  ultraplan sprint <project> <sprint> repair resume --run <repair-run-id> --yes [--json]
+  ultraplan sprint <project> <sprint> repair cancel --run <durable-operation-run-id> [--json]
+  ultraplan sprint <project> <sprint> repair recover [--run <repair-run-id>] [--json]
+
+Prepare freezes one current repair-eligible QA issue without runtime work or target mutation. Start requires a separate explicit --yes and publishes single-use confirmation after durable acceptance but before dispatch. Manual mode permits one proposal and one bounded production apply. Automatic mode requires a current qualifying manual proof, explicit --automatic on prepare and start, and frozen lower-only limits. Reverification ends with repaired-target containing smoke. Conformance Review runs once before repair admission. Progress is written to stderr; --json writes one versioned document to stdout.
 `
 }
 

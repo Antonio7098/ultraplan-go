@@ -11,41 +11,64 @@ import (
 // lower-only: configuration may reduce a product default but cannot exceed the
 // shipped maximum.
 type QA struct {
-	Model                      string `json:"model"`
-	Variant                    string `json:"variant"`
-	ChangedPaths               int    `json:"changed_paths"`
-	PrimaryShards              int    `json:"primary_shards"`
-	BoundaryShards             int    `json:"boundary_shards"`
-	FollowUpShards             int    `json:"follow_up_shards"`
-	TotalShards                int    `json:"total_shards"`
-	PendingEntries             int    `json:"pending_entries"`
-	ChangedPathsPerShard       int    `json:"changed_paths_per_shard"`
-	ContextPathsPerShard       int    `json:"context_paths_per_shard"`
-	ContextExpansions          int    `json:"context_expansions"`
-	PathsPerExpansion          int    `json:"paths_per_expansion"`
-	BehavioralConcernsPerShard int    `json:"behavioral_concerns_per_shard"`
-	TheoriesPerShard           int    `json:"theories_per_shard"`
-	IterationsPerAttempt       int    `json:"iterations_per_attempt"`
-	CommandsPerAttempt         int    `json:"commands_per_attempt"`
-	RuntimeRetries             int    `json:"runtime_retries"`
-	ConcurrentInvestigators    int    `json:"concurrent_investigators"`
-	CommandTimeout             string `json:"command_timeout"`
-	ShardTimeout               string `json:"shard_timeout"`
-	RunTimeout                 string `json:"run_timeout"`
-	CleanupTimeout             string `json:"cleanup_timeout"`
-	CommandOutputBytes         int    `json:"command_output_bytes"`
-	ShardOutputBytes           int    `json:"shard_output_bytes"`
-	PromptBytes                int    `json:"prompt_bytes"`
-	RecentProgress             int    `json:"recent_progress"`
-	RetainedAttempts           int    `json:"retained_attempts"`
-	StateBytes                 int    `json:"state_bytes"`
-	TreeFiles                  int    `json:"tree_files"`
-	TreeBytes                  int    `json:"tree_bytes"`
-	FileBytes                  int    `json:"file_bytes"`
-	GeneratedChecks            int    `json:"generated_checks"`
-	GeneratedPatchBytes        int    `json:"generated_patch_bytes"`
-	EvidenceRecords            int    `json:"evidence_records"`
-	Issues                     int    `json:"issues"`
+	Model                      string   `json:"model"`
+	Variant                    string   `json:"variant"`
+	ChangedPaths               int      `json:"changed_paths"`
+	PrimaryShards              int      `json:"primary_shards"`
+	BoundaryShards             int      `json:"boundary_shards"`
+	FollowUpShards             int      `json:"follow_up_shards"`
+	TotalShards                int      `json:"total_shards"`
+	PendingEntries             int      `json:"pending_entries"`
+	ChangedPathsPerShard       int      `json:"changed_paths_per_shard"`
+	ContextPathsPerShard       int      `json:"context_paths_per_shard"`
+	ContextExpansions          int      `json:"context_expansions"`
+	PathsPerExpansion          int      `json:"paths_per_expansion"`
+	BehavioralConcernsPerShard int      `json:"behavioral_concerns_per_shard"`
+	TheoriesPerShard           int      `json:"theories_per_shard"`
+	IterationsPerAttempt       int      `json:"iterations_per_attempt"`
+	CommandsPerAttempt         int      `json:"commands_per_attempt"`
+	RuntimeRetries             int      `json:"runtime_retries"`
+	ConcurrentInvestigators    int      `json:"concurrent_investigators"`
+	CommandTimeout             string   `json:"command_timeout"`
+	ShardTimeout               string   `json:"shard_timeout"`
+	RunTimeout                 string   `json:"run_timeout"`
+	CleanupTimeout             string   `json:"cleanup_timeout"`
+	CommandOutputBytes         int      `json:"command_output_bytes"`
+	ShardOutputBytes           int      `json:"shard_output_bytes"`
+	PromptBytes                int      `json:"prompt_bytes"`
+	RecentProgress             int      `json:"recent_progress"`
+	RetainedAttempts           int      `json:"retained_attempts"`
+	StateBytes                 int      `json:"state_bytes"`
+	TreeFiles                  int      `json:"tree_files"`
+	TreeBytes                  int      `json:"tree_bytes"`
+	FileBytes                  int      `json:"file_bytes"`
+	GeneratedChecks            int      `json:"generated_checks"`
+	GeneratedPatchBytes        int      `json:"generated_patch_bytes"`
+	EvidenceRecords            int      `json:"evidence_records"`
+	Issues                     int      `json:"issues"`
+	Repair                     QARepair `json:"repair"`
+}
+
+// QARepair contains lower-only bounded-repair policy. Product code owns the
+// immutable maxima; configuration can only reduce these defaults.
+type QARepair struct {
+	MaxCycles         int    `json:"max_cycles"`
+	MaxMutationCycles int    `json:"max_mutation_cycles"`
+	MaxReopenings     int    `json:"max_reopenings"`
+	StagnationLimit   int    `json:"stagnation_limit"`
+	MaxFilesPerCycle  int    `json:"max_files_per_cycle"`
+	MaxFilesPerRun    int    `json:"max_files_per_run"`
+	MaxBytesPerCycle  int64  `json:"max_bytes_per_cycle"`
+	MaxBytesPerRun    int64  `json:"max_bytes_per_run"`
+	MaxPatchBytes     int    `json:"max_patch_bytes"`
+	WallTime          string `json:"wall_time"`
+	RuntimeAttempts   int    `json:"runtime_attempts"`
+	ModelTurns        int    `json:"model_turns"`
+	CommandCount      int    `json:"command_count"`
+	CommandTimeout    string `json:"command_timeout"`
+	OutputBytes       int    `json:"output_bytes"`
+	RetainedCycles    int    `json:"retained_cycles"`
+	CleanupTimeout    string `json:"cleanup_timeout"`
 }
 
 func DefaultQA() QA {
@@ -62,6 +85,7 @@ func DefaultQA() QA {
 		RetainedAttempts: 8, StateBytes: 128 << 20,
 		TreeFiles: 200_000, TreeBytes: 2 << 30, FileBytes: 32 << 20,
 		GeneratedChecks: 64, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256, Issues: 200,
+		Repair: QARepair{MaxCycles: 3, MaxMutationCycles: 3, MaxReopenings: 1, StagnationLimit: 1, MaxFilesPerCycle: 8, MaxFilesPerRun: 16, MaxBytesPerCycle: 256 << 10, MaxBytesPerRun: 512 << 10, MaxPatchBytes: 512 << 10, WallTime: "45m", RuntimeAttempts: 3, ModelTurns: 12, CommandCount: 32, CommandTimeout: "10m", OutputBytes: 1 << 20, RetainedCycles: 8, CleanupTimeout: "30s"},
 	}
 }
 
@@ -97,6 +121,10 @@ func qaConfigFields() []string {
 		"qa.retained_attempts", "qa.state_bytes",
 		"qa.tree_files", "qa.tree_bytes", "qa.file_bytes", "qa.generated_checks",
 		"qa.generated_patch_bytes", "qa.evidence_records", "qa.issues",
+		"qa.repair.max_cycles", "qa.repair.max_mutation_cycles", "qa.repair.max_reopenings", "qa.repair.stagnation_limit",
+		"qa.repair.max_files_per_cycle", "qa.repair.max_files_per_run", "qa.repair.max_bytes_per_cycle", "qa.repair.max_bytes_per_run",
+		"qa.repair.max_patch_bytes", "qa.repair.wall_time", "qa.repair.runtime_attempts", "qa.repair.model_turns",
+		"qa.repair.command_count", "qa.repair.command_timeout", "qa.repair.output_bytes", "qa.repair.retained_cycles", "qa.repair.cleanup_timeout",
 	}
 }
 
@@ -108,7 +136,7 @@ func qaEnvOverrides() []EnvOverride {
 	fields := qaConfigFields()
 	overrides := make([]EnvOverride, 0, len(fields))
 	for _, field := range fields {
-		suffix := strings.TrimPrefix(field, "qa.")
+		suffix := strings.ReplaceAll(strings.TrimPrefix(field, "qa."), ".", "_")
 		overrides = append(overrides, EnvOverride{
 			Key:   "ULTRAPLAN_QA_" + strings.ToUpper(suffix),
 			Field: field,
@@ -143,6 +171,18 @@ func setQAField(q *QA, field, value string) (bool, error) {
 	}
 	if field == "qa.cleanup_timeout" {
 		q.CleanupTimeout = value
+		return true, nil
+	}
+	if field == "qa.repair.wall_time" {
+		q.Repair.WallTime = value
+		return true, nil
+	}
+	if field == "qa.repair.command_timeout" {
+		q.Repair.CommandTimeout = value
+		return true, nil
+	}
+	if field == "qa.repair.cleanup_timeout" {
+		q.Repair.CleanupTimeout = value
 		return true, nil
 	}
 	switch field {
@@ -204,9 +244,46 @@ func setQAField(q *QA, field, value string) (bool, error) {
 		return setQAInteger(field, value, &q.EvidenceRecords)
 	case "qa.issues":
 		return setQAInteger(field, value, &q.Issues)
+	case "qa.repair.max_cycles":
+		return setQAInteger(field, value, &q.Repair.MaxCycles)
+	case "qa.repair.max_mutation_cycles":
+		return setQAInteger(field, value, &q.Repair.MaxMutationCycles)
+	case "qa.repair.max_reopenings":
+		return setQAInteger(field, value, &q.Repair.MaxReopenings)
+	case "qa.repair.stagnation_limit":
+		return setQAInteger(field, value, &q.Repair.StagnationLimit)
+	case "qa.repair.max_files_per_cycle":
+		return setQAInteger(field, value, &q.Repair.MaxFilesPerCycle)
+	case "qa.repair.max_files_per_run":
+		return setQAInteger(field, value, &q.Repair.MaxFilesPerRun)
+	case "qa.repair.max_bytes_per_cycle":
+		return setQAInt64(field, value, &q.Repair.MaxBytesPerCycle)
+	case "qa.repair.max_bytes_per_run":
+		return setQAInt64(field, value, &q.Repair.MaxBytesPerRun)
+	case "qa.repair.max_patch_bytes":
+		return setQAInteger(field, value, &q.Repair.MaxPatchBytes)
+	case "qa.repair.runtime_attempts":
+		return setQAInteger(field, value, &q.Repair.RuntimeAttempts)
+	case "qa.repair.model_turns":
+		return setQAInteger(field, value, &q.Repair.ModelTurns)
+	case "qa.repair.command_count":
+		return setQAInteger(field, value, &q.Repair.CommandCount)
+	case "qa.repair.output_bytes":
+		return setQAInteger(field, value, &q.Repair.OutputBytes)
+	case "qa.repair.retained_cycles":
+		return setQAInteger(field, value, &q.Repair.RetainedCycles)
 	default:
 		return false, nil
 	}
+}
+
+func setQAInt64(field, value string, target *int64) (bool, error) {
+	n, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return true, fmt.Errorf("%s: must be an integer", field)
+	}
+	*target = n
+	return true, nil
 }
 
 func setQAInteger(field, value string, target *int) (bool, error) {
@@ -255,6 +332,30 @@ func validateQA(q QA) error {
 		maximum, _ := time.ParseDuration(limit.max)
 		if err != nil || got <= 0 || got > maximum {
 			return fmt.Errorf("qa.%s: must be a positive duration no greater than %s", limit.name, limit.max)
+		}
+	}
+	repairInts := []struct {
+		name string
+		got  int
+		max  int
+	}{
+		{"max_cycles", q.Repair.MaxCycles, 5}, {"max_mutation_cycles", q.Repair.MaxMutationCycles, 5}, {"max_reopenings", q.Repair.MaxReopenings, 2}, {"stagnation_limit", q.Repair.StagnationLimit, 2},
+		{"max_files_per_cycle", q.Repair.MaxFilesPerCycle, 16}, {"max_files_per_run", q.Repair.MaxFilesPerRun, 32}, {"max_patch_bytes", q.Repair.MaxPatchBytes, 1 << 20},
+		{"runtime_attempts", q.Repair.RuntimeAttempts, 5}, {"model_turns", q.Repair.ModelTurns, 20}, {"command_count", q.Repair.CommandCount, 64}, {"output_bytes", q.Repair.OutputBytes, 2 << 20}, {"retained_cycles", q.Repair.RetainedCycles, 12},
+	}
+	for _, limit := range repairInts {
+		if limit.got <= 0 || limit.got > limit.max {
+			return fmt.Errorf("qa.repair.%s: must be between 1 and %d", limit.name, limit.max)
+		}
+	}
+	if q.Repair.MaxMutationCycles > q.Repair.MaxCycles || q.Repair.MaxFilesPerCycle > q.Repair.MaxFilesPerRun || q.Repair.MaxBytesPerCycle <= 0 || q.Repair.MaxBytesPerCycle > 1<<20 || q.Repair.MaxBytesPerRun <= 0 || q.Repair.MaxBytesPerRun > 2<<20 || q.Repair.MaxBytesPerCycle > q.Repair.MaxBytesPerRun {
+		return fmt.Errorf("qa.repair: per-cycle limits must be positive and no greater than run limits")
+	}
+	for _, limit := range []struct{ name, got, max string }{{"wall_time", q.Repair.WallTime, "90m"}, {"command_timeout", q.Repair.CommandTimeout, "15m"}, {"cleanup_timeout", q.Repair.CleanupTimeout, "60s"}} {
+		got, err := time.ParseDuration(limit.got)
+		maximum, _ := time.ParseDuration(limit.max)
+		if err != nil || got <= 0 || got > maximum {
+			return fmt.Errorf("qa.repair.%s: must be a positive duration no greater than %s", limit.name, limit.max)
 		}
 	}
 	return nil

@@ -25,6 +25,16 @@ func LoadFlowState(root string, s Sprint) (FlowState, error) {
 		if pathErr != nil {
 			return FlowState{}, pathErr
 		}
+		switch state.SchemaVersion {
+		case PreviousFlowStateSchemaVersion, LegacyFlowStateSchemaVersion:
+			state = migrateFlowStateV1(root, s, state)
+		case FlowStateSchemaVersion:
+			if isPreCodeContextStages(state.Stages) {
+				state.Stages = interpretPreCodeContextStages(s, state.Stages)
+			}
+		default:
+			return FlowState{}, fmt.Errorf("%w: %s: schemaVersion %d; restore version %d or regenerate state", ErrFlowStateUnsupported, path, state.SchemaVersion, FlowStateSchemaVersion)
+		}
 		if err := ValidateFlowState(root, s, state, path); err != nil {
 			return FlowState{}, err
 		}
@@ -50,7 +60,7 @@ func LoadFlowState(root string, s Sprint) (FlowState, error) {
 	if header.SchemaVersion == 0 {
 		return FlowState{}, fmt.Errorf("%w: %s: missing schemaVersion", ErrFlowStateMalformed, path)
 	}
-	if header.SchemaVersion != FlowStateSchemaVersion && header.SchemaVersion != PreviousFlowStateSchemaVersion {
+	if header.SchemaVersion != FlowStateSchemaVersion && header.SchemaVersion != PreviousFlowStateSchemaVersion && header.SchemaVersion != LegacyFlowStateSchemaVersion {
 		return FlowState{}, fmt.Errorf("%w: %s: schemaVersion %d; restore version %d or regenerate state", ErrFlowStateUnsupported, path, header.SchemaVersion, FlowStateSchemaVersion)
 	}
 	var state FlowState
@@ -65,7 +75,7 @@ func LoadFlowState(root string, s Sprint) (FlowState, error) {
 	} else if !errors.Is(err, io.EOF) {
 		return FlowState{}, fmt.Errorf("%w: %s: trailing JSON: %v", ErrFlowStateMalformed, path, err)
 	}
-	if header.SchemaVersion == PreviousFlowStateSchemaVersion {
+	if header.SchemaVersion == PreviousFlowStateSchemaVersion || header.SchemaVersion == LegacyFlowStateSchemaVersion {
 		state = migrateFlowStateV1(root, s, state)
 		if err := ValidateFlowState(root, s, state, path); err != nil {
 			return FlowState{}, err
@@ -201,7 +211,7 @@ func derefTime(value *time.Time) time.Time {
 func SaveFlowState(root string, s Sprint, state FlowState) error {
 	// Planning-stage refreshes must not erase the last complete verification
 	// evidence. Explicit stage writers load and replace their own record.
-	if state.Review == nil || state.Smoke == nil || state.QA == nil {
+	if state.Review == nil || state.Smoke == nil || state.QA == nil || state.Repair == nil {
 		if prior, err := LoadFlowState(root, s); err == nil {
 			if state.Review == nil {
 				state.Review = prior.Review
@@ -211,6 +221,9 @@ func SaveFlowState(root string, s Sprint, state FlowState) error {
 			}
 			if state.QA == nil {
 				state.QA = prior.QA
+			}
+			if state.Repair == nil {
+				state.Repair = prior.Repair
 			}
 		} else if !errors.Is(err, ErrFlowStateMissing) {
 			return err
@@ -362,6 +375,28 @@ func ValidateFlowState(root string, s Sprint, state FlowState, path string) erro
 		if err := validateQAFlowSummary(root, s, *state.QA, path); err != nil {
 			return err
 		}
+	}
+	if state.Repair != nil {
+		if err := validateRepairFlowSummary(root, s, *state.Repair, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRepairFlowSummary(root string, s Sprint, summary RepairFlowSummary, path string) error {
+	if !validRepairPhase(summary.Phase) || !validRepairMode(summary.Mode) || !validRepairID(summary.RepairRunID, "run") || !validQAIDKind(summary.QAAttemptID, "attempt") || summary.CurrentCycle < 0 || strings.TrimSpace(summary.NextAction) == "" {
+		return fmt.Errorf("%w: %s: invalid repair summary", ErrFlowStateMalformed, path)
+	}
+	if summary.Outcome != "" && !validRepairOutcome(summary.Outcome) {
+		return fmt.Errorf("%w: %s: invalid repair summary outcome", ErrFlowStateMalformed, path)
+	}
+	if summary.StatePath == "" || !validFingerprint(summary.StateDigest) {
+		return fmt.Errorf("%w: %s: incomplete repair summary pointer", ErrFlowStateMalformed, path)
+	}
+	resolved, err := resolveSprintContained(root, s, summary.StatePath)
+	if err != nil || filepath.Base(resolved) != "repair-state.json" || filepath.Base(filepath.Dir(resolved)) != "verification" {
+		return fmt.Errorf("%w: %s: unsafe repair summary pointer", ErrFlowStateMalformed, path)
 	}
 	return nil
 }

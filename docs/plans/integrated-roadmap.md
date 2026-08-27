@@ -657,8 +657,10 @@ exact reproducer
 -> linked theories
 -> neighbouring or boundary shards
 -> containing QA suites
--> Conformance Review delta
+-> repaired-target containing smoke
 ```
+
+Conformance Review runs once before repair admission.
 
 ### 12.3 Bounded automatic cycles
 

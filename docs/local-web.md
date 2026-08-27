@@ -301,6 +301,27 @@ GET /api/v1/projects/{project}/sprints/{sprint}/qa/synthesis
 
 All routes call typed app queries; HTTP never reads verification files directly. Query routes reject mutations. Browser refresh, session rotation, reconnect, replay gaps, observer restart, and server restart reload product QA facts from the app/workspace authority and operational facts from durable run control. A dropped live event cannot imply completion or cancellation.
 
+## Bounded repair page and resources
+
+The separate server-rendered repair workbench is available at:
+
+```text
+GET /projects/{project}/sprints/{sprint}/repair
+```
+
+It remains usable without JavaScript and shows packet identity, target freshness, mode, cycle, durable lifecycle, scope, limits, confirmation, cleanup, outcome, blocker, and next action. Prepare and start use the same CSRF-protected two-step operation confirmation flow as other mutations. Durable acceptance and the repair confirmation record precede dispatch. Cancellation stays an explicit run action. Automatic admission requires real manual proof and explicit opt-in.
+
+Bounded JSON resources are:
+
+```text
+GET /api/v1/projects/{project}/sprints/{sprint}/repair
+GET /api/v1/projects/{project}/sprints/{sprint}/repair/packet
+GET /api/v1/projects/{project}/sprints/{sprint}/repair/cycles
+GET /api/v1/projects/{project}/sprints/{sprint}/repair/result
+```
+
+These resources expose the current typed app projection and never include proposal bodies, production contents, private preimages, prompts, unsafe environment, or raw runtime output. Query parameters may select the current repair run only. Browser disconnect or SSE replay gaps affect observation, not ownership or execution.
+
 ## Durable run observation
 
 Runtime tool events include the tool name, call ID, lifecycle status, and any

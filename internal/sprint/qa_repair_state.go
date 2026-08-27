@@ -1,0 +1,633 @@
+package sprint
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+type RepairCyclePublication struct {
+	Cycle          RepairCycle
+	Proposal       []byte
+	Scope          *RepairScopeRecord
+	Reverification *RepairReverification
+	Cleanup        *RepairCleanup
+	Journal        *RepairApplyJournal
+}
+
+func (store QAStore) LoadRepairState() (RepairState, error) {
+	path, err := store.resolve(QARepairStateRelPath(store.sprint))
+	if err != nil {
+		return RepairState{}, err
+	}
+	var state RepairState
+	if err := store.readStrictVersion(path, "repair-state", QARepairSchemaVersion, &state); err != nil {
+		return RepairState{}, err
+	}
+	if err := ValidateRepairState(state); err != nil {
+		return RepairState{}, NewQAError(QAErrorInvalidState, "load repair state", err.Error(), err)
+	}
+	if state.Project != store.sprint.Project || state.Sprint != store.sprint.Slug {
+		return RepairState{}, NewQAError(QAErrorInvalidState, "load repair state", "repair state scope does not match selected sprint", nil)
+	}
+	for _, ref := range []*QAArtifactRef{state.Packet, state.Confirmation, state.Result} {
+		if ref != nil {
+			if err := store.verifyReference(*ref); err != nil {
+				return RepairState{}, err
+			}
+		}
+	}
+	return state, nil
+}
+
+func (store QAStore) LoadRepairPacket(attemptID, runID string) (RepairIssuePacket, error) {
+	if err := validateRepairScopeIDs(attemptID, runID); err != nil {
+		return RepairIssuePacket{}, err
+	}
+	path, err := store.resolve(QARepairPacketRelPath(store.sprint, attemptID, runID))
+	if err != nil {
+		return RepairIssuePacket{}, err
+	}
+	var value RepairIssuePacket
+	if err := store.readStrictVersion(path, "repair-packet", QARepairSchemaVersion, &value); err != nil {
+		return RepairIssuePacket{}, err
+	}
+	if err := ValidateRepairPacket(value); err != nil || value.QAAttemptID != attemptID || value.RepairRunID != runID {
+		return RepairIssuePacket{}, NewQAError(QAErrorInvalidState, "load repair packet", "repair packet is invalid or stored under the wrong identity", err)
+	}
+	return value, nil
+}
+
+func (store QAStore) LoadRepairConfirmation(attemptID, runID string, packet RepairIssuePacket) (RepairConfirmation, error) {
+	if err := validateRepairScopeIDs(attemptID, runID); err != nil {
+		return RepairConfirmation{}, err
+	}
+	path, err := store.resolve(QARepairConfirmationRelPath(store.sprint, attemptID, runID))
+	if err != nil {
+		return RepairConfirmation{}, err
+	}
+	var value RepairConfirmation
+	if err := store.readStrictVersion(path, "repair-confirmation", QARepairSchemaVersion, &value); err != nil {
+		return RepairConfirmation{}, err
+	}
+	if err := ValidateRepairConfirmation(value, packet); err != nil {
+		return RepairConfirmation{}, NewQAError(QAErrorInvalidState, "load repair confirmation", err.Error(), err)
+	}
+	return value, nil
+}
+
+func (store QAStore) LoadRepairResult(attemptID, runID string) (RepairResult, error) {
+	if err := validateRepairScopeIDs(attemptID, runID); err != nil {
+		return RepairResult{}, err
+	}
+	path, err := store.resolve(QARepairResultRelPath(store.sprint, attemptID, runID))
+	if err != nil {
+		return RepairResult{}, err
+	}
+	var value RepairResult
+	if err := store.readStrictVersion(path, "repair-result", QARepairSchemaVersion, &value); err != nil {
+		return RepairResult{}, err
+	}
+	if err := ValidateRepairResult(value); err != nil || value.QAAttemptID != attemptID || value.RepairRunID != runID {
+		return RepairResult{}, NewQAError(QAErrorInvalidState, "load repair result", "repair result is invalid or stored under the wrong identity", err)
+	}
+	return value, nil
+}
+
+func (store QAStore) LoadRepairApplyJournal(attemptID, runID string, cycle int) (RepairApplyJournal, error) {
+	if err := validateRepairScopeIDs(attemptID, runID); err != nil || cycle <= 0 {
+		return RepairApplyJournal{}, NewQAError(QAErrorInvalidState, "load repair apply journal", "invalid repair cycle identity", err)
+	}
+	path, err := store.resolve(filepath.ToSlash(filepath.Join(QARepairCycleRelPath(store.sprint, attemptID, runID, cycle), "apply-journal.json")))
+	if err != nil {
+		return RepairApplyJournal{}, err
+	}
+	var value RepairApplyJournal
+	if err := store.readStrictVersion(path, "repair-apply-journal", QARepairSchemaVersion, &value); err != nil {
+		return RepairApplyJournal{}, err
+	}
+	if err := ValidateRepairApplyJournal(value); err != nil || value.RepairRunID != runID || value.Cycle != cycle {
+		return RepairApplyJournal{}, NewQAError(QAErrorInvalidState, "load repair apply journal", "repair apply journal is invalid or stored under the wrong identity", err)
+	}
+	return value, nil
+}
+
+func (store QAStore) loadRepairPreimage(operation RepairApplyOperation) ([]byte, error) {
+	path, err := store.resolve(operation.PreimagePath)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return nil, NewQAError(QAErrorInvalidState, "load repair preimage", "repair preimage is not a private regular file", nil)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if hashBytes(data) != operation.PreimageDigest {
+		return nil, NewQAError(QAErrorInvalidState, "load repair preimage", "repair preimage digest mismatch", nil)
+	}
+	return data, nil
+}
+
+func (store QAStore) LoadManualRepairProof() (ManualRepairProof, error) {
+	path, err := store.resolve(QARepairProofRelPath(store.sprint))
+	if err != nil {
+		return ManualRepairProof{}, err
+	}
+	var value ManualRepairProof
+	if err := store.readStrictVersion(path, "manual-repair-proof", QARepairSchemaVersion, &value); err != nil {
+		return ManualRepairProof{}, err
+	}
+	if value.Project != store.sprint.Project || value.Sprint != store.sprint.Slug || !validRepairID(value.RepairRunID, "run") || value.PublishedAt.IsZero() {
+		return ManualRepairProof{}, NewQAError(QAErrorInvalidState, "load manual repair proof", "manual repair proof scope is invalid", nil)
+	}
+	return value, nil
+}
+
+func (store QAStore) PublishRepairPacket(packet RepairIssuePacket, state RepairState, flow FlowState, token QAWriterToken) error {
+	if err := ValidateRepairPacket(packet); err != nil {
+		return NewQAError(QAErrorInvalidState, "publish repair packet", err.Error(), err)
+	}
+	if state.Packet != nil || state.Confirmation != nil || state.Result != nil || state.QAAttemptID != packet.QAAttemptID || state.RepairRunID != packet.RepairRunID {
+		return NewQAError(QAErrorInvalidState, "publish repair packet", "initial repair state is inconsistent with packet", nil)
+	}
+	path, err := store.resolve(QARepairPacketRelPath(store.sprint, packet.QAAttemptID, packet.RepairRunID))
+	if err != nil {
+		return err
+	}
+	digest, err := store.writeRepairRecord(token, "repair-packet", path, packet, true)
+	if err != nil {
+		return err
+	}
+	state.Packet = &QAArtifactRef{Path: QARepairPacketRelPath(store.sprint, packet.QAAttemptID, packet.RepairRunID), Digest: digest}
+	state.Phase = RepairPhasePrepared
+	return store.publishRepairState(state, flow, token)
+}
+
+func (store QAStore) PublishRepairConfirmation(value RepairConfirmation, state RepairState, flow FlowState, token QAWriterToken) error {
+	packet, err := store.LoadRepairPacket(state.QAAttemptID, state.RepairRunID)
+	if err != nil {
+		return err
+	}
+	if err := ValidateRepairConfirmation(value, packet); err != nil {
+		return NewQAError(QAErrorInvalidState, "publish repair confirmation", err.Error(), err)
+	}
+	if value.OperationRunID != token.RunID || value.OperationalAttemptID != token.OperationalAttemptID || value.FencingGeneration != token.FencingGeneration {
+		return NewQAError(QAErrorConflict, "publish repair confirmation", "confirmation is not bound to the current durable writer", nil)
+	}
+	path, err := store.resolve(QARepairConfirmationRelPath(store.sprint, value.QAAttemptID, value.RepairRunID))
+	if err != nil {
+		return err
+	}
+	digest, err := store.writeRepairRecord(token, "repair-confirmation", path, value, true)
+	if err != nil {
+		return err
+	}
+	state.Confirmation = &QAArtifactRef{Path: QARepairConfirmationRelPath(store.sprint, value.QAAttemptID, value.RepairRunID), Digest: digest}
+	state.Run = QARunCorrelation{Lifecycle: QARunClaimed, RunID: token.RunID, OperationalAttemptID: token.OperationalAttemptID, FencingGeneration: token.FencingGeneration}
+	state.Phase = RepairPhaseConfirmed
+	return store.publishRepairState(state, flow, token)
+}
+
+func (store QAStore) PublishRepairProposal(state RepairState, flow FlowState, cycle int, proposal []byte, token QAWriterToken) error {
+	if cycle <= 0 || cycle != state.CurrentCycle || len(proposal) == 0 {
+		return NewQAError(QAErrorInvalidState, "publish repair proposal", "proposal cycle and bytes are required", nil)
+	}
+	packet, err := store.LoadRepairPacket(state.QAAttemptID, state.RepairRunID)
+	if err != nil {
+		return err
+	}
+	if len(proposal) > packet.Budgets.MaxPatchBytes || bytes.IndexByte(proposal, 0) >= 0 {
+		return NewQAError(QAErrorBudgetExhausted, "publish repair proposal", "proposal patch exceeds the frozen limit or contains binary bytes", nil)
+	}
+	base := QARepairCycleRelPath(store.sprint, state.QAAttemptID, state.RepairRunID, cycle)
+	path, err := store.resolve(filepath.ToSlash(filepath.Join(base, "proposal.patch")))
+	if err != nil {
+		return err
+	}
+	if _, err := store.writeRepairBytes(token, "repair-proposal", path, normalizePatch(proposal), true); err != nil {
+		return err
+	}
+	state.NextAction = "Apply the retained proposal through the product-owned boundary."
+	return store.publishRepairState(state, flow, token)
+}
+
+func (store QAStore) StageRepairApplyJournal(state RepairState, flow FlowState, cycle int, target string, replacements map[string][]byte, expected map[string]string, token QAWriterToken) (RepairApplyJournal, error) {
+	if cycle <= 0 || cycle != state.CurrentCycle || state.Phase != RepairPhaseApplying || len(replacements) == 0 {
+		return RepairApplyJournal{}, NewQAError(QAErrorInvalidState, "stage repair apply", "repair is not at the applying boundary", nil)
+	}
+	paths := mapKeys(replacements)
+	journal := RepairApplyJournal{SchemaVersion: QARepairSchemaVersion, RepairRunID: state.RepairRunID, Cycle: cycle, State: "planned", UpdatedAt: state.UpdatedAt}
+	base := QARepairCycleRelPath(store.sprint, state.QAAttemptID, state.RepairRunID, cycle)
+	for _, rel := range paths {
+		path := filepath.Join(target, filepath.FromSlash(rel))
+		if err := ensureRepairRegularPath(target, path); err != nil {
+			return RepairApplyJournal{}, err
+		}
+		before, err := os.ReadFile(path)
+		if err != nil {
+			return RepairApplyJournal{}, err
+		}
+		if digest := hashBytes(before); !validFingerprint(expected[rel]) || digest != expected[rel] {
+			return RepairApplyJournal{}, NewQAError(QAErrorConflict, "stage repair apply", "production preimage changed before journal publication", nil)
+		}
+		preimageRel := filepath.ToSlash(filepath.Join(base, "preimages", rel))
+		preimagePath, err := store.resolve(preimageRel)
+		if err != nil {
+			return RepairApplyJournal{}, err
+		}
+		if _, err := store.writeRepairBytes(token, "repair-preimage", preimagePath, before, true); err != nil {
+			return RepairApplyJournal{}, err
+		}
+		journal.Operations = append(journal.Operations, RepairApplyOperation{Path: rel, PreimageDigest: expected[rel], PreimagePath: preimageRel, PostimageDigest: hashBytes(replacements[rel])})
+	}
+	if err := store.PublishRepairApplyJournal(state, flow, journal, token); err != nil {
+		return RepairApplyJournal{}, err
+	}
+	return journal, nil
+}
+
+func (store QAStore) PublishRepairApplyJournal(state RepairState, flow FlowState, journal RepairApplyJournal, token QAWriterToken) error {
+	if err := ValidateRepairApplyJournal(journal); err != nil || journal.RepairRunID != state.RepairRunID || journal.Cycle != state.CurrentCycle {
+		return NewQAError(QAErrorInvalidState, "publish repair apply journal", "repair apply journal is invalid", err)
+	}
+	path, err := store.resolve(filepath.ToSlash(filepath.Join(QARepairCycleRelPath(store.sprint, state.QAAttemptID, state.RepairRunID, journal.Cycle), "apply-journal.json")))
+	if err != nil {
+		return err
+	}
+	if _, err := store.writeRepairRecord(token, "repair-apply-journal", path, journal, false); err != nil {
+		return err
+	}
+	return store.publishRepairState(state, flow, token)
+}
+
+func (store QAStore) PublishRepairCycle(publication RepairCyclePublication, state RepairState, flow FlowState, token QAWriterToken) error {
+	cycle := publication.Cycle
+	if cycle.SchemaVersion != QARepairSchemaVersion || cycle.RepairRunID != state.RepairRunID || cycle.Number <= 0 || cycle.Number != state.CurrentCycle {
+		return NewQAError(QAErrorInvalidState, "publish repair cycle", "repair cycle identity is invalid", nil)
+	}
+	base := QARepairCycleRelPath(store.sprint, state.QAAttemptID, state.RepairRunID, cycle.Number)
+	if len(publication.Proposal) > 0 {
+		packet, err := store.LoadRepairPacket(state.QAAttemptID, state.RepairRunID)
+		if err != nil {
+			return err
+		}
+		if len(publication.Proposal) > packet.Budgets.MaxPatchBytes || bytes.IndexByte(publication.Proposal, 0) >= 0 {
+			return NewQAError(QAErrorBudgetExhausted, "publish repair proposal", "proposal patch exceeds the frozen limit or contains binary bytes", nil)
+		}
+		path, err := store.resolve(filepath.ToSlash(filepath.Join(base, "proposal.patch")))
+		if err != nil {
+			return err
+		}
+		digest, err := store.writeRepairBytes(token, "repair-proposal", path, normalizePatch(publication.Proposal), true)
+		if err != nil {
+			return err
+		}
+		cycle.Proposal = &QAArtifactRef{Path: filepath.ToSlash(filepath.Join(base, "proposal.patch")), Digest: digest}
+	}
+	if publication.Scope != nil {
+		path, err := store.resolve(filepath.ToSlash(filepath.Join(base, "scope.json")))
+		if err != nil {
+			return err
+		}
+		digest, err := store.writeRepairRecord(token, "repair-scope", path, publication.Scope, true)
+		if err != nil {
+			return err
+		}
+		cycle.Scope = &QAArtifactRef{Path: filepath.ToSlash(filepath.Join(base, "scope.json")), Digest: digest}
+	}
+	if publication.Reverification != nil {
+		if err := ValidateRepairReverification(*publication.Reverification); err != nil {
+			return NewQAError(QAErrorInvalidState, "publish repair reverification", err.Error(), err)
+		}
+		path, err := store.resolve(filepath.ToSlash(filepath.Join(base, "reverification.json")))
+		if err != nil {
+			return err
+		}
+		digest, err := store.writeRepairRecord(token, "repair-reverification", path, publication.Reverification, true)
+		if err != nil {
+			return err
+		}
+		cycle.Reverification = &QAArtifactRef{Path: filepath.ToSlash(filepath.Join(base, "reverification.json")), Digest: digest}
+	}
+	if publication.Cleanup != nil {
+		path, err := store.resolve(filepath.ToSlash(filepath.Join(base, "cleanup.json")))
+		if err != nil {
+			return err
+		}
+		digest, err := store.writeRepairRecord(token, "repair-cleanup", path, publication.Cleanup, true)
+		if err != nil {
+			return err
+		}
+		cycle.Cleanup = &QAArtifactRef{Path: filepath.ToSlash(filepath.Join(base, "cleanup.json")), Digest: digest}
+	}
+	if publication.Journal != nil {
+		path, err := store.resolve(filepath.ToSlash(filepath.Join(base, "apply-journal.json")))
+		if err != nil {
+			return err
+		}
+		if _, err := store.writeRepairRecord(token, "repair-apply-journal", path, publication.Journal, false); err != nil {
+			return err
+		}
+	}
+	cyclePath, err := store.resolve(filepath.ToSlash(filepath.Join(base, "cycle.json")))
+	if err != nil {
+		return err
+	}
+	if _, err := store.writeRepairRecord(token, "repair-cycle", cyclePath, cycle, true); err != nil {
+		return err
+	}
+	state.Consumed.Cycles = maxInt(state.Consumed.Cycles, cycle.Number)
+	return store.publishRepairState(state, flow, token)
+}
+
+func (store QAStore) PublishRepairResult(result RepairResult, state RepairState, flow FlowState, token QAWriterToken) error {
+	if err := ValidateRepairResult(result); err != nil || result.QAAttemptID != state.QAAttemptID || result.RepairRunID != state.RepairRunID {
+		return NewQAError(QAErrorInvalidState, "publish repair result", "terminal repair result is invalid", err)
+	}
+	path, err := store.resolve(QARepairResultRelPath(store.sprint, state.QAAttemptID, state.RepairRunID))
+	if err != nil {
+		return err
+	}
+	digest, err := store.writeRepairRecord(token, "repair-result", path, result, true)
+	if err != nil {
+		return err
+	}
+	state.Phase = RepairPhaseTerminal
+	state.Outcome = result.Outcome
+	state.StopReason = result.StopReason
+	state.Consumed = result.Consumed
+	state.Result = &QAArtifactRef{Path: QARepairResultRelPath(store.sprint, state.QAAttemptID, state.RepairRunID), Digest: digest}
+	state.Run.Lifecycle = QARunTerminal
+	state.Run.TerminalResult = repairTerminalResult(result.Outcome)
+	state.NextAction = result.NextAction
+	return store.publishRepairState(state, flow, token)
+}
+
+func (store QAStore) PublishManualRepairProof(proof ManualRepairProof, packet RepairIssuePacket, result RepairResult, protocol, runtime string, token QAWriterToken) error {
+	if err := QualifyManualRepairProof(proof, packet, result, protocol, runtime); err != nil {
+		return NewQAError(QAErrorAdmissionBlocked, "publish manual repair proof", err.Error(), err)
+	}
+	path, err := store.resolve(QARepairProofRelPath(store.sprint))
+	if err != nil {
+		return err
+	}
+	_, err = store.writeRepairRecord(token, "manual-repair-proof", path, proof, false)
+	return err
+}
+
+func (store QAStore) publishRepairState(state RepairState, flow FlowState, token QAWriterToken) (resultErr error) {
+	if err := ValidateRepairState(state); err != nil {
+		return NewQAError(QAErrorInvalidState, "publish repair state", err.Error(), err)
+	}
+	statePath, err := store.resolve(QARepairStateRelPath(store.sprint))
+	if err != nil {
+		return err
+	}
+	flowPath, err := FlowStatePath(store.root, store.sprint)
+	if err != nil {
+		return err
+	}
+	snapshots, err := captureQACanonicalFiles(statePath, flowPath)
+	if err != nil {
+		return NewQAError(QAErrorPersistenceFailure, "publish repair state", "cannot snapshot repair pointers", err)
+	}
+	started := false
+	defer func() {
+		if resultErr != nil && started {
+			if rollbackErr := restoreQACanonicalFiles(snapshots); rollbackErr != nil {
+				resultErr = errors.Join(resultErr, NewQAError(QAErrorPersistenceFailure, "publish repair rollback", "cannot restore prior repair pointers", rollbackErr))
+			}
+		}
+	}()
+	started = true
+	digest, err := store.writeRepairRecord(token, "repair-state", statePath, state, false)
+	if err != nil {
+		return err
+	}
+	flow.Repair = repairFlowSummary(state, digest, store.sprint)
+	if err := store.checkWriter(token); err != nil {
+		return err
+	}
+	if err := SaveFlowState(store.root, store.sprint, flow); err != nil {
+		return NewQAError(QAErrorPersistenceFailure, "publish repair flow summary", "cannot publish repair flow summary", err)
+	}
+	return nil
+}
+
+func ValidateRepairState(state RepairState) error {
+	if state.SchemaVersion != QARepairSchemaVersion || !safeQAName(state.Project) || !safeQAName(state.Sprint) || !validQAIDKind(state.QAAttemptID, "attempt") || !validRepairID(state.RepairRunID, "run") || !validRepairMode(state.Mode) || !validRepairPhase(state.Phase) {
+		return fmt.Errorf("invalid repair state schema, scope, or phase")
+	}
+	if strings.TrimSpace(state.NextAction) == "" || state.UpdatedAt.IsZero() || state.CurrentCycle < 0 || state.EarliestCycle < 0 || state.EarliestCycle > state.CurrentCycle && state.CurrentCycle > 0 {
+		return fmt.Errorf("repair state progress fields are invalid")
+	}
+	if state.Outcome != "" && !validRepairOutcome(state.Outcome) {
+		return fmt.Errorf("repair state outcome is invalid")
+	}
+	if state.Outcome == RepairOutcomeStalled && state.Mode != RepairModeAutomatic {
+		return fmt.Errorf("manual repair cannot be stalled")
+	}
+	if state.Phase == RepairPhaseTerminal && (state.Outcome == "" || state.Result == nil) {
+		return fmt.Errorf("terminal repair state requires result and outcome")
+	}
+	if state.Phase != RepairPhasePrepared && state.Packet == nil {
+		return fmt.Errorf("repair state phase requires packet authority")
+	}
+	if state.Phase == RepairPhaseConfirmed || state.Phase == RepairPhaseProposing || state.Phase == RepairPhaseApplying || state.Phase == RepairPhaseReverifying || state.Phase == RepairPhaseCleaning || state.Phase == RepairPhaseTerminalizing || state.Phase == RepairPhaseTerminal {
+		if state.Confirmation == nil {
+			return fmt.Errorf("mutable repair state requires confirmation")
+		}
+	}
+	return nil
+}
+
+func ValidateRepairResult(result RepairResult) error {
+	if result.SchemaVersion != QARepairSchemaVersion || !safeQAName(result.Project) || !safeQAName(result.Sprint) || !validQAIDKind(result.QAAttemptID, "attempt") || !validRepairID(result.RepairRunID, "run") || !validRepairMode(result.Mode) || !validRepairOutcome(result.Outcome) || strings.TrimSpace(result.Reason) == "" || strings.TrimSpace(result.NextAction) == "" || result.CompletedAt.IsZero() {
+		return fmt.Errorf("invalid repair result")
+	}
+	if !validFingerprint(result.Target.Fingerprint) || len(result.Evidence) == 0 {
+		return fmt.Errorf("repair result lacks target or evidence authority")
+	}
+	for _, ref := range result.Evidence {
+		path, err := normalizeRepairPath(ref.Path)
+		if err != nil || path != ref.Path || !validFingerprint(ref.Digest) {
+			return fmt.Errorf("repair result evidence reference is invalid")
+		}
+	}
+	if result.Outcome == RepairOutcomeStalled && result.Mode != RepairModeAutomatic {
+		return fmt.Errorf("manual repair cannot publish stalled")
+	}
+	verified := result.Outcome == RepairOutcomeVerified || result.Outcome == RepairOutcomeVerifiedWithFindings
+	if verified && (!result.CleanupComplete || !result.ProductionApplied || !result.CompleteLadder || len(result.UnresolvedIssues) != 0 || result.StopReason != RepairStopVerified) {
+		return fmt.Errorf("verified repair result lacks complete apply, ladder, cleanup, or issue resolution")
+	}
+	if !verified && result.CompleteLadder {
+		return fmt.Errorf("non-verified repair result cannot claim a complete ladder")
+	}
+	if result.ProductionApplied && result.Consumed.MutationCycles == 0 {
+		return fmt.Errorf("repair result apply claim lacks a consumed mutation cycle")
+	}
+	return nil
+}
+
+func ValidateRepairReverification(value RepairReverification) error {
+	if value.SchemaVersion != QARepairSchemaVersion || !validRepairID(value.RepairRunID, "run") || value.Cycle <= 0 || value.CompletedAt.IsZero() || len(value.Gates) != len(RepairGateOrder()) {
+		return fmt.Errorf("invalid repair reverification record")
+	}
+	blocked := false
+	for i, gate := range value.Gates {
+		if gate.Gate != RepairGateOrder()[i] {
+			return fmt.Errorf("repair reverification gate order changed")
+		}
+		switch gate.Status {
+		case RepairGatePassed:
+			if blocked {
+				return fmt.Errorf("wider repair gate passed after a non-pass")
+			}
+		case RepairGateFailed, RepairGateBlocked:
+			blocked = true
+		case RepairGateSkipped:
+			if !blocked || strings.TrimSpace(gate.Reason) == "" || strings.TrimSpace(gate.NextAction) == "" {
+				return fmt.Errorf("skipped repair gate lacks prior stop and guidance")
+			}
+		default:
+			return fmt.Errorf("repair reverification is not terminal")
+		}
+	}
+	return nil
+}
+
+func ValidateRepairApplyJournal(value RepairApplyJournal) error {
+	if value.SchemaVersion != QARepairSchemaVersion || !validRepairID(value.RepairRunID, "run") || value.Cycle <= 0 || value.UpdatedAt.IsZero() || len(value.Operations) == 0 {
+		return fmt.Errorf("invalid repair apply journal identity")
+	}
+	switch value.State {
+	case "planned", "applying", "applied", "compensated", "uncertain":
+	default:
+		return fmt.Errorf("invalid repair apply journal state")
+	}
+	prior := ""
+	for _, operation := range value.Operations {
+		path, err := normalizeRepairPath(operation.Path)
+		if err != nil || path != operation.Path || path <= prior || ClassifyRepairPath(path) != RepairPathProduction || !validFingerprint(operation.PreimageDigest) || !validFingerprint(operation.PostimageDigest) || strings.TrimSpace(operation.PreimagePath) == "" {
+			return fmt.Errorf("invalid repair apply operation")
+		}
+		prior = path
+	}
+	return nil
+}
+
+func (store QAStore) PruneRepairCycles(attemptID, runID string, current, retain int) (int, error) {
+	if err := validateRepairScopeIDs(attemptID, runID); err != nil || current <= 0 || retain <= 0 {
+		return 0, NewQAError(QAErrorInvalidState, "prune repair cycles", "invalid repair retention request", err)
+	}
+	root, err := store.resolve(filepath.ToSlash(filepath.Join(QARepairRunRelPath(store.sprint, attemptID, runID), "cycles")))
+	if err != nil {
+		return 0, err
+	}
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return current, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	earliest := current
+	removeBefore := current - retain + 1
+	for _, entry := range entries {
+		if !entry.IsDir() || len(entry.Name()) != 6 {
+			return 0, NewQAError(QAErrorInvalidState, "prune repair cycles", "repair cycle storage contains an invalid entry", nil)
+		}
+		var number int
+		if _, scanErr := fmt.Sscanf(entry.Name(), "%06d", &number); scanErr != nil || number <= 0 || number > current {
+			return 0, NewQAError(QAErrorInvalidState, "prune repair cycles", "repair cycle storage contains an invalid number", scanErr)
+		}
+		if number < removeBefore {
+			if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+				return 0, err
+			}
+			continue
+		}
+		if number < earliest {
+			earliest = number
+		}
+	}
+	return earliest, nil
+}
+
+func (store QAStore) writeRepairRecord(token QAWriterToken, kind, path string, value any, immutable bool) (string, error) {
+	copyStore := store
+	prior := copyStore.hooks.BeforeRename
+	copyStore.hooks.BeforeRename = func(renameKind, renamePath string) error {
+		if err := copyStore.checkWriter(token); err != nil {
+			return err
+		}
+		if prior != nil {
+			return prior(renameKind, renamePath)
+		}
+		return nil
+	}
+	if err := copyStore.checkWriter(token); err != nil {
+		return "", err
+	}
+	return copyStore.writeRecord(kind, path, value, immutable)
+}
+
+func (store QAStore) writeRepairBytes(token QAWriterToken, kind, path string, data []byte, immutable bool) (string, error) {
+	copyStore := store
+	prior := copyStore.hooks.BeforeRename
+	copyStore.hooks.BeforeRename = func(renameKind, renamePath string) error {
+		if err := copyStore.checkWriter(token); err != nil {
+			return err
+		}
+		if prior != nil {
+			return prior(renameKind, renamePath)
+		}
+		return nil
+	}
+	if err := copyStore.checkWriter(token); err != nil {
+		return "", err
+	}
+	return copyStore.writeBytes(kind, path, data, immutable)
+}
+
+func validateRepairScopeIDs(attemptID, runID string) error {
+	if !validQAIDKind(attemptID, "attempt") || !validRepairID(runID, "run") {
+		return NewQAError(QAErrorInvalidState, "repair scope", "invalid QA attempt or repair run identity", nil)
+	}
+	return nil
+}
+
+func repairFlowSummary(state RepairState, digest string, sprint Sprint) *RepairFlowSummary {
+	return &RepairFlowSummary{Phase: state.Phase, Fresh: state.Freshness.Current, Mode: state.Mode, RepairRunID: state.RepairRunID, QAAttemptID: state.QAAttemptID, CurrentCycle: state.CurrentCycle, Outcome: state.Outcome, StopReason: state.StopReason, StatePath: QARepairStateRelPath(sprint), StateDigest: digest, NextAction: state.NextAction}
+}
+
+func repairTerminalResult(outcome RepairOutcome) QATerminalResult {
+	switch outcome {
+	case RepairOutcomeBlocked:
+		return QATerminalBlocked
+	case RepairOutcomeEscalated:
+		return QATerminalCleanupUncertain
+	default:
+		return QATerminalCompleted
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

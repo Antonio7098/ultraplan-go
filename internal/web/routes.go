@@ -48,6 +48,7 @@ type handler struct {
 	diagnostics  io.Writer
 	runs         app.RunUseCases
 	qa           app.QAQueries
+	repair       app.RepairUseCases
 }
 
 func NewHandler(opts HandlerOptions) (http.Handler, error) {
@@ -72,7 +73,11 @@ func NewHandler(opts HandlerOptions) (http.Handler, error) {
 	if qa == nil {
 		qa, _ = opts.Queries.(app.QAQueries)
 	}
-	h := &handler{queries: opts.Queries, templates: templates, now: opts.Now, hub: hub, preparations: newPreparationStore(opts.Now, opts.RequestID), diagnostics: opts.Diagnostics, runs: opts.Runs, qa: qa}
+	repair, _ := opts.Operations.(app.RepairUseCases)
+	if repair == nil {
+		repair, _ = opts.Queries.(app.RepairUseCases)
+	}
+	h := &handler{queries: opts.Queries, templates: templates, now: opts.Now, hub: hub, preparations: newPreparationStore(opts.Now, opts.RequestID), diagnostics: opts.Diagnostics, runs: opts.Runs, qa: qa, repair: repair}
 	security := newSecurityMiddleware(opts.Authority, opts.Diagnostics, opts.Now, opts.RequestID)
 	return security.wrap(h), nil
 }
@@ -336,6 +341,8 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "sprint_artifact", params: []string{parts[1], parts[3], parts[5]}, known: true}
 	case len(parts) == 5 && parts[0] == "projects" && parts[2] == "sprints" && parts[4] == "qa":
 		return routeMatch{name: "sprint_qa", params: []string{parts[1], parts[3]}, known: true}
+	case len(parts) == 5 && parts[0] == "projects" && parts[2] == "sprints" && parts[4] == "repair":
+		return routeMatch{name: "sprint_repair", params: []string{parts[1], parts[3]}, known: true}
 	case len(parts) == 7 && parts[0] == "projects" && parts[2] == "sprints" && parts[4] == "qa" && parts[5] == "shards":
 		return routeMatch{name: "sprint_qa_shard", params: []string{parts[1], parts[3], parts[6]}, known: true}
 	case len(parts) == 7 && parts[0] == "projects" && parts[2] == "sprints" && parts[4] == "qa" && parts[5] == "theories":
@@ -370,6 +377,10 @@ func matchRoute(path string) routeMatch {
 		return routeMatch{name: "api_sprint", params: []string{parts[3], parts[5]}, known: true, api: true}
 	case len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa":
 		return routeMatch{name: "api_sprint_qa", params: []string{parts[3], parts[5]}, known: true, api: true}
+	case len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "repair":
+		return routeMatch{name: "api_sprint_repair", params: []string{parts[3], parts[5]}, known: true, api: true}
+	case len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "repair" && (parts[7] == "packet" || parts[7] == "cycles" || parts[7] == "result"):
+		return routeMatch{name: "api_sprint_repair_" + parts[7], params: []string{parts[3], parts[5]}, known: true, api: true}
 	case len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && (parts[7] == "map" || parts[7] == "synthesis" || parts[7] == "adjudication" || parts[7] == "issues" || parts[7] == "assessment" || parts[7] == "smoke-suite"):
 		return routeMatch{name: "api_sprint_qa_" + parts[7], params: []string{parts[3], parts[5]}, known: true, api: true}
 	case len(parts) == 9 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "projects" && parts[4] == "sprints" && parts[6] == "qa" && parts[7] == "shards":

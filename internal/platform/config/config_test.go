@@ -266,7 +266,7 @@ func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(QAConfigFields()) != 35 {
+	if len(QAConfigFields()) != 52 {
 		t.Fatalf("QA field count = %d", len(QAConfigFields()))
 	}
 	for _, field := range QAConfigFields() {
@@ -327,6 +327,34 @@ func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
 	config.QA.CommandsPerAttempt = -1
 	if err := Validate(config); err == nil {
 		t.Fatal("negative QA limit accepted")
+	}
+}
+
+func TestRepairBudgetConfigUsesWorkspaceThenEnvironmentAndRejectsRaises(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ultraplan.yml"), []byte("version: 1\nqa:\n  repair:\n    max_files_per_run: 12\n    wall_time: 30m\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	effective, err := Load(LoadOptions{WorkspaceRoot: root, Env: func(key string) string {
+		if key == "ULTRAPLAN_QA_REPAIR_MAX_FILES_PER_RUN" {
+			return "10"
+		}
+		return ""
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.Config.QA.Repair.MaxFilesPerRun != 10 || effective.Sources["qa.repair.max_files_per_run"] != "env" || effective.Config.QA.Repair.WallTime != "30m" || effective.Sources["qa.repair.wall_time"] != "workspace" {
+		t.Fatalf("repair config/source = %+v %+v", effective.Config.QA.Repair, effective.Sources)
+	}
+	_, err = Load(LoadOptions{Env: func(key string) string {
+		if key == "ULTRAPLAN_QA_REPAIR_MAX_CYCLES" {
+			return "6"
+		}
+		return ""
+	}})
+	if err == nil || !strings.Contains(err.Error(), "qa.repair.max_cycles") {
+		t.Fatalf("raised repair limit error = %v", err)
 	}
 }
 

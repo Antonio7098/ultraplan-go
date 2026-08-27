@@ -133,7 +133,7 @@ does not depend on the bounded retained-event tail.
 
 ## QA verification phase
 
-`VerificationPhase` is independent from `PlanningStage`. It names `conformance-review`, `qa`, and the reserved future `repair` phase without inserting QA into planning order or changing `StageReview`, `StageSmoke`, `review.md`, or `smoke.md`. Human interfaces say Conformance Review; the `review` machine identity remains authoritative.
+`VerificationPhase` is independent from `PlanningStage`. It names `conformance-review`, `qa`, and `repair` without inserting verification work into planning order or changing `StageReview`, `StageSmoke`, `review.md`, or `smoke.md`. Human interfaces say Conformance Review; the `review` machine identity remains authoritative.
 
 Four authorities remain separate:
 
@@ -151,6 +151,12 @@ Runtime QA starts only after durable acceptance and owner claim. The app convert
 Each attempt compares the full implementation/Git identity immediately before and after runtime work, records contained symlink identity, and rebuilds the deterministic map before promotion to detect governed-input, review, policy, catalog, or target drift. Fixed workers and bounded queues enforce concurrency; cancellation stops admission and preserves already validated terminal shards. Resume reuses only current completed or blocked product records with a new durable owner. It never adopts processes, goroutines, or provider sessions.
 
 Final synthesis is pure over validated current shards. It retains all outcome classes, deduplicates equivalent theories, preserves contradictions and cross-shard interactions, and proposes at most the configured parent-linked follow-ups. `completed` means the bounded investigation ended. Synthesis has no issue, repair, patch, generated-check, `qa.md`, or Conformance Review verdict authority.
+
+Repair is a separate sprint-owned protocol over exactly one current, adjudicated, repair-eligible QA issue. Preparation is synchronous and mutation-free. It freezes the issue, accepted evidence plans, production allowlist, protected paths, target identity, budgets, and ordered reverification descriptors into an immutable digest-bound packet. A start is durably accepted and writer-fenced before a single-use confirmation is published; only then may dispatch construct the runtime.
+
+The runtime proposes in a disposable isolated copy. Product code derives the patch, rejects additions, deletions, links, tests, governed inputs, configuration, repository controls, and out-of-scope paths, then stages private preimages and an apply journal before direct atomic production replacement. Reverification widens from the exact reproducer through QA and repaired-target containing smoke. A wider gate is skipped after the first non-pass. Conformance Review runs once before repair admission and is not repeated after repair.
+
+Repair state uses strict schema v1 records under the current QA attempt, private `0700` directories and `0600` files, immutable create-or-compare records, digest-bound pointers, writer checks before every write and rename, a mutation lease, and a `terminalizing` barrier before lease release and result publication. Recovery compares production bytes only with journaled preimage and postimage digests and compensates an exact postimage from the retained private preimage. Drift or ambiguity escalates; process absence, patch presence, and target bytes never imply success. Automatic admission requires a qualifying current real manual proof and explicit opt-in.
 
 The dependency direction remains `internal/web` → `internal/app` → `internal/sprint`; web does not import sprint, inspect verification files, build prompts, invoke runtimes, or decide outcomes.
 

@@ -195,6 +195,35 @@ func (h *operationHub) startConfirmed(session, dedupKey string, confirm func() (
 				cancel()
 				return doc, nil
 			}
+			if confirmer, ok := h.ops.(app.DurableOperationConfirmer); ok {
+				if confirmErr := confirmer.ConfirmAcceptedOperation(ctx, accepted, prepared); confirmErr != nil {
+					finishCtx, finishCancel := context.WithTimeout(context.Background(), 30*time.Second)
+					_ = manager.FinishOperation(finishCtx, id, app.OperationFailed, confirmErr)
+					finishCancel()
+					cancel()
+					return operationDocument{}, confirmErr
+				}
+			} else if prepared.Request.Kind == app.OperationRepairStart {
+				confirmErr := errors.New("durable repair confirmation capability unavailable")
+				finishCtx, finishCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				_ = manager.FinishOperation(finishCtx, id, app.OperationFailed, confirmErr)
+				finishCancel()
+				cancel()
+				return operationDocument{}, confirmErr
+			}
+			if prepared.Request.Kind != app.OperationRepairPrepare {
+				dispatched, dispatchErr := manager.DispatchOperation(ctx, id)
+				if dispatchErr != nil {
+					finishCtx, finishCancel := context.WithTimeout(context.Background(), 30*time.Second)
+					_ = manager.FinishOperation(finishCtx, id, app.OperationFailed, dispatchErr)
+					finishCancel()
+					cancel()
+					return operationDocument{}, dispatchErr
+				}
+				if dispatched.Context != nil {
+					ctx = dispatched.Context
+				}
+			}
 		}
 	}
 	record := &operationRecord{
@@ -214,6 +243,15 @@ func (h *operationHub) startConfirmed(session, dedupKey string, confirm func() (
 	h.counters.active.Add(1)
 	h.appendEventLocked(record, "snapshot", map[string]any{"state": "accepted"})
 	doc := cloneOperationDocument(record.doc)
+	if prepared.Request.Kind == app.OperationRepairPrepare {
+		// Repair preparation is deliberately synchronous and runtime-free. The
+		// accepted writer context is sufficient; no ownership-control or worker
+		// goroutine may exist before the immutable packet is published.
+		h.mu.Unlock()
+		h.run(ctx, record)
+		h.mu.Lock()
+		return cloneOperationDocument(record.doc), nil
+	}
 	go h.run(ctx, record)
 	return doc, nil
 }

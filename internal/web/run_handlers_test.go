@@ -354,6 +354,76 @@ func TestBrowserRunPagesRenderAgentFactsForTheRunLoopGrid(t *testing.T) {
 	}
 }
 
+func TestRunQAStagesExposeEveryCanonicalStepAndStopState(t *testing.T) {
+	view := &runQAInsightsView{QA: app.QAResult{Phase: "blocked", AttemptID: "qa-v1-attempt-demo", MapFingerprint: strings.Repeat("a", 64), ChangedPaths: 3, CoveredPaths: 3, TotalShards: 2, CompletedShards: 2, Assessment: "pass_with_findings", IssueCount: 1, TerminalResult: "blocked"}, Attempts: 2, ApprovedChecks: 4, Commands: 3, ContextRequests: 1, Evidence: 5, Theories: 2, HasSynthesis: true, Synthesis: app.QASynthesisResult{ID: "qa-v1-synthesis-demo", TheoryIDs: []string{"one", "two"}}}
+	stages := buildRunQAStages(view)
+	if len(stages) != 8 {
+		t.Fatalf("stage count=%d", len(stages))
+	}
+	want := []string{"admission", "map", "investigation", "checks", "evidence", "synthesis", "adjudication", "terminal"}
+	for i, id := range want {
+		if stages[i].ID != id || stages[i].Anchor == "" || stages[i].Summary == "" {
+			t.Fatalf("stage[%d]=%+v", i, stages[i])
+		}
+	}
+	if stages[6].State != "failed" || stages[len(stages)-1].State != "complete" {
+		t.Fatalf("stopped stages=%+v", stages)
+	}
+	anchors := map[string]bool{}
+	for _, stage := range stages {
+		if anchors[stage.Anchor] {
+			t.Fatalf("duplicate anchor %q", stage.Anchor)
+		}
+		anchors[stage.Anchor] = true
+	}
+}
+
+func TestRunQAStagesCompleteZeroShardTerminalRun(t *testing.T) {
+	view := &runQAInsightsView{QA: app.QAResult{Phase: "completed", AttemptID: "attempt", MapFingerprint: "map", TerminalResult: "completed", Assessment: "pass"}, HasSynthesis: true}
+	stages := buildRunQAStages(view)
+	for _, stage := range stages {
+		if stage.State != "complete" {
+			t.Fatalf("zero-shard terminal stage=%+v", stage)
+		}
+	}
+}
+
+func TestRunQAStagesHaveOneTruthfulFrontier(t *testing.T) {
+	cases := []struct {
+		name, phase string
+		qa          app.QAResult
+		synthesis   bool
+		active      string
+	}{
+		{name: "admission", qa: app.QAResult{}, active: "admission"},
+		{name: "map", qa: app.QAResult{AttemptID: "attempt"}, active: "map"},
+		{name: "queued", phase: "queued", qa: app.QAResult{AttemptID: "attempt", MapFingerprint: "map", TotalShards: 2}, active: "investigation"},
+		{name: "running partial", phase: "running", qa: app.QAResult{AttemptID: "attempt", MapFingerprint: "map", TotalShards: 2, CompletedShards: 1}, active: "investigation"},
+		{name: "synthesizing zero checks", phase: "synthesizing", qa: app.QAResult{AttemptID: "attempt", MapFingerprint: "map", TotalShards: 2, CompletedShards: 2}, active: "synthesis"},
+		{name: "adjudicating", phase: "synthesizing", qa: app.QAResult{AttemptID: "attempt", MapFingerprint: "map", TotalShards: 2, CompletedShards: 2}, synthesis: true, active: "adjudication"},
+		{name: "terminalizing", phase: "synthesizing", qa: app.QAResult{AttemptID: "attempt", MapFingerprint: "map", TotalShards: 2, CompletedShards: 2, Assessment: "pass"}, synthesis: true, active: "terminal"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			test.qa.Phase = test.phase
+			view := &runQAInsightsView{QA: test.qa, HasSynthesis: test.synthesis}
+			stages := buildRunQAStages(view)
+			active := ""
+			for _, stage := range stages {
+				if stage.State == "active" {
+					if active != "" {
+						t.Fatalf("multiple active stages: %s and %s", active, stage.ID)
+					}
+					active = stage.ID
+				}
+			}
+			if active != test.active {
+				t.Fatalf("active=%q want=%q stages=%+v", active, test.active, stages)
+			}
+		})
+	}
+}
+
 func TestBrowserRunDurableOperationCompatibilitySurvivesMissingLocalHubRecord(t *testing.T) {
 	runs := newFakeRunUseCases()
 	runs.snapshot.Target.Kind = "operation"

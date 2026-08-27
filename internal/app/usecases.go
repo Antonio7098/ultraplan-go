@@ -106,6 +106,32 @@ func (u dashboardUseCases) AcceptOperation(ctx context.Context, confirmation Con
 	}
 	return u.durable.AcceptOperation(ctx, confirmation, digest)
 }
+func (u dashboardUseCases) DispatchOperation(ctx context.Context, id string) (AcceptedOperation, error) {
+	if u.durable == nil {
+		return AcceptedOperation{}, ErrWebUnavailable
+	}
+	return u.durable.DispatchOperation(ctx, id)
+}
+func (u dashboardUseCases) ConfirmAcceptedOperation(ctx context.Context, accepted AcceptedOperation, confirmation Confirmation) error {
+	if confirmation.Request.Kind != OperationRepairStart {
+		return nil
+	}
+	token, fence, err := qaOwnershipFromContext(accepted.Context)
+	if err != nil {
+		return err
+	}
+	if token.RunID != accepted.RunID {
+		return errors.New("accepted repair operation and writer ownership do not match")
+	}
+	service := u.sprintService().WithQAWriterFence(fence)
+	_, err = service.ConfirmRepair(ctx, confirmation.Request.Project, confirmation.Request.Sprint, sprint.RepairConfirmRequest{
+		RepairRunID:    confirmation.Request.RepairRunID,
+		Confirmer:      confirmation.Request.RepairConfirmer,
+		AutomaticOptIn: confirmation.Request.RepairAutomaticOptIn,
+		WriterToken:    token,
+	})
+	return err
+}
 func (u dashboardUseCases) RecordOperationEvent(ctx context.Context, id string, event OperationEvent) (bool, error) {
 	if u.durable == nil {
 		return false, ErrWebUnavailable

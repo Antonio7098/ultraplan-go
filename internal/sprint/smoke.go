@@ -79,7 +79,7 @@ func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req
 	result.ReviewOverride = req.ForceReview
 	result.Ready = true
 	result.EffectiveTimeout, result.TimeoutSource = smokeTimeout(s.smokeSettings, prepared.Manifest, req)
-	if !req.DryRun {
+	if !req.DryRun && !req.RepairVerification {
 		emit(SmokeProgress{Phase: SmokePhaseAuthoring, Message: "authoring sprint-specific deep-smoke coverage"})
 		if err := s.authorSmokeSuite(ctx, prepared, &result); err != nil {
 			return smokeFailedResult(result, err)
@@ -133,7 +133,7 @@ func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req
 		}
 		return s.commitSmoke(prepared, result)
 	}
-	if selection.DiagnosticOnly {
+	if selection.DiagnosticOnly && !req.RepairVerification {
 		result.Diagnostics = append(result.Diagnostics, "selected diagnostic scope does not replace required containing-suite evidence")
 		result.NextAction = "Run the complete containing suite before treating smoke as current."
 	}
@@ -177,7 +177,7 @@ func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req
 	result.Verdict = synthesizeSmokeVerdict(result.Counts, issues)
 	result.Status = SmokeCompleted
 	result.NextAction = nextSmokeAction(result)
-	if result.DiagnosticOnly {
+	if result.DiagnosticOnly || req.RepairVerification {
 		return result, nil
 	}
 	emit(SmokeProgress{Phase: SmokePhaseWritingArtifact, Message: "writing validated smoke summary"})

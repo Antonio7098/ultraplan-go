@@ -67,3 +67,41 @@ func TestQAViewRendersFocusedStateAndExposesBoundedOperations(t *testing.T) {
 		}
 	}
 }
+
+func TestRepairViewKeepsSemanticOutcomeSeparateAndOffersOneGuardedStart(t *testing.T) {
+	data := fixtureDashboard()
+	data.Sprints[0].Repair = app.RepairStatusResult{
+		SchemaVersion: 1, Project: data.Sprints[0].Project, Sprint: data.Sprints[0].Slug,
+		Phase: "prepared", Fresh: true, Mode: "manual", RepairRunID: "repair-v1-run-aaaaaaaaaaaaaaaaaaaaaaaa", RunLifecycle: "terminal",
+		Packet:     &app.RepairPacketSummary{Digest: "sha256:packet", IssueID: "qa-v1-issue-current", IssueTitle: "bounded failure", Target: app.QATargetIdentitySummary{Fingerprint: "target"}, CheckCount: 7, Budgets: app.RepairBudgetSummary{MaxMutationCycles: 1, MaxFiles: 8, MaxBytes: 1024, WallTime: "45m0s"}},
+		NextAction: "Review and confirm the frozen packet.",
+	}
+	model := Model{Data: data, Routes: []Route{{Kind: RouteSprintRepair, Project: data.Sprints[0].Project, Sprint: data.Sprints[0].Slug}}}
+	var view strings.Builder
+	renderRouteSummary(&view, model)
+	for _, want := range []string{"Bounded repair", "Fresh authority: true", "Issue: qa-v1-issue-current", "Limits: 1 apply", "Automatic mode: unavailable", "Review and confirm"} {
+		if !strings.Contains(view.String(), want) {
+			t.Fatalf("repair view missing %q: %s", want, view.String())
+		}
+	}
+	items := model.navItems()
+	guarded := 0
+	for _, item := range items {
+		if item.Operation != nil && item.Operation.Kind == app.OperationRepairStart {
+			guarded++
+			if item.Operation.RepairRunID != data.Sprints[0].Repair.RepairRunID || item.Operation.RepairConfirmer == "" {
+				t.Fatalf("guarded repair request=%+v", item.Operation)
+			}
+		}
+	}
+	if guarded != 1 {
+		t.Fatalf("guarded repair starts=%d items=%+v", guarded, items)
+	}
+	data.Sprints[0].Repair.Confirmation = &app.RepairConfirmSummary{Digest: "confirmation", Confirmer: "operator"}
+	model.Data = data
+	for _, item := range model.navItems() {
+		if item.Operation != nil && item.Operation.Kind == app.OperationRepairStart {
+			t.Fatal("confirmed packet still offered another start confirmation")
+		}
+	}
+}

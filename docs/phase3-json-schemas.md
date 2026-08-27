@@ -56,9 +56,19 @@ Verification IDs are deterministic only inside schema v1 and the selected projec
 
 No QA state migration ships in this release. Future migrations must be ordered pure transforms with fixtures for the prior and next forms. They must preserve the current attempt, last readable records, review fingerprint, run correlation, and pointer digests or stop without replacing the prior state. Operators should keep the existing files intact, use a compatible UltraPlan binary, and run `qa recover` only after that binary recognizes the stored major version.
 
-`flow-state.json` remains schema version 2 and now permits the optional bounded `qa` member. A pre-Sprint-36 binary uses strict unknown-field decoding, so it rejects a QA-published flow state as malformed. It does not delete or rewrite the file. Mixed-version processes must not share a workspace after QA publication. Upgrade every process that can touch the workspace before publishing QA state. This accepted compatibility limit is specific to the single-host deployment model and is frozen by compatibility tests.
+`flow-state.json` schema version 3 permits optional bounded `qa` and `repair` members. The ordered migration accepts version 2 and adds an empty repair summary without changing planning, review, smoke, or QA fields. Older strict binaries reject the newer flow state as malformed but do not delete or rewrite it. Mixed-version processes must not share a workspace after repair publication.
 
 Unknown major versions fail closed. Version 1 readers reject unknown fields, trailing JSON, unsafe paths or modes, invalid IDs, and digest mismatches. IDs are deterministic only in their documented schema/project/sprint scope and make no global content-identity claim. There is no automatic downgrade or inference from older records; a future migration must be explicit, fixture-tested, and preserve the last readable state.
+
+## Bounded repair
+
+Public repair CLI and HTTP responses use schema version 1. Status separates phase, freshness, durable lifecycle, mode, semantic outcome, stop reason, cleanup, production-apply and complete-ladder facts. Packet projections expose identities, allowed/protected paths, criteria, check count, target, and budgets, but never patch bodies, production contents, prompts, private preimages, environment values, or raw output.
+
+The packet budget projection includes sorted `sources` entries with a `qa.repair.*` field and its effective source. Repair gate results may include a bounded, redacted `diagnostic` for a process-runner failure. Terminal operational events use stable `repair.terminal.<outcome>` or `repair.recovery.<outcome>` codes and carry severity plus project, sprint, repair run, durable run, attempt, and fencing correlation.
+
+Private repair records use strict `QARepairSchemaVersion: 1`: `repair-state.json`; immutable `issue-packet.json` and `confirmation.json`; per-cycle proposal, scope, apply journal, reverification, cleanup, and cycle records; immutable `result.json`; and the lower-only `manual-repair-proof.json`. Artifact references contain a contained relative path and SHA-256 digest. Apply journal states are `planned`, `applying`, `applied`, `compensated`, and `uncertain`.
+
+Closed repair phases are `missing`, `prepared`, `confirmed`, `proposing`, `applying`, `reverifying`, `cleaning`, `terminalizing`, `terminal`, `interrupted`, and `stale`. Closed outcomes are `verified`, `verified_with_findings`, `failed`, `blocked`, `escalated`, and `stalled`; manual mode cannot publish `stalled`. A verified result requires a production apply, the complete ordered ladder, no unresolved issue, current target identity, and complete cleanup.
 
 ## Smoke
 

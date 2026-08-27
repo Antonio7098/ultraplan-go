@@ -26,13 +26,21 @@
   </div>
 
   <dl class="qa-fact-strip" aria-label="QA investigation totals">
-    <div><dt>Coverage</dt><dd>{{$qa.CoveredPaths}} / {{$qa.ChangedPaths}}</dd><small>changed paths</small></div>
+    <div id="qa-map-facts"><dt>Coverage</dt><dd>{{$qa.CoveredPaths}} / {{$qa.ChangedPaths}}</dd><small>changed paths</small></div>
     <div><dt>Attempts</dt><dd>{{.Attempts}}</dd><small>investigator runs</small></div>
     <div><dt>Theories</dt><dd>{{.Theories}}</dd><small>retained claims</small></div>
-    <div><dt>Checks</dt><dd>{{.Commands}}</dd><small>approved executions</small></div>
+    <div id="qa-checks-detail"><dt>Checks</dt><dd>{{.Commands}}</dd><small>approved executions</small></div>
     <div><dt>Context</dt><dd>{{.ContextRequests}}</dd><small>expansion requests</small></div>
-    <div><dt>Evidence</dt><dd>{{.Evidence}}</dd><small>safe summaries</small></div>
+    <div id="qa-evidence-detail"><dt>Evidence</dt><dd>{{.Evidence}}</dd><small>safe summaries</small></div>
   </dl>
+
+  <section class="qa-process-map" aria-labelledby="qa-process-map-heading" data-qa-process-map>
+    <header class="qa-section-heading"><div><h3 id="qa-process-map-heading">Canonical QA path</h3><p>Every product-owned stage in order. Select a stage to jump to its retained facts.</p></div><span class="status qa-phase-{{$qa.Phase}}">{{$qa.Phase}}</span></header>
+    <ol class="qa-process-track" aria-label="QA stage progress">
+      {{range .Stages}}<li data-qa-stage="{{.ID}}" data-stage-state="{{.State}}"><a href="#{{.Anchor}}"><span class="qa-process-marker" aria-hidden="true"></span><span class="qa-process-copy"><strong>{{.Label}}</strong><small>{{.Summary}}</small>{{with .Count}}<b>{{.}}</b>{{end}}{{with .Detail}}<em>{{.}}</em>{{end}}</span><span class="visually-hidden">Stage state: {{.State}}</span></a></li>{{end}}
+    </ol>
+    <div class="qa-process-legend" aria-label="Stage state legend"><span data-state="complete">Complete</span><span data-state="active">Active</span><span data-state="pending">Pending</span><span data-state="failed">Stopped here</span></div>
+  </section>
 
   <div class="qa-cockpit-grid">
     <div class="qa-cockpit-main">
@@ -96,6 +104,11 @@
             <details><summary>Follow-up shards · {{len $synth.FollowUpShards}}</summary>{{if $synth.FollowUpShards}}<ul class="qa-record-list">{{range $synth.FollowUpShards}}<li><div><strong>{{.Title}}</strong><span class="status qa-phase-{{.Phase}}">{{.Phase}}</span></div><code>{{.ID}}</code></li>{{end}}</ul>{{else}}<p class="empty">No follow-up shards generated.</p>{{end}}</details>
           </div>
         {{end}}
+      </section>
+      <section class="qa-canonical-outcome" id="qa-canonical-outcome" aria-labelledby="qa-canonical-outcome-heading">
+        <header class="qa-section-heading"><div><h3 id="qa-canonical-outcome-heading">Canonical outcome</h3><p>The product result derived from retained evidence. Runtime prose and live events cannot replace these facts.</p></div><span class="status qa-phase-{{$qa.Phase}}">{{$qa.Phase}}</span></header>
+        <dl class="qa-record-meta"><div id="qa-adjudication-detail"><dt>Assessment</dt><dd>{{if $qa.Assessment}}{{$qa.Assessment}}{{else}}Not adjudicated{{end}}</dd></div><div id="qa-terminal-detail"><dt>Terminal result</dt><dd>{{if $qa.TerminalResult}}{{$qa.TerminalResult}}{{else}}Not terminal{{end}}</dd></div><div><dt>Accepted evidence</dt><dd>{{$qa.EvidenceCount}}</dd></div><div><dt>Rejected evidence</dt><dd>{{$qa.RejectedEvidenceCount}}</dd></div><div><dt>Issues</dt><dd>{{$qa.IssueCount}}</dd></div><div><dt>Regression candidates</dt><dd>{{$qa.RegressionCandidateCount}}</dd></div></dl>
+        <p class="qa-synthesis-next"><strong>Next action</strong><span>{{$qa.NextAction}}</span></p>
       </section>
     </div>
 

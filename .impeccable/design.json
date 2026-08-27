@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-24T00:00:00Z",
-  "title": "Design System: UltraPlan entity dashboards",
+  "generatedAt": "2026-08-27T00:00:00Z",
+  "title": "Design System: UltraPlan operating dashboards",
   "extensions": {
     "colorMeta": {
       "workspace": { "role": "neutral", "displayName": "Workspace Plum", "canonical": "oklch(0.22813 0.020366 307.469)", "tonalRamp": ["oklch(0.15 0.020366 307.469)", "oklch(0.23 0.020366 307.469)", "oklch(0.32 0.020366 307.469)", "oklch(0.43 0.020366 307.469)", "oklch(0.55 0.020366 307.469)", "oklch(0.67 0.020366 307.469)", "oklch(0.80 0.020366 307.469)", "oklch(0.95 0.020366 307.469)"] },
@@ -37,10 +37,13 @@
     ],
     "motion": [
       { "name": "dashboard-state", "value": "180ms ease", "purpose": "Border and background changes on linked dashboard panels." },
-      { "name": "dashboard-lift", "value": "180ms cubic-bezier(.22, 1, .36, 1)", "purpose": "The 2px lift on a linked panel." }
+      { "name": "dashboard-lift", "value": "180ms cubic-bezier(.22, 1, .36, 1)", "purpose": "The 2px lift on a linked panel." },
+      { "name": "qa-stage-arrival", "value": "700ms cubic-bezier(.16, 1, .3, 1)", "purpose": "One arrival animation on the active canonical QA stage. Disabled under prefers-reduced-motion: reduce." }
     ],
     "breakpoints": [
-      { "name": "dashboard-stack", "value": "48rem" }
+      { "name": "qa-sequence-two-column", "value": "64rem" },
+      { "name": "dashboard-stack", "value": "48rem" },
+      { "name": "qa-sequence-one-column", "value": "48rem" }
     ]
   },
   "components": [
@@ -97,14 +100,22 @@
       "description": "A compact findings region reserved for work that needs inspection.",
       "html": "<section class=\"ds-attention\"><div><h2>Attention</h2><strong>2 open</strong></div><p>Validation found stale sprint evidence.</p></section>",
       "css": ".ds-attention { padding: 1.15rem; border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border)); border-radius: var(--radius); background: var(--panel); color: var(--text); font: 14px/1.55 var(--sans); } .ds-attention div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; } .ds-attention h2 { margin: 0; font-size: 1.05rem; } .ds-attention strong { color: var(--muted); font-size: .82rem; } .ds-attention p { margin: .75rem 0 0; color: var(--muted); }"
+    },
+    {
+      "name": "Canonical QA Path",
+      "kind": "custom",
+      "description": "An eight-stage run map with direct anchors into retained QA facts and complete, active, pending, and failed states.",
+      "html": "<ol class=\"ds-qa-path\" aria-label=\"QA stage progress\"><li data-state=\"complete\"><a href=\"#admission\"><i></i><strong>Admission</strong><span class=\"visually-hidden\">Stage state: complete</span></a></li><li data-state=\"complete\"><a href=\"#qa-map\"><i></i><strong>QA map</strong><span class=\"visually-hidden\">Stage state: complete</span></a></li><li data-state=\"active\"><a href=\"#investigate\"><i></i><strong>Investigate</strong><span class=\"visually-hidden\">Stage state: active</span></a></li><li data-state=\"pending\"><a href=\"#checks\"><i></i><strong>Checks</strong><span class=\"visually-hidden\">Stage state: pending</span></a></li><li data-state=\"pending\"><a href=\"#evidence\"><i></i><strong>Evidence</strong><span class=\"visually-hidden\">Stage state: pending</span></a></li><li data-state=\"pending\"><a href=\"#synthesis\"><i></i><strong>Synthesis</strong><span class=\"visually-hidden\">Stage state: pending</span></a></li><li data-state=\"pending\"><a href=\"#adjudication\"><i></i><strong>Adjudication</strong><span class=\"visually-hidden\">Stage state: pending</span></a></li><li data-state=\"failed\"><a href=\"#terminal\"><i></i><strong>Terminal</strong><span class=\"visually-hidden\">Stage state: failed</span></a></li></ol>",
+      "css": ".ds-qa-path { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; counter-reset: qa-stage; } .ds-qa-path li { position: relative; counter-increment: qa-stage; } .ds-qa-path a { display: grid; grid-template-columns: 2.1rem minmax(0, 1fr); gap: .65rem; color: var(--muted); text-decoration: none; } .ds-qa-path i { display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border: 2px solid var(--border); border-radius: 50%; background: var(--panel); font-style: normal; } .ds-qa-path i::before { content: counter(qa-stage); } .ds-qa-path [data-state=complete] i { border-color: var(--success); background: var(--success); color: var(--bg); } .ds-qa-path [data-state=complete] i::before { content: '✓'; } .ds-qa-path [data-state=active] i { border-color: var(--accent-strong); background: var(--accent-soft); color: var(--accent-strong); box-shadow: 0 4px 18px color-mix(in oklab, var(--accent) 28%, transparent); animation: qa-stage-arrival 700ms cubic-bezier(.16, 1, .3, 1) both; } .ds-qa-path [data-state=failed] i { border-color: var(--danger); color: var(--danger); } .ds-qa-path [data-state=failed] i::before { content: '!'; } @media (max-width: 64rem) { .ds-qa-path { grid-template-columns: repeat(2, minmax(0, 1fr)); } } @media (max-width: 48rem) { .ds-qa-path { grid-template-columns: 1fr; } } @media (prefers-reduced-motion: reduce) { .ds-qa-path * { animation: none !important; transition: none !important; } }"
     }
   ],
   "narrative": {
     "northStar": "The governed workbench",
-    "overview": "UltraPlan's project, sprint, and study overviews are dark operating dashboards. They place the entity's current truth first, then expose the evidence needed to judge it. The interface is compact and calm. Fine borders and close tonal steps separate information without turning every fact into a card.\n\nEach overview uses one dashboard grammar, but its previews keep the shape of the underlying work. A roadmap reads as a sequence, a sprint reads as staged execution, and a study reads as a research matrix. Actions sit inside the panel whose state they change. Linked panels become the navigation when they contain no competing controls.",
+    "overview": "UltraPlan's project, sprint, and study overviews and its run detail pages are dark operating dashboards. They place current truth first, then expose the evidence needed to judge it. The interface is compact and calm. Fine borders and close tonal steps separate information without turning every fact into a card.\n\nEach overview uses one dashboard grammar, but its previews keep the shape of the underlying work. A roadmap reads as a sequence, a sprint reads as staged execution, and a study reads as a research matrix. Actions sit inside the panel whose state they change. Linked panels become the navigation when they contain no competing controls.\n\nRun pages use the same grammar at greater density. The QA command center begins with the canonical snapshot and ordered path, then keeps investigation records, synthesis, outcome, identity, and limits available through semantic disclosures. A historical run never borrows facts from the newer canonical pointer.",
     "keyCharacteristics": [
       "One dominant current-state panel per entity overview",
       "Truthful progress that distinguishes complete, active, failed, stale, and pending work",
+      "Canonical run paths that link stages directly to their retained facts",
       "Content-shaped evidence previews instead of interchangeable statistic tiles",
       "Compact attention regions reserved for findings and degraded health",
       "Full-width stacking below the 48rem breakpoint"
@@ -116,20 +127,26 @@
       { "name": "The Current State Rule", "body": "Give one panel clear visual and spatial priority. It must answer what is happening now and what the next valid action is.", "section": "layout" },
       { "name": "The Flat-by-Default Rule", "body": "Borders and tonal layering establish ordinary hierarchy. Reserve a real shadow for the single dominant current-state panel.", "section": "elevation" },
       { "name": "The Evidence Keeps Its Shape Rule", "body": "Choose a preview that matches the underlying artifact or process. Do not replace timelines, matrices, sequences, or document excerpts with generic number cards.", "section": "components" },
-      { "name": "The Control Adjacency Rule", "body": "An action belongs beside the state or object it changes. A panel with nested controls is not a whole-panel link.", "section": "components" }
+      { "name": "The Control Adjacency Rule", "body": "An action belongs beside the state or object it changes. A panel with nested controls is not a whole-panel link.", "section": "components" },
+      { "name": "The Canonical Pointer Rule", "body": "A run page shows canonical QA facts only when that run owns the current pointer. Never mix a historical event journal with a newer run's QA snapshot.", "section": "components" },
+      { "name": "The Live Disclosure Rule", "body": "A live refresh may replace data, but it must not close a disclosure the operator opened or move focus out of the command center.", "section": "components" }
     ],
     "dos": [
       "**Do** make the dominant panel answer current state, progress, and next action with real workflow data.",
       "**Do** preserve complete, active, failed, stale, and pending distinctions in progress previews.",
+      "**Do** keep all eight QA stages in canonical order and link each one to retained facts.",
       "**Do** use content-shaped evidence such as timelines, matrices, stage rails, decision lists, and document excerpts.",
       "**Do** make a control-free dashboard panel one coherent keyboard-focusable link.",
       "**Do** keep actions inside the panel whose state they change.",
+      "**Do** preserve open QA disclosures during canonical live refresh.",
       "**Do** stack panels in a truthful reading order below 48rem."
     ],
     "donts": [
       "**Don't** fill the overview with equal-weight metric cards.",
       "**Don't** turn semantic state colors into decoration.",
       "**Don't** hide failure, stale evidence, or waiting work inside a single completion percentage.",
+      "**Don't** let live runtime prose replace the canonical QA snapshot or retained evidence.",
+      "**Don't** show facts from the current canonical run inside a historical run page.",
       "**Don't** wrap a panel in a link when it contains buttons, forms, or conflicting destinations.",
       "**Don't** promote empty attention or healthy reliability into a dominant panel.",
       "**Don't** use decorative shadows on ordinary dashboard panels."

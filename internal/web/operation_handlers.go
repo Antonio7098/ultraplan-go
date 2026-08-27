@@ -40,6 +40,9 @@ type operationOptionsRequest struct {
 	Sources           []string `json:"sources,omitempty"`
 	Dimensions        []string `json:"dimensions,omitempty"`
 	Parallelism       int      `json:"parallelism,omitempty"`
+	RepairRunID       string   `json:"repair_run_id,omitempty"`
+	RepairIssueID     string   `json:"repair_issue_id,omitempty"`
+	RepairConfirmer   string   `json:"repair_confirmer,omitempty"`
 }
 
 type operationSpecRequest struct {
@@ -163,7 +166,11 @@ func (h *handler) handleOperationStart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", "/api/v1/operations/"+doc.ID)
 	w.Header().Set("Link", "</api/v1/runs/"+doc.ID+">; rel=canonical")
 	h.logOperation(r, "operation_started", doc.ID, string(doc.Kind), doc.State, "")
-	h.writeSuccess(w, r, http.StatusAccepted, doc, nil)
+	status := http.StatusAccepted
+	if doc.Kind == app.OperationRepairPrepare && (doc.State == string(app.OperationComplete) || doc.State == string(app.OperationFailed) || doc.State == string(app.OperationCancelled) || doc.State == string(app.OperationPartial)) {
+		status = http.StatusOK
+	}
+	h.writeSuccess(w, r, status, doc, nil)
 }
 
 func (h *handler) handleOperationStatus(w http.ResponseWriter, r *http.Request, id string) {
@@ -549,6 +556,7 @@ func operationSpecFromForm(r *http.Request) operationSpecRequest {
 			Model:       strings.TrimSpace(r.FormValue("model")),
 			Suite:       strings.TrimSpace(r.FormValue("suite")),
 			Parallelism: parallelism,
+			RepairRunID: strings.TrimSpace(r.FormValue("repair_run_id")), RepairIssueID: strings.TrimSpace(r.FormValue("repair_issue_id")), RepairConfirmer: strings.TrimSpace(r.FormValue("repair_confirmer")),
 		},
 	}
 }
@@ -619,6 +627,7 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 		Level: options.Level, Suite: options.Suite, Test: options.Test, Timeout: options.Timeout,
 		ForceReview: options.ForceReview, RestartReview: options.RestartReview, OverrideRationale: options.OverrideRationale,
 		ReviewFocus: options.ReviewFocus, Sources: options.Sources, Dimensions: options.Dimensions, Parallelism: options.Parallelism,
+		RepairRunID: options.RepairRunID, RepairIssueID: options.RepairIssueID, RepairConfirmer: options.RepairConfirmer,
 	}
 	kind := strings.ReplaceAll(strings.TrimSpace(spec.Kind), "_", "-")
 	switch kind {
@@ -705,6 +714,16 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 		req.Task = options.Shard
 	case "qa-recover":
 		req.Kind = app.OperationQARecover
+	case "repair-prepare":
+		req.Kind = app.OperationRepairPrepare
+		req.RepairMode = "manual"
+	case "repair-start":
+		req.Kind = app.OperationRepairStart
+		req.RepairMode = "manual"
+	case "repair-resume":
+		req.Kind = app.OperationRepairResume
+	case "repair-recover":
+		req.Kind = app.OperationRepairRecover
 	case "study-run-loop", "study-start":
 		if options.Resume {
 			req.Kind = app.OperationStudyResume
@@ -749,6 +768,11 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 			return app.OperationRequest{}, fmt.Errorf("QA shard is valid only for start or resume")
 		}
 	}
+	if strings.HasPrefix(string(req.Kind), "repair-") {
+		if options.Task != "" || options.Shard != "" || options.Model != "" || options.Stage != "" || options.ToStage != "" || options.Action != "" || options.DryRun || options.Resume || options.Level != "" || options.Suite != "" || options.Test != "" || options.Timeout != "" || options.ForceReview || options.RestartReview || options.OverrideRationale != "" || len(options.ReviewFocus) > 0 || len(options.Sources) > 0 || len(options.Dimensions) > 0 || options.Parallelism != 0 {
+			return app.OperationRequest{}, fmt.Errorf("repair operations accept only repair-specific options")
+		}
+	}
 	return req, nil
 }
 
@@ -782,6 +806,15 @@ func mapOperationSpec(req app.OperationRequest) map[string]any {
 	}
 	if req.Suite != "" {
 		options["suite"] = req.Suite
+	}
+	if req.RepairRunID != "" {
+		options["repair_run_id"] = req.RepairRunID
+	}
+	if req.RepairIssueID != "" {
+		options["repair_issue_id"] = req.RepairIssueID
+	}
+	if req.RepairConfirmer != "" {
+		options["repair_confirmer"] = req.RepairConfirmer
 	}
 	return map[string]any{"kind": req.Kind, "scope": scope, "options": options}
 }
