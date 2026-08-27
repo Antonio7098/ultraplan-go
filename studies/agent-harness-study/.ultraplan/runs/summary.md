@@ -1,7 +1,7 @@
 # Study Run Summary
 
 - Study: `agent-harness-study`
-- Updated: `2026-08-26T18:55:10Z`
+- Updated: `2026-08-27T08:46:50Z`
 - Study progress state: `.ultraplan/run-state.json`
 - Ledger: `.ultraplan/runs/tasks.jsonl`
 
@@ -9,29 +9,22 @@
 
 | Metric | Value |
 | --- | ---: |
-| Runs recorded | 967 |
-| Completed | 753 |
+| Runs recorded | 1031 |
+| Completed | 796 |
 | Failed | 110 |
-| Cancelled | 104 |
+| Cancelled | 125 |
 | Skipped | 0 |
-| Remaining tasks | 149 |
-| Dimensions seen | 101 |
+| Remaining tasks | 106 |
+| Dimensions seen | 104 |
 | Sources seen | 10 |
 
 ## Remaining Work
 
 | Dimension | Source | Kind | Status |
 | --- | --- | --- | --- |
-| 06.01-planning-location-responsibility | agent-framework | analysis | pending |
-| 06.01-planning-location-responsibility | crewai | analysis | pending |
-| 06.01-planning-location-responsibility | langgraph | analysis | pending |
-| 06.01-planning-location-responsibility | letta | analysis | pending |
-| 06.01-planning-location-responsibility | openai-agents-sdk | analysis | pending |
 | 06.01-planning-location-responsibility | openhands | analysis | pending |
-| 06.01-planning-location-responsibility | pydantic-ai | analysis | pending |
 | 06.02-task-decomposition-representation | agent-framework | analysis | pending |
 | 06.02-task-decomposition-representation | crewai | analysis | pending |
-| 06.02-task-decomposition-representation | langgraph | analysis | pending |
 | 06.02-task-decomposition-representation | openai-agents-sdk | analysis | pending |
 | 06.02-task-decomposition-representation | openhands | analysis | pending |
 | 06.02-task-decomposition-representation | pydantic-ai | analysis | pending |
@@ -96,24 +89,12 @@
 | 18.02-trajectory-evaluation | openai-agents-sdk | analysis | pending |
 | 18.02-trajectory-evaluation | openhands | analysis | pending |
 | 18.02-trajectory-evaluation | pydantic-ai | analysis | pending |
-| 19.01-protocol-compatibility | crewai | analysis | pending |
-| 19.01-protocol-compatibility | pydantic-ai | analysis | pending |
 | 19.02-portable-trace-eval-prompt-schemas | agent-framework | analysis | pending |
 | 19.02-portable-trace-eval-prompt-schemas | langfuse | analysis | pending |
 | 19.02-portable-trace-eval-prompt-schemas | langgraph | analysis | pending |
 | 19.02-portable-trace-eval-prompt-schemas | openai-agents-sdk | analysis | pending |
 | 19.02-portable-trace-eval-prompt-schemas | openhands | analysis | pending |
 | 19.02-portable-trace-eval-prompt-schemas | pydantic-ai | analysis | pending |
-| 19.03-adapter-interop-boundary-design | agent-framework | analysis | pending |
-| 19.03-adapter-interop-boundary-design | crewai | analysis | pending |
-| 19.03-adapter-interop-boundary-design | langfuse | analysis | pending |
-| 19.03-adapter-interop-boundary-design | langgraph | analysis | pending |
-| 19.03-adapter-interop-boundary-design | letta | analysis | pending |
-| 19.03-adapter-interop-boundary-design | opa | analysis | pending |
-| 19.03-adapter-interop-boundary-design | openai-agents-sdk | analysis | pending |
-| 19.03-adapter-interop-boundary-design | openhands | analysis | pending |
-| 19.03-adapter-interop-boundary-design | pydantic-ai | analysis | pending |
-| 19.03-adapter-interop-boundary-design | temporal | analysis | pending |
 | 21.01-plugin-extension-points | agent-framework | analysis | pending |
 | 21.01-plugin-extension-points | crewai | analysis | pending |
 | 21.01-plugin-extension-points | langfuse | analysis | pending |
@@ -124,16 +105,6 @@
 | 21.01-plugin-extension-points | openhands | analysis | pending |
 | 21.01-plugin-extension-points | pydantic-ai | analysis | pending |
 | 21.01-plugin-extension-points | temporal | analysis | pending |
-| 21.03-extension-compatibility-testing | agent-framework | analysis | pending |
-| 21.03-extension-compatibility-testing | crewai | analysis | pending |
-| 21.03-extension-compatibility-testing | langfuse | analysis | pending |
-| 21.03-extension-compatibility-testing | langgraph | analysis | pending |
-| 21.03-extension-compatibility-testing | letta | analysis | pending |
-| 21.03-extension-compatibility-testing | opa | analysis | pending |
-| 21.03-extension-compatibility-testing | openai-agents-sdk | analysis | pending |
-| 21.03-extension-compatibility-testing | openhands | analysis | pending |
-| 21.03-extension-compatibility-testing | pydantic-ai | analysis | pending |
-| 21.03-extension-compatibility-testing | temporal | analysis | pending |
 | 23.03-responsibility-accountability-model | agent-framework | analysis | pending |
 | 23.03-responsibility-accountability-model | crewai | analysis | pending |
 | 23.03-responsibility-accountability-model | langgraph | analysis | pending |
@@ -141,16 +112,6 @@
 | 23.03-responsibility-accountability-model | openai-agents-sdk | analysis | pending |
 | 23.03-responsibility-accountability-model | openhands | analysis | pending |
 | 23.03-responsibility-accountability-model | pydantic-ai | analysis | pending |
-| 24.03-api-versioning-compatibility | agent-framework | analysis | pending |
-| 24.03-api-versioning-compatibility | crewai | analysis | pending |
-| 24.03-api-versioning-compatibility | langfuse | analysis | pending |
-| 24.03-api-versioning-compatibility | langgraph | analysis | pending |
-| 24.03-api-versioning-compatibility | letta | analysis | pending |
-| 24.03-api-versioning-compatibility | opa | analysis | pending |
-| 24.03-api-versioning-compatibility | openai-agents-sdk | analysis | pending |
-| 24.03-api-versioning-compatibility | openhands | analysis | pending |
-| 24.03-api-versioning-compatibility | pydantic-ai | analysis | pending |
-| 24.03-api-versioning-compatibility | temporal | analysis | pending |
 | 06.03-plan-lifecycle-and-revision | (synthesis) | synthesis | pending |
 | 06.04-planner-executor-contract | (synthesis) | synthesis | pending |
 | 06.06-search-backtracking-alternatives | (synthesis) | synthesis | pending |
@@ -163,14 +124,10 @@
 | 16.03-artifact-provenance-reproducibility | (synthesis) | synthesis | pending |
 | 17.03-isolation-observability-escape-handling | (synthesis) | synthesis | pending |
 | 18.02-trajectory-evaluation | (synthesis) | synthesis | pending |
-| 19.01-protocol-compatibility | (synthesis) | synthesis | pending |
 | 19.02-portable-trace-eval-prompt-schemas | (synthesis) | synthesis | pending |
-| 19.03-adapter-interop-boundary-design | (synthesis) | synthesis | pending |
-| 20.03-quality-cost-routing | (synthesis) | synthesis | pending |
 | 21.01-plugin-extension-points | (synthesis) | synthesis | pending |
 | 21.03-extension-compatibility-testing | (synthesis) | synthesis | pending |
 | 23.03-responsibility-accountability-model | (synthesis) | synthesis | pending |
-| 24.03-api-versioning-compatibility | (synthesis) | synthesis | pending |
 
 ## Dimensions
 
@@ -220,8 +177,9 @@
 | 05.06-memory-compression-summarization | 6 | 6 | 0 | 10m29s | - | - |
 | 05.07-memory-privacy-scope-deletion | 6 | 5 | 1 | 7m28s | - | - |
 | 05.08-memory-evaluation-freshness | 2 | 2 | 0 | 7m30s | - | - |
-| 06.01-planning-location-responsibility | 1 | 0 | 1 | - | - | - |
-| 06.02-task-decomposition-representation | 1 | 0 | 1 | - | - | - |
+| 06.01-planning-location-responsibility | 10 | 6 | 1 | 6m14s | - | - |
+| 06.02-task-decomposition-representation | 16 | 1 | 1 | 14m54s | - | - |
+| 06.03-plan-lifecycle-and-revision | 1 | 0 | 0 | 18m28s | - | - |
 | 06.05-objective-progress-tracking | 10 | 9 | 1 | 9m15s | - | - |
 | 07.01-tool-scheduling-and-dispatch | 10 | 9 | 1 | 8m10s | - | - |
 | 07.02-sequential-vs-parallel-tool-execution | 8 | 8 | 0 | 12m09s | - | - |
@@ -263,12 +221,13 @@
 | 18.01-dataset-golden-task-management | 10 | 9 | 1 | 8m21s | - | - |
 | 18.03-regression-gating-ci-integration | 7 | 7 | 0 | 4m59s | - | - |
 | 18.04-cost-latency-quality-evaluation | 8 | 7 | 1 | 6m12s | - | - |
-| 19.01-protocol-compatibility | 19 | 8 | 8 | 2m36s | - | - |
-| 19.03-adapter-interop-boundary-design | 11 | 0 | 1 | 5m36s | - | - |
+| 19.01-protocol-compatibility | 22 | 11 | 8 | 3m47s | - | - |
+| 19.03-adapter-interop-boundary-design | 22 | 11 | 1 | 6m54s | - | - |
 | 20.01-token-cost-accounting | 9 | 8 | 1 | 9m37s | - | - |
 | 20.02-caching-batching-reuse | 9 | 8 | 1 | 9m40s | - | - |
-| 20.03-quality-cost-routing | 18 | 7 | 9 | 4m11s | - | - |
+| 20.03-quality-cost-routing | 19 | 8 | 9 | 4m51s | - | - |
 | 21.02-provider-backend-adapters | 12 | 11 | 1 | 10m50s | - | - |
+| 21.03-extension-compatibility-testing | 13 | 10 | 0 | 6m55s | - | - |
 | 22.01-package-module-boundaries | 11 | 11 | 0 | 6m10s | - | - |
 | 22.02-configuration-deployment-shape | 11 | 11 | 0 | 10m46s | - | - |
 | 22.03-docs-examples-contributor-workflow | 12 | 11 | 1 | 8m12s | - | - |
@@ -276,22 +235,23 @@
 | 23.02-persistence-vs-escalation-philosophy | 9 | 8 | 1 | 12m37s | - | - |
 | 24.01-public-api-surface | 11 | 11 | 0 | 4m40s | - | - |
 | 24.02-interface-contract-design | 11 | 11 | 0 | 4m00s | - | - |
+| 24.03-api-versioning-compatibility | 11 | 11 | 0 | 3m52s | - | - |
 | 24.04-embedding-and-host-integration-ergonomics | 15 | 11 | 3 | 10m01s | - | - |
 
 ## Sources
 
 | Source | Runs | Completed | Failed | Avg Duration | Tokens | Cost |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| agent-framework | 124 | 95 | 11 | 15m39s | 15537994 | 0.0000 USD |
-| crewai | 87 | 69 | 5 | 41m59s | - | - |
-| langfuse | 54 | 36 | 8 | 9m03s | 9182246 | 0.0000 USD |
-| langgraph | 96 | 82 | 5 | 28m21s | 35979503 | 0.0000 USD |
-| letta | 84 | 63 | 8 | 23m06s | 12264464 | 0.0000 USD |
-| opa | 37 | 28 | 3 | 7m58s | - | - |
-| openai-agents-sdk | 86 | 73 | 7 | 7m34s | 19387549 | 0.0000 USD |
-| openhands | 114 | 94 | 7 | 28m50s | 345185 | 0.0000 USD |
-| pydantic-ai | 67 | 61 | 2 | 10m06s | 17761026 | 0.0000 USD |
-| temporal | 63 | 51 | 1 | 24m55s | - | - |
+| agent-framework | 132 | 99 | 11 | 15m25s | 15537994 | 0.0000 USD |
+| crewai | 95 | 74 | 5 | 39m23s | - | - |
+| langfuse | 57 | 39 | 8 | 8m48s | 9182246 | 0.0000 USD |
+| langgraph | 101 | 87 | 5 | 27m12s | 35979503 | 0.0000 USD |
+| letta | 88 | 67 | 8 | 22m21s | 12264464 | 0.0000 USD |
+| opa | 40 | 31 | 3 | 7m38s | - | - |
+| openai-agents-sdk | 92 | 77 | 7 | 7m34s | 19387549 | 0.0000 USD |
+| openhands | 123 | 97 | 7 | 27m38s | 345185 | 0.0000 USD |
+| pydantic-ai | 75 | 66 | 2 | 10m03s | 17761026 | 0.0000 USD |
+| temporal | 66 | 54 | 1 | 24m01s | - | - |
 
 ## Runtime And Model
 
@@ -299,33 +259,33 @@
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | minimax-coding-plan / minimax-coding-plan / MiniMax-M3 | 384 | 308 | 24 | 36m58s | 110870742 | 0.0000 USD |
 | opencode / - / minimax-coding-plan/MiniMax-M3 | 55 | 1 | 49 | 5s | - | - |
-| opencode / opencode / muse-spark-1.2-contributor-free | 32 | 25 | 0 | 7m02s | - | - |
+| opencode / opencode / muse-spark-1.2-contributor-free | 96 | 68 | 0 | 8m31s | - | - |
 | openrouter / openrouter / stealth/ox-alpha | 496 | 419 | 37 | 12m04s | - | - |
 
 ## Recent Runs
 
 | Completed | Dimension | Source | Kind | Status | Duration | Model | Tokens | Cost |
 | --- | --- | --- | --- | --- | ---: | --- | ---: | ---: |
-| 2026-08-26T18:54:46Z | 20.03-quality-cost-routing | (synthesis) | synthesis | cancelled | 21m10s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | langgraph | analysis | cancelled | 9m34s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T18:54:46Z | 19.01-protocol-compatibility | pydantic-ai | analysis | cancelled | 8m49s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | letta | analysis | cancelled | 8m39s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | agent-framework | analysis | cancelled | 20m39s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | langfuse | analysis | cancelled | 9m12s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | crewai | analysis | cancelled | 9m56s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:36:41Z | 19.01-protocol-compatibility | openhands | analysis | completed | 6m39s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:36:36Z | 19.01-protocol-compatibility | temporal | analysis | completed | 5m06s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:33:29Z | 20.03-quality-cost-routing | openai-agents-sdk | analysis | completed | 11m42s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:33:13Z | 19.01-protocol-compatibility | openai-agents-sdk | analysis | completed | 3m15s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:31:29Z | 09.04-governance-evidence-generation | (synthesis) | synthesis | completed | 3m02s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:31:29Z | 19.01-protocol-compatibility | opa | analysis | completed | 1m54s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:31:17Z | 09.02-risk-taxonomy-control-mapping | (synthesis) | synthesis | completed | 10m14s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:30:00Z | 19.01-protocol-compatibility | langfuse | analysis | completed | 3m05s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:29:57Z | 19.01-protocol-compatibility | letta | analysis | completed | 2m12s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:29:34Z | 19.01-protocol-compatibility | langgraph | analysis | completed | 2m06s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:28:27Z | 09.04-governance-evidence-generation | agent-framework | analysis | completed | 15m20s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:27:45Z | 19.01-protocol-compatibility | agent-framework | analysis | completed | 1m38s | muse-spark-1.2-contributor-free | - | - |
-| 2026-08-26T14:27:27Z | 20.03-quality-cost-routing | openhands | analysis | completed | 5m22s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:46:45Z | 06.02-task-decomposition-representation | pydantic-ai | analysis | cancelled | 12m27s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:46:45Z | 06.02-task-decomposition-representation | agent-framework | analysis | cancelled | 12m27s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:46:45Z | 06.01-planning-location-responsibility | openhands | analysis | cancelled | 12m27s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:46:45Z | 06.02-task-decomposition-representation | openai-agents-sdk | analysis | cancelled | 12m27s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:46:44Z | 21.03-extension-compatibility-testing | (synthesis) | synthesis | cancelled | 12m26s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:46:44Z | 06.02-task-decomposition-representation | crewai | analysis | cancelled | 12m25s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:46:43Z | 06.02-task-decomposition-representation | openhands | analysis | cancelled | 12m25s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:34:11Z | 06.02-task-decomposition-representation | pydantic-ai | analysis | cancelled | 19m30s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:34:11Z | 06.02-task-decomposition-representation | agent-framework | analysis | cancelled | 19m30s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:34:11Z | 06.02-task-decomposition-representation | openai-agents-sdk | analysis | cancelled | 19m30s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:34:11Z | 21.03-extension-compatibility-testing | (synthesis) | synthesis | cancelled | 19m30s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:34:11Z | 06.02-task-decomposition-representation | openhands | analysis | cancelled | 19m30s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:34:11Z | 06.01-planning-location-responsibility | openhands | analysis | cancelled | 19m30s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:34:11Z | 06.02-task-decomposition-representation | crewai | analysis | cancelled | 19m30s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:14:09Z | 06.02-task-decomposition-representation | pydantic-ai | analysis | cancelled | 18m59s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:14:09Z | 21.03-extension-compatibility-testing | (synthesis) | synthesis | cancelled | 18m58s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:14:09Z | 06.02-task-decomposition-representation | agent-framework | analysis | cancelled | 18m19s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:14:09Z | 06.03-plan-lifecycle-and-revision | agent-framework | analysis | cancelled | 18m28s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:14:09Z | 06.02-task-decomposition-representation | openhands | analysis | cancelled | 18m44s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-27T08:14:09Z | 06.01-planning-location-responsibility | openhands | analysis | cancelled | 18m36s | muse-spark-1.2-contributor-free | - | - |
 
 ## Slowest Runs
 
@@ -338,14 +298,35 @@
 | 2026-07-28T08:48:45Z | 04.05-tool-permissions-approval-metadata | langgraph | analysis | cancelled | 838m24s | MiniMax-M3 | - | - |
 | 2026-07-28T08:48:45Z | 04.04-tool-context-dependency-injection | langgraph | analysis | cancelled | 838m24s | MiniMax-M3 | - | - |
 | 2026-07-28T08:48:45Z | 04.05-tool-permissions-approval-metadata | crewai | analysis | cancelled | 838m24s | MiniMax-M3 | - | - |
-| 2026-07-15T08:58:47Z | 03.05-reflection-reask-self-correction | (synthesis) | synthesis | completed | 736m16s | MiniMax-M3 | - | - |
 | 2026-07-15T08:58:47Z | 03.03-tool-calling-roundtrip-control | (synthesis) | synthesis | completed | 736m16s | MiniMax-M3 | - | - |
+| 2026-07-15T08:58:47Z | 03.05-reflection-reask-self-correction | (synthesis) | synthesis | completed | 736m16s | MiniMax-M3 | - | - |
 | 2026-07-15T08:58:47Z | 03.06-stuck-doom-loop-detection | crewai | analysis | cancelled | 736m16s | MiniMax-M3 | - | - |
 
 ## Failed Or Cancelled Runs
 
 | Completed | Dimension | Source | Status | Error |
 | --- | --- | --- | --- | --- |
+| 2026-08-27T08:46:45Z | 06.02-task-decomposition-representation | pydantic-ai | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:46:45Z | 06.02-task-decomposition-representation | agent-framework | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:46:45Z | 06.01-planning-location-responsibility | openhands | cancelled | cancellation: persist runtime event: context canceled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:46:45Z | 06.02-task-decomposition-representation | openai-agents-sdk | cancelled | cancellation: persist runtime event: context canceled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:46:44Z | 21.03-extension-compatibility-testing | (synthesis) | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:46:44Z | 06.02-task-decomposition-representation | crewai | cancelled | cancellation: persist runtime event: context canceled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:46:43Z | 06.02-task-decomposition-representation | openhands | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:34:11Z | 06.02-task-decomposition-representation | pydantic-ai | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:34:11Z | 06.02-task-decomposition-representation | agent-framework | cancelled | cancellation: persist runtime event: context canceled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:34:11Z | 06.02-task-decomposition-representation | openai-agents-sdk | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:34:11Z | 21.03-extension-compatibility-testing | (synthesis) | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:34:11Z | 06.02-task-decomposition-representation | openhands | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:34:11Z | 06.01-planning-location-responsibility | openhands | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:34:11Z | 06.02-task-decomposition-representation | crewai | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:14:09Z | 06.02-task-decomposition-representation | pydantic-ai | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:14:09Z | 21.03-extension-compatibility-testing | (synthesis) | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:14:09Z | 06.02-task-decomposition-representation | agent-framework | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:14:09Z | 06.03-plan-lifecycle-and-revision | agent-framework | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:14:09Z | 06.02-task-decomposition-representation | openhands | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:14:09Z | 06.01-planning-location-responsibility | openhands | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-27T08:14:09Z | 06.02-task-decomposition-representation | crewai | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
 | 2026-08-26T18:54:46Z | 20.03-quality-cost-routing | (synthesis) | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
 | 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | langgraph | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
 | 2026-08-26T18:54:46Z | 19.01-protocol-compatibility | pydantic-ai | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
