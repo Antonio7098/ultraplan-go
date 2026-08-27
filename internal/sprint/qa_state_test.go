@@ -117,6 +117,102 @@ func TestQAErrorPreservesCauseAndRecovery(t *testing.T) {
 	}
 }
 
+func TestQARepairStorePublishesPrivateDigestBoundRecords(t *testing.T) {
+	root := t.TempDir()
+	sp := Sprint{Project: "alpha", Slug: "38-repair", Path: filepath.Join(root, "projects", "alpha", "sprints", "38-repair")}
+	if err := os.MkdirAll(sp.Path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packet, err := FinalizeRepairPacket(repairPacketFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(200, 0).UTC()
+	token := QAWriterToken{RunID: "operation-1", OperationalAttemptID: "attempt-1", FencingGeneration: 1}
+	fence := func(got QAWriterToken) error {
+		if got != token {
+			return errors.New("stale")
+		}
+		return nil
+	}
+	store := NewQAStore(root, sp).WithWriterFence(fence)
+	flow := NewFlowState(sp, emptyPlanningStageStates(sp), now)
+	state := RepairState{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, Mode: RepairModeManual, Phase: RepairPhasePrepared, Freshness: RepairFreshness{Current: true}, Run: QARunCorrelation{Lifecycle: QARunAccepted, RunID: token.RunID, OperationalAttemptID: token.OperationalAttemptID, FencingGeneration: token.FencingGeneration}, Deadline: now.Add(time.Hour), NextAction: "Review and confirm the packet.", UpdatedAt: now}
+	if err := store.PublishRepairPacket(packet, state, flow, token); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.LoadRepairState()
+	if err != nil || loaded.Packet == nil || loaded.Packet.Digest == "" {
+		t.Fatalf("loaded state = %+v, err=%v", loaded, err)
+	}
+	loadedPacket, err := store.LoadRepairPacket(packet.QAAttemptID, packet.RepairRunID)
+	if err != nil || loadedPacket.PacketDigest != packet.PacketDigest {
+		t.Fatalf("loaded packet digest = %q, err=%v", loadedPacket.PacketDigest, err)
+	}
+	for _, rel := range []string{QARepairStateRelPath(sp), QARepairPacketRelPath(sp, packet.QAAttemptID, packet.RepairRunID)} {
+		info, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
+		if statErr != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("mode for %s = %v, err=%v", rel, info.Mode().Perm(), statErr)
+		}
+	}
+
+	confirmation, err := FinalizeRepairConfirmation(RepairConfirmation{Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, PacketDigest: packet.PacketDigest, Target: packet.Target, Mode: RepairModeManual, Budgets: packet.Budgets, GovernedInputFingerprint: packet.GovernedInputFingerprint, PolicyFingerprint: packet.PolicyFingerprint, OperationRunID: token.RunID, OperationalAttemptID: token.OperationalAttemptID, FencingGeneration: token.FencingGeneration, Confirmer: "operator", ConfirmedAt: now}, packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PublishRepairConfirmation(confirmation, loaded, flow, token); err != nil {
+		t.Fatal(err)
+	}
+	confirmed, err := store.LoadRepairState()
+	if err != nil || confirmed.Phase != RepairPhaseConfirmed || confirmed.Confirmation == nil {
+		t.Fatalf("confirmed state = %+v, err=%v", confirmed, err)
+	}
+	result := RepairResult{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, Mode: RepairModeManual, Outcome: RepairOutcomeVerified, Reason: "all frozen gates passed", StopReason: RepairStopVerified, Consumed: RepairConsumed{MutationCycles: 1}, Target: packet.Target, CleanupComplete: true, ProductionApplied: true, CompleteLadder: true, Evidence: []QAArtifactRef{*confirmed.Packet, *confirmed.Confirmation}, NextAction: "Review retained evidence.", CompletedAt: now.Add(time.Minute)}
+	if err := store.PublishRepairResult(result, confirmed, flow, token); err != nil {
+		t.Fatal(err)
+	}
+	terminal, err := store.LoadRepairState()
+	if err != nil || terminal.Outcome != RepairOutcomeVerified || terminal.Result == nil {
+		t.Fatalf("terminal state = %+v, err=%v", terminal, err)
+	}
+	proof := ManualRepairProof{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, RepairRunID: packet.RepairRunID, PacketDigest: packet.PacketDigest, ResultDigest: terminal.Result.Digest, Outcome: result.Outcome, Target: packet.Target, ProtocolFingerprint: testQAFingerprint, ImplementationFingerprint: result.Target.Fingerprint, PolicyFingerprint: packet.PolicyFingerprint, IsolationFingerprint: packet.IsolationFingerprint, GovernedInputFingerprint: packet.GovernedInputFingerprint, RuntimeFingerprint: strings.Repeat("b", 64), CleanupComplete: true, ProductionApplied: true, CompleteLadder: true, PublishedAt: now.Add(2 * time.Minute)}
+	if err := store.PublishManualRepairProof(proof, packet, result, testQAFingerprint, strings.Repeat("b", 64), token); err != nil {
+		t.Fatal(err)
+	}
+	if loadedProof, err := store.LoadManualRepairProof(); err != nil || loadedProof.RepairRunID != packet.RepairRunID {
+		t.Fatalf("proof = %+v, err=%v", loadedProof, err)
+	}
+}
+
+func TestQARepairStoreRechecksWriterBeforeRename(t *testing.T) {
+	root := t.TempDir()
+	sp := Sprint{Project: "alpha", Slug: "38-repair", Path: filepath.Join(root, "projects", "alpha", "sprints", "38-repair")}
+	if err := os.MkdirAll(sp.Path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packet, err := FinalizeRepairPacket(repairPacketFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error {
+		calls++
+		if calls > 1 {
+			return errors.New("writer moved")
+		}
+		return nil
+	})
+	now := time.Now().UTC()
+	token := QAWriterToken{RunID: "operation-1", OperationalAttemptID: "attempt-1", FencingGeneration: 1}
+	state := RepairState{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, Mode: RepairModeManual, Phase: RepairPhasePrepared, Freshness: RepairFreshness{Current: true}, Run: QARunCorrelation{Lifecycle: QARunAccepted, RunID: token.RunID, OperationalAttemptID: token.OperationalAttemptID, FencingGeneration: token.FencingGeneration}, Deadline: now.Add(time.Hour), NextAction: "Review.", UpdatedAt: now}
+	if err := store.PublishRepairPacket(packet, state, NewFlowState(sp, emptyPlanningStageStates(sp), now), token); err == nil {
+		t.Fatal("stale writer published packet")
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(QARepairPacketRelPath(sp, packet.QAAttemptID, packet.RepairRunID)))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("packet survived stale-writer rejection: %v", err)
+	}
+}
+
 func TestQAStorePublishesPrivateRecordsPointerLastAndLoadsStrictly(t *testing.T) {
 	root, sp, publication := qaPublicationFixture(t)
 	token := QAWriterToken{RunID: "run-1", OperationalAttemptID: "op-1", FencingGeneration: 3}

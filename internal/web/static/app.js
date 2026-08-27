@@ -1569,6 +1569,15 @@
 
   let qaCockpitRefreshTimer;
   let qaCockpitRefreshing = false;
+  const identifyQADetails = (root) => {
+    if (!root) return;
+    for (const item of root.querySelectorAll("details:not([id])")) {
+      const owner = item.closest(".qa-shard")?.id || item.closest(".qa-theory")?.id || item.closest(".qa-attempt")?.querySelector("header code")?.textContent || "qa";
+      const kind = item.querySelector(":scope > summary")?.textContent?.split("·", 1)[0]?.trim() || "detail";
+      const key = `${owner}-${kind}`.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "");
+      item.id = `qa-detail-${key}`;
+    }
+  };
   const refreshQAObservation = async () => {
     const currentCockpit = document.querySelector("[data-qa-cockpit]");
     if (!currentCockpit || qaCockpitRefreshing) return;
@@ -1578,6 +1587,7 @@
     }
     qaCockpitRefreshing = true;
     currentCockpit.setAttribute("aria-busy", "true");
+    identifyQADetails(currentCockpit);
     const openDetails = new Set(Array.from(currentCockpit.querySelectorAll("details[open][id]"), (item) => item.id));
     try {
       const response = await fetch(window.location.href, {headers: {Accept: "text/html"}, cache: "no-store"});
@@ -1586,6 +1596,7 @@
       const nextCockpit = documentCopy.querySelector("[data-qa-cockpit]");
       const nextRunState = documentCopy.querySelector("[data-run-id]");
       if (!nextCockpit) throw new Error("QA observation missing");
+      identifyQADetails(nextCockpit);
       for (const id of openDetails) nextCockpit.querySelector(`#${CSS.escape(id)}`)?.setAttribute("open", "");
       currentCockpit.replaceWith(nextCockpit);
       const currentRunState = document.querySelector("[data-run-id]");

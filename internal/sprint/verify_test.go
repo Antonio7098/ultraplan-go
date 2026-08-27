@@ -6,10 +6,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+	"github.com/Antonio7098/ultraplan-go/internal/productstate"
 )
 
 type gatedReviewRuntime struct {
@@ -101,6 +103,60 @@ func TestFlowStateMigratesExactlyOnePredecessor(t *testing.T) {
 	writeJSON(t, path, state)
 	if _, err := LoadFlowState(root, sp); !errors.Is(err, ErrFlowStateUnsupported) {
 		t.Fatalf("unknown version error=%v", err)
+	}
+}
+
+func TestFlowStateDatabaseMigratesPreviousSchemaAndPreservesRepair(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-alpha")
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	legacy := NewFlowState(sp, completeStates(sp), now)
+	legacy.SchemaVersion = PreviousFlowStateSchemaVersion
+	header := legacy
+	header.Stages = nil
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := make([]productstate.Item, 0, len(legacy.Stages))
+	for i, stage := range legacy.Stages {
+		payload, marshalErr := json.Marshal(stage)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		items = append(items, productstate.Item{Key: string(stage.Stage), Ordinal: i, Payload: payload})
+	}
+	database, err := productstate.Ensure(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Save(context.Background(), productstate.Record{Kind: sprintFlowStateKind, Scope: sprintStateScope(sp), SchemaVersion: legacy.SchemaVersion, Header: headerJSON, Items: items}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadFlowState(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.SchemaVersion != FlowStateSchemaVersion {
+		t.Fatalf("database migration schema=%d", loaded.SchemaVersion)
+	}
+
+	packet := repairPacketFixture(t)
+	loaded.Repair = &RepairFlowSummary{Phase: RepairPhasePrepared, Mode: RepairModeManual, RepairRunID: packet.RepairRunID, QAAttemptID: packet.QAAttemptID, StatePath: QARepairStateRelPath(sp), StateDigest: strings.Repeat("a", 64), NextAction: "Review the packet."}
+	if err := SaveFlowState(root, sp, loaded); err != nil {
+		t.Fatal(err)
+	}
+	withoutRepair := loaded
+	withoutRepair.Repair = nil
+	if err := SaveFlowState(root, sp, withoutRepair); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := LoadFlowState(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preserved.Repair == nil || preserved.Repair.RepairRunID != packet.RepairRunID {
+		t.Fatalf("unrelated flow write erased repair summary: %+v", preserved.Repair)
 	}
 }
 

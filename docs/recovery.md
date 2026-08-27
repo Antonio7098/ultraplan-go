@@ -199,6 +199,20 @@ Retention keeps at most eight semantic attempts by default, including the curren
 
 A gated real-runtime QA run that cannot meet runtime, current evidence, local-filesystem, browser, or Git prerequisites is `blocked`. Record the missing prerequisite; fake-runtime tests do not satisfy the dogfood gate.
 
+## Bounded repair recovery
+
+Start with `ultraplan sprint <project> <sprint> repair status --json`. Treat phase, repair run ID, QA attempt ID, operation ownership, target freshness, current cycle, cleanup, outcome, stop reason, and next action as separate facts. Never infer repair success from a finished process, an existing patch, changed target bytes, or a durable run terminal alone.
+
+For automation, alert on the stable terminal event code instead of parsing `reason`. `repair.terminal.escalated` and `repair.recovery.escalated` are critical. Correlate them with `repair_run_id`, `operation_run_id`, `operational_attempt_id`, and `fencing_generation`. Public diagnostics redact secret-shaped values and host temporary paths. A redacted diagnostic means the retained bounded evidence and its digest must be inspected through the authorized evidence path.
+
+- `prepared` is mutation-free. Review the packet and use a fresh accepted start; changed packet or target authority requires a new prepare.
+- `proposing` without an apply journal has no retained production apply. `repair recover` terminalizes conservatively after ownership and target checks.
+- `applying`, `reverifying`, `cleaning`, or `interrupted` requires `repair recover`. Recovery reads the journal, compares every current production file with the recorded preimage and postimage digest, and restores only an exact postimage from its private preimage. Any other bytes, missing record, unsafe file, failed replacement, or lost persistence becomes `escalated` or remains interrupted.
+- `terminalizing` is a barrier after the mutation lease is released. Do not rerun or compensate it by hand; preserve the immutable cycle and result records for product reconciliation.
+- `terminal` is idempotent and read-only. Inspect the retained result and evidence digests.
+
+Recovery uses a new durable owner and writer fence, but it never adopts a dead runtime or repeats a committed apply. `repair resume` refuses unless an exact remaining immutable boundary is implemented and provable. Cancellation is a request; cleanup and lease-release facts still control the semantic result. Automatic mode stays unavailable without a current qualifying real manual proof.
+
 ## Unsafe Data Handling
 
 Do not paste provider tokens, full environment dumps, full prompts, full generated report bodies, or raw unsafe runtime payloads into issue reports or release evidence. Use redacted command summaries and artifact paths.

@@ -24,6 +24,7 @@ type Service struct {
 	store               FSStore
 	now                 func() time.Time
 	runtime             Runtime
+	repairRuntime       Runtime
 	runtimeConfig       pruntime.Request
 	runtimeProgress     func(RuntimeProgress)
 	stageRuntime        map[PlanningStage]StageRuntime
@@ -114,6 +115,11 @@ func (s Service) WithRuntime(rt Runtime, reqs ...pruntime.Request) Service {
 	if len(reqs) > 0 {
 		s.runtimeConfig = reqs[0]
 	}
+	return s
+}
+
+func (s Service) WithRepairRuntime(rt Runtime) Service {
+	s.repairRuntime = rt
 	return s
 }
 

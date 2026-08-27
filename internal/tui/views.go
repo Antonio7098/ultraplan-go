@@ -372,6 +372,10 @@ func renderRouteSummary(b *strings.Builder, m Model) {
 		renderSprintQAView(b, m, route)
 		return
 	}
+	if route.Kind == RouteSprintRepair {
+		renderSprintRepairView(b, m, route)
+		return
+	}
 	if route.Kind != RouteStudy {
 		return
 	}

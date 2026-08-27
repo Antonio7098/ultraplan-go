@@ -585,9 +585,10 @@ After repair, widen evidence progressively:
 2. Rerun the affected shard.
 3. Rerun linked theories touching the same paths or invariants.
 4. Rerun neighbouring/boundary shards identified by dependency impact.
-5. Run the containing QA suite, including smoke where applicable.
-6. Run a Conformance Review delta focused on the repair diff and affected contracts.
-7. Require a full Conformance Review when the delta is broad or the fingerprint policy cannot prove retained coverage remains valid.
+5. Run the containing QA suite.
+6. Run containing smoke against the repaired target.
+
+Conformance Review runs once before repair admission. Repair does not trigger a second review.
 
 ## 11. Bounded convergence loop
 
@@ -860,7 +861,7 @@ Reuse or extend:
 - Add `repair --issue <id>`.
 - Freeze issue packet and allowed scope.
 - Apply repair in a protected workspace.
-- Run exact reproducer, affected shard, containing QA, and Conformance Review delta.
+- Run exact reproducer, affected shard, containing QA, and repaired-target smoke.
 - Persist repair and reverification state.
 - Require explicit confirmation before production mutation.
 

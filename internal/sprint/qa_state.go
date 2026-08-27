@@ -179,6 +179,34 @@ func QAReportRelPath(s Sprint) string {
 	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "qa.md"))
 }
 
+func QARepairStateRelPath(s Sprint) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "repair-state.json"))
+}
+
+func QARepairRunRelPath(s Sprint, attemptID, runID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "repairs", runID))
+}
+
+func QARepairPacketRelPath(s Sprint, attemptID, runID string) string {
+	return filepath.ToSlash(filepath.Join(QARepairRunRelPath(s, attemptID, runID), "issue-packet.json"))
+}
+
+func QARepairConfirmationRelPath(s Sprint, attemptID, runID string) string {
+	return filepath.ToSlash(filepath.Join(QARepairRunRelPath(s, attemptID, runID), "confirmation.json"))
+}
+
+func QARepairCycleRelPath(s Sprint, attemptID, runID string, cycle int) string {
+	return filepath.ToSlash(filepath.Join(QARepairRunRelPath(s, attemptID, runID), "cycles", fmt.Sprintf("%06d", cycle)))
+}
+
+func QARepairResultRelPath(s Sprint, attemptID, runID string) string {
+	return filepath.ToSlash(filepath.Join(QARepairRunRelPath(s, attemptID, runID), "result.json"))
+}
+
+func QARepairProofRelPath(s Sprint) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "manual-repair-proof.json"))
+}
+
 func (store QAStore) StatePath() (string, error) {
 	return store.resolve(QAVerificationStateRelPath(store.sprint))
 }
@@ -332,6 +360,27 @@ func (store QAStore) LoadEvidence(attemptID, evidenceID string) (QAEvidenceRecor
 	}
 	if value.ID != evidenceID || value.AttemptID != attemptID {
 		return QAEvidenceRecord{}, NewQAError(QAErrorInvalidState, "load evidence", "evidence identity does not match its path", nil)
+	}
+	return value, nil
+}
+
+func (store QAStore) LoadEvidencePlan(attemptID, planID string, budgets QABudgets) (QAEvidencePlan, error) {
+	if !validQAIDKind(attemptID, "attempt") || !validQAV2ID(planID, "plan") {
+		return QAEvidencePlan{}, NewQAError(QAErrorInvalidState, "load evidence plan", "invalid plan identity", nil)
+	}
+	path, err := store.resolve(QAEvidencePlanRelPath(store.sprint, attemptID, planID))
+	if err != nil {
+		return QAEvidencePlan{}, err
+	}
+	var value QAEvidencePlan
+	if err := store.readStrictVersion(path, "evidence-plan", QAEvidenceSchemaVersion, &value); err != nil {
+		return QAEvidencePlan{}, err
+	}
+	if value.ID != planID || value.AttemptID != attemptID {
+		return QAEvidencePlan{}, NewQAError(QAErrorInvalidState, "load evidence plan", "evidence plan identity does not match its path", nil)
+	}
+	if err := ValidateQAEvidencePlan(value, budgets); err != nil {
+		return QAEvidencePlan{}, NewQAError(QAErrorInvalidState, "load evidence plan", err.Error(), err)
 	}
 	return value, nil
 }

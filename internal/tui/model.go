@@ -35,6 +35,7 @@ const (
 	RouteSprintQA       RouteKind = "sprint-qa"
 	RouteSprintQAShard  RouteKind = "sprint-qa-shard"
 	RouteSprintQATheory RouteKind = "sprint-qa-theory"
+	RouteSprintRepair   RouteKind = "sprint-repair"
 	RouteStudies        RouteKind = "studies"
 	RouteStudy          RouteKind = "study"
 	RouteStudyDims      RouteKind = "study-dimensions"
@@ -462,6 +463,7 @@ func (m Model) navItems() []navItem {
 				{Label: "Flow State", Path: artifactByLabel(s.Artifacts, "flow-state")},
 				{Label: "Run State", Path: artifactByLabel(s.Artifacts, "run-state")},
 				{Label: "QA", Route: &Route{Kind: RouteSprintQA, Project: route.Project, Sprint: route.Sprint}},
+				{Label: "Bounded repair", Route: &Route{Kind: RouteSprintRepair, Project: route.Project, Sprint: route.Sprint}},
 			}
 			stages := []string{"requirements", "sprint-index", "technical-handbook", "area-reasoning", "reasoning", "plan", "execute", "review"}
 			items = append(items, navItem{Label: "Sprint Status", Operation: &app.OperationRequest{Kind: app.OperationSprintStatus, Project: route.Project, Sprint: route.Sprint}})
@@ -535,6 +537,21 @@ func (m Model) navItems() []navItem {
 			}
 		}
 		return items
+	case RouteSprintRepair:
+		if s, ok := findSprint(m.Data.Sprints, route.Project, route.Sprint); ok {
+			items := []navItem{}
+			switch s.Repair.Phase {
+			case "proposing", "applying", "reverifying", "cleaning", "interrupted":
+				items = append(items, navItem{Label: "Recover interrupted repair [MUTATION SAFETY]", Operation: &app.OperationRequest{Kind: app.OperationRepairRecover, Project: route.Project, Sprint: route.Sprint, RepairRunID: s.Repair.RepairRunID}})
+			}
+			if s.Repair.Packet != nil && s.Repair.Confirmation == nil && s.Repair.Fresh {
+				items = append(items, navItem{Label: "Review and confirm manual repair [RUNTIME + MUTATION]", Operation: &app.OperationRequest{Kind: app.OperationRepairStart, Project: route.Project, Sprint: route.Sprint, RepairRunID: s.Repair.RepairRunID, RepairMode: "manual", RepairConfirmer: "tui-session"}})
+			}
+			if s.Repair.OperationRunID != "" {
+				items = append(items, navItem{Label: "View repair durable run  " + s.Repair.OperationRunID, Route: &Route{Kind: RouteRun, RunID: s.Repair.OperationRunID}})
+			}
+			return items
+		}
 	case RouteStudies:
 		items := make([]navItem, 0, len(m.Data.Studies))
 		for _, s := range m.Data.Studies {
@@ -591,6 +608,8 @@ func (m Model) breadcrumb() string {
 		return "Projects > " + route.Project + " > Sprints > " + route.Sprint + " > QA > " + route.Shard
 	case RouteSprintQATheory:
 		return "Projects > " + route.Project + " > Sprints > " + route.Sprint + " > QA > " + route.Theory
+	case RouteSprintRepair:
+		return "Projects > " + route.Project + " > Sprints > " + route.Sprint + " > Bounded repair"
 	case RouteStudy:
 		return "Studies > " + route.Study
 	case RouteStudyDims:

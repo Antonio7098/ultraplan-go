@@ -378,6 +378,7 @@ type pageModel struct {
 	QA                *app.QAResult
 	QAShard           *app.QAShardResult
 	QATheory          *app.QATheoryResult
+	Repair            *app.RepairStatusResult
 }
 
 type projectRoadmapPreview struct {
@@ -508,6 +509,8 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: sprintPageTitle(page) + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Page: page})
 	case "sprint_qa":
 		h.handleSprintQAPage(w, r, match.params[0], match.params[1], "", "")
+	case "sprint_repair":
+		h.handleSprintRepairPage(w, r, match.params[0], match.params[1])
 	case "sprint_qa_shard":
 		h.handleSprintQAPage(w, r, match.params[0], match.params[1], match.params[2], "")
 	case "sprint_qa_theory":
@@ -671,6 +674,8 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		h.handleSprintQAAssessment(w, r, match.params[0], match.params[1])
 	case "api_sprint_qa_smoke-suite":
 		h.handleSprintQASmokeSuite(w, r, match.params[0], match.params[1])
+	case "api_sprint_repair", "api_sprint_repair_packet", "api_sprint_repair_cycles", "api_sprint_repair_result":
+		h.handleSprintRepair(w, r, match.params[0], match.params[1], match.name)
 	case "api_models":
 		queries, ok := h.queries.(app.WebModelQueries)
 		if !ok {
@@ -829,6 +834,8 @@ func sprintPageTitle(page string) string {
 	switch page {
 	case "workflow":
 		return "Workflow"
+	case "repair":
+		return "Repair"
 	default:
 		return "Artifact Navigator"
 	}

@@ -60,6 +60,10 @@ func TestDurableOperationAcceptsBeforeExecutionRecordsEventsAndFinishes(t *testi
 	if err := fence(stale); err == nil {
 		t.Fatal("stale QA fence accepted")
 	}
+	dispatched, err := manager.DispatchOperation(ctx, accepted.RunID)
+	if err != nil || dispatched.Context == nil || dispatched.Existing {
+		t.Fatalf("dispatched=%+v err=%v", dispatched, err)
+	}
 	committed, err := manager.RecordOperationEvent(ctx, accepted.RunID, OperationEvent{State: OperationRunning, Stage: "execute", Task: "task-1", Message: "not stored", PhaseState: "checking", SafeSummary: "Checking prerequisites", Completed: 1, Total: 2, EventType: "tool.completed", EventKind: "tool", Tool: "bash"})
 	if err != nil || !committed {
 		t.Fatalf("committed=%v err=%v", committed, err)
@@ -120,5 +124,77 @@ func TestDurableOperationDeduplicatesAcrossManagersAndFailsClosed(t *testing.T) 
 	closed := newDurableOperationManager(repository, owner)
 	if _, err := closed.AcceptOperation(ctx, confirmation, "new-digest"); err == nil || errors.Is(err, runcontrol.ErrConflict) {
 		t.Fatalf("closed repository acceptance error=%v", err)
+	}
+}
+
+func TestDurableOperationAcceptDoesNotDispatchAndUndispatchedFinishFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	repository, err := runcontrol.OpenSQLite(ctx, t.TempDir(), runcontrol.SQLiteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repository.Close() })
+	owner, err := runcontrol.NewProcessOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := newDurableOperationManager(repository, owner)
+	accepted, err := manager.AcceptOperation(ctx, Confirmation{Request: OperationRequest{Kind: OperationQAStart, Project: "alpha", Sprint: "38"}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := repository.Events(ctx, runcontrol.RunID(accepted.RunID), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("accept unexpectedly dispatched ownership: %+v", events)
+	}
+	if err := manager.FinishOperation(ctx, accepted.RunID, OperationFailed, errors.New("confirmation publication failed")); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := repository.Snapshot(ctx, runcontrol.RunID(accepted.RunID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Terminal == nil || snapshot.Terminal.Outcome != runcontrol.TerminalPersistenceLost {
+		t.Fatalf("undispatched terminal=%+v", snapshot.Terminal)
+	}
+}
+
+func TestDurableRepairPrepareCanFinishSynchronouslyWithoutDispatch(t *testing.T) {
+	ctx := context.Background()
+	repository, err := runcontrol.OpenSQLite(ctx, t.TempDir(), runcontrol.SQLiteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repository.Close() })
+	owner, err := runcontrol.NewProcessOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := newDurableOperationManager(repository, owner)
+	accepted, err := manager.AcceptOperation(ctx, Confirmation{Request: OperationRequest{Kind: OperationRepairPrepare, Project: "alpha", Sprint: "38", RepairIssueID: "issue", RepairMode: "manual"}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.FinishOperation(ctx, accepted.RunID, OperationComplete, nil); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := repository.Snapshot(ctx, runcontrol.RunID(accepted.RunID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Terminal == nil || snapshot.Terminal.Outcome != runcontrol.TerminalSucceeded {
+		t.Fatalf("synchronous prepare terminal=%+v", snapshot.Terminal)
+	}
+	events, err := repository.Events(ctx, runcontrol.RunID(accepted.RunID), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Payload["transition"] == "dispatch" {
+			t.Fatalf("repair prepare dispatched ownership: %+v", events)
+		}
 	}
 }

@@ -404,6 +404,30 @@ QA configuration uses normal precedence: product default, `ultraplan.yml`, then 
 
 `qa.model` falls back to `planning.review_model`, then `planning.plan_model`, then `models.default`. `qa.variant` falls back to `execution.default_variant`. Model changes can alter cost, latency, and investigator behavior. They change the policy fingerprint, make retained QA state stale, and require a fresh dry-run before another start. Restore the prior model value to roll back, then rebuild the map so the recorded policy matches the actual request.
 
+### `ultraplan sprint <project> <sprint> repair`
+
+```text
+ultraplan sprint <project> <sprint> repair prepare --issue <qa-v1-issue-id> [--json]
+ultraplan sprint <project> <sprint> repair start --run <repair-run-id> --confirmer <identity> --yes [--json]
+ultraplan sprint <project> <sprint> repair status [--run <repair-run-id>] [--json]
+ultraplan sprint <project> <sprint> repair packet [--run <repair-run-id>] [--json]
+ultraplan sprint <project> <sprint> repair cycles [--run <repair-run-id>] [--json]
+ultraplan sprint <project> <sprint> repair result [--run <repair-run-id>] [--json]
+ultraplan sprint <project> <sprint> repair resume --run <repair-run-id> --yes [--json]
+ultraplan sprint <project> <sprint> repair cancel --run <durable-run-id> [--json]
+ultraplan sprint <project> <sprint> repair recover [--run <repair-run-id>] [--json]
+```
+
+`prepare` accepts only one current repair-eligible adjudicated issue and writes an immutable packet without constructing a runtime or changing the target. `start` requires explicit single-use confirmation after durable acceptance. The confirmer is retained as bounded audit identity; it is not authentication. Progress is written to stderr. JSON stdout is one schema-v1 envelope with operation, status, bounded result, and optional stable error.
+
+Manual repair permits one isolated proposal and at most one journaled product-owned production apply. The fixed ladder is exact reproducer, primary shards, linked theories, follow-up shards, containing QA, then repaired-target containing smoke. Conformance Review runs once before repair admission. A required non-pass skips wider gates. Exit zero is reserved for `verified` and `verified_with_findings`; `failed`, `blocked`, `escalated`, and `stalled` are non-zero semantic outcomes. Packet, status, cycle, and result projections omit patch bodies, production contents, prompts, private preimages, raw runtime payloads, and unrestricted output.
+
+Repair limits are lower-only `qa.repair.*` settings. Workspace configuration can reduce cycles, mutation cycles, reopenings, stagnation, files, bytes, patch size, wall time, runtime attempts, model turns, command count and timeout, output bytes, retained cycles, and cleanup timeout. Matching `ULTRAPLAN_QA_REPAIR_*` environment variables take precedence. Packet JSON reports an effective source for every limit. Manual mode always lowers `max_cycles` and `max_mutation_cycles` to one and labels those values `manual_policy`.
+
+Repair JSON failures use the same classified operator envelope as QA. It includes `category`, `retryable`, `severity`, `operation`, `component`, `correlation_id`, and `timestamp`. Text output includes the canonical blocker and bounded reason when present.
+
+`cancel` uses the durable operation run ID. `recover` is runtime-free and conservatively compensates only exact journaled postimages from digest-bound private preimages; drift becomes escalation. `resume` uses that same durable reconciliation boundary and cannot repeat proposal or apply. `--automatic` requires a retained qualifying real manual proof and explicit opt-in on prepare and start.
+
 ### `ultraplan sprint <project> <sprint> smoke`
 
 ```text

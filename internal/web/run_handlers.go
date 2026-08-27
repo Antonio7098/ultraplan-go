@@ -80,6 +80,11 @@ type runQACountView struct {
 	Value int
 }
 
+type runQAStageView struct {
+	ID, Label, Summary, State, Detail, Anchor string
+	Count                                     string
+}
+
 type runQAInsightsView struct {
 	Project, Sprint, StatusURL, SynthesisURL string
 	QA                                       app.QAResult
@@ -92,6 +97,7 @@ type runQAInsightsView struct {
 	Unavailable, SynthesisUnavailable        string
 	Historical                               bool
 	CurrentRunID                             string
+	Stages                                   []runQAStageView
 }
 
 type studyTaskFailureDTO struct {
@@ -399,6 +405,7 @@ func (h *handler) newRunQAInsightsView(r *http.Request, snapshot app.RunSnapshot
 		view.ProgressMax = 1
 	}
 	if qa.RunID != "" && qa.RunID != string(snapshot.RunID) {
+		view.Stages = buildRunQAStages(view)
 		view.Historical = true
 		view.CurrentRunID = qa.RunID
 		return view
@@ -430,11 +437,72 @@ func (h *handler) newRunQAInsightsView(r *http.Request, snapshot app.RunSnapshot
 	synthesis, err := h.qa.QASynthesis(r.Context(), app.QARequest{Project: view.Project, Sprint: view.Sprint})
 	if err != nil {
 		view.SynthesisUnavailable = "The retained synthesis could not be read."
+		view.Stages = buildRunQAStages(view)
 		return view
 	}
 	view.Synthesis = synthesis
 	view.HasSynthesis = synthesis.ID != ""
+	view.Stages = buildRunQAStages(view)
 	return view
+}
+
+func buildRunQAStages(view *runQAInsightsView) []runQAStageView {
+	qa := view.QA
+	terminal := qa.TerminalResult != "" || qa.Phase == "completed" || qa.Phase == "blocked" || qa.Phase == "cancelled" || qa.Phase == "interrupted" || qa.Phase == "failed"
+	stopped := terminal && qa.Phase != "completed" && qa.TerminalResult != "completed" && qa.TerminalResult != "pass" && qa.TerminalResult != "pass_with_findings"
+	shardsComplete := qa.CompletedShards == qa.TotalShards && (qa.TotalShards > 0 || terminal || qa.Phase == "synthesizing")
+	stages := []runQAStageView{
+		{ID: "admission", Label: "Admission", Summary: "Review, target, policy, and writer authority", State: "pending", Detail: qa.ConformanceReviewStatus + " · " + qa.ConformanceReviewVerdict, Anchor: "qa-cockpit-heading"},
+		{ID: "map", Label: "QA map", Summary: "Changed paths, owners, boundaries, and approved checks", State: "pending", Count: fmt.Sprintf("%d/%d paths", qa.CoveredPaths, qa.ChangedPaths), Detail: qa.MapFingerprint, Anchor: "qa-map-facts"},
+		{ID: "investigation", Label: "Investigate", Summary: "Isolated shard attempts and context requests", State: "pending", Count: fmt.Sprintf("%d/%d shards", qa.CompletedShards, qa.TotalShards), Detail: fmt.Sprintf("%d attempts · %d context requests", view.Attempts, view.ContextRequests), Anchor: "qa-shards-heading"},
+		{ID: "checks", Label: "Checks", Summary: "Approved commands with bounded results", State: "pending", Count: fmt.Sprintf("%d commands", view.Commands), Detail: fmt.Sprintf("%d approved descriptors", view.ApprovedChecks), Anchor: "qa-checks-detail"},
+		{ID: "evidence", Label: "Evidence", Summary: "Sanitized records tied to attempts and theories", State: "pending", Count: fmt.Sprintf("%d records", view.Evidence), Detail: fmt.Sprintf("%d retained theories", view.Theories), Anchor: "qa-evidence-detail"},
+		{ID: "synthesis", Label: "Synthesis", Summary: "Deduplication, contradictions, interactions, and follow-ups", State: "pending", Count: fmt.Sprintf("%d theories", len(view.Synthesis.TheoryIDs)), Detail: view.Synthesis.NextAction, Anchor: "qa-synthesis-heading"},
+		{ID: "adjudication", Label: "Adjudication", Summary: "Canonical assessment and issue promotion", State: "pending", Count: fmt.Sprintf("%d issues", qa.IssueCount), Detail: qa.Assessment, Anchor: "qa-adjudication-detail"},
+		{ID: "terminal", Label: "Terminal", Summary: "Durable result, blocker, and next action", State: "pending", Detail: qa.TerminalResult, Anchor: "qa-terminal-detail"},
+	}
+	completeThrough := -1
+	active := 0
+	switch {
+	case qa.AttemptID == "":
+		active = 0
+	case qa.MapFingerprint == "":
+		completeThrough, active = 0, 1
+	case !shardsComplete:
+		completeThrough, active = 1, 2
+	case !view.HasSynthesis:
+		completeThrough, active = 4, 5
+	case qa.Assessment == "" && !terminal:
+		completeThrough, active = 5, 6
+	case !terminal:
+		completeThrough, active = 6, 7
+	default:
+		completeThrough, active = 6, -1
+	}
+	for i := 0; i <= completeThrough; i++ {
+		stages[i].State = "complete"
+	}
+	if active >= 0 {
+		stages[active].State = "active"
+	}
+	if terminal {
+		stages[7].State = "complete"
+		if stopped {
+			stoppedAt := 6
+			if qa.MapFingerprint == "" {
+				stoppedAt = 1
+			} else if !shardsComplete {
+				stoppedAt = 2
+			} else if !view.HasSynthesis {
+				stoppedAt = 5
+			}
+			stages[stoppedAt].State = "failed"
+		}
+	}
+	for i := range stages {
+		stages[i].Detail = strings.Trim(strings.TrimSpace(stages[i].Detail), "· ")
+	}
+	return stages
 }
 
 func newRunStudyInsightsView(study string, result app.WebStudyResult) *runStudyInsightsView {

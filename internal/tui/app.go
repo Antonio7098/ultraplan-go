@@ -252,6 +252,39 @@ func (m teaModel) beginOperation(req app.OperationRequest) (tea.Model, tea.Cmd) 
 		if accepted.Context != nil {
 			opctx = accepted.Context
 		}
+		if confirmer, ok := m.model.UseCases.(app.DurableOperationConfirmer); ok {
+			if err := confirmer.ConfirmAcceptedOperation(opctx, accepted, *m.model.Confirmation); err != nil {
+				finishCtx, finishCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				_ = manager.FinishOperation(finishCtx, accepted.RunID, app.OperationFailed, err)
+				finishCancel()
+				cancel()
+				m.model.Error = err.Error()
+				m.model.Loading = false
+				return m, nil
+			}
+		} else if req.Kind == app.OperationRepairStart {
+			err := errors.New("durable repair confirmation capability unavailable")
+			finishCtx, finishCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_ = manager.FinishOperation(finishCtx, accepted.RunID, app.OperationFailed, err)
+			finishCancel()
+			cancel()
+			m.model.Error = err.Error()
+			m.model.Loading = false
+			return m, nil
+		}
+		dispatched, err := manager.DispatchOperation(opctx, accepted.RunID)
+		if err != nil {
+			finishCtx, finishCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_ = manager.FinishOperation(finishCtx, accepted.RunID, app.OperationFailed, err)
+			finishCancel()
+			cancel()
+			m.model.Error = err.Error()
+			m.model.Loading = false
+			return m, nil
+		}
+		if dispatched.Context != nil {
+			opctx = dispatched.Context
+		}
 	}
 	m.cancel = cancel
 	m.model.Running = true

@@ -1,6 +1,6 @@
 ---
-name: UltraPlan entity dashboards
-description: Dark local-first dashboards for operating and reviewing governed project, sprint, and study work.
+name: UltraPlan operating dashboards
+description: Dark local-first dashboards for operating and reviewing governed entities and durable runs.
 colors:
   workspace: "oklch(0.22813 0.020366 307.469)"
   panel: "oklch(0.267101 0.02016 311.799)"
@@ -94,20 +94,23 @@ components:
     height: "0.55rem"
 ---
 
-# Design System: UltraPlan entity dashboards
+# Design System: UltraPlan operating dashboards
 
 ## Overview
 
 **Creative North Star: "The governed workbench"**
 
-UltraPlan's project, sprint, and study overviews are dark operating dashboards. They place the entity's current truth first, then expose the evidence needed to judge it. The interface is compact and calm. Fine borders and close tonal steps separate information without turning every fact into a card.
+UltraPlan's project, sprint, and study overviews and its run detail pages are dark operating dashboards. They place current truth first, then expose the evidence needed to judge it. The interface is compact and calm. Fine borders and close tonal steps separate information without turning every fact into a card.
 
 Each overview uses one dashboard grammar, but its previews keep the shape of the underlying work. A roadmap reads as a sequence, a sprint reads as staged execution, and a study reads as a research matrix. Actions sit inside the panel whose state they change. Linked panels become the navigation when they contain no competing controls.
+
+Run pages use the same grammar at greater density. The QA command center begins with the canonical snapshot and ordered path, then keeps investigation records, synthesis, outcome, identity, and limits available through semantic disclosures. A historical run never borrows facts from the newer canonical pointer.
 
 **Key Characteristics:**
 
 - One dominant current-state panel per entity overview
 - Truthful progress that distinguishes complete, active, failed, stale, and pending work
+- Canonical run paths that link stages directly to their retained facts
 - Content-shaped evidence previews instead of interchangeable statistic tiles
 - Compact attention regions reserved for findings and degraded health
 - Full-width stacking below the 48rem breakpoint
@@ -172,18 +175,23 @@ Entity dashboards sit in a centered content area with a maximum width of 96rem a
 
 Project overviews use a 1.55 to 0.75 two-column ratio. The project brief spans both columns and the roadmap preview occupies the taller left track. Study overviews use a 1.35 to 0.65 ratio, with the current study state and recent findings spanning both columns. Sprint overviews use near-even columns and let the dominant current-status panel span the full width. Other panels grow to the height of their content.
 
+The QA run command center starts with a 1.35 to 0.65 progress and next-action deck, a six-cell fact strip, and the canonical eight-stage path. Above 64rem, the path uses four columns and two rows. At 64rem and below it uses two columns and four rows. At 48rem and below it becomes one vertical sequence. Each stage remains an anchor to its retained fact region at every width.
+
+The QA evidence area pairs a fluid main column with a 17rem to 20rem identity rail. It becomes one column at 64rem. The rail uses two columns until 48rem, then stacks. At 48rem, the command deck, scope groups, synthesis groups, and condition groups also become single-column layouts. The six-cell fact strip becomes three columns at 48rem and two columns at 32rem.
+
 At 48rem and below, all three dashboard grids become a single column. Spans reset, document stacks and gate pairs collapse, and dense four-part counts become two columns. Preserve reading order in the markup so the current state, evidence, actions, and attention remain coherent without CSS grid placement.
 
 **The Current State Rule.** Give one panel clear visual and spatial priority. It must answer what is happening now and what the next valid action is.
 
 ## Elevation & Depth
 
-The system is flat by default. Standard panels use a one-pixel border and a nearly imperceptible top highlight. A whole-panel link lifts by 2px and moves to the raised panel color on hover or keyboard focus. The dominant sprint status panel alone uses a soft ambient shadow, a low-contrast accent gradient, and a blurred magenta glow.
+The system is flat by default. Standard panels use a one-pixel border and a nearly imperceptible top highlight. A whole-panel link lifts by 2px and moves to the raised panel color on hover or keyboard focus. The dominant sprint status panel uses a soft ambient shadow, a low-contrast accent gradient, and a blurred magenta glow. The active QA stage marker uses a smaller magenta glow so the current stage is visible inside the process path.
 
 ### Shadow Vocabulary
 
 - **Panel hairline** (`0 1px 0 rgb(255 255 255 / 2%)`): Standard dashboard panels at rest.
 - **Dominant state** (`0 16px 42px rgb(0 0 0 / 17%)`): The sprint current-status panel only.
+- **Active QA stage** (`0 4px 18px color-mix(in oklab, var(--accent) 28%, transparent)`): The active marker in the canonical QA path only.
 
 ### Named Rules
 
@@ -228,6 +236,20 @@ Borders stay one pixel wide. Inset fact groups and document stacks use one-pixel
 - **Segmented progress:** Preserve separate complete, active, failed, and pending segments. Never flatten these into a single optimistic percentage.
 - **Stage sequence:** Keep ordered stage labels visible. Add stale markers beside the affected stage instead of folding staleness into a generic warning count.
 
+### QA run command center
+
+- **Summary:** Lead with canonical phase, freshness, shard progress, next action, blocker or cancellation, and six retained investigation totals.
+- **Canonical path:** Show exactly eight stages in order: Admission, QA map, Investigate, Checks, Evidence, Synthesis, Adjudication, and Terminal. Every stage links directly to its retained fact region.
+- **Stage states:** Complete uses a green connector and check mark. Active uses the magenta wash and glow. Pending stays neutral and numbered. Failed uses the failure color and an exclamation mark at the stage where work stopped. Keep the text state available to assistive technology and include a visible legend.
+- **Evidence body:** Put investigation shards, attempts, approved checks, theories, synthesis, and the canonical outcome in the main column. Keep identity, ownership, limits, and the evidence boundary in the secondary rail. Use native `details` elements for dense records instead of hiding them behind custom dialogs.
+- **Live refresh:** Refresh from the canonical HTML snapshot after committed events. Preserve open disclosures by stable semantic IDs, defer replacement while focus is inside the command center, and leave the last committed snapshot visible when refresh fails.
+- **Historical runs:** When the canonical pointer moves to another run, replace the command center facts with a compact historical notice and link to the current run. Keep the event journal below scoped to the historical run.
+- **Motion:** The active marker may use the 700ms arrival animation. Disable this animation, all transitions, and smooth scrolling under `prefers-reduced-motion: reduce`.
+
+**The Canonical Pointer Rule.** A run page shows canonical QA facts only when that run owns the current pointer. Never mix a historical event journal with a newer run's QA snapshot.
+
+**The Live Disclosure Rule.** A live refresh may replace data, but it must not close a disclosure the operator opened or move focus out of the command center.
+
 ### Evidence previews
 
 - **Roadmap pulse:** A short previous-to-next timeline with delivered and current or planned nodes.
@@ -251,9 +273,11 @@ Attention is a compact strip with an amber-tinted border. It reports current fin
 
 - **Do** make the dominant panel answer current state, progress, and next action with real workflow data.
 - **Do** preserve complete, active, failed, stale, and pending distinctions in progress previews.
+- **Do** keep all eight QA stages in canonical order and link each one to retained facts.
 - **Do** use content-shaped evidence such as timelines, matrices, stage rails, decision lists, and document excerpts.
 - **Do** make a control-free dashboard panel one coherent keyboard-focusable link.
 - **Do** keep actions inside the panel whose state they change.
+- **Do** preserve open QA disclosures during canonical live refresh.
 - **Do** stack panels in a truthful reading order below 48rem.
 
 ### Don't:
@@ -261,6 +285,8 @@ Attention is a compact strip with an amber-tinted border. It reports current fin
 - **Don't** fill the overview with equal-weight metric cards.
 - **Don't** turn semantic state colors into decoration.
 - **Don't** hide failure, stale evidence, or waiting work inside a single completion percentage.
+- **Don't** let live runtime prose replace the canonical QA snapshot or retained evidence.
+- **Don't** show facts from the current canonical run inside a historical run page.
 - **Don't** wrap a panel in a link when it contains buttons, forms, or conflicting destinations.
 - **Don't** promote empty attention or healthy reliability into a dominant panel.
 - **Don't** use decorative shadows on ordinary dashboard panels.

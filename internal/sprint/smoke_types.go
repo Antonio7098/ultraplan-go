@@ -63,6 +63,7 @@ type SmokeRequest struct {
 	OverrideRationale  string
 	DryRun             bool
 	NonInteractive     bool
+	RepairVerification bool
 	Progress           func(SmokeProgress)
 }
 

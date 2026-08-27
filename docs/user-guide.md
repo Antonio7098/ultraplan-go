@@ -356,6 +356,27 @@ ultraplan sprint <project> <sprint> qa cancel --run run_...
 
 After cancellation, timeout, restart, or restored runtime availability, first inspect status. Use `qa recover` to reconcile runtime-free state and `qa resume` to claim incomplete current work with a new durable owner. Completed current shards are retained; changed map or input fingerprints make the attempt stale and require a new dry-run/start. `QA completed` means all admitted bounded work ended, not “QA passed,” and it cannot upgrade a failed or blocked Conformance Review.
 
+### Run one bounded manual repair
+
+Repair starts from a current evidence-producing QA issue, not free-form instructions. Inspect the issue first, then prepare its immutable packet:
+
+```bash
+ultraplan sprint <project> <sprint> repair prepare --issue qa-v1-issue-... --json
+ultraplan sprint <project> <sprint> repair packet --run qa-repair-v1-run-... --json
+```
+
+Preparation does not start a model or alter production. Review the packet digest, full target identity, allowed production paths, protected paths, acceptance criteria, frozen checks, and lower-only limits. If anything is stale or ambiguous, prepare fails instead of asking you to supply commands or expand scope.
+
+Start the reviewed packet with an explicit confirmer identity:
+
+```bash
+ultraplan sprint <project> <sprint> repair start --run qa-repair-v1-run-... --confirmer "$USER" --yes --json
+```
+
+UltraPlan accepts the durable operation before confirmation and dispatch. One runtime proposal runs in an isolated copy; product code derives and journals the bounded production apply. The result is one of `verified`, `verified_with_findings`, `failed`, `blocked`, `escalated`, or `stalled`. Only the first two are successful exits, and they require the whole repaired-target ladder plus proven cleanup. Pre-repair smoke or review evidence never counts as a repaired-target pass.
+
+Use `repair status`, `packet`, `cycles`, and `result` for bounded inspection. Cancel with the durable operation ID shown by status. After interruption, `repair resume` reconciles the last durable boundary without replaying a proposal or apply. `repair recover` uses the same runtime-free compensation path. Do not edit verification JSON or apply a retained patch manually. Automatic mode requires a current qualifying manual proof and explicit opt-in on both prepare and start.
+
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`. A project may override only the area-reasoning prompt, final-reasoning prompt, and final-reasoning template. Project status reports which source is effective.
 
 The materialised stage skills are interactive forms of those prompts. Invoke

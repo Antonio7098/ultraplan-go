@@ -327,6 +327,7 @@ func (s Service) RunMerge(ctx context.Context, projectRef, sprintRef string, req
 		if mergeHeadErr != nil || strings.TrimSpace(mergeHead) != state.SourceCommit {
 			return result, fmt.Errorf("active merge no longer matches the recorded sprint commit")
 		}
+		state.ConflictPaths = gitLines(inspection.SourceRoot, "diff", "--name-only", "--diff-filter=U")
 		if len(state.ConflictPaths) > 0 {
 			state.Status = MergeConflicts
 		}
@@ -776,12 +777,12 @@ func validateMergeCheckout(ctx context.Context, root string, state MergeState) (
 		return checks, fmt.Errorf("merged tree failed git diff --check: %s", boundedMergeOutput(diffOutput))
 	}
 	if _, statErr := os.Stat(filepath.Join(root, "go.mod")); statErr == nil {
-		command := exec.CommandContext(ctx, "go", "test", "./...")
+		command := exec.CommandContext(ctx, "go", "test", "./cmd/...", "./internal/...")
 		command.Dir = root
 		output, testErr := command.CombinedOutput()
-		checks = append(checks, MergeCheck{Name: "go test ./...", Passed: testErr == nil, Detail: boundedMergeOutput(output)})
+		checks = append(checks, MergeCheck{Name: "go test ./cmd/... ./internal/...", Passed: testErr == nil, Detail: boundedMergeOutput(output)})
 		if testErr != nil {
-			return checks, fmt.Errorf("merged tree failed go test ./...: %s", boundedMergeOutput(output))
+			return checks, fmt.Errorf("merged tree failed owned-package tests: %s", boundedMergeOutput(output))
 		}
 	}
 	return checks, nil

@@ -19,10 +19,13 @@ type durableOperationManager struct {
 }
 
 type ownedDurableOperation struct {
+	kind         OperationKind
 	fence        runcontrol.Fence
+	ctx          context.Context
 	cancel       context.CancelFunc
 	stop         chan struct{}
 	done         chan struct{}
+	dispatched   bool
 	eventMu      sync.Mutex
 	progressKey  string
 	progressAt   time.Time
@@ -55,6 +58,13 @@ func beginDurableCLICommand(deps dependencies, request OperationRequest) (*durab
 	accepted, err := manager.AcceptOperation(deps.ctx, Confirmation{Request: request}, "")
 	if err != nil {
 		return nil, classifiedCause(ExitRuntime, err, "run-control.accept")
+	}
+	accepted, err = manager.DispatchOperation(deps.ctx, accepted.RunID)
+	if err != nil {
+		finishCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = manager.FinishOperation(finishCtx, accepted.RunID, OperationFailed, err)
+		return nil, classifiedCause(ExitRuntime, err, "run-control.dispatch")
 	}
 	return &durableCLICommand{manager: manager, accepted: accepted}, nil
 }
@@ -118,23 +128,42 @@ func (m *durableOperationManager) AcceptOperation(ctx context.Context, confirmat
 		return AcceptedOperation{}, fmt.Errorf("persist confirmed operation owner claim: %w", err)
 	}
 	fence := runcontrol.Fence{RunID: snapshot.RunID, AttemptID: attempt.ID, OwnerID: m.owner.ID, FencingGeneration: attempt.FencingGeneration}
-	if _, _, err := appendRunEventWithRetry(ctx, m.repository, fence, runcontrol.EventDraft{
-		Type: runcontrol.EventLifecycle, Lifecycle: runcontrol.LifecycleRunning,
-		Payload: map[string]string{"lifecycle": string(runcontrol.LifecycleRunning)},
-	}); err != nil {
-		terminalCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		_, _, _ = proposeRunTerminalWithRetry(terminalCtx, m.repository, fence, runcontrol.TerminalProposal{Outcome: runcontrol.TerminalPersistenceLost, Reason: "operation start persistence failed", ProposedBy: m.owner.ID})
-		cancel()
-		return AcceptedOperation{}, fmt.Errorf("persist confirmed operation start: %w", err)
-	}
 	operationCtx, cancel := context.WithCancel(runcontrol.WithParentRun(ctx, snapshot.RunID))
 	operationCtx = context.WithValue(operationCtx, durableOperationContextKey{}, durableOperationOwnership{repository: m.repository, fence: fence})
-	owned := &ownedDurableOperation{fence: fence, cancel: cancel, stop: make(chan struct{}), done: make(chan struct{})}
+	owned := &ownedDurableOperation{kind: req.Kind, fence: fence, ctx: operationCtx, cancel: cancel}
 	m.mu.Lock()
 	m.owned[string(snapshot.RunID)] = owned
 	m.mu.Unlock()
-	go m.controlOperation(operationCtx, owned)
-	return AcceptedOperation{RunID: string(snapshot.RunID), Context: operationCtx, Lifecycle: string(runcontrol.LifecycleRunning)}, nil
+	return AcceptedOperation{RunID: string(snapshot.RunID), Context: operationCtx, Lifecycle: "claimed"}, nil
+}
+
+// DispatchOperation is the explicit hand-off from immutable confirmation to
+// ownership control. AcceptOperation deliberately creates no goroutine, so a
+// caller can publish confirmation under the claimed writer fence first.
+func (m *durableOperationManager) DispatchOperation(ctx context.Context, runID string) (AcceptedOperation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	owned := m.owned[runID]
+	if owned == nil {
+		return AcceptedOperation{}, runcontrol.ErrNotFound
+	}
+	if owned.dispatched {
+		return AcceptedOperation{RunID: runID, Context: owned.ctx, Existing: true, Lifecycle: string(runcontrol.LifecycleRunning)}, nil
+	}
+	owned.stop = make(chan struct{})
+	owned.done = make(chan struct{})
+	if _, _, err := appendRunEventWithRetry(ctx, m.repository, owned.fence, runcontrol.EventDraft{
+		Type: runcontrol.EventLifecycle, Lifecycle: runcontrol.LifecycleRunning,
+		Payload: map[string]string{"lifecycle": string(runcontrol.LifecycleRunning), "transition": "dispatch"},
+	}); err != nil {
+		terminalCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, _, _ = proposeRunTerminalWithRetry(terminalCtx, m.repository, owned.fence, runcontrol.TerminalProposal{Outcome: runcontrol.TerminalPersistenceLost, Reason: "operation dispatch persistence failed", ProposedBy: m.owner.ID})
+		cancel()
+		return AcceptedOperation{}, fmt.Errorf("persist confirmed operation dispatch: %w", err)
+	}
+	owned.dispatched = true
+	go m.controlOperation(owned.ctx, owned)
+	return AcceptedOperation{RunID: runID, Context: owned.ctx, Lifecycle: string(runcontrol.LifecycleRunning)}, nil
 }
 
 func qaOwnershipFromContext(ctx context.Context) (sprint.QAWriterToken, func(sprint.QAWriterToken) error, error) {
@@ -188,10 +217,15 @@ func (m *durableOperationManager) RecordOperationEvent(ctx context.Context, runI
 		"tool_call_id": event.ToolCallID, "tool_status": event.ToolStatus,
 		"tool_arguments": event.ToolArguments, "tool_result": event.ToolResult, "tool_error": event.ToolError,
 		"provider": event.Provider, "model": event.Model, "harness": event.Harness,
+		"code": event.Code, "severity": event.Severity, "project": event.Project, "sprint": event.Sprint,
+		"repair_run_id": event.RepairRunID, "operation_run_id": event.OperationRunID, "operational_attempt_id": event.OperationalAttemptID,
 	} {
 		if value != "" {
 			payload[key] = value
 		}
+	}
+	if event.FencingGeneration != 0 {
+		payload["fencing_generation"] = fmt.Sprintf("%d", event.FencingGeneration)
 	}
 	var omission *runcontrol.Omission
 	if event.Message != "" {
@@ -286,20 +320,26 @@ func (m *durableOperationManager) FinishOperation(ctx context.Context, runID str
 		owned.omitted = 0
 	}
 	owned.eventMu.Unlock()
-	close(owned.stop)
-	<-owned.done
+	if owned.dispatched {
+		close(owned.stop)
+		<-owned.done
+	}
 	owned.cancel()
 	outcome := runcontrol.TerminalSucceeded
 	reason := "operation completed"
-	switch {
-	case errors.Is(runErr, context.DeadlineExceeded):
-		outcome, reason = runcontrol.TerminalTimedOut, "operation deadline exceeded"
-	case errors.Is(runErr, context.Canceled), state == OperationCancelled:
-		outcome, reason = runcontrol.TerminalCancelled, "operation cancelled"
-	case runErr != nil, state == OperationFailed:
-		outcome, reason = runcontrol.TerminalFailed, "operation failed"
-	case state == OperationPartial:
-		outcome, reason = runcontrol.TerminalInterrupted, "operation interrupted"
+	if !owned.dispatched && owned.kind != OperationRepairPrepare {
+		outcome, reason = runcontrol.TerminalPersistenceLost, "accepted operation was not confirmed and dispatched"
+	} else {
+		switch {
+		case errors.Is(runErr, context.DeadlineExceeded):
+			outcome, reason = runcontrol.TerminalTimedOut, "operation deadline exceeded"
+		case errors.Is(runErr, context.Canceled), state == OperationCancelled:
+			outcome, reason = runcontrol.TerminalCancelled, "operation cancelled"
+		case runErr != nil, state == OperationFailed:
+			outcome, reason = runcontrol.TerminalFailed, "operation failed"
+		case state == OperationPartial:
+			outcome, reason = runcontrol.TerminalInterrupted, "operation interrupted"
+		}
 	}
 	_, _, err := proposeRunTerminalWithRetry(ctx, m.repository, owned.fence, runcontrol.TerminalProposal{Outcome: outcome, Reason: reason, ProposedBy: m.owner.ID})
 	return err

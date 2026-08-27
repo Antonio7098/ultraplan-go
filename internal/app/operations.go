@@ -40,8 +40,16 @@ type WebOperations interface {
 // an execution goroutine. The confirmation digest is already non-reversible.
 type DurableOperationManager interface {
 	AcceptOperation(context.Context, Confirmation, string) (AcceptedOperation, error)
+	DispatchOperation(context.Context, string) (AcceptedOperation, error)
 	RecordOperationEvent(context.Context, string, OperationEvent) (bool, error)
 	FinishOperation(context.Context, string, OperationState, error) error
+}
+
+// DurableOperationConfirmer publishes product-owned immutable confirmation in
+// the acceptance/dispatch gap. Implementations must be a no-op for operations
+// that do not have a product confirmation record.
+type DurableOperationConfirmer interface {
+	ConfirmAcceptedOperation(context.Context, AcceptedOperation, Confirmation) error
 }
 
 type AcceptedOperation struct {
@@ -96,6 +104,10 @@ const (
 	OperationQAStart       OperationKind = "qa-start"
 	OperationQAResume      OperationKind = "qa-resume"
 	OperationQARecover     OperationKind = "qa-recover"
+	OperationRepairPrepare OperationKind = "repair-prepare"
+	OperationRepairStart   OperationKind = "repair-start"
+	OperationRepairResume  OperationKind = "repair-resume"
+	OperationRepairRecover OperationKind = "repair-recover"
 	OperationStudyStart    OperationKind = "study-start"
 	OperationStudyResume   OperationKind = "study-resume"
 	OperationStudyCancel   OperationKind = "study-cancel"
@@ -117,15 +129,21 @@ type OperationRequest struct {
 	Project, Sprint, Study, Stage, Task string
 	// Model optionally overrides the runtime model (provider/model) for this
 	// operation. Empty keeps the workspace-configured default unchanged.
-	Model               string
-	Level, Suite, Test  string
-	Timeout             string
-	ForceReview         bool
-	RestartReview       bool
-	OverrideRationale   string
-	ReviewFocus         []string
-	Sources, Dimensions []string
-	Parallelism         int
+	Model                string
+	Level, Suite, Test   string
+	Timeout              string
+	ForceReview          bool
+	RestartReview        bool
+	OverrideRationale    string
+	ReviewFocus          []string
+	Sources, Dimensions  []string
+	Parallelism          int
+	RepairRunID          string
+	RepairIssueID        string
+	RepairMode           sprint.RepairMode
+	RepairMaxCycles      int
+	RepairAutomaticOptIn bool
+	RepairConfirmer      string
 	// ExpectedFingerprint is server-issued authority. Transport decoders must
 	// never accept it from a caller; it is populated by PrepareOperation and
 	// checked again immediately before execution.
@@ -143,21 +161,25 @@ type Confirmation struct {
 	CanonicalRequest                 string
 	InputFingerprint                 string
 	DurableRefreshPath               string
+	RepairPacketDigest               string
+	RepairTargetFingerprint          string
 }
 type OperationEvent struct {
-	State                                                                         OperationState
-	Stage, Task, Message, PhaseState, SafeSummary                                 string
-	EventKind, EventType, Tool, Action, Reason, Detail                            string
-	ToolCallID, ToolStatus, ToolArguments, ToolResult, ToolError                  string
-	Completed, Total, Attempt                                                     int
-	RuntimeAttempts                                                               int
-	Turns                                                                         int64
-	TurnsKnown                                                                    bool
-	Tokens                                                                        int64
-	TokensKnown                                                                   bool
-	InputTokens, OutputTokens, ReasoningTokens, CacheReadTokens, CacheWriteTokens int64
-	Duration, Provider, Model, Harness, Cost                                      string
-	RuntimeEvents                                                                 int64
+	State                                                                              OperationState
+	Stage, Task, Message, PhaseState, SafeSummary                                      string
+	EventKind, EventType, Tool, Action, Reason, Detail                                 string
+	ToolCallID, ToolStatus, ToolArguments, ToolResult, ToolError                       string
+	Completed, Total, Attempt                                                          int
+	RuntimeAttempts                                                                    int
+	Turns                                                                              int64
+	TurnsKnown                                                                         bool
+	Tokens                                                                             int64
+	TokensKnown                                                                        bool
+	InputTokens, OutputTokens, ReasoningTokens, CacheReadTokens, CacheWriteTokens      int64
+	Duration, Provider, Model, Harness, Cost                                           string
+	Code, Severity, Project, Sprint, RepairRunID, OperationRunID, OperationalAttemptID string
+	FencingGeneration                                                                  uint64
+	RuntimeEvents                                                                      int64
 }
 
 func applyRuntimeObservation(target *OperationEvent, event runtimepkg.Event) {
@@ -197,6 +219,7 @@ type OperationResult struct {
 	State                     OperationState
 	RunID                     string
 	Subject, Message, Content string
+	SemanticOutcome           string
 	Truncated                 bool
 	Findings                  []DisplayFinding
 	Error                     *OperationError
@@ -218,6 +241,9 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		return Confirmation{}, err
 	}
 	if err := validateQAOperationRequest(req); err != nil {
+		return Confirmation{}, err
+	}
+	if err := validateRepairOperationRequest(req); err != nil {
 		return Confirmation{}, err
 	}
 	if (req.Kind == OperationReviewStart || req.Kind == OperationReviewDryRun) && req.Parallelism <= 0 {
@@ -274,6 +300,34 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Mutates = true
 		c.Scope = []string{"QA pointer, digest, interrupted ownership, flow summary, and retention reconciliation"}
 		c.Warning = "RUNTIME-FREE QA RECOVERY; NO CHILD WORK"
+	case OperationRepairPrepare:
+		c.Mutates = true
+		c.Scope = []string{"one current adjudicated issue", "immutable repair packet", "manual one-cycle budget"}
+		c.Warning = "PREPARES PRIVATE REPAIR AUTHORITY; IMPLEMENTATION TARGET READ-ONLY"
+	case OperationRepairStart:
+		repair, err := u.sprintService().RepairStatus(req.Project, req.Sprint)
+		if err != nil {
+			return c, err
+		}
+		if repair.Packet == nil || repair.State.RepairRunID != req.RepairRunID {
+			return c, fmt.Errorf("selected repair packet is unavailable or stale")
+		}
+		if repair.State.Phase != sprint.RepairPhasePrepared && repair.State.Phase != sprint.RepairPhaseConfirmed {
+			return c, fmt.Errorf("selected repair packet is not awaiting confirmation")
+		}
+		c.Runtime, c.Mutates = true, true
+		c.RepairPacketDigest = repair.Packet.PacketDigest
+		c.RepairTargetFingerprint = repair.Packet.Target.Fingerprint
+		c.Scope = []string{"packet " + repair.Packet.PacketDigest, fmt.Sprintf("at most %d production apply", repair.Packet.Budgets.MaxMutationCycles), fmt.Sprintf("at most %d changed files and %d changed bytes", repair.Packet.Budgets.MaxFilesPerRun, repair.Packet.Budgets.MaxBytesPerRun), "fixed repair reverification ladder"}
+		c.Warning = "MANUAL RUNTIME + BOUNDED PRODUCTION MUTATION; EXPLICIT SINGLE-USE CONFIRMATION REQUIRED"
+	case OperationRepairResume:
+		c.Runtime, c.Mutates = true, true
+		c.Scope = []string{"one interrupted confirmed repair", "persisted remaining manual authority"}
+		c.Warning = "RESUME CONFIRMED BOUNDED REPAIR; NO NEW OR EXPANDED AUTHORITY"
+	case OperationRepairRecover:
+		c.Mutates = true
+		c.Scope = []string{"repair pointer, ownership, apply journal, cleanup, and terminal state reconciliation"}
+		c.Warning = "RUNTIME-FREE REPAIR RECOVERY; NO NEW PROPOSAL OR PRODUCTION APPLY"
 	case OperationSprintStatus:
 		c.Mutates = true
 		c.Scope = []string{"all sprint stages", "execute and Conformance Review state"}
@@ -398,6 +452,53 @@ func validateQAOperationRequest(req OperationRequest) error {
 	}
 	if req.Task != "" && req.Kind != OperationQAStart && req.Kind != OperationQAResume {
 		return fmt.Errorf("QA shard is valid only for start or resume")
+	}
+	return nil
+}
+
+func validateRepairOperationRequest(req OperationRequest) error {
+	switch req.Kind {
+	case OperationRepairPrepare, OperationRepairStart, OperationRepairResume, OperationRepairRecover:
+	default:
+		if req.RepairRunID != "" || req.RepairIssueID != "" || req.RepairMode != "" || req.RepairMaxCycles != 0 || req.RepairAutomaticOptIn || req.RepairConfirmer != "" {
+			return fmt.Errorf("repair fields are valid only for repair operations")
+		}
+		return nil
+	}
+	if req.Project == "" || req.Sprint == "" || req.Study != "" || req.Stage != "" || req.Task != "" || req.Model != "" || req.Level != "" || req.Suite != "" || req.Test != "" || req.Timeout != "" || req.ForceReview || req.RestartReview || req.OverrideRationale != "" || len(req.ReviewFocus) > 0 || len(req.Sources) > 0 || len(req.Dimensions) > 0 || req.Parallelism != 0 {
+		return fmt.Errorf("repair operations accept only project, sprint, and repair-specific fields")
+	}
+	switch req.Kind {
+	case OperationRepairPrepare:
+		if req.RepairIssueID == "" {
+			return fmt.Errorf("repair prepare requires one issue")
+		}
+		if req.RepairRunID != "" || req.RepairConfirmer != "" || req.RepairAutomaticOptIn {
+			return fmt.Errorf("repair prepare cannot accept run confirmation fields")
+		}
+		if req.RepairMode != sprint.RepairModeManual && req.RepairMode != sprint.RepairModeAutomatic {
+			return fmt.Errorf("repair prepare requires manual or automatic mode")
+		}
+		if req.RepairMode == sprint.RepairModeManual && req.RepairMaxCycles != 0 && req.RepairMaxCycles != 1 {
+			return fmt.Errorf("manual repair max cycles must be one")
+		}
+	case OperationRepairStart:
+		if req.RepairRunID == "" || req.RepairConfirmer == "" {
+			return fmt.Errorf("repair start requires a prepared run and explicit confirmer")
+		}
+		if req.RepairMode != "" && req.RepairMode != sprint.RepairModeManual && req.RepairMode != sprint.RepairModeAutomatic {
+			return fmt.Errorf("repair start mode is invalid")
+		}
+		if req.RepairIssueID != "" || req.RepairMaxCycles != 0 {
+			return fmt.Errorf("repair start cannot alter the frozen packet")
+		}
+		if req.RepairMode == sprint.RepairModeAutomatic && !req.RepairAutomaticOptIn {
+			return fmt.Errorf("automatic repair start requires explicit opt-in")
+		}
+	case OperationRepairResume, OperationRepairRecover:
+		if req.RepairRunID == "" || req.RepairIssueID != "" || req.RepairMode != "" || req.RepairMaxCycles != 0 || req.RepairAutomaticOptIn || req.RepairConfirmer != "" {
+			return fmt.Errorf("repair resume and recover accept only the prepared repair run")
+		}
 	}
 	return nil
 }
@@ -570,6 +671,10 @@ func normalizeOperationRequest(req OperationRequest) OperationRequest {
 	req.Test = strings.TrimSpace(req.Test)
 	req.Timeout = strings.TrimSpace(req.Timeout)
 	req.OverrideRationale = strings.TrimSpace(req.OverrideRationale)
+	req.RepairRunID = strings.TrimSpace(req.RepairRunID)
+	req.RepairIssueID = strings.TrimSpace(req.RepairIssueID)
+	req.RepairMode = sprint.RepairMode(strings.TrimSpace(string(req.RepairMode)))
+	req.RepairConfirmer = strings.TrimSpace(req.RepairConfirmer)
 	req.ReviewFocus = normalizedStrings(req.ReviewFocus)
 	req.Sources = normalizedStrings(req.Sources)
 	req.Dimensions = normalizedStrings(req.Dimensions)
@@ -638,6 +743,9 @@ func operationPrerequisites(req OperationRequest) []string {
 	if (req.Kind == OperationFlow || req.Kind == OperationFlowDryRun) && req.Stage == string(sprint.StageMerge) {
 		prerequisites = append(prerequisites, "fresh acceptable review and smoke", "recorded sprint worktree", "clean integration worktree")
 	}
+	if req.Kind == OperationRepairPrepare || req.Kind == OperationRepairStart || req.Kind == OperationRepairResume || req.Kind == OperationRepairRecover {
+		prerequisites = append(prerequisites, "current evidence-producing QA", "current adjudicated repair-eligible issue", "current containing smoke", "approved isolated repair host")
+	}
 	return prerequisites
 }
 
@@ -658,6 +766,8 @@ func operationRuntimeIdentity(req OperationRequest, stages map[sprint.PlanningSt
 			return "configured smoke author and harness"
 		}
 		return "configured QA runtime"
+	case OperationRepairStart, OperationRepairResume:
+		return "configured isolated repair runtime"
 	}
 	if runtime, ok := stages[stage]; ok && (runtime.Model != "" || runtime.Variant != "") {
 		return strings.TrimSpace(runtime.Model + " variant=" + runtime.Variant)
@@ -683,7 +793,7 @@ func governedOperationInputs(req OperationRequest) []string {
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "plan.md")),
 		}
 		switch req.Kind {
-		case OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover, OperationQAStatus:
+		case OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover, OperationQAStatus, OperationRepairPrepare, OperationRepairStart, OperationRepairResume, OperationRepairRecover:
 			inputs = append(inputs,
 				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "execute.md")),
 				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, ".run-state.json")),

@@ -7,8 +7,9 @@ import (
 	"time"
 )
 
-const FlowStateSchemaVersion = 2
-const PreviousFlowStateSchemaVersion = 1
+const FlowStateSchemaVersion = 3
+const PreviousFlowStateSchemaVersion = 2
+const LegacyFlowStateSchemaVersion = 1
 const ExecuteRunStateSchemaVersion = 1
 
 var (
@@ -133,14 +134,15 @@ type ExecuteRunState struct {
 }
 
 type FlowState struct {
-	SchemaVersion int               `json:"schemaVersion"`
-	Project       string            `json:"project"`
-	Sprint        string            `json:"sprint"`
-	UpdatedAt     time.Time         `json:"updatedAt"`
-	Stages        []StageState      `json:"stages"`
-	Review        *ReviewStageState `json:"review,omitempty"`
-	Smoke         *SmokeStageState  `json:"smoke,omitempty"`
-	QA            *QAFlowSummary    `json:"qa,omitempty"`
+	SchemaVersion int                `json:"schemaVersion"`
+	Project       string             `json:"project"`
+	Sprint        string             `json:"sprint"`
+	UpdatedAt     time.Time          `json:"updatedAt"`
+	Stages        []StageState       `json:"stages"`
+	Review        *ReviewStageState  `json:"review,omitempty"`
+	Smoke         *SmokeStageState   `json:"smoke,omitempty"`
+	QA            *QAFlowSummary     `json:"qa,omitempty"`
+	Repair        *RepairFlowSummary `json:"repair,omitempty"`
 }
 
 type AttemptStatus string

@@ -21,6 +21,7 @@ type qaQueryFixture struct {
 	shardErr error
 	theory   app.QATheoryResult
 	synth    app.QASynthesisResult
+	repair   app.RepairStatusResult
 }
 
 func (fixture *qaQueryFixture) QAMap(context.Context, app.QARequest) (app.QAResult, error) {
@@ -60,6 +61,9 @@ func (fixture *qaQueryFixture) QATheory(context.Context, app.QARequest) (app.QAT
 }
 func (fixture *qaQueryFixture) QASynthesis(context.Context, app.QARequest) (app.QASynthesisResult, error) {
 	return fixture.synth, nil
+}
+func (fixture *qaQueryFixture) RepairStatus(context.Context, app.RepairRequest) (app.RepairStatusResult, error) {
+	return fixture.repair, nil
 }
 
 func TestQARoutesReturnBoundedJSONAndCompleteNoJavaScriptHTML(t *testing.T) {
@@ -105,5 +109,39 @@ func TestQARoutesReturnBoundedJSONAndCompleteNoJavaScriptHTML(t *testing.T) {
 	method := request(h, http.MethodPost, "/api/v1/projects/alpha/sprints/30-web/qa", bytes.NewReader(nil))
 	if method.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("QA query POST status=%d", method.Code)
+	}
+}
+
+func TestRepairRoutesReturnCanonicalBoundedJSONAndNoJavaScriptHTML(t *testing.T) {
+	queries := sampleQueries()
+	repair := app.RepairStatusResult{
+		SchemaVersion: 1, Project: "alpha", Sprint: "30-web", Phase: "prepared", Fresh: true,
+		RepairRunID: "repair-v1-run-aaaaaaaaaaaaaaaaaaaaaaaa", Mode: "manual", NextAction: "Review and confirm the frozen packet.",
+		Packet: &app.RepairPacketSummary{Digest: "sha256:packet", IssueID: "qa-v1-issue-current", IssueTitle: `hostile <script>alert(1)</script>`, Target: app.QATargetIdentitySummary{Fingerprint: "target"}, AllowedPaths: []string{"internal/app/repair.go"}, AcceptanceCriteria: []string{"exact reproducer passes"}, CheckCount: 7, Budgets: app.RepairBudgetSummary{MaxCycles: 1, MaxMutationCycles: 1, MaxFiles: 8, MaxBytes: 1024, WallTime: "45m0s"}},
+	}
+	fixture := &qaQueryFixture{fakeQueries: queries, repair: repair}
+	h, err := NewHandler(HandlerOptions{Queries: fixture, Authority: testAuthority, RequestID: func() string { return "repair-request" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"/api/v1/projects/alpha/sprints/30-web/repair",
+		"/api/v1/projects/alpha/sprints/30-web/repair/packet",
+		"/api/v1/projects/alpha/sprints/30-web/repair/cycles",
+		"/api/v1/projects/alpha/sprints/30-web/repair/result",
+	} {
+		response := request(h, http.MethodGet, path, nil)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"repair_run_id":"repair-v1-run-`) || strings.Contains(response.Body.String(), "proposal_patch") {
+			t.Fatalf("%s status=%d body=%s", path, response.Code, response.Body.String())
+		}
+	}
+	response := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/repair", nil)
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, "Bounded repair") || !strings.Contains(body, "Automatic mode unavailable") || !strings.Contains(body, "<noscript>") || strings.Contains(body, "<script>alert") {
+		t.Fatalf("repair page status=%d body=%s", response.Code, body)
+	}
+	method := request(h, http.MethodPost, "/api/v1/projects/alpha/sprints/30-web/repair", bytes.NewReader(nil))
+	if method.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("repair query POST status=%d", method.Code)
 	}
 }
