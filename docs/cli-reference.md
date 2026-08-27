@@ -443,7 +443,7 @@ ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/mode
 ultraplan sprint <project> <sprint> merge abort --yes [--json]
 ```
 
-Merges the recorded sprint branch into the integration branch captured in `.workspace.json`. Admission requires clean recorded worktrees and current acceptable review and smoke evidence. UltraPlan freezes both commit IDs, takes a repository merge lock, asks an agent for a structured description, and runs `git merge --no-ff --no-commit`. UltraPlan alone stages and commits. If Git reports conflicts, a restricted agent may edit only the conflicted paths before deterministic validation and staging. `.merge-state.json` makes conflicts resumable, and `merge.md` records the completed commit and reconciliation evidence.
+Merges the recorded sprint branch into the integration branch captured in `.workspace.json`. The sprint worktree may contain tracked, staged, or untracked implementation changes. UltraPlan fingerprints all of them, asks an agent for a structured description, rechecks the fingerprint, and creates the sprint snapshot commit itself. Admission still requires a clean integration worktree and current acceptable review and smoke evidence. UltraPlan then freezes both commit IDs, takes a repository merge lock, and runs `git merge --no-ff --no-commit`. UltraPlan alone stages and commits. If Git reports conflicts, a restricted agent may edit only the conflicted paths before deterministic validation and staging. `.merge-state.json` makes conflicts resumable, and `merge.md` records the completed commit and reconciliation evidence.
 
 ### `ultraplan code`
 

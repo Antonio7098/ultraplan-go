@@ -42,23 +42,25 @@ type MergeDescription struct {
 }
 
 type MergeInspection struct {
-	SchemaVersion   int      `json:"schema_version"`
-	Project         string   `json:"project"`
-	Sprint          string   `json:"sprint"`
-	SourceRoot      string   `json:"source_root"`
-	SourceWorktree  string   `json:"source_worktree"`
-	SourceBranch    string   `json:"source_branch"`
-	SourceCommit    string   `json:"source_commit"`
-	TargetBranch    string   `json:"target_branch"`
-	TargetCommit    string   `json:"target_commit"`
-	Baseline        string   `json:"baseline"`
-	MergeBase       string   `json:"merge_base"`
-	Commits         []string `json:"commits,omitempty"`
-	ChangedPaths    []string `json:"changed_paths,omitempty"`
-	LikelyConflicts []string `json:"likely_conflicts,omitempty"`
-	AlreadyMerged   bool     `json:"already_merged"`
-	Ready           bool     `json:"ready"`
-	Diagnostics     []string `json:"diagnostics,omitempty"`
+	SchemaVersion             int      `json:"schema_version"`
+	Project                   string   `json:"project"`
+	Sprint                    string   `json:"sprint"`
+	SourceRoot                string   `json:"source_root"`
+	SourceWorktree            string   `json:"source_worktree"`
+	SourceBranch              string   `json:"source_branch"`
+	SourceCommit              string   `json:"source_commit"`
+	TargetBranch              string   `json:"target_branch"`
+	TargetCommit              string   `json:"target_commit"`
+	Baseline                  string   `json:"baseline"`
+	MergeBase                 string   `json:"merge_base"`
+	Commits                   []string `json:"commits,omitempty"`
+	ChangedPaths              []string `json:"changed_paths,omitempty"`
+	SourceDirtyPaths          []string `json:"source_dirty_paths,omitempty"`
+	SourceWorktreeFingerprint string   `json:"source_worktree_fingerprint,omitempty"`
+	LikelyConflicts           []string `json:"likely_conflicts,omitempty"`
+	AlreadyMerged             bool     `json:"already_merged"`
+	Ready                     bool     `json:"ready"`
+	Diagnostics               []string `json:"diagnostics,omitempty"`
 }
 
 type MergeCheck struct {
@@ -145,11 +147,16 @@ func (s Service) InspectMerge(projectRef, sprintRef string) (MergeInspection, er
 	if targetErr != nil || strings.TrimSpace(targetBranch) != record.IntegrationBranch {
 		out.Diagnostics = append(out.Diagnostics, fmt.Sprintf("target checkout must be on recorded integration branch %q", record.IntegrationBranch))
 	}
-	for label, dir := range map[string]string{"sprint worktree": record.Path, "target worktree": record.SourceRoot} {
-		status, statusErr := gitOutput(dir, "status", "--porcelain", "--untracked-files=normal")
-		if statusErr != nil || strings.TrimSpace(status) != "" {
-			out.Diagnostics = append(out.Diagnostics, label+" is not clean")
-		}
+	status, statusErr := gitStatusOutput(record.Path, "--untracked-files=all")
+	if statusErr != nil {
+		out.Diagnostics = append(out.Diagnostics, "sprint worktree status is unavailable")
+	} else {
+		out.SourceDirtyPaths = mergeStatusPaths(status)
+		out.SourceWorktreeFingerprint = mergeWorktreeFingerprint(record.Path)
+	}
+	targetStatus, targetStatusErr := gitStatusOutput(record.SourceRoot, "--untracked-files=normal")
+	if targetStatusErr != nil || strings.TrimSpace(targetStatus) != "" {
+		out.Diagnostics = append(out.Diagnostics, "target worktree is not clean")
 	}
 	if mergeHead, _ := gitOutput(record.SourceRoot, "rev-parse", "-q", "--verify", "MERGE_HEAD"); mergeHead != "" {
 		out.Diagnostics = append(out.Diagnostics, "target worktree already has an active merge")
@@ -164,8 +171,10 @@ func (s Service) InspectMerge(projectRef, sprintRef string) (MergeInspection, er
 		out.Diagnostics = append(out.Diagnostics, "sprint branch no longer descends from its recorded baseline")
 	}
 	out.Commits = gitLines(record.SourceRoot, "log", "--format=%h %s", out.TargetCommit+".."+out.SourceCommit)
-	out.ChangedPaths = gitLines(record.SourceRoot, "diff", "--name-only", out.MergeBase+".."+out.SourceCommit)
-	out.LikelyConflicts = likelyMergeConflicts(record.SourceRoot, out.TargetCommit, out.SourceCommit)
+	out.ChangedPaths = uniqueSorted(append(gitLines(record.SourceRoot, "diff", "--name-only", out.MergeBase+".."+out.SourceCommit), out.SourceDirtyPaths...))
+	if len(out.SourceDirtyPaths) == 0 {
+		out.LikelyConflicts = likelyMergeConflicts(record.SourceRoot, out.TargetCommit, out.SourceCommit)
+	}
 	verification, verificationErr := s.VerificationStatus(projectRef, sprintRef)
 	if verificationErr != nil {
 		out.Diagnostics = append(out.Diagnostics, "verification status is unavailable: "+safeError(verificationErr))
@@ -270,6 +279,23 @@ func (s Service) RunMerge(ctx context.Context, projectRef, sprintRef string, req
 		if runID != "" {
 			state.RuntimeRunIDs = append(state.RuntimeRunIDs, runID)
 		}
+		if len(inspection.SourceDirtyPaths) > 0 {
+			if mergeWorktreeFingerprint(inspection.SourceWorktree) != inspection.SourceWorktreeFingerprint {
+				return result, fmt.Errorf("sprint worktree changed while the merge description was generated; inspect and retry")
+			}
+			if snapshotErr := commitSprintSnapshot(inspection.SourceWorktree, sp, description); snapshotErr != nil {
+				state.Status, state.Diagnostic = MergeFailed, safeError(snapshotErr)
+				_ = s.saveMergeState(sp, state)
+				return MergeResult{Inspection: inspection, State: state}, snapshotErr
+			}
+			inspection.SourceCommit, _ = gitOutput(inspection.SourceWorktree, "rev-parse", "HEAD")
+			inspection.SourceDirtyPaths = nil
+			inspection.SourceWorktreeFingerprint = mergeWorktreeFingerprint(inspection.SourceWorktree)
+			inspection.Commits = gitLines(inspection.SourceRoot, "log", "--format=%h %s", inspection.TargetCommit+".."+inspection.SourceCommit)
+			inspection.ChangedPaths = gitLines(inspection.SourceRoot, "diff", "--name-only", inspection.MergeBase+".."+inspection.SourceCommit)
+			inspection.LikelyConflicts = likelyMergeConflicts(inspection.SourceRoot, inspection.TargetCommit, inspection.SourceCommit)
+			state.SourceCommit = inspection.SourceCommit
+		}
 		state.Status, state.UpdatedAt = MergeMerging, s.now().UTC()
 		if err := s.saveMergeState(sp, state); err != nil {
 			return result, err
@@ -329,6 +355,67 @@ func (s Service) RunMerge(ctx context.Context, projectRef, sprintRef string, req
 	}
 	publications, publishErr := s.publishMergeStage(ctx, sp, inspection.SourceRoot, artifact)
 	return MergeResult{Inspection: inspection, State: state, Artifact: artifact, Publications: publications}, publishErr
+}
+
+func mergeStatusPaths(status string) []string {
+	var paths []string
+	for _, line := range strings.Split(strings.TrimRight(status, "\r\n"), "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		path := strings.TrimSpace(line[3:])
+		if before, after, renamed := strings.Cut(path, " -> "); renamed {
+			paths = append(paths, before, after)
+		} else {
+			paths = append(paths, path)
+		}
+	}
+	return uniqueSorted(paths)
+}
+
+func gitStatusOutput(root string, untracked string) (string, error) {
+	output, err := exec.Command("git", "-C", root, "status", "--porcelain", untracked).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return strings.TrimRight(string(output), "\r\n"), nil
+}
+
+func mergeWorktreeFingerprint(root string) string {
+	status, statusErr := gitStatusOutput(root, "--untracked-files=all")
+	if statusErr != nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(status)
+	for _, path := range mergeStatusPaths(status) {
+		b.WriteByte('\x00')
+		b.WriteString(path)
+		b.WriteByte('\x00')
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			b.WriteString("missing")
+		} else {
+			b.WriteString(hashBytes(data))
+		}
+	}
+	return hashBytes([]byte(b.String()))
+}
+
+func commitSprintSnapshot(root string, sp Sprint, description MergeDescription) error {
+	if err := gitCommand(root, "add", "-A"); err != nil {
+		return fmt.Errorf("stage sprint snapshot: %w", err)
+	}
+	message := fmt.Sprintf("ultraplan: snapshot sprint %s/%s\n\n%s", sp.Project, sp.Slug, renderMergeCommitMessage(description))
+	command := exec.Command("git", "-C", root, "commit", "-m", message)
+	if output, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("commit sprint snapshot: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	status, err := gitStatusOutput(root, "--untracked-files=normal")
+	if err != nil || strings.TrimSpace(status) != "" {
+		return fmt.Errorf("sprint snapshot did not leave a clean worktree")
+	}
+	return nil
 }
 
 func (s Service) publishMergeStage(ctx context.Context, sp Sprint, targetRoot, artifact string) ([]gitpublish.Result, error) {

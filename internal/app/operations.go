@@ -283,7 +283,7 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Mutates = true
 		if req.Stage == string(sprint.StageMerge) {
 			c.Scope = []string{"verified sprint branch", "recorded integration branch", "agent merge description", "conflicted paths only when required"}
-			c.Warning = "RUNTIME + GIT MERGE AND COMMIT; REQUIRES CLEAN RECORDED WORKTREES"
+			c.Warning = "RUNTIME + SPRINT SNAPSHOT COMMIT + GIT MERGE COMMIT; REQUIRES CLEAN INTEGRATION WORKTREE"
 		} else {
 			c.Scope = []string{"planning stages through " + req.Stage}
 			c.Warning = "RUNTIME + WORKSPACE MUTATION"
@@ -636,7 +636,7 @@ func operationPrerequisites(req OperationRequest) []string {
 		prerequisites = append(prerequisites, "complete execute evidence", "current Conformance Review", "approved read-only target")
 	}
 	if (req.Kind == OperationFlow || req.Kind == OperationFlowDryRun) && req.Stage == string(sprint.StageMerge) {
-		prerequisites = append(prerequisites, "fresh acceptable review and smoke", "clean recorded sprint and integration worktrees")
+		prerequisites = append(prerequisites, "fresh acceptable review and smoke", "recorded sprint worktree", "clean integration worktree")
 	}
 	return prerequisites
 }

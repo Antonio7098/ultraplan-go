@@ -230,7 +230,7 @@ Perform the smoke verification yourself: inspect the declared harness, run the s
 			Name:             "ultraplan-merge",
 			DisplayName:      "UltraPlan Merge",
 			ShortDescription: "Merge a verified sprint worktree into its recorded integration branch",
-			Prerequisites:    []string{"completed execute stage", "fresh acceptable review and smoke evidence", "clean recorded sprint and integration worktrees"},
+			Prerequisites:    []string{"completed execute stage", "fresh acceptable review and smoke evidence", "recorded sprint worktree and clean integration worktree"},
 			Prompt: `# Sprint Merge
 
 Use UltraPlan's governed merge command. UltraPlan resolves both worktrees, freezes commit identities, generates the description, owns every Git mutation, and invokes restricted conflict reconciliation only when Git reports conflicts.`,

@@ -56,6 +56,65 @@ func TestInspectMergeReportsDeterministicCommitAndVerificationGate(t *testing.T)
 	}
 }
 
+func TestInspectMergeAcceptsAndFingerprintsDirtySprintWorktree(t *testing.T) {
+	source := gitFixture(t)
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "41-merge")
+	writeFileContent(t, filepath.Join(root, "projects", "proj"), projectIndexForTarget(source), "project-index.md")
+	target, findings := NewService(root).resolveSprintTarget(sp, projectIndexForTarget(source), true)
+	if len(findings) != 0 {
+		t.Fatalf("findings = %+v", findings)
+	}
+	if err := os.WriteFile(filepath.Join(target.Path, "README.md"), []byte("modified\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target.Path, "new.txt"), []byte("untracked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	inspection, err := NewService(root).InspectMerge("proj", "41")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(inspection.SourceDirtyPaths, ","); got != "README.md,new.txt" {
+		t.Fatalf("dirty paths = %q", got)
+	}
+	if inspection.SourceWorktreeFingerprint == "" {
+		t.Fatal("missing source worktree fingerprint")
+	}
+	if strings.Contains(strings.Join(inspection.Diagnostics, " "), "sprint worktree is not clean") {
+		t.Fatalf("dirty sprint was rejected: %+v", inspection.Diagnostics)
+	}
+	if got := strings.Join(inspection.ChangedPaths, ","); got != "README.md,new.txt" {
+		t.Fatalf("changed paths = %q", got)
+	}
+}
+
+func TestCommitSprintSnapshotCapturesTrackedAndUntrackedChanges(t *testing.T) {
+	source := gitFixture(t)
+	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("modified\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "new.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := mustGitOutput(t, source, "rev-parse", "HEAD")
+	description := MergeDescription{Title: "Capture sprint work", Summary: []string{"Records the completed implementation."}}
+	if err := commitSprintSnapshot(source, Sprint{Project: "proj", Slug: "41-merge"}, description); err != nil {
+		t.Fatal(err)
+	}
+	after := mustGitOutput(t, source, "rev-parse", "HEAD")
+	if before == after {
+		t.Fatal("snapshot did not create a commit")
+	}
+	if status := mustGitOutput(t, source, "status", "--porcelain"); status != "" {
+		t.Fatalf("status = %q", status)
+	}
+	if paths := mustGitOutput(t, source, "show", "--format=", "--name-only", "HEAD"); !strings.Contains(paths, "README.md") || !strings.Contains(paths, "new.txt") {
+		t.Fatalf("snapshot paths = %q", paths)
+	}
+}
+
 func TestDecodeAndValidateMergeDescription(t *testing.T) {
 	run := pruntime.Result{TerminalOutput: "result:\n```json\n{\"title\":\"Merge sprint work\",\"summary\":[\"Adds governed integration\"],\"verification\":[\"go test ./...\"]}\n```"}
 	var description MergeDescription
