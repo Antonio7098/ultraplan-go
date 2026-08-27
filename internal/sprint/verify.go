@@ -62,7 +62,7 @@ func (s Service) Verify(ctx context.Context, projectRef, sprintRef string, req V
 	if statusErr == nil {
 		result.Verification = status
 	}
-	currentReview := statusErr == nil && status.Review.Fresh && status.Review.ExecutionStatus == string(ReviewCompleted) && !req.Review.Restart
+	currentReview := statusErr == nil && verificationStageCurrent(status.Review, string(ReviewCompleted)) && !req.Review.Restart
 	if !currentReview {
 		if req.Progress != nil {
 			req.Progress(FlowProgress{Stage: StageReview, State: "running", Message: "obtaining current review evidence"})
@@ -84,6 +84,14 @@ func (s Service) Verify(ctx context.Context, projectRef, sprintRef string, req V
 		}
 		return result, nil
 	}
+	currentSmoke := statusErr == nil && verificationStageCurrent(status.Smoke, string(SmokeCompleted))
+	if currentSmoke {
+		if req.Progress != nil {
+			req.Progress(FlowProgress{Stage: StageSmoke, State: "skipped", Message: "current smoke evidence is acceptable"})
+		}
+		result.Verification = status
+		return result, nil
+	}
 	if req.Progress != nil {
 		req.Progress(FlowProgress{Stage: StageSmoke, State: "running", Message: "evaluating review gate and running smoke"})
 	}
@@ -92,6 +100,10 @@ func (s Service) Verify(ctx context.Context, projectRef, sprintRef string, req V
 	result.SmokeResult = &smoke
 	result.Verification, _ = s.VerificationStatus(projectRef, sprintRef)
 	return result, err
+}
+
+func verificationStageCurrent(stage VerificationStage, completedStatus string) bool {
+	return stage.Fresh && stage.ExecutionStatus == completedStatus
 }
 
 func (s Service) requireCompleteExecute(projectRef, sprintRef string) error {

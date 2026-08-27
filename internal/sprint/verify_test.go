@@ -59,6 +59,18 @@ func TestDeriveAssessmentPrecedence(t *testing.T) {
 	}
 }
 
+func TestVerificationStageCurrent(t *testing.T) {
+	if !verificationStageCurrent(VerificationStage{Fresh: true, ExecutionStatus: string(SmokeCompleted)}, string(SmokeCompleted)) {
+		t.Fatal("fresh completed smoke evidence was not current")
+	}
+	if verificationStageCurrent(VerificationStage{Fresh: false, ExecutionStatus: string(SmokeCompleted)}, string(SmokeCompleted)) {
+		t.Fatal("stale smoke evidence was current")
+	}
+	if verificationStageCurrent(VerificationStage{Fresh: true, ExecutionStatus: string(SmokeCancelled)}, string(SmokeCompleted)) {
+		t.Fatal("cancelled smoke evidence was current")
+	}
+}
+
 func TestFlowStateMigratesExactlyOnePredecessor(t *testing.T) {
 	root := workspaceFixture(t)
 	sp := sprintFixture(t, root, "proj", "01-alpha")

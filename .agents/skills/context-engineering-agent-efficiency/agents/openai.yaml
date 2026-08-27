@@ -1,0 +1,7 @@
+interface:
+  display_name: "Context Engineering and Agent Efficiency"
+  short_description: "Map model inputs, remove repeated agent work, and design cacheable handoffs"
+  default_prompt: "Audit this workflow's context handoffs, repeated discovery, executor choices, session reuse, and provider-cache prefix design. Propose an evidence-backed faster and cheaper design."
+
+policy:
+  allow_implicit_invocation: false
