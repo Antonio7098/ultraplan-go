@@ -814,7 +814,15 @@ func runSprintRepair(deps dependencies, root workspace.Root, effective config.Ef
 		if command.RunID != "" && snapshot.State.RepairRunID != command.RunID && snapshot.State.Run.RunID != command.RunID {
 			return RepairStatusResult{}, fmt.Errorf("repair run %q is not current", command.RunID)
 		}
-		return repairSnapshotProjection(snapshot), nil
+		result := repairSnapshotProjection(snapshot)
+		if result.Packet == nil {
+			_, sources, sourceErr := repairBudgetsFor(effective, sprint.RepairModeManual)
+			if sourceErr != nil {
+				return RepairStatusResult{}, sourceErr
+			}
+			result.EffectiveSources = sources
+		}
+		return result, nil
 	}
 	writeResult := func(status string, result RepairStatusResult, runErr error) error {
 		if command.JSON {
@@ -898,6 +906,9 @@ func runSprintRepairPrepare(deps dependencies, root workspace.Root, effective co
 	mode := sprint.RepairModeManual
 	if command.Automatic {
 		mode = sprint.RepairModeAutomatic
+		if err := service.RequireAutomaticRepairProof(projectRef, sprintRef); err != nil {
+			return writeResult("failed", RepairStatusResult{}, err)
+		}
 	}
 	request := OperationRequest{Kind: OperationRepairPrepare, Project: projectRef, Sprint: sprintRef, RepairIssueID: command.IssueID, RepairMode: mode, RepairMaxCycles: command.MaxCycles}
 	dashboard := dashboardUseCases{root: root.Path, stageRuntime: planningStageRuntime(effective.Config)}
@@ -979,6 +990,9 @@ func runSprintRepairStart(deps dependencies, root workspace.Root, effective conf
 	mode := sprint.RepairModeManual
 	if command.Automatic {
 		mode = sprint.RepairModeAutomatic
+		if err := service.RequireAutomaticRepairProof(projectRef, sprintRef); err != nil {
+			return writeResult("failed", RepairStatusResult{}, err)
+		}
 	}
 	request := OperationRequest{Kind: OperationRepairStart, Project: projectRef, Sprint: sprintRef, RepairRunID: command.RunID, RepairMode: mode, RepairAutomaticOptIn: command.Automatic, RepairConfirmer: command.Confirmer}
 	prepared, err := dashboard.PrepareOperation(deps.ctx, request)

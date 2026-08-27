@@ -102,6 +102,20 @@ type RepairProgress struct {
 	Message string         `json:"message"`
 }
 
+// RequireAutomaticRepairProof performs the runtime-free admission check before
+// a durable prepare operation is accepted or deduplicated.
+func (s Service) RequireAutomaticRepairProof(projectRef, sprintRef string) error {
+	sp, err := s.resolveMutationSprint(projectRef, sprintRef)
+	if err != nil {
+		return err
+	}
+	proof, err := NewQAStore(s.root, sp).LoadManualRepairProof()
+	if err != nil || proof.Outcome != RepairOutcomeVerified && proof.Outcome != RepairOutcomeVerifiedWithFindings || !proof.CleanupComplete || !proof.ProductionApplied || !proof.CompleteLadder {
+		return NewQAError(QAErrorAdmissionBlocked, "prepare automatic repair", "automatic repair is unavailable until qualifying manual proof exists", err)
+	}
+	return nil
+}
+
 func (s Service) RepairStatus(projectRef, sprintRef string) (RepairSnapshot, error) {
 	sp, err := s.resolveMutationSprint(projectRef, sprintRef)
 	if err != nil {
@@ -110,7 +124,7 @@ func (s Service) RepairStatus(projectRef, sprintRef string) (RepairSnapshot, err
 	store := NewQAStore(s.root, sp)
 	state, err := store.LoadRepairState()
 	if errors.Is(err, fs.ErrNotExist) {
-		return RepairSnapshot{State: RepairState{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, Phase: RepairPhaseStale, Freshness: RepairFreshness{Current: false, Reasons: []string{"no repair packet has been prepared"}}, NextAction: "Prepare one current repair-eligible QA issue.", UpdatedAt: s.now().UTC()}}, nil
+		return RepairSnapshot{State: RepairState{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, Phase: RepairPhaseStale, Freshness: RepairFreshness{Current: false, Reasons: []string{"no repair packet has been prepared"}}, NextAction: "Prepare one current repair-eligible QA issue."}}, nil
 	}
 	if err != nil {
 		return RepairSnapshot{}, NewQAError(QAErrorPersistenceFailure, "load repair status", "repair state is unavailable", err)
@@ -172,6 +186,12 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 	flow, err := LoadFlowState(s.root, sp)
 	if err != nil {
 		return RepairPrepareResult{}, NewQAError(QAErrorStaleInput, "prepare repair", "flow state is unavailable", err)
+	}
+	if req.Mode == RepairModeAutomatic {
+		proof, proofErr := NewQAStore(s.root, sp).LoadManualRepairProof()
+		if proofErr != nil || proof.Outcome != RepairOutcomeVerified && proof.Outcome != RepairOutcomeVerifiedWithFindings || !proof.CleanupComplete || !proof.ProductionApplied || !proof.CompleteLadder {
+			return RepairPrepareResult{}, NewQAError(QAErrorAdmissionBlocked, "prepare automatic repair", "automatic repair is unavailable until qualifying manual proof exists", proofErr)
+		}
 	}
 	if err := validateRepairFlowAdmission(flow); err != nil {
 		return RepairPrepareResult{}, err

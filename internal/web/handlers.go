@@ -675,7 +675,7 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 	case "api_sprint_qa_smoke-suite":
 		h.handleSprintQASmokeSuite(w, r, match.params[0], match.params[1])
 	case "api_sprint_repair", "api_sprint_repair_packet", "api_sprint_repair_cycles", "api_sprint_repair_result":
-		h.handleSprintRepair(w, r, match.params[0], match.params[1])
+		h.handleSprintRepair(w, r, match.params[0], match.params[1], match.name)
 	case "api_models":
 		queries, ok := h.queries.(app.WebModelQueries)
 		if !ok {

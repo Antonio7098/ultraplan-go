@@ -200,7 +200,7 @@ func (h *handler) handleSprintQAPage(w http.ResponseWriter, r *http.Request, pro
 	h.render(w, r, http.StatusOK, "sprint", model)
 }
 
-func (h *handler) handleSprintRepair(w http.ResponseWriter, r *http.Request, project, sprintSlug string) {
+func (h *handler) handleSprintRepair(w http.ResponseWriter, r *http.Request, project, sprintSlug, resource string) {
 	if h.repair == nil {
 		h.handleQueryError(w, r, true, app.ErrWebUnavailable)
 		return
@@ -208,6 +208,11 @@ func (h *handler) handleSprintRepair(w http.ResponseWriter, r *http.Request, pro
 	result, err := h.repair.RepairStatus(r.Context(), app.RepairRequest{Project: project, Sprint: sprintSlug, RepairRunID: r.URL.Query().Get("run")})
 	if err != nil {
 		h.handleQueryError(w, r, true, err)
+		return
+	}
+	missing := resource != "api_sprint_repair" && result.Packet == nil
+	if missing {
+		h.handleQueryError(w, r, true, app.ErrWebNotFound)
 		return
 	}
 	h.writeSuccess(w, r, http.StatusOK, result, nil)
