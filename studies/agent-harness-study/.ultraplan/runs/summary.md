@@ -1,7 +1,7 @@
 # Study Run Summary
 
 - Study: `agent-harness-study`
-- Updated: `2026-08-26T13:10:37Z`
+- Updated: `2026-08-26T18:55:10Z`
 - Study progress state: `.ultraplan/run-state.json`
 - Ledger: `.ultraplan/runs/tasks.jsonl`
 
@@ -9,13 +9,13 @@
 
 | Metric | Value |
 | --- | ---: |
-| Runs recorded | 881 |
-| Completed | 722 |
-| Failed | 78 |
-| Cancelled | 81 |
+| Runs recorded | 967 |
+| Completed | 753 |
+| Failed | 110 |
+| Cancelled | 104 |
 | Skipped | 0 |
-| Remaining tasks | 180 |
-| Dimensions seen | 97 |
+| Remaining tasks | 149 |
+| Dimensions seen | 101 |
 | Sources seen | 10 |
 
 ## Remaining Work
@@ -59,19 +59,6 @@
 | 06.07-plan-observability-evaluation | openai-agents-sdk | analysis | pending |
 | 06.07-plan-observability-evaluation | openhands | analysis | pending |
 | 06.07-plan-observability-evaluation | pydantic-ai | analysis | pending |
-| 09.02-risk-taxonomy-control-mapping | langfuse | analysis | pending |
-| 09.02-risk-taxonomy-control-mapping | openai-agents-sdk | analysis | pending |
-| 09.02-risk-taxonomy-control-mapping | openhands | analysis | pending |
-| 09.03-governance-ux-operator-workflow | agent-framework | analysis | pending |
-| 09.03-governance-ux-operator-workflow | langfuse | analysis | pending |
-| 09.03-governance-ux-operator-workflow | opa | analysis | pending |
-| 09.03-governance-ux-operator-workflow | openai-agents-sdk | analysis | pending |
-| 09.03-governance-ux-operator-workflow | openhands | analysis | pending |
-| 09.04-governance-evidence-generation | agent-framework | analysis | pending |
-| 09.04-governance-evidence-generation | langfuse | analysis | pending |
-| 09.04-governance-evidence-generation | opa | analysis | pending |
-| 09.04-governance-evidence-generation | openai-agents-sdk | analysis | pending |
-| 09.04-governance-evidence-generation | openhands | analysis | pending |
 | 10.04-export-interoperability-observability | agent-framework | analysis | pending |
 | 10.04-export-interoperability-observability | langfuse | analysis | pending |
 | 10.04-export-interoperability-observability | openai-agents-sdk | analysis | pending |
@@ -109,16 +96,8 @@
 | 18.02-trajectory-evaluation | openai-agents-sdk | analysis | pending |
 | 18.02-trajectory-evaluation | openhands | analysis | pending |
 | 18.02-trajectory-evaluation | pydantic-ai | analysis | pending |
-| 19.01-protocol-compatibility | agent-framework | analysis | pending |
 | 19.01-protocol-compatibility | crewai | analysis | pending |
-| 19.01-protocol-compatibility | langfuse | analysis | pending |
-| 19.01-protocol-compatibility | langgraph | analysis | pending |
-| 19.01-protocol-compatibility | letta | analysis | pending |
-| 19.01-protocol-compatibility | opa | analysis | pending |
-| 19.01-protocol-compatibility | openai-agents-sdk | analysis | pending |
-| 19.01-protocol-compatibility | openhands | analysis | pending |
 | 19.01-protocol-compatibility | pydantic-ai | analysis | pending |
-| 19.01-protocol-compatibility | temporal | analysis | pending |
 | 19.02-portable-trace-eval-prompt-schemas | agent-framework | analysis | pending |
 | 19.02-portable-trace-eval-prompt-schemas | langfuse | analysis | pending |
 | 19.02-portable-trace-eval-prompt-schemas | langgraph | analysis | pending |
@@ -135,13 +114,6 @@
 | 19.03-adapter-interop-boundary-design | openhands | analysis | pending |
 | 19.03-adapter-interop-boundary-design | pydantic-ai | analysis | pending |
 | 19.03-adapter-interop-boundary-design | temporal | analysis | pending |
-| 20.03-quality-cost-routing | agent-framework | analysis | pending |
-| 20.03-quality-cost-routing | crewai | analysis | pending |
-| 20.03-quality-cost-routing | langfuse | analysis | pending |
-| 20.03-quality-cost-routing | langgraph | analysis | pending |
-| 20.03-quality-cost-routing | openai-agents-sdk | analysis | pending |
-| 20.03-quality-cost-routing | openhands | analysis | pending |
-| 20.03-quality-cost-routing | pydantic-ai | analysis | pending |
 | 21.01-plugin-extension-points | agent-framework | analysis | pending |
 | 21.01-plugin-extension-points | crewai | analysis | pending |
 | 21.01-plugin-extension-points | langfuse | analysis | pending |
@@ -183,9 +155,6 @@
 | 06.04-planner-executor-contract | (synthesis) | synthesis | pending |
 | 06.06-search-backtracking-alternatives | (synthesis) | synthesis | pending |
 | 06.07-plan-observability-evaluation | (synthesis) | synthesis | pending |
-| 09.02-risk-taxonomy-control-mapping | (synthesis) | synthesis | pending |
-| 09.03-governance-ux-operator-workflow | (synthesis) | synthesis | pending |
-| 09.04-governance-evidence-generation | (synthesis) | synthesis | pending |
 | 10.04-export-interoperability-observability | (synthesis) | synthesis | pending |
 | 12.03-prompt-evaluation-experiments | (synthesis) | synthesis | pending |
 | 12.04-prompt-rollback-change-control | (synthesis) | synthesis | pending |
@@ -267,8 +236,9 @@
 | 08.03-secrets-identity-environment | 9 | 8 | 1 | 10m15s | - | - |
 | 08.04-security-auditability | 8 | 8 | 0 | 11m57s | - | - |
 | 09.01-policy-injection-points | 6 | 6 | 0 | 8m50s | - | - |
-| 09.02-risk-taxonomy-control-mapping | 11 | 2 | 0 | 5m17s | - | - |
-| 09.03-governance-ux-operator-workflow | 9 | 0 | 0 | 2m32s | - | - |
+| 09.02-risk-taxonomy-control-mapping | 19 | 6 | 3 | 5m29s | - | - |
+| 09.03-governance-ux-operator-workflow | 18 | 6 | 2 | 4m03s | - | - |
+| 09.04-governance-evidence-generation | 21 | 6 | 9 | 3m11s | - | - |
 | 10.01-span-hierarchy-run-tree | 19 | 10 | 8 | 68m53s | - | - |
 | 10.02-event-schema-lifecycle-events | 11 | 11 | 0 | 3m43s | - | - |
 | 10.03-causal-links-lineage | 11 | 10 | 1 | 11m48s | - | - |
@@ -293,8 +263,11 @@
 | 18.01-dataset-golden-task-management | 10 | 9 | 1 | 8m21s | - | - |
 | 18.03-regression-gating-ci-integration | 7 | 7 | 0 | 4m59s | - | - |
 | 18.04-cost-latency-quality-evaluation | 8 | 7 | 1 | 6m12s | - | - |
+| 19.01-protocol-compatibility | 19 | 8 | 8 | 2m36s | - | - |
+| 19.03-adapter-interop-boundary-design | 11 | 0 | 1 | 5m36s | - | - |
 | 20.01-token-cost-accounting | 9 | 8 | 1 | 9m37s | - | - |
 | 20.02-caching-batching-reuse | 9 | 8 | 1 | 9m40s | - | - |
+| 20.03-quality-cost-routing | 18 | 7 | 9 | 4m11s | - | - |
 | 21.02-provider-backend-adapters | 12 | 11 | 1 | 10m50s | - | - |
 | 22.01-package-module-boundaries | 11 | 11 | 0 | 6m10s | - | - |
 | 22.02-configuration-deployment-shape | 11 | 11 | 0 | 10m46s | - | - |
@@ -309,49 +282,50 @@
 
 | Source | Runs | Completed | Failed | Avg Duration | Tokens | Cost |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| agent-framework | 111 | 91 | 7 | 16m56s | 15537994 | 0.0000 USD |
-| crewai | 82 | 68 | 3 | 44m20s | - | - |
-| langfuse | 39 | 31 | 2 | 10m48s | 9182246 | 0.0000 USD |
-| langgraph | 90 | 80 | 3 | 29m59s | 35979503 | 0.0000 USD |
-| letta | 80 | 62 | 6 | 24m06s | 12264464 | 0.0000 USD |
-| opa | 29 | 25 | 0 | 9m11s | - | - |
-| openai-agents-sdk | 77 | 68 | 4 | 7m54s | 19387549 | 0.0000 USD |
-| openhands | 102 | 89 | 2 | 31m50s | 345185 | 0.0000 USD |
-| pydantic-ai | 63 | 60 | 1 | 10m30s | 17761026 | 0.0000 USD |
-| temporal | 61 | 50 | 1 | 25m38s | - | - |
+| agent-framework | 124 | 95 | 11 | 15m39s | 15537994 | 0.0000 USD |
+| crewai | 87 | 69 | 5 | 41m59s | - | - |
+| langfuse | 54 | 36 | 8 | 9m03s | 9182246 | 0.0000 USD |
+| langgraph | 96 | 82 | 5 | 28m21s | 35979503 | 0.0000 USD |
+| letta | 84 | 63 | 8 | 23m06s | 12264464 | 0.0000 USD |
+| opa | 37 | 28 | 3 | 7m58s | - | - |
+| openai-agents-sdk | 86 | 73 | 7 | 7m34s | 19387549 | 0.0000 USD |
+| openhands | 114 | 94 | 7 | 28m50s | 345185 | 0.0000 USD |
+| pydantic-ai | 67 | 61 | 2 | 10m06s | 17761026 | 0.0000 USD |
+| temporal | 63 | 51 | 1 | 24m55s | - | - |
 
 ## Runtime And Model
 
 | Runtime / Provider / Model | Runs | Completed | Failed | Avg Duration | Tokens | Cost |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | minimax-coding-plan / minimax-coding-plan / MiniMax-M3 | 384 | 308 | 24 | 36m58s | 110870742 | 0.0000 USD |
-| opencode / - / minimax-coding-plan/MiniMax-M3 | 49 | 1 | 45 | 6s | - | - |
-| openrouter / openrouter / stealth/ox-alpha | 448 | 413 | 9 | 13m05s | - | - |
+| opencode / - / minimax-coding-plan/MiniMax-M3 | 55 | 1 | 49 | 5s | - | - |
+| opencode / opencode / muse-spark-1.2-contributor-free | 32 | 25 | 0 | 7m02s | - | - |
+| openrouter / openrouter / stealth/ox-alpha | 496 | 419 | 37 | 12m04s | - | - |
 
 ## Recent Runs
 
 | Completed | Dimension | Source | Kind | Status | Duration | Model | Tokens | Cost |
 | --- | --- | --- | --- | --- | ---: | --- | ---: | ---: |
-| 2026-08-26T13:10:36Z | 09.03-governance-ux-operator-workflow | opa | analysis | cancelled | 1m35s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:10:36Z | 09.03-governance-ux-operator-workflow | agent-framework | analysis | cancelled | 1m35s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:10:36Z | 09.02-risk-taxonomy-control-mapping | openhands | analysis | cancelled | 1m35s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:10:36Z | 09.03-governance-ux-operator-workflow | openai-agents-sdk | analysis | cancelled | 1m35s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:10:36Z | 09.03-governance-ux-operator-workflow | langfuse | analysis | cancelled | 1m35s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:10:36Z | 09.02-risk-taxonomy-control-mapping | langfuse | analysis | cancelled | 1m35s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:10:36Z | 09.03-governance-ux-operator-workflow | openhands | analysis | cancelled | 1m35s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:10:36Z | 09.02-risk-taxonomy-control-mapping | openai-agents-sdk | analysis | cancelled | 1m35s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:08:59Z | 09.02-risk-taxonomy-control-mapping | openai-agents-sdk | analysis | cancelled | 4m58s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:08:59Z | 09.03-governance-ux-operator-workflow | langfuse | analysis | cancelled | 4m58s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:08:59Z | 09.02-risk-taxonomy-control-mapping | langfuse | analysis | cancelled | 4m58s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:08:59Z | 09.03-governance-ux-operator-workflow | agent-framework | analysis | cancelled | 4m58s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:08:54Z | 09.02-risk-taxonomy-control-mapping | openhands | analysis | cancelled | 4m53s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:08:54Z | 09.03-governance-ux-operator-workflow | opa | analysis | cancelled | 4m53s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:04:00Z | 09.02-risk-taxonomy-control-mapping | langfuse | analysis | cancelled | 16m21s | stealth/ox-alpha | - | - |
-| 2026-08-26T13:03:56Z | 09.02-risk-taxonomy-control-mapping | openhands | analysis | cancelled | - | minimax-coding-plan/MiniMax-M3 | - | - |
-| 2026-08-26T13:03:56Z | 09.03-governance-ux-operator-workflow | agent-framework | analysis | cancelled | - | minimax-coding-plan/MiniMax-M3 | - | - |
-| 2026-08-26T13:03:55Z | 09.02-risk-taxonomy-control-mapping | openai-agents-sdk | analysis | cancelled | 5m23s | stealth/ox-alpha | - | - |
-| 2026-08-26T12:58:31Z | 09.02-risk-taxonomy-control-mapping | opa | analysis | completed | 9m16s | stealth/ox-alpha | - | - |
-| 2026-08-26T12:49:15Z | 09.01-policy-injection-points | (synthesis) | synthesis | completed | 6m19s | stealth/ox-alpha | - | - |
+| 2026-08-26T18:54:46Z | 20.03-quality-cost-routing | (synthesis) | synthesis | cancelled | 21m10s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | langgraph | analysis | cancelled | 9m34s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T18:54:46Z | 19.01-protocol-compatibility | pydantic-ai | analysis | cancelled | 8m49s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | letta | analysis | cancelled | 8m39s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | agent-framework | analysis | cancelled | 20m39s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | langfuse | analysis | cancelled | 9m12s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | crewai | analysis | cancelled | 9m56s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:36:41Z | 19.01-protocol-compatibility | openhands | analysis | completed | 6m39s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:36:36Z | 19.01-protocol-compatibility | temporal | analysis | completed | 5m06s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:33:29Z | 20.03-quality-cost-routing | openai-agents-sdk | analysis | completed | 11m42s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:33:13Z | 19.01-protocol-compatibility | openai-agents-sdk | analysis | completed | 3m15s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:31:29Z | 09.04-governance-evidence-generation | (synthesis) | synthesis | completed | 3m02s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:31:29Z | 19.01-protocol-compatibility | opa | analysis | completed | 1m54s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:31:17Z | 09.02-risk-taxonomy-control-mapping | (synthesis) | synthesis | completed | 10m14s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:30:00Z | 19.01-protocol-compatibility | langfuse | analysis | completed | 3m05s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:29:57Z | 19.01-protocol-compatibility | letta | analysis | completed | 2m12s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:29:34Z | 19.01-protocol-compatibility | langgraph | analysis | completed | 2m06s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:28:27Z | 09.04-governance-evidence-generation | agent-framework | analysis | completed | 15m20s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:27:45Z | 19.01-protocol-compatibility | agent-framework | analysis | completed | 1m38s | muse-spark-1.2-contributor-free | - | - |
+| 2026-08-26T14:27:27Z | 20.03-quality-cost-routing | openhands | analysis | completed | 5m22s | muse-spark-1.2-contributor-free | - | - |
 
 ## Slowest Runs
 
@@ -372,6 +346,61 @@
 
 | Completed | Dimension | Source | Status | Error |
 | --- | --- | --- | --- | --- |
+| 2026-08-26T18:54:46Z | 20.03-quality-cost-routing | (synthesis) | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | langgraph | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-26T18:54:46Z | 19.01-protocol-compatibility | pydantic-ai | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | letta | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | agent-framework | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | langfuse | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-26T18:54:46Z | 19.03-adapter-interop-boundary-design | crewai | cancelled | cancellation: validation: cancellation: validation run was cancelled [opencode/muse-spark-1.2-contributor-free] |
+| 2026-08-26T14:13:08Z | 19.03-adapter-interop-boundary-design | agent-framework | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:13:07Z | 19.03-adapter-interop-boundary-design | letta | failed | durable run acceptance failed: context canceled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:13:03Z | 19.03-adapter-interop-boundary-design | crewai | cancelled | cancellation: persist runtime event: context canceled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:13:03Z | 19.03-adapter-interop-boundary-design | langgraph | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:13:03Z | 19.03-adapter-interop-boundary-design | langfuse | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:13:03Z | 19.01-protocol-compatibility | pydantic-ai | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:13:02Z | 19.03-adapter-interop-boundary-design | opa | cancelled | context canceled |
+| 2026-08-26T14:13:02Z | 19.01-protocol-compatibility | temporal | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:12:58Z | 19.01-protocol-compatibility | openhands | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:12:12Z | 19.01-protocol-compatibility | openai-agents-sdk | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:12:12Z | 19.01-protocol-compatibility | opa | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:12:11Z | 19.01-protocol-compatibility | letta | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:12:11Z | 19.01-protocol-compatibility | langgraph | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:12:03Z | 19.01-protocol-compatibility | langfuse | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:11:46Z | 19.01-protocol-compatibility | crewai | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:11:32Z | 19.01-protocol-compatibility | agent-framework | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:10:31Z | 20.03-quality-cost-routing | (synthesis) | failed | synthesis dependencies failed or were cancelled |
+| 2026-08-26T14:10:31Z | 20.03-quality-cost-routing | openai-agents-sdk | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:10:31Z | 20.03-quality-cost-routing | langgraph | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:10:30Z | 20.03-quality-cost-routing | openhands | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:10:30Z | 20.03-quality-cost-routing | pydantic-ai | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:10:29Z | 20.03-quality-cost-routing | langfuse | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:10:18Z | 20.03-quality-cost-routing | crewai | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:10:12Z | 20.03-quality-cost-routing | agent-framework | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:08:33Z | 09.02-risk-taxonomy-control-mapping | (synthesis) | failed | synthesis dependencies failed or were cancelled |
+| 2026-08-26T14:08:33Z | 09.02-risk-taxonomy-control-mapping | langfuse | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:08:33Z | 09.04-governance-evidence-generation | (synthesis) | failed | synthesis dependencies failed or were cancelled |
+| 2026-08-26T14:08:31Z | 09.03-governance-ux-operator-workflow | (synthesis) | failed | synthesis dependencies failed or were cancelled |
+| 2026-08-26T14:08:31Z | 09.04-governance-evidence-generation | agent-framework | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:08:29Z | 09.04-governance-evidence-generation | openai-agents-sdk | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:08:29Z | 09.03-governance-ux-operator-workflow | openhands | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:08:28Z | 09.04-governance-evidence-generation | langfuse | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:08:25Z | 09.04-governance-evidence-generation | opa | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:08:22Z | 09.04-governance-evidence-generation | openhands | failed | opencode event: runtime_exit: OpenCode reported a fatal session error [openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.) → openrouter/stealth/ox-alpha:runtime_exit (Thank you for participating in the Stealth Ox Alpha testing period. This model will be revealed today, August 26th.)] |
+| 2026-08-26T14:06:58Z | 09.02-risk-taxonomy-control-mapping | langfuse | failed | durable run acceptance failed: context canceled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:06:56Z | 20.03-quality-cost-routing | agent-framework | failed | durable run acceptance failed: context canceled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:06:55Z | 09.04-governance-evidence-generation | langfuse | failed | durable run acceptance failed: context canceled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:06:54Z | 09.04-governance-evidence-generation | opa | failed | durable run acceptance failed: context canceled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:06:51Z | 09.04-governance-evidence-generation | openhands | failed | durable run acceptance failed: context canceled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T14:06:48Z | 09.04-governance-evidence-generation | agent-framework | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T13:22:11Z | 09.04-governance-evidence-generation | agent-framework | cancelled | cancellation: persist runtime event: context canceled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T13:22:11Z | 09.02-risk-taxonomy-control-mapping | langfuse | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T13:22:11Z | 09.03-governance-ux-operator-workflow | openhands | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T13:22:11Z | 09.04-governance-evidence-generation | openhands | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T13:22:11Z | 09.04-governance-evidence-generation | openai-agents-sdk | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T13:22:11Z | 09.04-governance-evidence-generation | opa | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
+| 2026-08-26T13:22:07Z | 20.03-quality-cost-routing | agent-framework | cancelled | context canceled |
+| 2026-08-26T13:22:06Z | 09.04-governance-evidence-generation | langfuse | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
 | 2026-08-26T13:10:36Z | 09.03-governance-ux-operator-workflow | opa | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
 | 2026-08-26T13:10:36Z | 09.03-governance-ux-operator-workflow | agent-framework | cancelled | cancellation: validation: cancellation: validation run was cancelled [openrouter/stealth/ox-alpha] |
 | 2026-08-26T13:10:36Z | 09.02-risk-taxonomy-control-mapping | openhands | cancelled | cancellation: persist runtime event: context canceled [openrouter/stealth/ox-alpha] |
