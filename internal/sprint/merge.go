@@ -75,13 +75,35 @@ func decodeMergeDescriptionList(data json.RawMessage) ([]string, error) {
 	}
 	var list []string
 	if err := json.Unmarshal(data, &list); err == nil {
-		return list, nil
+		return normalizeMergeDescriptionList(list), nil
 	}
 	var item string
 	if err := json.Unmarshal(data, &item); err != nil {
 		return nil, fmt.Errorf("must be a string or an array of strings")
 	}
-	return []string{item}, nil
+	return normalizeMergeDescriptionList([]string{item}), nil
+}
+
+func normalizeMergeDescriptionList(items []string) []string {
+	var normalized []string
+	for _, item := range items {
+		words := strings.Fields(item)
+		if len(words) == 0 {
+			normalized = append(normalized, item)
+			continue
+		}
+		chunk := words[0]
+		for _, word := range words[1:] {
+			if len(chunk)+1+len(word) <= 300 {
+				chunk += " " + word
+				continue
+			}
+			normalized = append(normalized, chunk)
+			chunk = word
+		}
+		normalized = append(normalized, chunk)
+	}
+	return normalized
 }
 
 type MergeInspection struct {
@@ -574,7 +596,7 @@ func (s Service) generateMergeDescription(ctx context.Context, sp Sprint, inspec
 		return MergeDescription{}, "", fmt.Errorf("merge description runtime is not configured")
 	}
 	payload, _ := json.MarshalIndent(inspection, "", "  ")
-	prompt := "Write the merge description for this sprint. Return one JSON object with title, summary, verification, and risk_notes. The title must be imperative and at most 72 characters. Do not edit files or run Git.\n\n" + string(payload)
+	prompt := "Write the merge description for this sprint. Return one JSON object with title, summary, verification, and risk_notes. The title must be imperative and at most 72 characters. summary, verification, and risk_notes must be JSON arrays of strings. Each string must be at most 300 characters, and summary must contain 1 to 8 entries. Do not edit files or run Git.\n\n" + string(payload)
 	req := s.runtimeRequest(prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageMerge), "operation": "describe"})
 	req.WorkDir = inspection.SourceWorktree
 	if strings.TrimSpace(model) != "" {

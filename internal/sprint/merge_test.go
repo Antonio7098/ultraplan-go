@@ -3,6 +3,7 @@ package sprint
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -145,6 +146,21 @@ func TestDecodeMergeDescriptionFromNestedMarkdownWithScalarLists(t *testing.T) {
 	}
 	if got := description.Verification; len(got) != 1 || got[0] != "go test ./..." {
 		t.Fatalf("verification = %#v", got)
+	}
+}
+
+func TestDecodeMergeDescriptionSplitsLongScalarEntries(t *testing.T) {
+	longSummary := strings.Repeat("bounded repair work ", 30)
+	run := pruntime.Result{TerminalOutput: `{"title":"Add bounded repair","summary":` + strconv.Quote(longSummary) + `}`}
+	var description MergeDescription
+	if err := decodeRuntimeJSON(run, &description); err != nil {
+		t.Fatal(err)
+	}
+	if len(description.Summary) < 2 {
+		t.Fatalf("summary was not split: %#v", description.Summary)
+	}
+	if err := validateMergeDescription(description); err != nil {
+		t.Fatal(err)
 	}
 }
 
