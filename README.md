@@ -127,6 +127,7 @@ ultraplan sprint <project> <sprint> flow --to execute --dry-run
 ultraplan sprint <project> <sprint> execute --resume
 ultraplan sprint <project> <sprint> merge --dry-run
 ultraplan sprint <project> <sprint> merge --yes
+ultraplan sprint <project> <sprint> flow --to merge --yes --cleanup-worktree
 ```
 
 ## Documentation

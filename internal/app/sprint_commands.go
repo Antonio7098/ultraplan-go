@@ -1591,6 +1591,8 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 			}
 		case "--restart-review":
 			req.Review.Restart = true
+		case "--cleanup-worktree":
+			req.Merge.CleanupWorktree = true
 		case "--yes", "--non-interactive":
 			req.Smoke.NonInteractive, req.Smoke.OverrideConfirmed = true, true
 			req.Merge.Confirm = true
@@ -1614,6 +1616,9 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 	}
 	if req.Smoke.ForceReview && strings.TrimSpace(req.Smoke.OverrideRationale) == "" {
 		return req, fmt.Errorf("--force-review requires --override-reason")
+	}
+	if req.Merge.CleanupWorktree && (req.To != sprint.StageMerge || req.DryRun) {
+		return req, fmt.Errorf("--cleanup-worktree requires a non-dry merge flow")
 	}
 	return req, nil
 }
@@ -1642,6 +1647,8 @@ func parseSprintMergeArgs(args []string) (sprintMergeCommand, error) {
 			command.Request.Confirm = true
 		case "--json":
 			command.JSON = true
+		case "--cleanup-worktree":
+			command.Request.CleanupWorktree = true
 		case "--model":
 			if i+1 >= len(args) {
 				return command, fmt.Errorf("--model requires a provider/model value")
@@ -1657,6 +1664,9 @@ func parseSprintMergeArgs(args []string) (sprintMergeCommand, error) {
 	}
 	if command.Action == "continue" && !command.Request.Confirm {
 		return command, fmt.Errorf("continue requires --yes")
+	}
+	if command.Request.CleanupWorktree && (command.Action == "inspect" || command.Action == "status" || command.Action == "abort" || command.Request.DryRun) {
+		return command, fmt.Errorf("--cleanup-worktree requires merge execution")
 	}
 	if (command.Action == "inspect" || command.Action == "status") && (command.Request.Confirm || command.Request.DryRun || command.Request.ModelOverride != "") {
 		return command, fmt.Errorf("%s accepts only --json", command.Action)
@@ -2172,6 +2182,7 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
   ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
   ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to merge --yes [--cleanup-worktree]
   ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
   ultraplan sprint <project> <sprint> execute --task <id> --defer --reason <text>
   ultraplan sprint <project> <sprint> review [--restart] [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
@@ -2190,10 +2201,10 @@ Usage:
   ultraplan sprint <project> <sprint> repair recover [--run <repair-run-id>] [--json]
   ultraplan sprint <project> <sprint> smoke [--level <id>|--suite <id>|--test <id>] [--timeout <duration>] [--force-review --override-reason <text>] [--dry-run] [--yes] [--json]
   ultraplan sprint <project> <sprint> verify [--to review|smoke] [--focus-review <id>] [--restart-review] [--level <id>|--suite <id>|--test <id>] [--yes] [--json]
-  ultraplan sprint <project> <sprint> merge [--dry-run|--yes] [--model <provider/model>] [--json]
+  ultraplan sprint <project> <sprint> merge [--dry-run|--yes] [--model <provider/model>] [--cleanup-worktree] [--json]
   ultraplan sprint <project> <sprint> merge inspect [--json]
   ultraplan sprint <project> <sprint> merge status [--json]
-  ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/model>] [--json]
+  ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/model>] [--cleanup-worktree] [--json]
   ultraplan sprint <project> <sprint> merge abort --yes [--json]
   execute <project> <sprint> is available as the sprint execute action above.
 
@@ -2333,15 +2344,17 @@ func sprintMergeHelp() string {
 
 Usage:
   ultraplan sprint <project> <sprint> merge --dry-run [--json]
-  ultraplan sprint <project> <sprint> merge --yes [--model <provider/model>] [--json]
+  ultraplan sprint <project> <sprint> merge --yes [--model <provider/model>] [--cleanup-worktree] [--json]
   ultraplan sprint <project> <sprint> merge inspect [--json]
   ultraplan sprint <project> <sprint> merge status [--json]
-  ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/model>] [--json]
+  ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/model>] [--cleanup-worktree] [--json]
   ultraplan sprint <project> <sprint> merge abort --yes [--json]
 
 Inspects and merges the recorded sprint worktree into its recorded integration
 branch. UltraPlan owns Git mutation. An agent writes the merge description and
 edits only conflicted paths when reconciliation is required.
+With --cleanup-worktree, a successful merge removes the clean recorded sprint
+worktree but retains its Git branch and all UltraPlan sprint artifacts.
 `
 }
 
@@ -2415,7 +2428,8 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
   ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
   ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run] [--yes]
+  ultraplan sprint <project> <sprint> flow --to merge --yes [--cleanup-worktree]
 
-Dry-run prints planned inputs without mutation. Non-dry-run validates prerequisites and uses the same sprint-owned review-to-smoke transition as verify. Smoke requires --yes; a diagnostic review override additionally requires --force-review and --override-reason.
+Dry-run prints planned inputs without mutation. Non-dry-run validates prerequisites and uses the same sprint-owned review-to-smoke transition as verify. Smoke and merge require --yes; a diagnostic review override additionally requires --force-review and --override-reason. Merge accepts --cleanup-worktree to remove the clean recorded sprint worktree after success.
 `
 }

@@ -135,31 +135,33 @@ type MergeCheck struct {
 }
 
 type MergeState struct {
-	SchemaVersion int               `json:"schema_version"`
-	Project       string            `json:"project"`
-	Sprint        string            `json:"sprint"`
-	Status        MergeStatus       `json:"status"`
-	SourceBranch  string            `json:"source_branch"`
-	SourceCommit  string            `json:"source_commit"`
-	TargetBranch  string            `json:"target_branch"`
-	TargetBefore  string            `json:"target_before"`
-	MergeBase     string            `json:"merge_base"`
-	MergeCommit   string            `json:"merge_commit,omitempty"`
-	Description   *MergeDescription `json:"description,omitempty"`
-	ConflictPaths []string          `json:"conflict_paths,omitempty"`
-	Checks        []MergeCheck      `json:"checks,omitempty"`
-	RuntimeRunIDs []string          `json:"runtime_run_ids,omitempty"`
-	StartedAt     time.Time         `json:"started_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
-	CompletedAt   *time.Time        `json:"completed_at,omitempty"`
-	Diagnostic    string            `json:"diagnostic,omitempty"`
+	SchemaVersion   int               `json:"schema_version"`
+	Project         string            `json:"project"`
+	Sprint          string            `json:"sprint"`
+	Status          MergeStatus       `json:"status"`
+	SourceBranch    string            `json:"source_branch"`
+	SourceCommit    string            `json:"source_commit"`
+	TargetBranch    string            `json:"target_branch"`
+	TargetBefore    string            `json:"target_before"`
+	MergeBase       string            `json:"merge_base"`
+	MergeCommit     string            `json:"merge_commit,omitempty"`
+	Description     *MergeDescription `json:"description,omitempty"`
+	ConflictPaths   []string          `json:"conflict_paths,omitempty"`
+	Checks          []MergeCheck      `json:"checks,omitempty"`
+	RuntimeRunIDs   []string          `json:"runtime_run_ids,omitempty"`
+	StartedAt       time.Time         `json:"started_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
+	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
+	WorktreeRemoved bool              `json:"worktree_removed,omitempty"`
+	Diagnostic      string            `json:"diagnostic,omitempty"`
 }
 
 type MergeRequest struct {
-	DryRun        bool
-	Confirm       bool
-	ModelOverride string
-	Continue      bool
+	DryRun          bool
+	Confirm         bool
+	ModelOverride   string
+	Continue        bool
+	CleanupWorktree bool
 }
 
 type MergeResult struct {
@@ -419,8 +421,52 @@ func (s Service) RunMerge(ctx context.Context, projectRef, sprintRef string, req
 	if err := atomicWriteFile(filepath.Join(s.root, filepath.FromSlash(artifact)), []byte(renderMergeMarkdown(state))); err != nil {
 		return result, err
 	}
+	if req.CleanupWorktree {
+		record, recordErr := loadSprintWorkspace(sp)
+		if recordErr == nil {
+			recordErr = cleanupMergedWorktree(record, state)
+		}
+		if recordErr != nil {
+			state.Diagnostic = "worktree cleanup failed: " + safeError(recordErr)
+			_ = s.saveMergeState(sp, state)
+			return MergeResult{Inspection: inspection, State: state, Artifact: artifact}, fmt.Errorf("cleanup merged worktree: %w", recordErr)
+		}
+		state.WorktreeRemoved, state.Diagnostic = true, ""
+		if err := s.saveMergeState(sp, state); err != nil {
+			return MergeResult{Inspection: inspection, State: state, Artifact: artifact}, err
+		}
+		if err := atomicWriteFile(filepath.Join(s.root, filepath.FromSlash(artifact)), []byte(renderMergeMarkdown(state))); err != nil {
+			return MergeResult{Inspection: inspection, State: state, Artifact: artifact}, err
+		}
+	}
 	publications, publishErr := s.publishMergeStage(ctx, sp, inspection.SourceRoot, artifact)
 	return MergeResult{Inspection: inspection, State: state, Artifact: artifact, Publications: publications}, publishErr
+}
+
+func cleanupMergedWorktree(record SprintWorkspace, state MergeState) error {
+	if err := validateSprintWorkspace(record, record.SourceRoot); err != nil {
+		return err
+	}
+	if filepath.Clean(record.Path) == filepath.Clean(record.SourceRoot) {
+		return fmt.Errorf("refusing to remove the integration worktree")
+	}
+	status, err := gitStatusOutput(record.Path, "--untracked-files=all")
+	if err != nil {
+		return fmt.Errorf("inspect sprint worktree: %w", err)
+	}
+	if strings.TrimSpace(status) != "" {
+		return fmt.Errorf("sprint worktree is not clean")
+	}
+	if state.SourceCommit == "" || state.MergeCommit == "" || gitCommand(record.SourceRoot, "merge-base", "--is-ancestor", state.SourceCommit, state.MergeCommit) != nil {
+		return fmt.Errorf("sprint commit is not contained in the merge commit")
+	}
+	if err := gitCommand(record.SourceRoot, "worktree", "remove", record.Path); err != nil {
+		return err
+	}
+	if _, err := os.Stat(record.Path); !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("sprint worktree path still exists after removal")
+	}
+	return nil
 }
 
 func mergeStatusPaths(status string) []string {
@@ -816,6 +862,9 @@ func renderMergeMarkdown(state MergeState) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# Sprint merge")
 	fmt.Fprintf(&b, "\n- Source: `%s` at `%s`\n- Target: `%s` from `%s`\n- Merge commit: `%s`\n", state.SourceBranch, state.SourceCommit, state.TargetBranch, state.TargetBefore, state.MergeCommit)
+	if state.WorktreeRemoved {
+		fmt.Fprintln(&b, "- Sprint worktree removed: yes")
+	}
 	if state.Description != nil {
 		fmt.Fprintf(&b, "\n## %s\n", state.Description.Title)
 		for _, item := range state.Description.Summary {

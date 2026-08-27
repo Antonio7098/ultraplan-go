@@ -301,9 +301,10 @@ ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
 ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
 ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
 ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run] [--yes]
+ultraplan sprint <project> <sprint> flow --to merge --yes [--cleanup-worktree]
 ```
 
-Runs or previews the governed stage flow through merge. Cumulative planning order is `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan`; `flow --to plan` dispatches code-context exactly once when it is not already complete and valid. A code-context rerun reads the configured implementation target with restricted permissions and atomically replaces only `code-context.md`. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. Review and smoke use the same sprint-owned transition as `verify`. Compatible interrupted reviews resume by default; `--restart-review` discards retained review progress. Smoke and merge mutations require `--yes`. `flow --to merge --yes` completes verification before it starts integration.
+Runs or previews the governed stage flow through merge. Cumulative planning order is `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan`; `flow --to plan` dispatches code-context exactly once when it is not already complete and valid. A code-context rerun reads the configured implementation target with restricted permissions and atomically replaces only `code-context.md`. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. Review and smoke use the same sprint-owned transition as `verify`. Compatible interrupted reviews resume by default; `--restart-review` discards retained review progress. Smoke and merge mutations require `--yes`. `flow --to merge --yes` completes verification before it starts integration. Add `--cleanup-worktree` to remove the clean recorded sprint worktree after the merge succeeds.
 
 ### `ultraplan sprint <project> <sprint> execute`
 
@@ -460,14 +461,14 @@ ultraplan sprint ultraplan-go 28-review-to-smoke-flow verify --to smoke --yes
 
 ```text
 ultraplan sprint <project> <sprint> merge --dry-run [--json]
-ultraplan sprint <project> <sprint> merge --yes [--model <provider/model>] [--json]
+ultraplan sprint <project> <sprint> merge --yes [--model <provider/model>] [--cleanup-worktree] [--json]
 ultraplan sprint <project> <sprint> merge inspect [--json]
 ultraplan sprint <project> <sprint> merge status [--json]
-ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/model>] [--json]
+ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/model>] [--cleanup-worktree] [--json]
 ultraplan sprint <project> <sprint> merge abort --yes [--json]
 ```
 
-Merges the recorded sprint branch into the integration branch captured in `.workspace.json`. The sprint worktree may contain tracked, staged, or untracked implementation changes. UltraPlan fingerprints all of them, asks an agent for a structured description, rechecks the fingerprint, and creates the sprint snapshot commit itself. Admission still requires a clean integration worktree and current acceptable review and smoke evidence. UltraPlan then freezes both commit IDs, takes a repository merge lock, and runs `git merge --no-ff --no-commit`. UltraPlan alone stages and commits. If Git reports conflicts, a restricted agent may edit only the conflicted paths before deterministic validation and staging. `.merge-state.json` makes conflicts resumable, and `merge.md` records the completed commit and reconciliation evidence.
+Merges the recorded sprint branch into the integration branch captured in `.workspace.json`. The sprint worktree may contain tracked, staged, or untracked implementation changes. UltraPlan fingerprints all of them, asks an agent for a structured description, rechecks the fingerprint, and creates the sprint snapshot commit itself. Admission still requires a clean integration worktree and current acceptable review and smoke evidence. UltraPlan then freezes both commit IDs, takes a repository merge lock, and runs `git merge --no-ff --no-commit`. UltraPlan alone stages and commits. If Git reports conflicts, a restricted agent may edit only the conflicted paths before deterministic validation and staging. `.merge-state.json` makes conflicts resumable, and `merge.md` records the completed commit and reconciliation evidence. `--cleanup-worktree` runs only after a successful merge. It refuses dirty, stale, or mismatched worktrees, removes the recorded worktree with Git, and keeps the sprint branch and workspace artifacts.
 
 ### `ultraplan code`
 

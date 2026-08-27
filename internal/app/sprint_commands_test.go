@@ -780,6 +780,29 @@ func TestParseSprintFlowCodeContextOverrides(t *testing.T) {
 	}
 }
 
+func TestParseSprintMergeCleanupWorktree(t *testing.T) {
+	flow, err := parseSprintFlowArgs([]string{"--to", "merge", "--yes", "--cleanup-worktree"})
+	if err != nil || !flow.Merge.Confirm || !flow.Merge.CleanupWorktree {
+		t.Fatalf("flow=%+v err=%v", flow, err)
+	}
+	merge, err := parseSprintMergeArgs([]string{"--yes", "--cleanup-worktree"})
+	if err != nil || !merge.Request.CleanupWorktree {
+		t.Fatalf("merge=%+v err=%v", merge, err)
+	}
+	continued, err := parseSprintMergeArgs([]string{"continue", "--yes", "--cleanup-worktree"})
+	if err != nil || !continued.Request.CleanupWorktree {
+		t.Fatalf("continue=%+v err=%v", continued, err)
+	}
+	for _, args := range [][]string{{"--to", "plan", "--cleanup-worktree"}, {"--to", "merge", "--dry-run", "--cleanup-worktree"}} {
+		if _, err := parseSprintFlowArgs(args); err == nil {
+			t.Fatalf("unsafe cleanup flow accepted: %v", args)
+		}
+	}
+	if _, err := parseSprintMergeArgs([]string{"--dry-run", "--cleanup-worktree"}); err == nil {
+		t.Fatal("dry-run cleanup was accepted")
+	}
+}
+
 func TestPlanningStageRuntimeCodeContextFallback(t *testing.T) {
 	c := config.Defaults()
 	c.Models.Primary = "primary/context"

@@ -124,6 +124,36 @@ func TestFlowMergeRequestContinuesOnlyMatchingActiveMerge(t *testing.T) {
 	}
 }
 
+func TestCleanupMergedWorktreeRemovesOnlyRecordedWorktree(t *testing.T) {
+	source := gitFixture(t)
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "41-merge")
+	target, findings := NewService(root).resolveSprintTarget(sp, projectIndexForTarget(source), true)
+	if len(findings) != 0 {
+		t.Fatalf("findings = %+v", findings)
+	}
+	record, err := loadSprintWorkspace(sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFileContent(t, target.Path, "sprint\n", "merged.txt")
+	runGitTest(t, target.Path, "add", "merged.txt")
+	runGitTest(t, target.Path, "commit", "-m", "sprint change")
+	sourceCommit := mustGitOutput(t, target.Path, "rev-parse", "HEAD")
+	runGitTest(t, source, "merge", "--no-ff", "--no-commit", sourceCommit)
+	runGitTest(t, source, "commit", "-m", "merge sprint")
+	mergeCommit := mustGitOutput(t, source, "rev-parse", "HEAD")
+	if err := cleanupMergedWorktree(record, MergeState{SourceCommit: sourceCommit, MergeCommit: mergeCommit}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(record.Path); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists: %v", err)
+	}
+	if got := mustGitOutput(t, source, "branch", "--list", record.Branch); !strings.Contains(got, record.Branch) {
+		t.Fatalf("sprint branch was removed: %q", got)
+	}
+}
+
 func TestCommitSprintSnapshotCapturesTrackedAndUntrackedChanges(t *testing.T) {
 	source := gitFixture(t)
 	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("modified\n"), 0o644); err != nil {
