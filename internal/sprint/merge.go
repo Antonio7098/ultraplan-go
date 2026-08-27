@@ -41,6 +41,49 @@ type MergeDescription struct {
 	RiskNotes    []string `json:"risk_notes,omitempty"`
 }
 
+func (d *MergeDescription) UnmarshalJSON(data []byte) error {
+	type wireDescription struct {
+		Title        string          `json:"title"`
+		Summary      json.RawMessage `json:"summary"`
+		Verification json.RawMessage `json:"verification"`
+		RiskNotes    json.RawMessage `json:"risk_notes"`
+	}
+	var wire wireDescription
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if strings.TrimSpace(wire.Title) == "" {
+		return fmt.Errorf("title is required")
+	}
+	var err error
+	if d.Summary, err = decodeMergeDescriptionList(wire.Summary); err != nil {
+		return fmt.Errorf("summary: %w", err)
+	}
+	if d.Verification, err = decodeMergeDescriptionList(wire.Verification); err != nil {
+		return fmt.Errorf("verification: %w", err)
+	}
+	if d.RiskNotes, err = decodeMergeDescriptionList(wire.RiskNotes); err != nil {
+		return fmt.Errorf("risk_notes: %w", err)
+	}
+	d.Title = wire.Title
+	return nil
+}
+
+func decodeMergeDescriptionList(data json.RawMessage) ([]string, error) {
+	if len(data) == 0 || string(data) == "null" {
+		return nil, nil
+	}
+	var list []string
+	if err := json.Unmarshal(data, &list); err == nil {
+		return list, nil
+	}
+	var item string
+	if err := json.Unmarshal(data, &item); err != nil {
+		return nil, fmt.Errorf("must be a string or an array of strings")
+	}
+	return []string{item}, nil
+}
+
 type MergeInspection struct {
 	SchemaVersion             int      `json:"schema_version"`
 	Project                   string   `json:"project"`
@@ -630,22 +673,48 @@ func mergeWorkingDigests(root string) map[string]string {
 }
 
 func decodeRuntimeJSON(run pruntime.Result, dst any) error {
-	candidates := []string{run.TerminalOutput}
-	for _, event := range run.Events {
-		for _, key := range []string{"content", "text"} {
-			if value, ok := event.Payload[key].(string); ok {
-				candidates = append(candidates, value)
-			}
-		}
+	if decodeRuntimeJSONValue(run.TerminalOutput, dst) {
+		return nil
 	}
-	for i := len(candidates) - 1; i >= 0; i-- {
-		value := strings.TrimSpace(candidates[i])
-		start, end := strings.Index(value, "{"), strings.LastIndex(value, "}")
-		if start >= 0 && end > start && json.Unmarshal([]byte(value[start:end+1]), dst) == nil {
+	for i := len(run.Events) - 1; i >= 0; i-- {
+		if decodeRuntimeJSONValue(run.Events[i].Payload, dst) {
 			return nil
 		}
 	}
 	return fmt.Errorf("runtime returned no valid JSON object")
+}
+
+func decodeRuntimeJSONValue(value any, dst any) bool {
+	switch value := value.(type) {
+	case map[string]any:
+		if data, err := json.Marshal(value); err == nil && json.Unmarshal(data, dst) == nil {
+			return true
+		}
+		for _, key := range []string{"structured_output", "output", "content", "text", "message", "part"} {
+			if nested, ok := value[key]; ok && decodeRuntimeJSONValue(nested, dst) {
+				return true
+			}
+		}
+	case []any:
+		for i := len(value) - 1; i >= 0; i-- {
+			if decodeRuntimeJSONValue(value[i], dst) {
+				return true
+			}
+		}
+	case string:
+		for offset := 0; offset < len(value); {
+			relative := strings.IndexByte(value[offset:], '{')
+			if relative < 0 {
+				break
+			}
+			start := offset + relative
+			if json.NewDecoder(strings.NewReader(value[start:])).Decode(dst) == nil {
+				return true
+			}
+			offset = start + 1
+		}
+	}
+	return false
 }
 
 func validateMergeDescription(value MergeDescription) error {

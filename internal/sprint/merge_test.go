@@ -129,6 +129,25 @@ func TestDecodeAndValidateMergeDescription(t *testing.T) {
 	}
 }
 
+func TestDecodeMergeDescriptionFromNestedMarkdownWithScalarLists(t *testing.T) {
+	run := pruntime.Result{Events: []pruntime.Event{{Payload: map[string]any{
+		"message": map[string]any{"part": map[string]any{"text": "reasoning {not json}\n```json\n{\"title\":\"Add bounded QA repair\",\"summary\":\"Adds the repair lifecycle.\",\"verification\":\"go test ./...\",\"risk_notes\":[\"Schema readers fail closed.\"]}\n```"}},
+	}}}}
+	var description MergeDescription
+	if err := decodeRuntimeJSON(run, &description); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateMergeDescription(description); err != nil {
+		t.Fatal(err)
+	}
+	if got := description.Summary; len(got) != 1 || got[0] != "Adds the repair lifecycle." {
+		t.Fatalf("summary = %#v", got)
+	}
+	if got := description.Verification; len(got) != 1 || got[0] != "go test ./..." {
+		t.Fatalf("verification = %#v", got)
+	}
+}
+
 func TestValidateMergeDescriptionRejectsUnsafeTitle(t *testing.T) {
 	err := validateMergeDescription(MergeDescription{Title: "bad\ntitle", Summary: []string{"summary"}})
 	if err == nil {
