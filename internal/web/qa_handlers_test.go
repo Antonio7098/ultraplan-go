@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
+	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 )
 
 type qaQueryFixture struct {
@@ -117,7 +118,10 @@ func TestRepairRoutesReturnCanonicalBoundedJSONAndNoJavaScriptHTML(t *testing.T)
 	repair := app.RepairStatusResult{
 		SchemaVersion: 1, Project: "alpha", Sprint: "30-web", Phase: "prepared", Fresh: true,
 		RepairRunID: "repair-v1-run-aaaaaaaaaaaaaaaaaaaaaaaa", Mode: "manual", NextAction: "Review and confirm the frozen packet.",
-		Packet: &app.RepairPacketSummary{Digest: "sha256:packet", IssueID: "qa-v1-issue-current", IssueTitle: `hostile <script>alert(1)</script>`, Target: app.QATargetIdentitySummary{Fingerprint: "target"}, AllowedPaths: []string{"internal/app/repair.go"}, AcceptanceCriteria: []string{"exact reproducer passes"}, CheckCount: 7, Budgets: app.RepairBudgetSummary{MaxCycles: 1, MaxMutationCycles: 1, MaxFiles: 8, MaxBytes: 1024, WallTime: "45m0s"}},
+		Packet:   &app.RepairPacketSummary{Digest: "sha256:packet", IssueID: "qa-v1-issue-current", IssueTitle: `hostile <script>alert(1)</script>`, Target: app.QATargetIdentitySummary{Fingerprint: "target"}, AllowedPaths: []string{"internal/app/repair.go"}, AcceptanceCriteria: []string{"exact reproducer passes"}, CheckCount: 7, Budgets: app.RepairBudgetSummary{MaxCycles: 1, MaxMutationCycles: 1, MaxFiles: 8, MaxBytes: 1024, WallTime: "45m0s"}},
+		Consumed: sprint.RepairConsumed{Cycles: 1, MutationCycles: 1, ChangedFiles: 1, ChangedBytes: 42, Commands: 2, OutputBytes: 9},
+		Runtime:  &sprint.RepairRuntimeObservation{Provider: "openrouter", Model: "minimax/minimax-m3:free", DurationMS: 1234, RuntimeEvents: 8, RetainedEvents: 6, ObservedToolCalls: 2, Usage: sprint.QAUsageSummary{TurnsKnown: true, Turns: 3, InputTokensKnown: true, InputTokens: 100, OutputTokensKnown: true, OutputTokens: 20, CacheReadTokensKnown: true, CacheReadTokens: 80}},
+		Cycles:   []sprint.RepairCycleSnapshot{{Cycle: sprint.RepairCycle{Number: 1}, Reverification: &sprint.RepairReverification{Gates: []sprint.RepairGateResult{{Gate: sprint.RepairGateExactReproducer, Status: sprint.RepairGatePassed, DurationMS: 25, OutputBytes: 9}}}}},
 	}
 	fixture := &qaQueryFixture{fakeQueries: queries, repair: repair}
 	h, err := NewHandler(HandlerOptions{Queries: fixture, Authority: testAuthority, RequestID: func() string { return "repair-request" }})
@@ -137,7 +141,7 @@ func TestRepairRoutesReturnCanonicalBoundedJSONAndNoJavaScriptHTML(t *testing.T)
 	}
 	response := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/repair", nil)
 	body := response.Body.String()
-	if response.Code != http.StatusOK || !strings.Contains(body, "Bounded repair") || !strings.Contains(body, "Automatic mode unavailable") || !strings.Contains(body, "<noscript>") || strings.Contains(body, "<script>alert") {
+	if response.Code != http.StatusOK || !strings.Contains(body, "Bounded repair") || !strings.Contains(body, "Runtime and verification evidence") || !strings.Contains(body, "minimax/minimax-m3:free") || !strings.Contains(body, "Cache read") || !strings.Contains(body, "exact_reproducer") || !strings.Contains(body, "25 ms") || !strings.Contains(body, "Automatic mode unavailable") || !strings.Contains(body, "<noscript>") || strings.Contains(body, "<script>alert") {
 		t.Fatalf("repair page status=%d body=%s", response.Code, body)
 	}
 	method := request(h, http.MethodPost, "/api/v1/projects/alpha/sprints/30-web/repair", bytes.NewReader(nil))

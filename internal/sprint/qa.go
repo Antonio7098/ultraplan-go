@@ -359,6 +359,14 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	if err != nil {
 		return QARunResult{}, NewQAError(QAErrorInvalidState, "run", "flow state is unavailable", err)
 	}
+	// Evidence-producing runs have prerequisites that are knowable before any
+	// investigator is started. Reject them here so stale review/smoke state does
+	// not consume model time and tokens only to fail during publication.
+	if req.EvidenceProducing {
+		if _, _, err := s.validateQAEvidenceAdmission(sp, mapResult.Map, manifest.Target); err != nil {
+			return QARunResult{}, err
+		}
+	}
 	state, shards, err := s.prepareQAAttempt(store, flow, mapResult.Map, req, settings)
 	if err != nil {
 		return QARunResult{}, err
@@ -447,13 +455,23 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 }
 
 func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMap QAMap, target string, shards []QAShard, progress func(QAProgress)) (QAEvidencePublication, QAAssessmentRecord, error) {
+	// Recheck admission after investigation because review, smoke, or the target
+	// may have changed while the model work was in flight.
+	status, implementationBefore, err := s.validateQAEvidenceAdmission(sp, qaMap, target)
+	if err != nil {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, err
+	}
+	return s.buildQAEvidencePublicationAdmitted(ctx, sp, qaMap, target, shards, progress, status, implementationBefore)
+}
+
+func (s Service) validateQAEvidenceAdmission(sp Sprint, qaMap QAMap, target string) (VerificationStatus, string, error) {
 	implementationBefore, err := targetIdentity(target)
 	if err != nil || implementationBefore != qaMap.ImplementationFingerprint {
-		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorStaleInput, "admission", "implementation no longer matches the frozen QA map", err)
+		return VerificationStatus{}, "", NewQAError(QAErrorStaleInput, "admission", "implementation no longer matches the frozen QA map", err)
 	}
 	status, err := s.VerificationStatus(sp.Project, sp.Slug)
 	if err != nil {
-		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorAdmissionBlocked, "admission", "verification prerequisites are unavailable", err)
+		return VerificationStatus{}, "", NewQAError(QAErrorAdmissionBlocked, "admission", "verification prerequisites are unavailable", err)
 	}
 	capabilities := pprocess.IsolationCapabilityFacts()
 	admission := QAAdmission{
@@ -464,8 +482,12 @@ func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMa
 		WritableConcurrency: 1,
 	}
 	if err := ValidateQAAdmission(admission); err != nil {
-		return QAEvidencePublication{}, QAAssessmentRecord{}, err
+		return VerificationStatus{}, "", err
 	}
+	return status, implementationBefore, nil
+}
+
+func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Sprint, qaMap QAMap, target string, shards []QAShard, progress func(QAProgress), status VerificationStatus, implementationBefore string) (QAEvidencePublication, QAAssessmentRecord, error) {
 	limits := pprocess.IsolationLimits{MaxFiles: qaMap.Budgets.TreeFiles, MaxBytes: qaMap.Budgets.TreeBytes, MaxFileSize: qaMap.Budgets.FileBytes, Timeout: qaMap.Budgets.ShardTimeout}
 	targetTreeIdentity, err := pprocess.IdentifyTree(ctx, target, limits)
 	if err != nil {

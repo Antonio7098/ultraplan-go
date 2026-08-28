@@ -108,6 +108,22 @@ func TestSprintRepairStatusJSONIsOneBoundedDocument(t *testing.T) {
 	}
 }
 
+func TestSprintRepairStatusJSONMarksProjectionErrorsFailed(t *testing.T) {
+	dir := initializedWorkspace(t)
+	writeCommandSprintProject(t, dir, "proj", "01-alpha")
+	path := filepath.Join(dir, "projects", "proj", "sprints", "01-alpha", "verification", "repair-state.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"schema_version":99}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, status := runForTest([]string{"--workspace", dir, "sprint", "proj", "01", "repair", "status", "--json"})
+	if status == ExitOK || !strings.Contains(stdout, `"status":"failed"`) || !strings.Contains(stdout, `"error"`) {
+		t.Fatalf("status=%d stdout=%s", status, stdout)
+	}
+}
+
 func TestParseSprintExecuteDeferralRequiresTaskAndReason(t *testing.T) {
 	req, err := parseSprintExecuteArgs([]string{"--task", "task-123", "--defer", "--reason", "accepted follow-up"})
 	if err != nil || req.TaskID != "task-123" || req.DeferReason != "accepted follow-up" {
@@ -1314,5 +1330,24 @@ func TestRepairSemanticOutcomeErrorFailsNonVerifiedResults(t *testing.T) {
 		if err := repairSemanticOutcomeError(sprint.RepairResult{Outcome: outcome}, nil); err != nil {
 			t.Fatalf("outcome %q failed: %v", outcome, err)
 		}
+	}
+}
+
+func TestRepairProjectionBackfillsHumanScaleDurationsForRetainedV1Records(t *testing.T) {
+	runtime := &sprint.RepairRuntimeObservation{Duration: 1500 * time.Millisecond}
+	cleanup := &sprint.RepairCleanup{Duration: 2500 * time.Millisecond, Diagnostic: "; ;"}
+	reverification := &sprint.RepairReverification{Gates: []sprint.RepairGateResult{{Duration: 3500 * time.Millisecond}}}
+	projected := repairSnapshotProjection(sprint.RepairSnapshot{
+		State:  sprint.RepairState{Runtime: runtime},
+		Cycles: []sprint.RepairCycleSnapshot{{Cleanup: cleanup, Reverification: reverification}},
+	})
+	if projected.Runtime.DurationMS != 1500 || projected.Cycles[0].Cleanup.DurationMS != 2500 || projected.Cycles[0].Reverification.Gates[0].DurationMS != 3500 {
+		t.Fatalf("projected durations = runtime:%d cleanup:%d gate:%d", projected.Runtime.DurationMS, projected.Cycles[0].Cleanup.DurationMS, projected.Cycles[0].Reverification.Gates[0].DurationMS)
+	}
+	if projected.Cycles[0].Cleanup.Diagnostic != "" {
+		t.Fatalf("legacy empty cleanup diagnostic = %q", projected.Cycles[0].Cleanup.Diagnostic)
+	}
+	if runtime.DurationMS != 0 || cleanup.DurationMS != 0 || reverification.Gates[0].DurationMS != 0 {
+		t.Fatal("projection mutated retained records")
 	}
 }

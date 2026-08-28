@@ -167,7 +167,7 @@ func TestQARepairStorePublishesPrivateDigestBoundRecords(t *testing.T) {
 	if err != nil || confirmed.Phase != RepairPhaseConfirmed || confirmed.Confirmation == nil {
 		t.Fatalf("confirmed state = %+v, err=%v", confirmed, err)
 	}
-	result := RepairResult{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, Mode: RepairModeManual, Outcome: RepairOutcomeVerified, Reason: "all frozen gates passed", StopReason: RepairStopVerified, Consumed: RepairConsumed{MutationCycles: 1}, Target: packet.Target, CleanupComplete: true, ProductionApplied: true, CompleteLadder: true, Evidence: []QAArtifactRef{*confirmed.Packet, *confirmed.Confirmation}, NextAction: "Review retained evidence.", CompletedAt: now.Add(time.Minute)}
+	result := RepairResult{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, Mode: RepairModeManual, Outcome: RepairOutcomeVerified, Reason: "all frozen gates passed", StopReason: RepairStopVerified, Consumed: RepairConsumed{Cycles: 1, MutationCycles: 1}, Target: packet.Target, CleanupComplete: true, ProductionApplied: true, CompleteLadder: true, Evidence: []QAArtifactRef{*confirmed.Packet, *confirmed.Confirmation}, NextAction: "Review retained evidence.", CompletedAt: now.Add(time.Minute)}
 	if err := store.PublishRepairResult(result, confirmed, flow, token); err != nil {
 		t.Fatal(err)
 	}

@@ -436,6 +436,136 @@ func TestRecoverRepairRefusesEveryNonRecoverablePhase(t *testing.T) {
 	}
 }
 
+func TestRepairRetainedCycleRecordsRejectCorruptionAndIdentitySwaps(t *testing.T) {
+	packet := repairPacketFixture(t)
+	now := time.Unix(500, 0).UTC()
+	ref := &QAArtifactRef{Path: "projects/alpha/sprints/38-repair/verification/attempts/x/repairs/y/cycles/000001/scope.json", Digest: strings.Repeat("a", 64)}
+	cycle := RepairCycle{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Number: 1, Scope: ref, StartedAt: now, CompletedAt: &now}
+	if err := ValidateRepairCycle(cycle); err != nil {
+		t.Fatalf("valid cycle rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*RepairCycle){
+		"schema": func(v *RepairCycle) { v.SchemaVersion++ },
+		"run":    func(v *RepairCycle) { v.RepairRunID = "repair-v1-run-invalid" },
+		"number": func(v *RepairCycle) { v.Number = 0 },
+		"time":   func(v *RepairCycle) { before := now.Add(-time.Second); v.StartedAt = now; v.CompletedAt = &before },
+		"path":   func(v *RepairCycle) { v.Scope.Path = "../scope.json" },
+		"digest": func(v *RepairCycle) { v.Scope.Digest = "short" },
+	} {
+		t.Run("cycle_"+name, func(t *testing.T) {
+			changed := cycle
+			copyRef := *cycle.Scope
+			changed.Scope = &copyRef
+			mutate(&changed)
+			if err := ValidateRepairCycle(changed); err == nil {
+				t.Fatal("corrupt cycle accepted")
+			}
+		})
+	}
+
+	scope := RepairScopeRecord{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: 1, Before: packet.Target, After: packet.Target, IntendedPaths: []string{"internal/a.go"}, ActualPaths: []string{"internal/a.go"}, ChangedBytes: 4, Enforced: true}
+	if err := ValidateRepairScope(scope); err != nil {
+		t.Fatalf("valid scope rejected: %v", err)
+	}
+	changedScope := scope
+	changedScope.ActualPaths = []string{"internal/b.go"}
+	if err := ValidateRepairScope(changedScope); err == nil {
+		t.Fatal("enforced scope mismatch accepted")
+	}
+	changedScope = scope
+	changedScope.ActualPaths = []string{"internal/z.go", "internal/a.go"}
+	changedScope.Enforced = false
+	if err := ValidateRepairScope(changedScope); err == nil {
+		t.Fatal("unordered scope accepted")
+	}
+
+	cleanup := RepairCleanup{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: 1, ProcessTreeTerminated: true, WorkspaceRemoved: true, CompensationKnown: true, TargetCurrent: true, LeaseReleased: true, Complete: true}
+	if err := ValidateRepairCleanup(cleanup); err != nil {
+		t.Fatalf("valid cleanup rejected: %v", err)
+	}
+	cleanup.LeaseReleased = false
+	if err := ValidateRepairCleanup(cleanup); err == nil {
+		t.Fatal("cleanup claimed complete before lease release")
+	}
+}
+
+func TestRepairObservabilityRejectsImpossibleCounters(t *testing.T) {
+	if err := ValidateRepairConsumed(RepairConsumed{Commands: -1}); err == nil {
+		t.Fatal("negative command count accepted")
+	}
+	now := time.Unix(600, 0).UTC()
+	runtime := RepairRuntimeObservation{Provider: "openrouter", Model: "minimax/minimax-m3:free", StartedAt: now, CompletedAt: now.Add(time.Second), Duration: time.Second, DurationMS: 1000, RuntimeEvents: 3, RetainedEvents: 3, ObservedToolCalls: 1}
+	if err := ValidateRepairRuntime(runtime); err != nil {
+		t.Fatalf("valid runtime rejected: %v", err)
+	}
+	runtime.Usage.InputTokens = -1
+	if err := ValidateRepairRuntime(runtime); err == nil {
+		t.Fatal("negative token count accepted")
+	}
+	runtime.Usage.InputTokens = 0
+	runtime.CompletedAt = now.Add(-time.Second)
+	if err := ValidateRepairRuntime(runtime); err == nil {
+		t.Fatal("backwards runtime timestamps accepted")
+	}
+}
+
+func TestReconcileRepairJournalCoversNoWriteCompensationAndUnknownDrift(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		current           string
+		wantApplied       bool
+		wantComplete      bool
+		wantState         string
+		wantFinalContents string
+		wantRestored      bool
+	}{
+		{name: "no production write", current: "before\n", wantComplete: true, wantState: "compensated", wantFinalContents: "before\n"},
+		{name: "exact postimage", current: "after\n", wantApplied: true, wantComplete: true, wantState: "compensated", wantFinalContents: "before\n", wantRestored: true},
+		{name: "unknown drift", current: "third-party\n", wantComplete: false, wantState: "uncertain", wantFinalContents: "third-party\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			packet := repairPacketFixture(t)
+			root := t.TempDir()
+			sp := Sprint{Project: packet.Project, Slug: packet.Sprint, Path: filepath.Join(root, "projects", packet.Project, "sprints", packet.Sprint)}
+			target := filepath.Join(root, "target")
+			targetPath := filepath.Join(target, "internal", "a.go")
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(targetPath, []byte("before\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(sp.Path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Unix(700, 0).UTC()
+			token := QAWriterToken{RunID: "operation", OperationalAttemptID: "attempt", FencingGeneration: 1}
+			state := RepairState{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, Mode: RepairModeManual, Phase: RepairPhaseApplying, Freshness: RepairFreshness{Current: true}, Run: QARunCorrelation{Lifecycle: QARunActive, RunID: token.RunID, OperationalAttemptID: token.OperationalAttemptID, FencingGeneration: token.FencingGeneration}, Packet: &QAArtifactRef{Path: "packet", Digest: strings.Repeat("1", 64)}, Confirmation: &QAArtifactRef{Path: "confirmation", Digest: strings.Repeat("2", 64)}, CurrentCycle: 1, EarliestCycle: 1, Deadline: now.Add(time.Hour), NextAction: "Apply.", UpdatedAt: now}
+			store := NewQAStore(root, sp).WithWriterFence(func(got QAWriterToken) error {
+				if got != token {
+					return os.ErrPermission
+				}
+				return nil
+			})
+			journal, err := store.StageRepairApplyJournal(state, NewFlowState(sp, emptyPlanningStageStates(sp), now), 1, target, map[string][]byte{"internal/a.go": []byte("after\n")}, map[string]string{"internal/a.go": hashBytes([]byte("before\n"))}, token)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(targetPath, []byte(test.current), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			applied, complete := reconcileRepairJournal(store, target, &journal)
+			contents, readErr := os.ReadFile(targetPath)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if applied != test.wantApplied || complete != test.wantComplete || journal.State != test.wantState || string(contents) != test.wantFinalContents || journal.Operations[0].Restored != test.wantRestored {
+				t.Fatalf("applied=%t complete=%t state=%s contents=%q restored=%t", applied, complete, journal.State, contents, journal.Operations[0].Restored)
+			}
+		})
+	}
+}
+
 func repairPacketFixture(t *testing.T) RepairIssuePacket {
 	t.Helper()
 	now := time.Unix(100, 0).UTC()

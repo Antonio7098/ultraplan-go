@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -129,8 +130,15 @@ func (store QAStore) LoadRepairCycle(attemptID, runID string, cycle int) (Repair
 	if err := store.readStrictVersion(path, "repair-cycle", QARepairSchemaVersion, &value); err != nil {
 		return RepairCycle{}, err
 	}
-	if value.RepairRunID != runID || value.Number != cycle {
+	if err := ValidateRepairCycle(value); err != nil || value.RepairRunID != runID || value.Number != cycle {
 		return RepairCycle{}, NewQAError(QAErrorInvalidState, "load repair cycle", "repair cycle is stored under the wrong identity", nil)
+	}
+	for _, ref := range []*QAArtifactRef{value.Proposal, value.Scope, value.Reverification, value.Cleanup} {
+		if ref != nil {
+			if err := store.verifyReference(*ref); err != nil {
+				return RepairCycle{}, err
+			}
+		}
 	}
 	return value, nil
 }
@@ -322,6 +330,9 @@ func (store QAStore) PublishRepairCycle(publication RepairCyclePublication, stat
 		cycle.Proposal = &QAArtifactRef{Path: filepath.ToSlash(filepath.Join(base, "proposal.patch")), Digest: digest}
 	}
 	if publication.Scope != nil {
+		if err := ValidateRepairScope(*publication.Scope); err != nil || publication.Scope.RepairRunID != state.RepairRunID || publication.Scope.Cycle != cycle.Number {
+			return NewQAError(QAErrorInvalidState, "publish repair scope", "repair scope is invalid or stored under the wrong identity", err)
+		}
 		path, err := store.resolve(filepath.ToSlash(filepath.Join(base, "scope.json")))
 		if err != nil {
 			return err
@@ -347,6 +358,9 @@ func (store QAStore) PublishRepairCycle(publication RepairCyclePublication, stat
 		cycle.Reverification = &QAArtifactRef{Path: filepath.ToSlash(filepath.Join(base, "reverification.json")), Digest: digest}
 	}
 	if publication.Cleanup != nil {
+		if err := ValidateRepairCleanup(*publication.Cleanup); err != nil || publication.Cleanup.RepairRunID != state.RepairRunID || publication.Cleanup.Cycle != cycle.Number {
+			return NewQAError(QAErrorInvalidState, "publish repair cleanup", "repair cleanup is invalid or stored under the wrong identity", err)
+		}
 		path, err := store.resolve(filepath.ToSlash(filepath.Join(base, "cleanup.json")))
 		if err != nil {
 			return err
@@ -458,6 +472,14 @@ func ValidateRepairState(state RepairState) error {
 	if strings.TrimSpace(state.NextAction) == "" || state.UpdatedAt.IsZero() || state.CurrentCycle < 0 || state.EarliestCycle < 0 || state.EarliestCycle > state.CurrentCycle && state.CurrentCycle > 0 {
 		return fmt.Errorf("repair state progress fields are invalid")
 	}
+	if err := ValidateRepairConsumed(state.Consumed); err != nil {
+		return err
+	}
+	if state.Runtime != nil {
+		if err := ValidateRepairRuntime(*state.Runtime); err != nil {
+			return err
+		}
+	}
 	if state.Outcome != "" && !validRepairOutcome(state.Outcome) {
 		return fmt.Errorf("repair state outcome is invalid")
 	}
@@ -485,6 +507,17 @@ func ValidateRepairResult(result RepairResult) error {
 	if !validFingerprint(result.Target.Fingerprint) || len(result.Evidence) == 0 {
 		return fmt.Errorf("repair result lacks target or evidence authority")
 	}
+	if err := ValidateRepairConsumed(result.Consumed); err != nil {
+		return err
+	}
+	if result.Consumed.MutationCycles > result.Consumed.Cycles || result.Consumed.StagnantCycles > result.Consumed.Cycles || result.Consumed.ChangedFiles > 0 && result.Consumed.MutationCycles == 0 || result.Consumed.ChangedBytes > 0 && result.Consumed.ChangedFiles == 0 {
+		return fmt.Errorf("terminal repair consumption counters are inconsistent")
+	}
+	if result.Runtime != nil {
+		if err := ValidateRepairRuntime(*result.Runtime); err != nil {
+			return err
+		}
+	}
 	for _, ref := range result.Evidence {
 		path, err := normalizeRepairPath(ref.Path)
 		if err != nil || path != ref.Path || !validFingerprint(ref.Digest) {
@@ -503,6 +536,79 @@ func ValidateRepairResult(result RepairResult) error {
 	}
 	if result.ProductionApplied && result.Consumed.MutationCycles == 0 {
 		return fmt.Errorf("repair result apply claim lacks a consumed mutation cycle")
+	}
+	return nil
+}
+
+func ValidateRepairConsumed(value RepairConsumed) error {
+	if value.Cycles < 0 || value.MutationCycles < 0 || value.Reopenings < 0 || value.StagnantCycles < 0 || value.ChangedFiles < 0 || value.ChangedBytes < 0 || value.RuntimeAttempts < 0 || value.ModelTurns < 0 || value.Commands < 0 || value.OutputBytes < 0 {
+		return fmt.Errorf("repair consumption contains a negative counter")
+	}
+	return nil
+}
+
+func ValidateRepairRuntime(value RepairRuntimeObservation) error {
+	provider, model := strings.TrimSpace(value.Provider), strings.TrimSpace(value.Model)
+	// Provider and model were added to repair schema v1 after its first real
+	// runs. Accept both absent for those retained records, but reject partial
+	// identity in newly written observations.
+	if provider == "" != (model == "") || value.StartedAt.IsZero() || value.CompletedAt.Before(value.StartedAt) || value.Duration < 0 || value.DurationMS < 0 || value.RuntimeEvents < 0 || value.RetainedEvents < 0 || value.ObservedToolCalls < 0 || int64(value.RetainedEvents) > value.RuntimeEvents {
+		return fmt.Errorf("invalid repair runtime observation")
+	}
+	usage := value.Usage
+	if usage.InputTokens < 0 || usage.OutputTokens < 0 || usage.TotalTokens < 0 || usage.ReasoningTokens < 0 || usage.CacheReadTokens < 0 || usage.CacheWriteTokens < 0 || usage.Turns < 0 {
+		return fmt.Errorf("repair runtime usage contains a negative counter")
+	}
+	if value.EstimatedCost != nil && value.EstimatedCost.Amount < 0 {
+		return fmt.Errorf("repair runtime cost is negative")
+	}
+	return nil
+}
+
+func ValidateRepairCycle(value RepairCycle) error {
+	if value.SchemaVersion != QARepairSchemaVersion || !validRepairID(value.RepairRunID, "run") || value.Number <= 0 || value.StartedAt.IsZero() {
+		return fmt.Errorf("invalid repair cycle identity")
+	}
+	if value.CompletedAt != nil && value.CompletedAt.Before(value.StartedAt) {
+		return fmt.Errorf("repair cycle completion precedes its start")
+	}
+	for _, ref := range []*QAArtifactRef{value.Proposal, value.Scope, value.Reverification, value.Cleanup} {
+		if ref == nil {
+			continue
+		}
+		path, err := normalizeRepairPath(ref.Path)
+		if err != nil || path != ref.Path || !validFingerprint(ref.Digest) {
+			return fmt.Errorf("repair cycle contains an invalid artifact reference")
+		}
+	}
+	return nil
+}
+
+func ValidateRepairScope(value RepairScopeRecord) error {
+	if value.SchemaVersion != QARepairSchemaVersion || !validRepairID(value.RepairRunID, "run") || value.Cycle <= 0 || !validFingerprint(value.Before.Fingerprint) || !validFingerprint(value.After.Fingerprint) || value.ChangedBytes < 0 {
+		return fmt.Errorf("invalid repair scope record")
+	}
+	intended, err := NormalizeRepairPaths(value.IntendedPaths)
+	if err != nil || !reflect.DeepEqual(intended, value.IntendedPaths) {
+		return fmt.Errorf("repair scope intended paths are invalid or unordered")
+	}
+	actual, err := NormalizeRepairPaths(value.ActualPaths)
+	if err != nil || !reflect.DeepEqual(actual, value.ActualPaths) {
+		return fmt.Errorf("repair scope actual paths are invalid or unordered")
+	}
+	if value.Enforced && !sameRepairPaths(value.IntendedPaths, value.ActualPaths) {
+		return fmt.Errorf("enforced repair scope does not match actual paths")
+	}
+	return nil
+}
+
+func ValidateRepairCleanup(value RepairCleanup) error {
+	if value.SchemaVersion != QARepairSchemaVersion || !validRepairID(value.RepairRunID, "run") || value.Cycle <= 0 || value.Duration < 0 {
+		return fmt.Errorf("invalid repair cleanup record")
+	}
+	proved := value.ProcessTreeTerminated && value.WorkspaceRemoved && value.CompensationKnown && value.TargetCurrent && value.LeaseReleased
+	if value.Complete != proved {
+		return fmt.Errorf("repair cleanup completion disagrees with cleanup facts")
 	}
 	return nil
 }

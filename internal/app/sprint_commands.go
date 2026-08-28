@@ -544,6 +544,9 @@ func runSprint(deps dependencies, args []string) error {
 				snapshot, statusErr := runtimeService.QAStatus(args[0], args[1])
 				if statusErr == nil {
 					qaResult = qaSnapshotProjection(snapshot)
+					if qaErr != nil && qaRun.State.CurrentAttemptID == "" {
+						qaResult.ResultContext = "retained_previous_attempt"
+					}
 				} else {
 					runErr = errors.Join(runErr, statusErr)
 				}
@@ -901,6 +904,9 @@ func runSprintRepair(deps dependencies, root workspace.Root, effective config.Ef
 		return result, nil
 	}
 	writeResult := func(status string, result RepairStatusResult, runErr error) error {
+		if runErr != nil {
+			status = "failed"
+		}
 		if command.JSON {
 			payload := map[string]any{"schema_version": 1, "operation": "sprint.repair." + command.Action, "status": status, "result": result}
 			if runErr != nil {

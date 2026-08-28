@@ -60,6 +60,8 @@ No QA state migration ships in this release. Future migrations must be ordered p
 
 Unknown major versions fail closed. Version 1 readers reject unknown fields, trailing JSON, unsafe paths or modes, invalid IDs, and digest mismatches. IDs are deterministic only in their documented schema/project/sprint scope and make no global content-identity claim. There is no automatic downgrade or inference from older records; a future migration must be explicit, fixture-tested, and preserve the last readable state.
 
+Evidence-producing QA validates all knowable admission prerequisites before runtime execution and revalidates them before evidence publication. A failed new invocation may return the most recent retained QA projection for diagnosis; public clients label this `result_context` as `retained_previous_attempt` (CLI) or `retained_latest_attempt` (web operation) so it cannot be mistaken for work performed by the failed invocation.
+
 ## Bounded repair
 
 Public repair CLI and HTTP responses use schema version 1. Status separates phase, freshness, durable lifecycle, mode, semantic outcome, stop reason, cleanup, production-apply and complete-ladder facts. Packet projections expose identities, allowed/protected paths, criteria, check count, target, and budgets, but never patch bodies, production contents, prompts, private preimages, environment values, or raw output.

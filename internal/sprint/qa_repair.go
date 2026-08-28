@@ -170,6 +170,9 @@ func (s Service) RepairStatus(projectRef, sprintRef string) (RepairSnapshot, err
 			if loadErr := store.loadRepairCycleRecord(state.QAAttemptID, state.RepairRunID, cycleNumber, "scope.json", &value); loadErr != nil {
 				return RepairSnapshot{}, loadErr
 			}
+			if loadErr := ValidateRepairScope(value); loadErr != nil || value.RepairRunID != state.RepairRunID || value.Cycle != cycleNumber {
+				return RepairSnapshot{}, NewQAError(QAErrorInvalidState, "load repair scope", "repair scope is invalid or stored under the wrong identity", loadErr)
+			}
 			item.Scope = &value
 		}
 		if cycle.Reverification != nil {
@@ -177,12 +180,18 @@ func (s Service) RepairStatus(projectRef, sprintRef string) (RepairSnapshot, err
 			if loadErr := store.loadRepairCycleRecord(state.QAAttemptID, state.RepairRunID, cycleNumber, "reverification.json", &value); loadErr != nil {
 				return RepairSnapshot{}, loadErr
 			}
+			if loadErr := ValidateRepairReverification(value); loadErr != nil || value.RepairRunID != state.RepairRunID || value.Cycle != cycleNumber {
+				return RepairSnapshot{}, NewQAError(QAErrorInvalidState, "load repair reverification", "repair reverification is invalid or stored under the wrong identity", loadErr)
+			}
 			item.Reverification = &value
 		}
 		if cycle.Cleanup != nil {
 			var value RepairCleanup
 			if loadErr := store.loadRepairCycleRecord(state.QAAttemptID, state.RepairRunID, cycleNumber, "cleanup.json", &value); loadErr != nil {
 				return RepairSnapshot{}, loadErr
+			}
+			if loadErr := ValidateRepairCleanup(value); loadErr != nil || value.RepairRunID != state.RepairRunID || value.Cycle != cycleNumber {
+				return RepairSnapshot{}, NewQAError(QAErrorInvalidState, "load repair cleanup", "repair cleanup is invalid or stored under the wrong identity", loadErr)
 			}
 			item.Cleanup = &value
 		}
@@ -509,6 +518,7 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	start := s.now().UTC()
 	runtimeResult, runErr := runtime.StartRun(lockedCtx, request)
 	runtimeCompleted := s.now().UTC()
+	runtimeDuration := runtimeCompleted.Sub(start)
 	state.Consumed.RuntimeAttempts++
 	state.Consumed.ModelTurns += int(runtimeResult.Usage.Turns)
 	runtimeEvents := runtimeResult.EventStats.Total
@@ -523,7 +533,8 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 		Usage:             qaUsageSummary(runtimeResult.Usage),
 		StartedAt:         start,
 		CompletedAt:       runtimeCompleted,
-		Duration:          runtimeCompleted.Sub(start),
+		Duration:          runtimeDuration,
+		DurationMS:        runtimeDuration.Milliseconds(),
 		RuntimeEvents:     runtimeEvents,
 		RetainedEvents:    len(runtimeResult.Events),
 		ObservedToolCalls: qaObservedToolCalls(runtimeResult.Events),
@@ -631,7 +642,8 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	parentErr := os.Remove(parent)
 	parentRemoved = parentErr == nil || errors.Is(parentErr, fs.ErrNotExist)
 	finalTarget, targetErr := repairTargetIdentity(manifest.Target)
-	cleanup := &RepairCleanup{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: cycleNumber, ProcessTreeTerminated: cleanupResult.Complete, WorkspaceRemoved: cleanupResult.Complete && parentRemoved, CompensationKnown: true, TargetCurrent: targetErr == nil && finalTarget.Fingerprint == afterApply.Fingerprint, LeaseReleased: false, Duration: s.now().UTC().Sub(cleanupStarted), Diagnostic: joinRepairDiagnostics(cleanupResult.Error, errorString(parentErr), errorString(targetErr))}
+	cleanupDuration := s.now().UTC().Sub(cleanupStarted)
+	cleanup := &RepairCleanup{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: cycleNumber, ProcessTreeTerminated: cleanupResult.Complete, WorkspaceRemoved: cleanupResult.Complete && parentRemoved, CompensationKnown: true, TargetCurrent: targetErr == nil && finalTarget.Fingerprint == afterApply.Fingerprint, LeaseReleased: false, Duration: cleanupDuration, DurationMS: cleanupDuration.Milliseconds(), Diagnostic: joinRepairDiagnostics(cleanupResult.Error, errorString(parentErr), errorString(targetErr))}
 	cleanup.Complete = cleanup.ProcessTreeTerminated && cleanup.WorkspaceRemoved && cleanup.CompensationKnown && cleanup.TargetCurrent
 	progress := RepairProgressFact{ExactFailureRemoved: exactRemoved, IssueCountBefore: 1, IssueCountAfter: boolInt(!exactRemoved), SeverityBefore: packet.Issue.Severity, SeverityAfter: chooseSeverity(exactRemoved, "", packet.Issue.Severity)}
 	cycle := RepairCycle{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Number: cycleNumber, Progress: progress, StartedAt: start}
@@ -777,38 +789,7 @@ func (s Service) RecoverRepair(ctx context.Context, projectRef, sprintRef string
 	if state.CurrentCycle > 0 {
 		journal, journalErr := store.LoadRepairApplyJournal(state.QAAttemptID, state.RepairRunID, state.CurrentCycle)
 		if journalErr == nil {
-			journal.State = "compensated"
-			for i := range journal.Operations {
-				operation := &journal.Operations[i]
-				targetPath := filepath.Join(manifest.Target, filepath.FromSlash(operation.Path))
-				if err := ensureRepairRegularPath(manifest.Target, targetPath); err != nil {
-					cleanupComplete = false
-					journal.State = "uncertain"
-					continue
-				}
-				current, readErr := os.ReadFile(targetPath)
-				if readErr != nil {
-					cleanupComplete = false
-					journal.State = "uncertain"
-					continue
-				}
-				switch digest := hashBytes(current); digest {
-				case operation.PreimageDigest:
-					continue
-				case operation.PostimageDigest:
-					productionApplied = true
-					preimage, loadErr := store.loadRepairPreimage(*operation)
-					if loadErr != nil || privateAtomicWrite(targetPath, preimage, "repair-recover-compensate", QAStateHooks{}) != nil {
-						cleanupComplete = false
-						journal.State = "uncertain"
-						continue
-					}
-					operation.Restored = true
-				default:
-					cleanupComplete = false
-					journal.State = "uncertain"
-				}
-			}
+			productionApplied, cleanupComplete = reconcileRepairJournal(store, manifest.Target, &journal)
 			journal.UpdatedAt = s.now().UTC()
 			if publishErr := store.PublishRepairApplyJournal(state, flow, journal, req.WriterToken); publishErr != nil {
 				return RepairResult{}, publishErr
@@ -858,6 +839,43 @@ func (s Service) RecoverRepair(ctx context.Context, projectRef, sprintRef string
 		return RepairResult{}, err
 	}
 	return result, lockedCtx.Err()
+}
+
+func reconcileRepairJournal(store QAStore, target string, journal *RepairApplyJournal) (productionApplied, complete bool) {
+	complete = true
+	journal.State = "compensated"
+	for i := range journal.Operations {
+		operation := &journal.Operations[i]
+		targetPath := filepath.Join(target, filepath.FromSlash(operation.Path))
+		if err := ensureRepairRegularPath(target, targetPath); err != nil {
+			complete = false
+			journal.State = "uncertain"
+			continue
+		}
+		current, readErr := os.ReadFile(targetPath)
+		if readErr != nil {
+			complete = false
+			journal.State = "uncertain"
+			continue
+		}
+		switch digest := hashBytes(current); digest {
+		case operation.PreimageDigest:
+			continue
+		case operation.PostimageDigest:
+			productionApplied = true
+			preimage, loadErr := store.loadRepairPreimage(*operation)
+			if loadErr != nil || privateAtomicWrite(targetPath, preimage, "repair-recover-compensate", QAStateHooks{}) != nil {
+				complete = false
+				journal.State = "uncertain"
+				continue
+			}
+			operation.Restored = true
+		default:
+			complete = false
+			journal.State = "uncertain"
+		}
+	}
+	return productionApplied, complete
 }
 
 func validateRepairPreparationBarrier(prior RepairState, loadErr error) error {
@@ -1691,6 +1709,7 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 			}
 		}
 		result.Duration = s.now().UTC().Sub(started)
+		result.DurationMS = result.Duration.Milliseconds()
 		results = append(results, result)
 		if result.Status != RepairGatePassed {
 			stopped = true

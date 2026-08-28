@@ -530,6 +530,7 @@ type RepairRuntimeObservation struct {
 	StartedAt         time.Time      `json:"started_at"`
 	CompletedAt       time.Time      `json:"completed_at"`
 	Duration          time.Duration  `json:"duration"`
+	DurationMS        int64          `json:"duration_ms"`
 	RuntimeEvents     int64          `json:"runtime_events"`
 	RetainedEvents    int            `json:"retained_events"`
 	ObservedToolCalls int            `json:"observed_tool_calls"`
@@ -555,6 +556,7 @@ type RepairGateResult struct {
 	NextAction  string           `json:"next_action,omitempty"`
 	ExitCode    int              `json:"exit_code,omitempty"`
 	Duration    time.Duration    `json:"duration,omitempty"`
+	DurationMS  int64            `json:"duration_ms,omitempty"`
 	OutputHash  string           `json:"output_digest,omitempty"`
 	OutputBytes int              `json:"output_bytes,omitempty"`
 	Diagnostic  string           `json:"diagnostic,omitempty"`
@@ -586,6 +588,7 @@ type RepairCleanup struct {
 	LeaseReleased         bool          `json:"lease_released"`
 	Complete              bool          `json:"complete"`
 	Duration              time.Duration `json:"duration"`
+	DurationMS            int64         `json:"duration_ms"`
 	Diagnostic            string        `json:"diagnostic,omitempty"`
 }
 

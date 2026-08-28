@@ -250,6 +250,35 @@ func TestQANewStartRejectsExistingSemanticAttemptBeforeRuntimeWork(t *testing.T)
 	}
 }
 
+func TestQAEvidenceAdmissionRejectsStaleReviewWithoutStartingRuntime(t *testing.T) {
+	root, sp := reviewFixture(t)
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(target, "source.go"), []byte("package source\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := targetIdentity(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qaMap := QAMap{
+		ImplementationFingerprint: identity,
+		Coverage: QACoverage{
+			ChangedPaths:  []string{"source.go"},
+			PrimaryOwners: map[string]string{"source.go": "owner"},
+		},
+	}
+	runtime := &qaRetryRuntime{}
+	service := NewService(root).WithRuntime(runtime)
+	_, _, err = service.validateQAEvidenceAdmission(sp, qaMap, target)
+	typed, ok := AsQAError(err)
+	if !ok || typed.Category != QAErrorAdmissionBlocked {
+		t.Fatalf("stale admission error = %v", err)
+	}
+	if calls := runtime.calls.Load(); calls != 0 {
+		t.Fatalf("runtime calls before admission rejection = %d", calls)
+	}
+}
+
 func TestQAPermissionRejectsFallbackAndTargetDrift(t *testing.T) {
 	root, _, target, qaMap, _, _, token := qaRunFixture(t)
 	settings := QASettings{Runtime: StageRuntime{Model: "openai/qa", Variant: "high"}, Budgets: qaMap.Budgets}

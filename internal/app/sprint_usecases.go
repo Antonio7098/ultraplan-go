@@ -199,6 +199,7 @@ type QARequest struct {
 
 type QAResult struct {
 	SchemaVersion                int                        `json:"schema_version"`
+	ResultContext                string                     `json:"result_context,omitempty"`
 	Project                      string                     `json:"project"`
 	Sprint                       string                     `json:"sprint"`
 	Phase                        string                     `json:"phase"`
@@ -875,8 +876,8 @@ func repairSnapshotProjection(snapshot sprint.RepairSnapshot) RepairStatusResult
 		NextAction:         displaySafe(state.NextAction),
 		Blocker:            qaBlockerProjection(state.Blocker),
 		Consumed:           state.Consumed,
-		Runtime:            state.Runtime,
-		Cycles:             append([]sprint.RepairCycleSnapshot(nil), snapshot.Cycles...),
+		Runtime:            repairRuntimeProjection(state.Runtime),
+		Cycles:             repairCyclesProjection(snapshot.Cycles),
 	}
 	if packet := snapshot.Packet; packet != nil {
 		out.Packet = &RepairPacketSummary{
@@ -908,9 +909,53 @@ func repairSnapshotProjection(snapshot sprint.RepairSnapshot) RepairStatusResult
 		out.NextAction = displaySafe(result.NextAction)
 		out.Reason = displaySafe(result.Reason)
 		out.Consumed = result.Consumed
-		out.Runtime = result.Runtime
+		out.Runtime = repairRuntimeProjection(result.Runtime)
 		copyResult := *result
+		copyResult.Runtime = repairRuntimeProjection(result.Runtime)
 		out.ResultDetail = &copyResult
+	}
+	return out
+}
+
+func repairRuntimeProjection(value *sprint.RepairRuntimeObservation) *sprint.RepairRuntimeObservation {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	if copyValue.DurationMS == 0 && copyValue.Duration > 0 {
+		copyValue.DurationMS = copyValue.Duration.Milliseconds()
+	}
+	return &copyValue
+}
+
+func repairCyclesProjection(values []sprint.RepairCycleSnapshot) []sprint.RepairCycleSnapshot {
+	out := make([]sprint.RepairCycleSnapshot, len(values))
+	for i, value := range values {
+		out[i].Cycle = value.Cycle
+		if value.Scope != nil {
+			copyScope := *value.Scope
+			out[i].Scope = &copyScope
+		}
+		if value.Reverification != nil {
+			copyVerification := *value.Reverification
+			copyVerification.Gates = append([]sprint.RepairGateResult(nil), value.Reverification.Gates...)
+			for gate := range copyVerification.Gates {
+				if copyVerification.Gates[gate].DurationMS == 0 && copyVerification.Gates[gate].Duration > 0 {
+					copyVerification.Gates[gate].DurationMS = copyVerification.Gates[gate].Duration.Milliseconds()
+				}
+			}
+			out[i].Reverification = &copyVerification
+		}
+		if value.Cleanup != nil {
+			copyCleanup := *value.Cleanup
+			if copyCleanup.DurationMS == 0 && copyCleanup.Duration > 0 {
+				copyCleanup.DurationMS = copyCleanup.Duration.Milliseconds()
+			}
+			if strings.Trim(copyCleanup.Diagnostic, " ;\t\r\n") == "" {
+				copyCleanup.Diagnostic = ""
+			}
+			out[i].Cleanup = &copyCleanup
+		}
 	}
 	return out
 }
@@ -1164,6 +1209,9 @@ func (u dashboardUseCases) runQA(ctx context.Context, req QARequest, resume bool
 	}
 	_, runErr := u.runner(ctx, OperationRequest{Kind: kind, Project: req.Project, Sprint: req.Sprint, Task: req.Shard, Suite: req.Suite}, emit)
 	status, statusErr := u.QAStatus(context.WithoutCancel(ctx), req)
+	if runErr != nil && statusErr == nil {
+		status.ResultContext = "retained_latest_attempt"
+	}
 	return status, errors.Join(runErr, statusErr)
 }
 
