@@ -204,6 +204,27 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 			if e != nil {
 				return failedOperation(result, e)
 			}
+		case OperationRepairCampaignStart:
+			token, fence, e := qaOwnershipFromContext(ctx)
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			budgets, sources, e := repairBudgetsFor(effective, sprint.RepairModeAutomatic)
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			service, e := sprintRuntimeService(deps, root, tuiSprintRuntimeProgress(emit))
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			campaign, e := service.WithQAWriterFence(fence).RunRepairCampaign(ctx, req.Project, req.Sprint, sprint.RepairCampaignRequest{Confirmer: req.RepairConfirmer, Budgets: budgets, Sources: sources, WriterToken: token, Progress: func(p sprint.RepairCampaignProgress) {
+				emit(OperationEvent{State: OperationRunning, Stage: "repair-campaign", Task: fmt.Sprintf("worker-%d/issue-%d", p.Worker, p.Issue), Message: p.Message, Completed: p.Completed, Total: p.Total})
+			}})
+			result.RunID = token.RunID
+			result.Message = fmt.Sprintf("campaign=%s status=%s workers=%d issues=%d/%d", campaign.ID, campaign.Status, len(campaign.Workers), campaign.Completed, campaign.Total)
+			if e != nil {
+				return failedOperation(result, e)
+			}
 		case OperationStudyStart, OperationStudyResume:
 			flags := runAllFlags{}
 			flags.parallelism = &req.Parallelism

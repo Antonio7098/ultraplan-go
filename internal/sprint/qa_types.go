@@ -167,9 +167,36 @@ type QAEffectiveSource struct {
 }
 
 type QASettings struct {
-	Runtime StageRuntime        `json:"runtime"`
-	Budgets QABudgets           `json:"budgets"`
-	Sources []QAEffectiveSource `json:"sources"`
+	Runtime              StageRuntime        `json:"runtime"`
+	Investigator         StageRuntime        `json:"investigator,omitempty"`
+	Challenger           StageRuntime        `json:"challenger,omitempty"`
+	Evaluator            StageRuntime        `json:"evaluator,omitempty"`
+	Repair               StageRuntime        `json:"repair,omitempty"`
+	RepairAssignmentMode string              `json:"repair_assignment_mode"`
+	IssuesPerRepairAgent int                 `json:"issues_per_repair_agent"`
+	Budgets              QABudgets           `json:"budgets"`
+	Sources              []QAEffectiveSource `json:"sources"`
+}
+
+func (s QASettings) RuntimeFor(role string) StageRuntime {
+	selected := StageRuntime{}
+	switch role {
+	case "investigator":
+		selected = s.Investigator
+	case "challenger":
+		selected = s.Challenger
+	case "evaluator":
+		selected = s.Evaluator
+	case "repair":
+		selected = s.Repair
+	}
+	if strings.TrimSpace(selected.Model) == "" {
+		selected.Model = s.Runtime.Model
+	}
+	if strings.TrimSpace(selected.Variant) == "" {
+		selected.Variant = s.Runtime.Variant
+	}
+	return selected
 }
 
 type QAFreshness struct {

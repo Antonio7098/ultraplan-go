@@ -144,16 +144,32 @@ type QAIssue struct {
 }
 
 type QAAdjudication struct {
-	SchemaVersion  int                  `json:"schema_version"`
-	ID             string               `json:"id"`
-	AttemptID      string               `json:"attempt_id"`
-	MapFingerprint string               `json:"map_fingerprint"`
-	AcceptedIDs    []string             `json:"accepted_evidence_ids"`
-	Rejected       []QARejectedEvidence `json:"rejected_evidence"`
-	Groups         []QARootCauseGroup   `json:"root_cause_groups"`
-	Issues         []QAIssue            `json:"issues"`
-	Evaluators     []QAModelObservation `json:"evaluators,omitempty"`
-	CompletedAt    time.Time            `json:"completed_at"`
+	SchemaVersion     int                  `json:"schema_version"`
+	ID                string               `json:"id"`
+	AttemptID         string               `json:"attempt_id"`
+	MapFingerprint    string               `json:"map_fingerprint"`
+	AcceptedIDs       []string             `json:"accepted_evidence_ids"`
+	Rejected          []QARejectedEvidence `json:"rejected_evidence"`
+	Groups            []QARootCauseGroup   `json:"root_cause_groups"`
+	Issues            []QAIssue            `json:"issues"`
+	RepairGroups      []QARepairIssueGroup `json:"suggested_repair_groups,omitempty"`
+	RepairAssignments []QARepairAssignment `json:"repair_assignments,omitempty"`
+	Evaluators        []QAModelObservation `json:"evaluators,omitempty"`
+	CompletedAt       time.Time            `json:"completed_at"`
+}
+
+// QARepairIssueGroup is scheduling advice only. Every issue in the group still
+// receives its own frozen packet, isolated copy, repair run, and gate ladder.
+type QARepairIssueGroup struct {
+	ID       string   `json:"id"`
+	IssueIDs []string `json:"issue_ids"`
+	Reason   string   `json:"reason"`
+}
+
+type QARepairAssignment struct {
+	Agent   int      `json:"agent"`
+	Issues  []string `json:"issue_ids"`
+	Reasons []string `json:"grouping_reasons,omitempty"`
 }
 
 type QAAssessmentRecord struct {

@@ -798,7 +798,7 @@ func parseSprintRepairArgs(args []string) (sprintRepairCommand, error) {
 		args = args[1:]
 	}
 	switch command.Action {
-	case "prepare", "start", "status", "packet", "cycles", "result", "resume", "cancel", "recover":
+	case "prepare", "start", "campaign", "status", "packet", "cycles", "result", "resume", "cancel", "recover":
 	default:
 		return command, fmt.Errorf("unknown repair action %q", command.Action)
 	}
@@ -836,6 +836,13 @@ func parseSprintRepairArgs(args []string) (sprintRepairCommand, error) {
 		}
 	}
 	switch command.Action {
+	case "campaign":
+		if command.Confirmer == "" || !command.Yes {
+			return command, errors.New("repair campaign requires --confirmer and --yes")
+		}
+		if command.IssueID != "" || command.RunID != "" || command.Automatic || command.MaxCycles != 0 {
+			return command, errors.New("repair campaign uses configured assignment policy and accepts no issue, run, or cycle override")
+		}
 	case "prepare":
 		if command.IssueID == "" {
 			return command, errors.New("repair prepare requires --issue")
@@ -974,9 +981,56 @@ func runSprintRepair(deps dependencies, root workspace.Root, effective config.Ef
 		return runSprintRepairPrepare(deps, root, effective, baseService, projectRef, sprintRef, command, projection, writeResult)
 	case "start":
 		return runSprintRepairStart(deps, root, effective, baseService, projectRef, sprintRef, command, projection, writeResult)
+	case "campaign":
+		return runSprintRepairCampaign(deps, root, effective, projectRef, sprintRef, command, projection, writeResult)
 	default:
 		return classified(ExitUsage, "sprint.repair: unsupported action %q", command.Action)
 	}
+}
+
+func runSprintRepairCampaign(deps dependencies, root workspace.Root, effective config.Effective, projectRef, sprintRef string, command sprintRepairCommand, projection func(sprint.Service) (RepairStatusResult, error), writeResult func(string, RepairStatusResult, error) error) error {
+	repository, _, err := runRepository(deps)
+	if err != nil {
+		return writeResult("failed", RepairStatusResult{}, err)
+	}
+	manager := newDurableOperationManager(repository, deps.runControl.owner)
+	dashboard := dashboardUseCases{root: root.Path, stageRuntime: planningStageRuntime(effective.Config)}
+	request := OperationRequest{Kind: OperationRepairCampaignStart, Project: projectRef, Sprint: sprintRef, RepairConfirmer: command.Confirmer}
+	prepared, err := dashboard.PrepareOperation(deps.ctx, request)
+	if err != nil {
+		return writeResult("failed", RepairStatusResult{}, err)
+	}
+	accepted, err := manager.AcceptOperation(deps.ctx, prepared, prepared.InputFingerprint)
+	if err == nil && !accepted.Existing {
+		accepted, err = manager.DispatchOperation(deps.ctx, accepted.RunID)
+	}
+	if err != nil {
+		return writeResult("failed", RepairStatusResult{}, err)
+	}
+	if accepted.Existing {
+		result, statusErr := projection(sprint.NewService(root.Path))
+		return writeResult("existing", result, statusErr)
+	}
+	runner := sharedOperationRunner(deps, root, effective, dashboard)
+	var recordErr error
+	_, runErr := runner(accepted.Context, request, func(event OperationEvent) {
+		_, recordErr = manager.RecordOperationEvent(accepted.Context, accepted.RunID, event)
+		if event.Stage == "repair-campaign" {
+			fmt.Fprintf(deps.stderr, "[repair campaign] %d/%d %s: %s\n", event.Completed, event.Total, event.Task, config.RedactValue("repair.campaign.progress", event.Message))
+		}
+	})
+	runErr = errors.Join(runErr, recordErr)
+	finishCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	finishErr := manager.FinishOperation(finishCtx, accepted.RunID, operationStateForError(runErr), runErr)
+	cancel()
+	runErr = errors.Join(runErr, finishErr)
+	service, serviceErr := sprintRuntimeService(deps, root)
+	if serviceErr != nil {
+		return writeResult("failed", RepairStatusResult{}, errors.Join(runErr, serviceErr))
+	}
+	result, statusErr := projection(service)
+	runErr = errors.Join(runErr, statusErr)
+	return writeResult(operationStatusForError(runErr), result, runErr)
 }
 
 func runSprintRepairPrepare(deps dependencies, root workspace.Root, effective config.Effective, service sprint.Service, projectRef, sprintRef string, command sprintRepairCommand, projection func(sprint.Service) (RepairStatusResult, error), writeResult func(string, RepairStatusResult, error) error) error {
@@ -1335,7 +1389,19 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 	budgets.TreeFiles, budgets.TreeBytes, budgets.FileBytes = c.TreeFiles, int64(c.TreeBytes), int64(c.FileBytes)
 	budgets.GeneratedChecks, budgets.GeneratedPatchBytes = c.GeneratedChecks, c.GeneratedPatchBytes
 	budgets.EvidenceRecords, budgets.Issues = c.EvidenceRecords, c.Issues
-	settings := sprint.QASettings{Runtime: sprint.StageRuntime{Model: model, Variant: variant}, Sources: sources, Budgets: budgets}
+	stageRuntime := func(stageModel, stageVariant string) sprint.StageRuntime {
+		return sprint.StageRuntime{Model: strings.TrimSpace(stageModel), Variant: strings.TrimSpace(stageVariant)}
+	}
+	settings := sprint.QASettings{
+		Runtime:              sprint.StageRuntime{Model: model, Variant: variant},
+		Investigator:         stageRuntime(c.InvestigatorModel, c.InvestigatorVariant),
+		Challenger:           stageRuntime(c.ChallengerModel, c.ChallengerVariant),
+		Evaluator:            stageRuntime(c.EvaluatorModel, c.EvaluatorVariant),
+		Repair:               stageRuntime(c.RepairModel, c.RepairVariant),
+		RepairAssignmentMode: c.RepairAssignmentMode,
+		IssuesPerRepairAgent: c.IssuesPerRepairAgent,
+		Sources:              sources, Budgets: budgets,
+	}
 	if err := sprint.ValidateQASettings(settings); err != nil {
 		return sprint.QASettings{}, err
 	}
@@ -2207,6 +2273,7 @@ Usage:
   ultraplan sprint <project> <sprint> qa recover [--json]
   ultraplan sprint <project> <sprint> repair prepare --issue <current-issue-id> [--automatic] [--max-cycles <n>] [--json]
   ultraplan sprint <project> <sprint> repair start --run <repair-run-id> --confirmer <identity> --yes [--automatic] [--json]
+  ultraplan sprint <project> <sprint> repair campaign --confirmer <identity> --yes [--json]
   ultraplan sprint <project> <sprint> repair status [--run <repair-run-id>] [--json]
   ultraplan sprint <project> <sprint> repair packet|cycles|result [--run <repair-run-id>] [--json]
   ultraplan sprint <project> <sprint> repair resume --run <repair-run-id> --yes [--json]
@@ -2292,13 +2359,14 @@ func sprintRepairHelp() string {
 Usage:
   ultraplan sprint <project> <sprint> repair prepare --issue <current-issue-id> [--json]
   ultraplan sprint <project> <sprint> repair start --run <repair-run-id> --confirmer <identity> --yes [--json]
+  ultraplan sprint <project> <sprint> repair campaign --confirmer <identity> --yes [--json]
   ultraplan sprint <project> <sprint> repair status [--run <repair-run-id>] [--json]
   ultraplan sprint <project> <sprint> repair packet|cycles|result [--run <repair-run-id>] [--json]
   ultraplan sprint <project> <sprint> repair resume --run <repair-run-id> --yes [--json]
   ultraplan sprint <project> <sprint> repair cancel --run <durable-operation-run-id> [--json]
   ultraplan sprint <project> <sprint> repair recover [--run <repair-run-id>] [--json]
 
-Prepare freezes one current repair-eligible QA issue without runtime work or target mutation. Start requires a separate explicit --yes and publishes single-use confirmation after durable acceptance but before dispatch. Manual mode permits one proposal and one bounded production apply. Automatic mode requires a current qualifying manual proof, explicit --automatic on prepare and start, and frozen lower-only limits. Reverification ends with repaired-target containing smoke. Conformance Review runs once before repair admission. Progress is written to stderr; --json writes one versioned document to stdout.
+Prepare freezes one current repair-eligible QA issue without runtime work or target mutation. Start requires a separate explicit --yes and publishes single-use confirmation after durable acceptance but before dispatch. Campaign uses qa.repair_assignment_mode and qa.issues_per_repair_agent, requires qualifying manual proof, and refreshes review, smoke, and evidence-producing QA between issue-scoped runs. Manual mode permits one proposal and one bounded production apply. Automatic mode requires a current qualifying manual proof, explicit --automatic on prepare and start, and frozen lower-only limits. Reverification ends with repaired-target containing smoke. Progress is written to stderr; --json writes one versioned document to stdout.
 `
 }
 

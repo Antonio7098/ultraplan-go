@@ -26,6 +26,7 @@ func TestEveryRuntimeBackedCLIEntryUsesDurableAcceptanceInventory(t *testing.T) 
 				"Kind: OperationReviewStart", "Kind: OperationSmokeStart",
 				"kind := OperationQAStart", "kind = OperationQAResume",
 				"Kind: OperationRepairPrepare", "Kind: OperationRepairStart", "Kind: OperationRepairResume", "Kind: OperationRepairRecover",
+				"Kind: OperationRepairCampaignStart",
 			},
 		},
 		{

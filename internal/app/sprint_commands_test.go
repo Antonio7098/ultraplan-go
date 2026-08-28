@@ -70,11 +70,17 @@ func TestParseSprintRepairRequiresSeparateManualConfirmation(t *testing.T) {
 	if err != nil || !start.Yes || start.Confirmer != "operator" {
 		t.Fatalf("start=%+v err=%v", start, err)
 	}
+	campaign, err := parseSprintRepairArgs([]string{"campaign", "--confirmer", "operator", "--yes", "--json"})
+	if err != nil || !campaign.Yes || campaign.Confirmer != "operator" || !campaign.JSON {
+		t.Fatalf("campaign=%+v err=%v", campaign, err)
+	}
 	for _, args := range [][]string{
 		{"prepare", "--issue", "issue", "--yes"},
 		{"start", "--run", "run", "--confirmer", "operator"},
 		{"start", "--run", "run", "--yes"},
 		{"resume", "--run", "run"},
+		{"campaign", "--confirmer", "operator"},
+		{"campaign", "--confirmer", "operator", "--yes", "--issue", "issue"},
 	} {
 		if _, err := parseSprintRepairArgs(args); err == nil {
 			t.Fatalf("expected invalid repair arguments: %v", args)

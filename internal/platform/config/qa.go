@@ -13,6 +13,16 @@ import (
 type QA struct {
 	Model                      string   `json:"model"`
 	Variant                    string   `json:"variant"`
+	InvestigatorModel          string   `json:"investigator_model"`
+	InvestigatorVariant        string   `json:"investigator_variant"`
+	ChallengerModel            string   `json:"challenger_model"`
+	ChallengerVariant          string   `json:"challenger_variant"`
+	EvaluatorModel             string   `json:"evaluator_model"`
+	EvaluatorVariant           string   `json:"evaluator_variant"`
+	RepairModel                string   `json:"repair_model"`
+	RepairVariant              string   `json:"repair_variant"`
+	RepairAssignmentMode       string   `json:"repair_assignment_mode"`
+	IssuesPerRepairAgent       int      `json:"issues_per_repair_agent"`
 	ChangedPaths               int      `json:"changed_paths"`
 	PrimaryShards              int      `json:"primary_shards"`
 	BoundaryShards             int      `json:"boundary_shards"`
@@ -73,6 +83,7 @@ type QARepair struct {
 
 func DefaultQA() QA {
 	return QA{
+		RepairAssignmentMode: "per_issue", IssuesPerRepairAgent: 1,
 		ChangedPaths: 512, PrimaryShards: 32, BoundaryShards: 8,
 		FollowUpShards: 4, TotalShards: 44, PendingEntries: 44,
 		ChangedPathsPerShard: 12, ContextPathsPerShard: 64,
@@ -91,6 +102,7 @@ func DefaultQA() QA {
 
 func maxQA() QA {
 	return QA{
+		RepairAssignmentMode: "grouped", IssuesPerRepairAgent: 16,
 		ChangedPaths: 512, PrimaryShards: 32, BoundaryShards: 8,
 		FollowUpShards: 4, TotalShards: 44, PendingEntries: 44,
 		ChangedPathsPerShard: 64, ContextPathsPerShard: 128,
@@ -108,7 +120,10 @@ func maxQA() QA {
 
 func qaConfigFields() []string {
 	return []string{
-		"qa.model", "qa.variant", "qa.changed_paths", "qa.primary_shards",
+		"qa.model", "qa.variant", "qa.investigator_model", "qa.investigator_variant",
+		"qa.challenger_model", "qa.challenger_variant", "qa.evaluator_model", "qa.evaluator_variant",
+		"qa.repair_model", "qa.repair_variant", "qa.repair_assignment_mode", "qa.issues_per_repair_agent",
+		"qa.changed_paths", "qa.primary_shards",
 		"qa.boundary_shards", "qa.follow_up_shards", "qa.total_shards",
 		"qa.pending_entries", "qa.changed_paths_per_shard",
 		"qa.context_paths_per_shard", "qa.context_expansions",
@@ -155,6 +170,20 @@ func setQAField(q *QA, field, value string) (bool, error) {
 	}
 	if field == "qa.variant" {
 		q.Variant = value
+		return true, nil
+	}
+	stageStrings := map[string]*string{
+		"qa.investigator_model": &q.InvestigatorModel, "qa.investigator_variant": &q.InvestigatorVariant,
+		"qa.challenger_model": &q.ChallengerModel, "qa.challenger_variant": &q.ChallengerVariant,
+		"qa.evaluator_model": &q.EvaluatorModel, "qa.evaluator_variant": &q.EvaluatorVariant,
+		"qa.repair_model": &q.RepairModel, "qa.repair_variant": &q.RepairVariant,
+	}
+	if target, ok := stageStrings[field]; ok {
+		*target = value
+		return true, nil
+	}
+	if field == "qa.repair_assignment_mode" {
+		q.RepairAssignmentMode = value
 		return true, nil
 	}
 	if field == "qa.command_timeout" {
@@ -244,6 +273,8 @@ func setQAField(q *QA, field, value string) (bool, error) {
 		return setQAInteger(field, value, &q.EvidenceRecords)
 	case "qa.issues":
 		return setQAInteger(field, value, &q.Issues)
+	case "qa.issues_per_repair_agent":
+		return setQAInteger(field, value, &q.IssuesPerRepairAgent)
 	case "qa.repair.max_cycles":
 		return setQAInteger(field, value, &q.Repair.MaxCycles)
 	case "qa.repair.max_mutation_cycles":
@@ -297,6 +328,15 @@ func setQAInteger(field, value string, target *int) (bool, error) {
 
 func validateQA(q QA) error {
 	max := maxQA()
+	if q.RepairAssignmentMode != "per_issue" && q.RepairAssignmentMode != "grouped" {
+		return fmt.Errorf("qa.repair_assignment_mode: must be per_issue or grouped")
+	}
+	if q.IssuesPerRepairAgent <= 0 || q.IssuesPerRepairAgent > max.IssuesPerRepairAgent {
+		return fmt.Errorf("qa.issues_per_repair_agent: must be between 1 and %d", max.IssuesPerRepairAgent)
+	}
+	if q.RepairAssignmentMode == "per_issue" && q.IssuesPerRepairAgent != 1 {
+		return fmt.Errorf("qa.issues_per_repair_agent: must be 1 in per_issue mode")
+	}
 	limits := []struct {
 		name string
 		got  int

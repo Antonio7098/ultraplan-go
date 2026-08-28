@@ -724,6 +724,8 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 		req.Kind = app.OperationRepairResume
 	case "repair-recover":
 		req.Kind = app.OperationRepairRecover
+	case "repair-campaign-start":
+		req.Kind = app.OperationRepairCampaignStart
 	case "study-run-loop", "study-start":
 		if options.Resume {
 			req.Kind = app.OperationStudyResume
@@ -771,6 +773,9 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 	if strings.HasPrefix(string(req.Kind), "repair-") {
 		if options.Task != "" || options.Shard != "" || options.Model != "" || options.Stage != "" || options.ToStage != "" || options.Action != "" || options.DryRun || options.Resume || options.Level != "" || options.Suite != "" || options.Test != "" || options.Timeout != "" || options.ForceReview || options.RestartReview || options.OverrideRationale != "" || len(options.ReviewFocus) > 0 || len(options.Sources) > 0 || len(options.Dimensions) > 0 || options.Parallelism != 0 {
 			return app.OperationRequest{}, fmt.Errorf("repair operations accept only repair-specific options")
+		}
+		if req.Kind == app.OperationRepairCampaignStart && (options.RepairRunID != "" || options.RepairIssueID != "" || options.RepairConfirmer == "") {
+			return app.OperationRequest{}, fmt.Errorf("repair campaign accepts only a confirmer")
 		}
 	}
 	return req, nil

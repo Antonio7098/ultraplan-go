@@ -334,6 +334,61 @@ func TestRepairProposalCarriesVersionedPromptIdentity(t *testing.T) {
 	}
 }
 
+func TestRepairCampaignCreatesConfiguredWorkersAndMatchesFreshIssues(t *testing.T) {
+	groupA, _ := NewQAV2ID("group", "alpha", "38-repair", "attempt", "a")
+	groupB, _ := NewQAV2ID("group", "alpha", "38-repair", "attempt", "b")
+	issues := []QAIssue{
+		{ID: "issue-a", RootCauseGroupID: groupA, Title: "first", IssueClass: "logic", Location: "internal/a.go", RepairEligible: true},
+		{ID: "issue-b", RootCauseGroupID: groupA, Title: "second", IssueClass: "logic", Location: "internal/a.go", RepairEligible: true},
+		{ID: "issue-c", RootCauseGroupID: groupB, Title: "third", IssueClass: "api", Location: "internal/b.go", RepairEligible: true},
+	}
+	adjudication := QAAdjudication{ID: "adjudication", Issues: issues, Groups: []QARootCauseGroup{{ID: groupA, Claim: "shared cause"}, {ID: groupB, Claim: "other cause"}}, RepairGroups: []QARepairIssueGroup{{IssueIDs: []string{"issue-a", "issue-b"}}, {IssueIDs: []string{"issue-c"}}}}
+	assignments, err := PlanRepairAssignments(adjudication, "grouped", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := newRepairCampaignState(Sprint{Project: "alpha", Slug: "38-repair"}, adjudication, assignments, QASettings{RepairAssignmentMode: "grouped", IssuesPerRepairAgent: 2}, time.Unix(1, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Workers) != 2 || state.Total != 3 || len(state.Workers[0].Issues) != 2 {
+		t.Fatalf("campaign state = %+v", state)
+	}
+	freshGroup, _ := NewQAV2ID("group", "alpha", "38-repair", "fresh", "a")
+	freshIssue := QAIssue{ID: "fresh-issue", RootCauseGroupID: freshGroup, Title: "renamed", IssueClass: "logic", Location: "internal/a.go", RepairEligible: true}
+	matched := matchCampaignIssue(QAAdjudication{Issues: []QAIssue{freshIssue}, Groups: []QARootCauseGroup{{ID: freshGroup, Claim: "shared cause"}}}, state.Workers[0].Issues[0])
+	if matched == nil || matched.ID != freshIssue.ID {
+		t.Fatalf("fresh issue match = %+v", matched)
+	}
+}
+
+func TestRepairCampaignStateIsDurablyReplaceable(t *testing.T) {
+	root := t.TempDir()
+	sp := Sprint{Project: "alpha", Slug: "38-repair", Path: filepath.Join(root, "projects", "alpha", "sprints", "38-repair")}
+	token := QAWriterToken{RunID: "operation", OperationalAttemptID: "attempt", FencingGeneration: 1}
+	store := NewQAStore(root, sp).WithWriterFence(func(got QAWriterToken) error {
+		if got != token {
+			return os.ErrPermission
+		}
+		return nil
+	})
+	now := time.Unix(1, 0).UTC()
+	state := RepairCampaignState{SchemaVersion: repairCampaignSchemaVersion, ID: "repair-campaign-v1-aaaaaaaaaaaaaaaaaaaaaaaa", Project: sp.Project, Sprint: sp.Slug, Mode: "grouped", PerAgent: 2, Status: "running", Workers: []RepairCampaignWorker{{Number: 1, Issues: []RepairCampaignIssue{{OriginalIssueID: "issue-a", Title: "bug", IssueClass: "logic", RootCauseClaim: "cause", Status: "queued"}}}}, Total: 1, StartedAt: now, UpdatedAt: now}
+	if err := store.publishRepairCampaign(state, token); err != nil {
+		t.Fatal(err)
+	}
+	completed := now.Add(time.Minute)
+	state.Status, state.Completed, state.UpdatedAt, state.CompletedAt = "completed", 1, completed, &completed
+	state.Workers[0].Issues[0].Status = "verified"
+	if err := store.publishRepairCampaign(state, token); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.LoadRepairCampaign()
+	if err != nil || loaded.Status != "completed" || loaded.Completed != 1 {
+		t.Fatalf("loaded campaign = %+v, %v", loaded, err)
+	}
+}
+
 type repairFailingRunner struct{}
 
 func (repairFailingRunner) Run(context.Context, pprocess.Request) (pprocess.Result, error) {

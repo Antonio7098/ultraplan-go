@@ -410,6 +410,7 @@ QA configuration uses normal precedence: product default, `ultraplan.yml`, then 
 ```text
 ultraplan sprint <project> <sprint> repair prepare --issue <qa-v1-issue-id> [--json]
 ultraplan sprint <project> <sprint> repair start --run <repair-run-id> --confirmer <identity> --yes [--json]
+ultraplan sprint <project> <sprint> repair campaign --confirmer <identity> --yes [--json]
 ultraplan sprint <project> <sprint> repair status [--run <repair-run-id>] [--json]
 ultraplan sprint <project> <sprint> repair packet [--run <repair-run-id>] [--json]
 ultraplan sprint <project> <sprint> repair cycles [--run <repair-run-id>] [--json]
@@ -420,6 +421,8 @@ ultraplan sprint <project> <sprint> repair recover [--run <repair-run-id>] [--js
 ```
 
 `prepare` accepts only one current repair-eligible adjudicated issue and writes an immutable packet without constructing a runtime or changing the target. `start` requires explicit single-use confirmation after durable acceptance. The confirmer is retained as bounded audit identity; it is not authentication. Progress is written to stderr. JSON stdout is one schema-v1 envelope with operation, status, bounded result, and optional stable error.
+
+`campaign` uses the configured `qa.repair_assignment_mode` and `qa.issues_per_repair_agent` policy. In grouped mode it creates the required bounded worker queues and reuses one model session per queue. Target mutations remain serial: every queued issue is refreshed against current adjudication, frozen into its own packet, repaired in its own run, and passed through its own verification ladder. The campaign stops on the first failed item and records durable worker, queue, and outcome state. Automatic campaign admission requires a current qualifying manual repair proof plus the explicit campaign confirmation.
 
 Repair JSON status includes consumed cycle, mutation, file, byte, runtime-attempt, command, and output-byte counters. After proposal execution it also includes provider, model, variant, session, timing, token, cache, cost, event, and tool-call facts. Completed cycle inspection includes enforced scope, every gate result with duration and output bytes, cleanup facts, and the terminal repair result. An active cycle appears in `current_cycle` before its immutable cycle record exists; inspection returns only durably completed cycles.
 

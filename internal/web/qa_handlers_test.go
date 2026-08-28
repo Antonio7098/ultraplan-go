@@ -141,7 +141,7 @@ func TestRepairRoutesReturnCanonicalBoundedJSONAndNoJavaScriptHTML(t *testing.T)
 	}
 	response := request(h, http.MethodGet, "/projects/alpha/sprints/30-web/repair", nil)
 	body := response.Body.String()
-	if response.Code != http.StatusOK || !strings.Contains(body, "Bounded repair") || !strings.Contains(body, "Runtime and verification evidence") || !strings.Contains(body, "minimax/minimax-m3:free") || !strings.Contains(body, "Cache read") || !strings.Contains(body, "exact_reproducer") || !strings.Contains(body, "25 ms") || !strings.Contains(body, "Automatic mode unavailable") || !strings.Contains(body, "<noscript>") || strings.Contains(body, "<script>alert") {
+	if response.Code != http.StatusOK || !strings.Contains(body, "Bounded repair") || !strings.Contains(body, "Runtime and verification evidence") || !strings.Contains(body, "minimax/minimax-m3:free") || !strings.Contains(body, "Cache read") || !strings.Contains(body, "exact_reproducer") || !strings.Contains(body, "25 ms") || !strings.Contains(body, "Automatic campaign admission") || !strings.Contains(body, "<noscript>") || strings.Contains(body, "<script>alert") {
 		t.Fatalf("repair page status=%d body=%s", response.Code, body)
 	}
 	method := request(h, http.MethodPost, "/api/v1/projects/alpha/sprints/30-web/repair", bytes.NewReader(nil))

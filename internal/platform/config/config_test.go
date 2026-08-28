@@ -266,7 +266,7 @@ func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(QAConfigFields()) != 52 {
+	if len(QAConfigFields()) != 62 {
 		t.Fatalf("QA field count = %d", len(QAConfigFields()))
 	}
 	for _, field := range QAConfigFields() {
@@ -400,5 +400,25 @@ func TestQAConfigWorkspaceAndEnvironmentPrecedence(t *testing.T) {
 	}
 	if effective.Config.QA.ConcurrentInvestigators != 1 || effective.Sources["qa.concurrent_investigators"] != "env" {
 		t.Fatalf("QA concurrency/source = %d/%q", effective.Config.QA.ConcurrentInvestigators, effective.Sources["qa.concurrent_investigators"])
+	}
+}
+
+func TestQAGroupedRepairAssignmentConfig(t *testing.T) {
+	root := t.TempDir()
+	content := "version: 1\nqa:\n  repair_assignment_mode: grouped\n  issues_per_repair_agent: 4\n  evaluator_model: provider/evaluator\n  repair_model: provider/repair\n"
+	if err := os.WriteFile(filepath.Join(root, "ultraplan.yml"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	effective, err := Load(LoadOptions{WorkspaceRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.Config.QA.RepairAssignmentMode != "grouped" || effective.Config.QA.IssuesPerRepairAgent != 4 || effective.Config.QA.EvaluatorModel != "provider/evaluator" || effective.Config.QA.RepairModel != "provider/repair" {
+		t.Fatalf("QA grouped config = %+v", effective.Config.QA)
+	}
+	invalid := Defaults()
+	invalid.QA.RepairAssignmentMode, invalid.QA.IssuesPerRepairAgent = "per_issue", 2
+	if err := Validate(invalid); err == nil {
+		t.Fatal("per-issue mode accepted more than one issue per worker")
 	}
 }

@@ -86,6 +86,16 @@ func TestBrowserQAOperationContractAllowsOnlyMapOwnedShard(t *testing.T) {
 	}
 }
 
+func TestBrowserRepairCampaignOperationContract(t *testing.T) {
+	req, err := mapOperationRequest(operationSpecRequest{Kind: "repair-campaign-start", Scope: operationScopeRequest{Project: "alpha", Sprint: "38-repair"}, Options: operationOptionsRequest{RepairConfirmer: "operator"}})
+	if err != nil || req.Kind != app.OperationRepairCampaignStart || req.RepairConfirmer != "operator" {
+		t.Fatalf("campaign request=%+v err=%v", req, err)
+	}
+	if _, err := mapOperationRequest(operationSpecRequest{Kind: "repair-campaign-start", Scope: operationScopeRequest{Project: "alpha", Sprint: "38-repair"}, Options: operationOptionsRequest{RepairConfirmer: "operator", RepairIssueID: "issue"}}); err == nil {
+		t.Fatal("campaign accepted a caller-selected issue")
+	}
+}
+
 func TestCodeContextUsesGenericBrowserStageContract(t *testing.T) {
 	req, err := mapOperationRequest(operationSpecRequest{
 		Kind:    "sprint-stage",

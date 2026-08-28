@@ -132,6 +132,7 @@ type RepairStatusResult struct {
 	Runtime            *sprint.RepairRuntimeObservation `json:"runtime,omitempty"`
 	Cycles             []sprint.RepairCycleSnapshot     `json:"cycles,omitempty"`
 	ResultDetail       *sprint.RepairResult             `json:"repair_result,omitempty"`
+	Campaign           *sprint.RepairCampaignState      `json:"campaign,omitempty"`
 }
 
 type RepairPacketSummary struct {
@@ -475,12 +476,14 @@ type QAEvidenceResult struct {
 }
 
 type QAAdjudicationResult struct {
-	ID             string              `json:"id"`
-	AttemptID      string              `json:"attempt_id"`
-	AcceptedCount  int                 `json:"accepted_count"`
-	Rejected       []QARejectedSummary `json:"rejected,omitempty"`
-	IssueCount     int                 `json:"issue_count"`
-	EvaluatorCount int                 `json:"evaluator_count"`
+	ID                string                      `json:"id"`
+	AttemptID         string                      `json:"attempt_id"`
+	AcceptedCount     int                         `json:"accepted_count"`
+	Rejected          []QARejectedSummary         `json:"rejected,omitempty"`
+	IssueCount        int                         `json:"issue_count"`
+	EvaluatorCount    int                         `json:"evaluator_count"`
+	RepairGroups      []sprint.QARepairIssueGroup `json:"suggested_repair_groups,omitempty"`
+	RepairAssignments []sprint.QARepairAssignment `json:"repair_assignments,omitempty"`
 }
 
 type QARejectedSummary struct {
@@ -878,6 +881,7 @@ func repairSnapshotProjection(snapshot sprint.RepairSnapshot) RepairStatusResult
 		Consumed:           state.Consumed,
 		Runtime:            repairRuntimeProjection(state.Runtime),
 		Cycles:             repairCyclesProjection(snapshot.Cycles),
+		Campaign:           snapshot.Campaign,
 	}
 	if packet := snapshot.Packet; packet != nil {
 		out.Packet = &RepairPacketSummary{
@@ -1057,7 +1061,7 @@ func (u dashboardUseCases) QAAdjudication(ctx context.Context, req QARequest) (Q
 	if err != nil {
 		return QAAdjudicationResult{}, mapQAUseCaseError(err)
 	}
-	result := QAAdjudicationResult{ID: value.ID, AttemptID: value.AttemptID, AcceptedCount: len(value.AcceptedIDs), IssueCount: len(value.Issues), EvaluatorCount: len(value.Evaluators)}
+	result := QAAdjudicationResult{ID: value.ID, AttemptID: value.AttemptID, AcceptedCount: len(value.AcceptedIDs), IssueCount: len(value.Issues), EvaluatorCount: len(value.Evaluators), RepairGroups: append([]sprint.QARepairIssueGroup(nil), value.RepairGroups...), RepairAssignments: append([]sprint.QARepairAssignment(nil), value.RepairAssignments...)}
 	for _, rejected := range value.Rejected {
 		result.Rejected = append(result.Rejected, QARejectedSummary{EvidenceID: rejected.EvidenceID, Code: displaySafe(rejected.Code), Detail: displaySafe(rejected.Detail)})
 	}

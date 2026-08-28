@@ -35,10 +35,13 @@ func (s Service) evaluateFailedEvidence(ctx context.Context, sp Sprint, record Q
 		return nil, QAEvidenceBlocked, err
 	}
 	observations := make([]QAModelObservation, 0, 3)
+	runtimeSettings := settings.RuntimeFor("evaluator")
 	for index := 0; index < 3; index++ {
 		req := s.runtimeRequest(prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(VerificationPhaseQA), "role": "failed-shard-evaluator", "evidence": record.ID, "call": fmt.Sprintf("%d", index+1)})
-		provider, model := splitProviderModel(settings.Runtime.Model)
+		provider, model := splitProviderModel(runtimeSettings.Model)
 		req.Provider, req.Model = provider, model
+		req.Metadata["variant"] = runtimeSettings.Variant
+		req.Metadata["reasoning_effort"] = runtimeSettings.Variant
 		req.Timeout = settings.Budgets.ShardTimeout
 		req.Sandbox = "read_only"
 		req.Permissions = "restricted"

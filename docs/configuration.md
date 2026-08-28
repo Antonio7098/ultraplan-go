@@ -58,6 +58,19 @@ execution:
   default_parallel: 3
   default_timeout: 30m
   default_retries: 3
+qa:
+  model: provider/model
+  variant: high
+  investigator_model: provider/model
+  investigator_variant: high
+  challenger_model: provider/model
+  challenger_variant: high
+  evaluator_model: provider/model
+  evaluator_variant: high
+  repair_model: provider/model
+  repair_variant: high
+  repair_assignment_mode: per_issue
+  issues_per_repair_agent: 1
 smoke:
   discovery_timeout: 30s
   run_timeout: 30m
@@ -104,6 +117,24 @@ agentwrap:
 ```
 
 Unsupported fields are rejected with `unknown config field`.
+
+QA role models are independent. An empty role model or variant inherits
+`qa.model` or `qa.variant`; those fields retain their existing fallback chain.
+Only investigator, challenger, failed-evidence evaluator, and repair proposal
+are model-backed. QA mapping, synthesis, adjudication, approved checks, and the
+repair verification gates remain product-owned deterministic work.
+
+`qa.repair_assignment_mode` selects the repair scheduler path. `per_issue` is
+the compatibility default and requires `issues_per_repair_agent: 1`. `grouped`
+accepts 1 through 16. Adjudication records root-cause grouping suggestions and
+creates `ceil(repair-eligible issues / issues_per_repair_agent)` sequential
+worker queues. The repair campaign creates one reusable model session per
+non-empty queue and processes production mutations serially. After a verified
+repair, UltraPlan reruns evidence-producing QA before it resolves and freezes
+the next issue. Every queue item receives one frozen issue packet, one isolated
+repair run, and its own verification ladder. A worker never receives a
+multi-issue patch packet. Campaign admission requires a qualifying manual repair
+proof and explicit confirmation.
 
 ## Environment Overrides
 

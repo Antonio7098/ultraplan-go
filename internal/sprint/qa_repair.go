@@ -50,11 +50,12 @@ const (
 )
 
 type RepairPrepareRequest struct {
-	IssueID       string
-	Mode          RepairMode
-	Budgets       RepairBudgets
-	BudgetSources []QAEffectiveSource
-	WriterToken   QAWriterToken
+	IssueID            string
+	Mode               RepairMode
+	Budgets            RepairBudgets
+	BudgetSources      []QAEffectiveSource
+	WriterToken        QAWriterToken
+	campaignAuthorized bool
 }
 
 type RepairPrepareResult struct {
@@ -68,6 +69,7 @@ type RepairSnapshot struct {
 	Confirmation *RepairConfirmation   `json:"confirmation,omitempty"`
 	Result       *RepairResult         `json:"result,omitempty"`
 	Cycles       []RepairCycleSnapshot `json:"cycles,omitempty"`
+	Campaign     *RepairCampaignState  `json:"campaign,omitempty"`
 }
 
 type RepairCycleSnapshot struct {
@@ -78,16 +80,20 @@ type RepairCycleSnapshot struct {
 }
 
 type RepairConfirmRequest struct {
-	RepairRunID    string
-	Confirmer      string
-	AutomaticOptIn bool
-	WriterToken    QAWriterToken
+	RepairRunID        string
+	Confirmer          string
+	AutomaticOptIn     bool
+	WriterToken        QAWriterToken
+	campaignAuthorized bool
 }
 
 type RepairRunRequest struct {
-	RepairRunID string
-	WriterToken QAWriterToken
-	Progress    func(RepairProgress)
+	RepairRunID     string
+	WriterToken     QAWriterToken
+	Progress        func(RepairProgress)
+	SessionID       string
+	WorkerNumber    int
+	WorkerQueueSize int
 }
 
 type RepairRecoverRequest struct {
@@ -138,6 +144,11 @@ func (s Service) RepairStatus(projectRef, sprintRef string) (RepairSnapshot, err
 		return RepairSnapshot{}, NewQAError(QAErrorPersistenceFailure, "load repair status", "repair state is unavailable", err)
 	}
 	out := RepairSnapshot{State: state}
+	if campaign, campaignErr := store.LoadRepairCampaign(); campaignErr == nil {
+		out.Campaign = &campaign
+	} else if !errors.Is(campaignErr, fs.ErrNotExist) {
+		return RepairSnapshot{}, NewQAError(QAErrorPersistenceFailure, "load repair campaign", "repair campaign state is unavailable", campaignErr)
+	}
 	if state.Packet != nil {
 		packet, loadErr := store.LoadRepairPacket(state.QAAttemptID, state.RepairRunID)
 		if loadErr != nil {
@@ -233,7 +244,7 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 	if err != nil {
 		return RepairPrepareResult{}, NewQAError(QAErrorStaleInput, "prepare repair", "flow state is unavailable", err)
 	}
-	if req.Mode == RepairModeAutomatic {
+	if req.Mode == RepairModeAutomatic && !req.campaignAuthorized {
 		proof, proofErr := NewQAStore(s.root, sp).LoadManualRepairProof()
 		if proofErr != nil || proof.Outcome != RepairOutcomeVerified && proof.Outcome != RepairOutcomeVerifiedWithFindings || !proof.CleanupComplete || !proof.ProductionApplied || !proof.CompleteLadder {
 			return RepairPrepareResult{}, NewQAError(QAErrorAdmissionBlocked, "prepare automatic repair", "automatic repair is unavailable until qualifying manual proof exists", proofErr)
@@ -397,8 +408,10 @@ func (s Service) ConfirmRepair(ctx context.Context, projectRef, sprintRef string
 		if !req.AutomaticOptIn {
 			return RepairSnapshot{}, NewQAError(QAErrorPermissionDenied, "confirm repair", "automatic repair requires a separate explicit opt-in", nil)
 		}
-		if err := s.validateAutomaticRepairProof(store, packet); err != nil {
-			return RepairSnapshot{}, err
+		if !req.campaignAuthorized {
+			if err := s.validateAutomaticRepairProof(store, packet); err != nil {
+				return RepairSnapshot{}, err
+			}
 		}
 	} else if req.AutomaticOptIn {
 		return RepairSnapshot{}, NewQAError(QAErrorInvalidState, "confirm repair", "manual packet cannot accept automatic opt-in", nil)
@@ -514,6 +527,17 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	request, err := s.repairProposalRequest(packet, workspace.Path)
 	if err != nil {
 		return RepairResult{}, errors.Join(err, cleanupError(workspace.Cleanup()))
+	}
+	if strings.TrimSpace(req.SessionID) != "" {
+		request.SessionID = strings.TrimSpace(req.SessionID)
+		request.SessionAction = "continue"
+		request.Metadata["repair_worker_session"] = "continue"
+	} else {
+		request.Metadata["repair_worker_session"] = "fresh"
+	}
+	if req.WorkerNumber > 0 {
+		request.Metadata["repair_worker"] = fmt.Sprint(req.WorkerNumber)
+		request.Metadata["repair_worker_queue_size"] = fmt.Sprint(req.WorkerQueueSize)
 	}
 	start := s.now().UTC()
 	runtimeResult, runErr := runtime.StartRun(lockedCtx, request)
@@ -1529,7 +1553,7 @@ func (s Service) repairProposalRequest(packet RepairIssuePacket, workspace strin
 	if settingsErr != nil {
 		return pruntime.Request{}, settingsErr
 	}
-	runtimeSettings := settings.Runtime
+	runtimeSettings := settings.RuntimeFor("repair")
 	if override, ok := s.verificationRuntime[VerificationPhaseRepair]; ok && strings.TrimSpace(override.Model) != "" {
 		runtimeSettings = override
 	}

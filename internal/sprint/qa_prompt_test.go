@@ -67,6 +67,31 @@ func TestQAChallengerRequestIsBoundedAndHasNoToolOrPathAuthority(t *testing.T) {
 	}
 }
 
+func TestQARoleModelOverridesAreIndependent(t *testing.T) {
+	input := qaMapInputFixture()
+	input.Settings.Investigator = StageRuntime{Model: "provider/investigator", Variant: "low"}
+	input.Settings.Challenger = StageRuntime{Model: "provider/challenger", Variant: "high"}
+	qaMap, err := BuildQAMap(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(t.TempDir()).WithQASettings(input.Settings)
+	investigator, err := service.QAInvestigatorRequest(qaMap, qaMap.Shards[0], t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenger, err := service.QAChallengerRequest(qaMap, qaMap.Shards, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if investigator.Provider != "provider" || investigator.Model != "investigator" || investigator.Metadata["reasoning_effort"] != "low" {
+		t.Fatalf("investigator runtime = %+v", investigator)
+	}
+	if challenger.Provider != "provider" || challenger.Model != "challenger" || challenger.Metadata["reasoning_effort"] != "high" {
+		t.Fatalf("challenger runtime = %+v", challenger)
+	}
+}
+
 func TestApprovedQACheckCatalogUsesExplicitReadOnlyArgv(t *testing.T) {
 	target := t.TempDir()
 	checks, err := ApprovedQAChecks(target, []string{"internal/a.go", "README.md"}, DefaultQABudgets())

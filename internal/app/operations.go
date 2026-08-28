@@ -80,37 +80,38 @@ type OperationReconciler interface {
 type OperationKind string
 
 const (
-	OperationValidate      OperationKind = "validate"
-	OperationSprintStatus  OperationKind = "sprint-status"
-	OperationPrompt        OperationKind = "sprint-prompt"
-	OperationFlowDryRun    OperationKind = "sprint-flow-dry-run"
-	OperationFlow          OperationKind = "sprint-flow"
-	OperationStageDryRun   OperationKind = "sprint-stage-dry-run"
-	OperationStage         OperationKind = "sprint-stage"
-	OperationExecuteStatus OperationKind = "execute-status"
-	OperationExecuteDryRun OperationKind = "execute-dry-run"
-	OperationExecuteStart  OperationKind = "execute-start"
-	OperationExecuteResume OperationKind = "execute-resume"
-	OperationReviewStatus  OperationKind = "review-status"
-	OperationReviewDryRun  OperationKind = "review-dry-run"
-	OperationReviewStart   OperationKind = "review-start"
-	OperationSmokeStatus   OperationKind = "smoke-status"
-	OperationSmokeDryRun   OperationKind = "smoke-dry-run"
-	OperationSmokeStart    OperationKind = "smoke-start"
-	OperationVerifyDryRun  OperationKind = "verify-dry-run"
-	OperationVerifyStart   OperationKind = "verify-start"
-	OperationQAStatus      OperationKind = "qa-status"
-	OperationQADryRun      OperationKind = "qa-dry-run"
-	OperationQAStart       OperationKind = "qa-start"
-	OperationQAResume      OperationKind = "qa-resume"
-	OperationQARecover     OperationKind = "qa-recover"
-	OperationRepairPrepare OperationKind = "repair-prepare"
-	OperationRepairStart   OperationKind = "repair-start"
-	OperationRepairResume  OperationKind = "repair-resume"
-	OperationRepairRecover OperationKind = "repair-recover"
-	OperationStudyStart    OperationKind = "study-start"
-	OperationStudyResume   OperationKind = "study-resume"
-	OperationStudyCancel   OperationKind = "study-cancel"
+	OperationValidate            OperationKind = "validate"
+	OperationSprintStatus        OperationKind = "sprint-status"
+	OperationPrompt              OperationKind = "sprint-prompt"
+	OperationFlowDryRun          OperationKind = "sprint-flow-dry-run"
+	OperationFlow                OperationKind = "sprint-flow"
+	OperationStageDryRun         OperationKind = "sprint-stage-dry-run"
+	OperationStage               OperationKind = "sprint-stage"
+	OperationExecuteStatus       OperationKind = "execute-status"
+	OperationExecuteDryRun       OperationKind = "execute-dry-run"
+	OperationExecuteStart        OperationKind = "execute-start"
+	OperationExecuteResume       OperationKind = "execute-resume"
+	OperationReviewStatus        OperationKind = "review-status"
+	OperationReviewDryRun        OperationKind = "review-dry-run"
+	OperationReviewStart         OperationKind = "review-start"
+	OperationSmokeStatus         OperationKind = "smoke-status"
+	OperationSmokeDryRun         OperationKind = "smoke-dry-run"
+	OperationSmokeStart          OperationKind = "smoke-start"
+	OperationVerifyDryRun        OperationKind = "verify-dry-run"
+	OperationVerifyStart         OperationKind = "verify-start"
+	OperationQAStatus            OperationKind = "qa-status"
+	OperationQADryRun            OperationKind = "qa-dry-run"
+	OperationQAStart             OperationKind = "qa-start"
+	OperationQAResume            OperationKind = "qa-resume"
+	OperationQARecover           OperationKind = "qa-recover"
+	OperationRepairPrepare       OperationKind = "repair-prepare"
+	OperationRepairStart         OperationKind = "repair-start"
+	OperationRepairResume        OperationKind = "repair-resume"
+	OperationRepairRecover       OperationKind = "repair-recover"
+	OperationRepairCampaignStart OperationKind = "repair-campaign-start"
+	OperationStudyStart          OperationKind = "study-start"
+	OperationStudyResume         OperationKind = "study-resume"
+	OperationStudyCancel         OperationKind = "study-cancel"
 )
 
 type OperationState string
@@ -328,6 +329,20 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Mutates = true
 		c.Scope = []string{"repair pointer, ownership, apply journal, cleanup, and terminal state reconciliation"}
 		c.Warning = "RUNTIME-FREE REPAIR RECOVERY; NO NEW PROPOSAL OR PRODUCTION APPLY"
+	case OperationRepairCampaignStart:
+		if err := u.sprintService().RequireAutomaticRepairProof(req.Project, req.Sprint); err != nil {
+			return c, err
+		}
+		adjudication, err := u.QAAdjudication(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
+		if err != nil {
+			return c, err
+		}
+		if adjudication.IssueCount == 0 {
+			return c, fmt.Errorf("repair campaign requires at least one promoted issue")
+		}
+		c.Runtime, c.Mutates = true, true
+		c.Scope = []string{fmt.Sprintf("%d currently promoted issues", adjudication.IssueCount), "one frozen issue packet and verification ladder at a time", "fresh evidence-producing QA between successful repairs"}
+		c.Warning = "AUTOMATIC BOUNDED REPAIR CAMPAIGN; REQUIRES QUALIFYING MANUAL PROOF AND EXPLICIT CONFIRMATION"
 	case OperationSprintStatus:
 		c.Mutates = true
 		c.Scope = []string{"all sprint stages", "execute and Conformance Review state"}
@@ -458,7 +473,7 @@ func validateQAOperationRequest(req OperationRequest) error {
 
 func validateRepairOperationRequest(req OperationRequest) error {
 	switch req.Kind {
-	case OperationRepairPrepare, OperationRepairStart, OperationRepairResume, OperationRepairRecover:
+	case OperationRepairPrepare, OperationRepairStart, OperationRepairResume, OperationRepairRecover, OperationRepairCampaignStart:
 	default:
 		if req.RepairRunID != "" || req.RepairIssueID != "" || req.RepairMode != "" || req.RepairMaxCycles != 0 || req.RepairAutomaticOptIn || req.RepairConfirmer != "" {
 			return fmt.Errorf("repair fields are valid only for repair operations")
@@ -469,6 +484,10 @@ func validateRepairOperationRequest(req OperationRequest) error {
 		return fmt.Errorf("repair operations accept only project, sprint, and repair-specific fields")
 	}
 	switch req.Kind {
+	case OperationRepairCampaignStart:
+		if req.RepairConfirmer == "" || req.RepairRunID != "" || req.RepairIssueID != "" || req.RepairMode != "" || req.RepairMaxCycles != 0 || req.RepairAutomaticOptIn {
+			return fmt.Errorf("repair campaign requires only an explicit confirmer")
+		}
 	case OperationRepairPrepare:
 		if req.RepairIssueID == "" {
 			return fmt.Errorf("repair prepare requires one issue")
@@ -743,7 +762,7 @@ func operationPrerequisites(req OperationRequest) []string {
 	if (req.Kind == OperationFlow || req.Kind == OperationFlowDryRun) && req.Stage == string(sprint.StageMerge) {
 		prerequisites = append(prerequisites, "fresh acceptable review and smoke", "recorded sprint worktree", "clean integration worktree")
 	}
-	if req.Kind == OperationRepairPrepare || req.Kind == OperationRepairStart || req.Kind == OperationRepairResume || req.Kind == OperationRepairRecover {
+	if req.Kind == OperationRepairPrepare || req.Kind == OperationRepairStart || req.Kind == OperationRepairResume || req.Kind == OperationRepairRecover || req.Kind == OperationRepairCampaignStart {
 		prerequisites = append(prerequisites, "current evidence-producing QA", "current adjudicated repair-eligible issue", "current containing smoke", "approved isolated repair host")
 	}
 	return prerequisites
@@ -766,7 +785,7 @@ func operationRuntimeIdentity(req OperationRequest, stages map[sprint.PlanningSt
 			return "configured smoke author and harness"
 		}
 		return "configured QA runtime"
-	case OperationRepairStart, OperationRepairResume:
+	case OperationRepairStart, OperationRepairResume, OperationRepairCampaignStart:
 		return "configured isolated repair runtime"
 	}
 	if runtime, ok := stages[stage]; ok && (runtime.Model != "" || runtime.Variant != "") {
@@ -793,7 +812,7 @@ func governedOperationInputs(req OperationRequest) []string {
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "plan.md")),
 		}
 		switch req.Kind {
-		case OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover, OperationQAStatus, OperationRepairPrepare, OperationRepairStart, OperationRepairResume, OperationRepairRecover:
+		case OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover, OperationQAStatus, OperationRepairPrepare, OperationRepairStart, OperationRepairResume, OperationRepairRecover, OperationRepairCampaignStart:
 			inputs = append(inputs,
 				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "execute.md")),
 				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, ".run-state.json")),

@@ -377,6 +377,14 @@ UltraPlan accepts the durable operation before confirmation and dispatch. One ru
 
 Use `repair status`, `packet`, `cycles`, and `result` for bounded inspection. Cancel with the durable operation ID shown by status. After interruption, `repair resume` reconciles the last durable boundary without replaying a proposal or apply. `repair recover` uses the same runtime-free compensation path. Do not edit verification JSON or apply a retained patch manually. Automatic mode requires a current qualifying manual proof and explicit opt-in on both prepare and start.
 
+To process all current promoted issues with the configured assignment policy, start a repair campaign:
+
+```bash
+ultraplan sprint <project> <sprint> repair campaign --confirmer "$USER" --yes --json
+```
+
+With `qa.repair_assignment_mode: grouped`, UltraPlan partitions similar issues into queues of at most `qa.issues_per_repair_agent` items and reuses one repair model session for each queue. Repairs are still issue-scoped and mutations run serially. Each item gets a fresh adjudication match, immutable packet, independent repair run, and complete verification ladder. A campaign requires the same qualifying manual proof as automatic repair and stops at the first failed item.
+
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`. A project may override only the area-reasoning prompt, final-reasoning prompt, and final-reasoning template. Project status reports which source is effective.
 
 The materialised stage skills are interactive forms of those prompts. Invoke

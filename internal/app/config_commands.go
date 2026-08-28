@@ -72,6 +72,16 @@ func runConfig(deps dependencies, args []string) error {
 	fmt.Fprintf(deps.stdout, "planning.review_variant: %s\n", redacted.Planning.ReviewVariant)
 	fmt.Fprintf(deps.stdout, "qa.model: %s (source: %s)\n", redacted.QA.Model, redacted.Sources["qa.model"])
 	fmt.Fprintf(deps.stdout, "qa.variant: %s (source: %s)\n", redacted.QA.Variant, redacted.Sources["qa.variant"])
+	for _, item := range []struct{ field, value string }{
+		{"qa.investigator_model", redacted.QA.InvestigatorModel}, {"qa.investigator_variant", redacted.QA.InvestigatorVariant},
+		{"qa.challenger_model", redacted.QA.ChallengerModel}, {"qa.challenger_variant", redacted.QA.ChallengerVariant},
+		{"qa.evaluator_model", redacted.QA.EvaluatorModel}, {"qa.evaluator_variant", redacted.QA.EvaluatorVariant},
+		{"qa.repair_model", redacted.QA.RepairModel}, {"qa.repair_variant", redacted.QA.RepairVariant},
+	} {
+		fmt.Fprintf(deps.stdout, "%s: %s (source: %s)\n", item.field, item.value, redacted.Sources[item.field])
+	}
+	fmt.Fprintf(deps.stdout, "qa.repair_assignment_mode: %s (source: %s)\n", redacted.QA.RepairAssignmentMode, redacted.Sources["qa.repair_assignment_mode"])
+	fmt.Fprintf(deps.stdout, "qa.issues_per_repair_agent: %d (source: %s)\n", redacted.QA.IssuesPerRepairAgent, redacted.Sources["qa.issues_per_repair_agent"])
 	fmt.Fprintf(deps.stdout, "qa.changed_paths: %d\n", redacted.QA.ChangedPaths)
 	fmt.Fprintf(deps.stdout, "qa.primary_shards: %d\n", redacted.QA.PrimaryShards)
 	fmt.Fprintf(deps.stdout, "qa.boundary_shards: %d\n", redacted.QA.BoundaryShards)

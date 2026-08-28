@@ -22,6 +22,10 @@ type Redacted struct {
 func Redact(e Effective) Redacted {
 	qa := e.Config.QA
 	qa.Model = RedactValue("qa.model", qa.Model)
+	qa.InvestigatorModel = RedactValue("qa.investigator_model", qa.InvestigatorModel)
+	qa.ChallengerModel = RedactValue("qa.challenger_model", qa.ChallengerModel)
+	qa.EvaluatorModel = RedactValue("qa.evaluator_model", qa.EvaluatorModel)
+	qa.RepairModel = RedactValue("qa.repair_model", qa.RepairModel)
 	return Redacted{Version: e.Config.Version, Runtime: e.Config.Runtime, Models: redactModels(e.Config.Models), Execution: e.Config.Execution, Planning: redactPlanning(e.Config.Planning), QA: qa, Smoke: e.Config.Smoke, Git: e.Config.Git, RunControl: e.Config.RunControl, Logging: e.Config.Logging, Agentwrap: redactAgentwrap(e.Config.Agentwrap), Sources: e.Sources}
 }
 

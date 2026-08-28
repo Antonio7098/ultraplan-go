@@ -616,7 +616,11 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 	for _, key := range candidateKeys {
 		candidates = append(candidates, candidateByKey[key])
 	}
-	adjudication, err := AdjudicateQA(QAAdjudicationRequest{Project: sp.Project, Sprint: sp.Slug, AttemptID: qaMap.SemanticAttemptID, MapFingerprint: mapFingerprint, Plans: plans, Evidence: records, Candidates: candidates, Evaluators: evaluators, Budgets: qaMap.Budgets, Now: s.now().UTC()})
+	settings, err := s.effectiveQASettings()
+	if err != nil {
+		return QAEvidencePublication{}, QAAssessmentRecord{}, err
+	}
+	adjudication, err := AdjudicateQA(QAAdjudicationRequest{Project: sp.Project, Sprint: sp.Slug, AttemptID: qaMap.SemanticAttemptID, MapFingerprint: mapFingerprint, Plans: plans, Evidence: records, Candidates: candidates, Evaluators: evaluators, Budgets: qaMap.Budgets, Now: s.now().UTC(), RepairAssignmentMode: settings.RepairAssignmentMode, IssuesPerRepairAgent: settings.IssuesPerRepairAgent})
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, err
 	}

@@ -177,10 +177,11 @@ func (s Service) QAInvestigatorRequest(qaMap QAMap, shard QAShard, target string
 		return pruntime.Request{}, err
 	}
 	req := s.runtimeRequest(prompt, map[string]string{"project": qaMap.Project, "sprint": qaMap.Sprint, "stage": string(VerificationPhaseQA), "shard": shard.ID, "map": qaMap.ID})
-	provider, model := splitProviderModel(settings.Runtime.Model)
+	runtimeSettings := settings.RuntimeFor("investigator")
+	provider, model := splitProviderModel(runtimeSettings.Model)
 	req.Provider, req.Model = provider, model
-	req.Metadata["variant"] = settings.Runtime.Variant
-	req.Metadata["reasoning_effort"] = settings.Runtime.Variant
+	req.Metadata["variant"] = runtimeSettings.Variant
+	req.Metadata["reasoning_effort"] = runtimeSettings.Variant
 	req.WorkDir = filepath.Clean(target)
 	req.Timeout = settings.Budgets.ShardTimeout
 	req.Sandbox = "read_only"
@@ -238,10 +239,11 @@ Frozen packet:
 		return pruntime.Request{}, NewQAError(QAErrorBudgetExhausted, "prepare challenger", "challenger prompt exceeds the map budget", nil)
 	}
 	req := s.runtimeRequest(prompt, map[string]string{"project": qaMap.Project, "sprint": qaMap.Sprint, "stage": string(VerificationPhaseQA), "map": qaMap.ID, "role": "challenger"})
-	provider, model := splitProviderModel(settings.Runtime.Model)
+	runtimeSettings := settings.RuntimeFor("challenger")
+	provider, model := splitProviderModel(runtimeSettings.Model)
 	req.Provider, req.Model = provider, model
-	req.Metadata["variant"] = settings.Runtime.Variant
-	req.Metadata["reasoning_effort"] = settings.Runtime.Variant
+	req.Metadata["variant"] = runtimeSettings.Variant
+	req.Metadata["reasoning_effort"] = runtimeSettings.Variant
 	req.WorkDir = filepath.Clean(target)
 	req.Timeout = settings.Budgets.ShardTimeout
 	req.Sandbox = "read_only"

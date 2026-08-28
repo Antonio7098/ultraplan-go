@@ -68,6 +68,31 @@ func TestQAAdjudicationAdmitsDeterministicallySufficientFactFailure(t *testing.T
 	}
 }
 
+func TestPlanRepairAssignmentsPreservesIssueScopedRuns(t *testing.T) {
+	issues := []QAIssue{
+		{ID: "issue-a", RootCauseGroupID: "root-a", RepairEligible: true},
+		{ID: "issue-b", RootCauseGroupID: "root-a", RepairEligible: true},
+		{ID: "issue-c", RootCauseGroupID: "root-b", RepairEligible: true},
+	}
+	adjudication := QAAdjudication{Issues: issues, RepairGroups: []QARepairIssueGroup{
+		{ID: "group-a", IssueIDs: []string{"issue-a", "issue-b"}, Reason: "same root cause"},
+		{ID: "group-b", IssueIDs: []string{"issue-c"}, Reason: "same root cause"},
+	}}
+	grouped, err := PlanRepairAssignments(adjudication, "grouped", 2)
+	if err != nil || len(grouped) != 2 || len(grouped[0].Issues) != 2 || len(grouped[1].Issues) != 1 {
+		t.Fatalf("grouped assignments = %+v, %v", grouped, err)
+	}
+	perIssue, err := PlanRepairAssignments(adjudication, "per_issue", 1)
+	if err != nil || len(perIssue) != 3 {
+		t.Fatalf("per-issue assignments = %+v, %v", perIssue, err)
+	}
+	for _, assignment := range perIssue {
+		if len(assignment.Issues) != 1 {
+			t.Fatalf("assignment combined issue runs: %+v", assignment)
+		}
+	}
+}
+
 func TestQAAdmissionFailsClosed(t *testing.T) {
 	valid := QAAdmission{ReviewCurrent: true, ReviewVerdict: string(ReviewPassWithFindings), SmokeCurrent: true, SmokeVerdict: string(SmokePass), ContainingSmoke: true, ReadOnlyProofs: []string{"map", "cancellation", "resume"}, MapComplete: true, IsolationProven: true, WritableConcurrency: 1}
 	if err := ValidateQAAdmission(valid); err != nil {

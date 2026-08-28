@@ -937,6 +937,25 @@ func validateQAAdjudication(value QAAdjudication, attemptID string, budgets QABu
 	if len(value.AcceptedIDs)+len(value.Rejected) > budgets.EvidenceRecords || len(value.Issues) > budgets.Issues {
 		return fmt.Errorf("QA adjudication exceeds frozen limits")
 	}
+	issues := make(map[string]struct{}, len(value.Issues))
+	for _, issue := range value.Issues {
+		issues[issue.ID] = struct{}{}
+	}
+	groupIDs := make(map[string]struct{}, len(value.RepairGroups))
+	for _, group := range value.RepairGroups {
+		if !validQAV2ID(group.ID, "group") || strings.TrimSpace(group.Reason) == "" || len(group.IssueIDs) == 0 {
+			return fmt.Errorf("invalid suggested repair group")
+		}
+		if _, duplicate := groupIDs[group.ID]; duplicate {
+			return fmt.Errorf("duplicate suggested repair group")
+		}
+		groupIDs[group.ID] = struct{}{}
+		for _, issueID := range group.IssueIDs {
+			if _, ok := issues[issueID]; !ok {
+				return fmt.Errorf("suggested repair group references an unknown issue")
+			}
+		}
+	}
 	return nil
 }
 

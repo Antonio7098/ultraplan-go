@@ -30,6 +30,20 @@ planning:
   smoke_variant: low
   execute_model: openai/gpt-5.6-sol
   execute_variant: high
+qa:
+  # Keep per_issue for the existing one-worker-per-issue path. Set grouped and
+  # raise issues_per_repair_agent to create fewer sequential worker queues.
+  repair_assignment_mode: per_issue
+  issues_per_repair_agent: 1
+  # Empty role overrides inherit qa.model, then the review/plan/default chain.
+  investigator_model: openai/gpt-5.6-sol
+  investigator_variant: high
+  challenger_model: openai/gpt-5.6-sol
+  challenger_variant: high
+  evaluator_model: openai/gpt-5.6-sol
+  evaluator_variant: high
+  repair_model: openai/gpt-5.6-sol
+  repair_variant: high
 logging:
   format: text
   level: debug

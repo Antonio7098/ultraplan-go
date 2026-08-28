@@ -19,16 +19,18 @@ type QAIssueCandidate struct {
 }
 
 type QAAdjudicationRequest struct {
-	Project        string
-	Sprint         string
-	AttemptID      string
-	MapFingerprint string
-	Plans          []QAEvidencePlan
-	Evidence       []QAEvidenceRecord
-	Candidates     []QAIssueCandidate
-	Evaluators     []QAModelObservation
-	Budgets        QABudgets
-	Now            time.Time
+	Project              string
+	Sprint               string
+	AttemptID            string
+	MapFingerprint       string
+	Plans                []QAEvidencePlan
+	Evidence             []QAEvidenceRecord
+	Candidates           []QAIssueCandidate
+	Evaluators           []QAModelObservation
+	Budgets              QABudgets
+	Now                  time.Time
+	RepairAssignmentMode string
+	IssuesPerRepairAgent int
 }
 
 // AdjudicateQA is pure. It consumes already frozen records and never reads
@@ -137,6 +139,18 @@ func AdjudicateQA(req QAAdjudicationRequest) (QAAdjudication, error) {
 	}
 	sort.Slice(groupList, func(i, j int) bool { return groupList[i].ID < groupList[j].ID })
 	sort.Slice(issues, func(i, j int) bool { return issues[i].ID < issues[j].ID })
+	repairGroups := suggestedRepairIssueGroups(groupList, issues)
+	mode, perAgent := req.RepairAssignmentMode, req.IssuesPerRepairAgent
+	if mode == "" {
+		mode = "per_issue"
+	}
+	if perAgent == 0 {
+		perAgent = 1
+	}
+	assignments, err := PlanRepairAssignments(QAAdjudication{Issues: issues, RepairGroups: repairGroups}, mode, perAgent)
+	if err != nil {
+		return QAAdjudication{}, err
+	}
 	sort.Slice(rejected, func(i, j int) bool {
 		if rejected[i].EvidenceID == rejected[j].EvidenceID {
 			return rejected[i].Code < rejected[j].Code
@@ -161,7 +175,93 @@ func AdjudicateQA(req QAAdjudicationRequest) (QAAdjudication, error) {
 	if err != nil {
 		return QAAdjudication{}, err
 	}
-	return QAAdjudication{SchemaVersion: QAEvidenceSchemaVersion, ID: id, AttemptID: req.AttemptID, MapFingerprint: req.MapFingerprint, AcceptedIDs: acceptedIDs, Rejected: rejected, Groups: groupList, Issues: issues, Evaluators: append([]QAModelObservation(nil), req.Evaluators...), CompletedAt: completedAt}, nil
+	return QAAdjudication{SchemaVersion: QAEvidenceSchemaVersion, ID: id, AttemptID: req.AttemptID, MapFingerprint: req.MapFingerprint, AcceptedIDs: acceptedIDs, Rejected: rejected, Groups: groupList, Issues: issues, RepairGroups: repairGroups, RepairAssignments: assignments, Evaluators: append([]QAModelObservation(nil), req.Evaluators...), CompletedAt: completedAt}, nil
+}
+
+func suggestedRepairIssueGroups(groups []QARootCauseGroup, issues []QAIssue) []QARepairIssueGroup {
+	byRoot := make(map[string][]string)
+	for _, issue := range issues {
+		if issue.RepairEligible {
+			byRoot[issue.RootCauseGroupID] = append(byRoot[issue.RootCauseGroupID], issue.ID)
+		}
+	}
+	claims := make(map[string]string, len(groups))
+	for _, group := range groups {
+		claims[group.ID] = group.Claim
+	}
+	ids := make([]string, 0, len(byRoot))
+	for id := range byRoot {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	result := make([]QARepairIssueGroup, 0, len(ids))
+	for _, id := range ids {
+		issueIDs := normalizeQAStrings(byRoot[id])
+		groupID, _ := NewQAV2ID("group", "qa", "suggestion", id, struct {
+			Purpose  string
+			IssueIDs []string
+		}{"repair-assignment", issueIDs})
+		result = append(result, QARepairIssueGroup{ID: groupID, IssueIDs: issueIDs, Reason: "shared adjudicated root cause: " + strings.TrimSpace(claims[id])})
+	}
+	return result
+}
+
+// PlanRepairAssignments creates sequential worker queues. It never combines
+// issues into one repair run.
+func PlanRepairAssignments(adjudication QAAdjudication, mode string, issuesPerAgent int) ([]QARepairAssignment, error) {
+	if mode != "per_issue" && mode != "grouped" {
+		return nil, fmt.Errorf("repair assignment mode must be per_issue or grouped")
+	}
+	if issuesPerAgent < 1 || issuesPerAgent > 16 {
+		return nil, fmt.Errorf("issues per repair agent must be between 1 and 16")
+	}
+	if mode == "per_issue" {
+		issuesPerAgent = 1
+	}
+	var ordered []string
+	reasons := map[string]string{}
+	seen := map[string]bool{}
+	for _, group := range adjudication.RepairGroups {
+		for _, issueID := range group.IssueIDs {
+			if !seen[issueID] {
+				ordered = append(ordered, issueID)
+				seen[issueID] = true
+				reasons[issueID] = group.Reason
+			}
+		}
+	}
+	for _, issue := range adjudication.Issues {
+		if issue.RepairEligible && !seen[issue.ID] {
+			ordered = append(ordered, issue.ID)
+			seen[issue.ID] = true
+		}
+	}
+	var result []QARepairAssignment
+	for len(ordered) > 0 {
+		n := issuesPerAgent
+		if n > len(ordered) {
+			n = len(ordered)
+		}
+		chunk := append([]string(nil), ordered[:n]...)
+		ordered = ordered[n:]
+		assignment := QARepairAssignment{Agent: len(result) + 1, Issues: chunk}
+		for _, id := range chunk {
+			if reason := reasons[id]; reason != "" && !containsQAString(assignment.Reasons, reason) {
+				assignment.Reasons = append(assignment.Reasons, reason)
+			}
+		}
+		result = append(result, assignment)
+	}
+	return result, nil
+}
+
+func containsQAString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func AdjudicateFailedShard(evidenceDigest string, evaluators []QAModelObservation) (QAEvidenceOutcome, error) {
