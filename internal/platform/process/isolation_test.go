@@ -52,6 +52,35 @@ func TestIsolationCopiesNonGitTreeRunsAndCleans(t *testing.T) {
 	}
 }
 
+func TestIsolationCanRecreateOneFixedWorkerPathFromCurrentSource(t *testing.T) {
+	source := t.TempDir()
+	parent := t.TempDir()
+	destination := filepath.Join(parent, "workspace")
+	limits := IsolationLimits{MaxFiles: 10, MaxBytes: 1024, MaxFileSize: 512, Timeout: time.Second}
+	write := func(value string) {
+		if err := os.WriteFile(filepath.Join(source, "issue.txt"), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("first")
+	first, err := CreateIsolation(context.Background(), IsolationRequest{SourceRoot: source, ParentDir: parent, Destination: destination, Limits: limits})
+	if err != nil || first.Path != destination {
+		t.Fatalf("first fixed isolation = %+v, %v", first, err)
+	}
+	if cleanup := first.Cleanup(); !cleanup.Complete {
+		t.Fatalf("first cleanup = %+v", cleanup)
+	}
+	write("second")
+	second, err := CreateIsolation(context.Background(), IsolationRequest{SourceRoot: source, ParentDir: parent, Destination: destination, Limits: limits})
+	if err != nil || second.Path != destination {
+		t.Fatalf("second fixed isolation = %+v, %v", second, err)
+	}
+	got, err := os.ReadFile(filepath.Join(second.Path, "issue.txt"))
+	if err != nil || string(got) != "second" {
+		t.Fatalf("recreated contents = %q, %v", got, err)
+	}
+}
+
 func TestIsolationRejectsEscapeSymlinkSpecialHardlinkAndBudgets(t *testing.T) {
 	limits := IsolationLimits{MaxFiles: 1, MaxBytes: 4, MaxFileSize: 4, Timeout: time.Second}
 	for name, setup := range map[string]func(string) error{

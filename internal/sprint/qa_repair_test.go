@@ -244,7 +244,7 @@ func TestRepairReverificationRunsRepairedTargetSmokeWithoutSecondReview(t *testi
 		Review: &ReviewStageState{Fingerprint: packet.ReviewFingerprint},
 		Smoke:  &SmokeStageState{SmokeFingerprint: packet.SmokeFingerprint},
 	}
-	verification, exactRemoved, complete := NewService(t.TempDir()).runRepairReverification(context.Background(), packet, target, flow, 1, nil)
+	verification, exactRemoved, _, complete := NewService(t.TempDir()).runRepairReverification(context.Background(), packet, target, flow, 1, false, false, nil)
 	if !exactRemoved {
 		t.Fatal("passing exact reproducer was not recorded")
 	}
@@ -257,6 +257,31 @@ func TestRepairReverificationRunsRepairedTargetSmokeWithoutSecondReview(t *testi
 	}
 	if len(verification.Gates) != len(RepairGateOrder()) {
 		t.Fatalf("gate count=%d", len(verification.Gates))
+	}
+}
+
+func TestIntermediateCampaignRepairDefersOnlyGlobalSmoke(t *testing.T) {
+	packet := repairPacketFixture(t)
+	for i := range packet.Checks {
+		packet.Checks[i].Executable = "true"
+		packet.Checks[i].Args = nil
+	}
+	packet.Checks[len(packet.Checks)-1].Executable = "@product"
+	verification, exactRemoved, issueChecksPassed, completeLadder := NewService(t.TempDir()).runRepairReverification(context.Background(), packet, t.TempDir(), FlowState{}, 1, true, true, nil)
+	if !exactRemoved || !issueChecksPassed || completeLadder {
+		t.Fatalf("intermediate facts exact=%t issue_checks=%t ladder=%t", exactRemoved, issueChecksPassed, completeLadder)
+	}
+	for i, gate := range verification.Gates {
+		if i == len(verification.Gates)-1 {
+			if gate.Gate != RepairGateContainingSmoke || gate.Status != RepairGateDeferred {
+				t.Fatalf("final gate = %+v", gate)
+			}
+		} else if gate.Status != RepairGatePassed {
+			t.Fatalf("issue-scoped gate %d = %+v", i, gate)
+		}
+	}
+	if err := ValidateRepairReverification(verification); err != nil {
+		t.Fatalf("campaign deferral is not publishable: %v", err)
 	}
 }
 
@@ -392,21 +417,6 @@ func TestRepairCampaignStateIsDurablyReplaceable(t *testing.T) {
 	}
 }
 
-func TestRepairCampaignRefreshesOnlyWhenAnotherIssueRemains(t *testing.T) {
-	state := RepairCampaignState{Status: "running", Completed: 1, Total: 2}
-	if !repairCampaignNeedsRefresh(state) {
-		t.Fatal("campaign with a queued issue did not require authority refresh")
-	}
-	state.Completed = 2
-	if repairCampaignNeedsRefresh(state) {
-		t.Fatal("completed campaign requested an unnecessary authority refresh")
-	}
-	state.Status, state.Completed = "failed", 1
-	if repairCampaignNeedsRefresh(state) {
-		t.Fatal("terminal campaign requested authority refresh")
-	}
-}
-
 func TestRepairEvidenceUsesGitAndTreeIdentitiesForTheirOwnPurposes(t *testing.T) {
 	qaMap := QAMap{ImplementationFingerprint: strings.Repeat("a", 64)}
 	record := QAEvidenceRecord{
@@ -441,7 +451,7 @@ func TestRepairReverificationRetainsBoundedRunnerDiagnostic(t *testing.T) {
 	for i := range packet.Checks {
 		packet.Checks[i].Executable = "go"
 	}
-	verification, _, _ := NewService(t.TempDir()).WithProcessRunner(repairFailingRunner{}).runRepairReverification(context.Background(), packet, t.TempDir(), FlowState{}, 1, nil)
+	verification, _, _, _ := NewService(t.TempDir()).WithProcessRunner(repairFailingRunner{}).runRepairReverification(context.Background(), packet, t.TempDir(), FlowState{}, 1, false, false, nil)
 	if verification.Gates[0].Diagnostic == "" || !strings.Contains(verification.Gates[0].Diagnostic, "timeout") {
 		t.Fatalf("gate=%+v", verification.Gates[0])
 	}

@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -105,9 +107,18 @@ func (s Service) RunRepairCampaign(ctx context.Context, projectRef, sprintRef st
 	if err := store.publishRepairCampaign(state, req.WriterToken); err != nil {
 		return RepairCampaignState{}, err
 	}
+	workerParent, err := os.MkdirTemp("", "ultraplan-repair-campaign-")
+	if err != nil {
+		return finishRepairCampaignFailure(store, state, req.WriterToken, err)
+	}
+	defer os.RemoveAll(workerParent)
 
 	authorized := false
 	for wi := range state.Workers {
+		workerRoot := filepath.Join(workerParent, fmt.Sprintf("worker-%d", state.Workers[wi].Number))
+		if err := os.Mkdir(workerRoot, 0o700); err != nil {
+			return finishRepairCampaignFailure(store, state, req.WriterToken, err)
+		}
 		for ii := range state.Workers[wi].Issues {
 			if err := ctx.Err(); err != nil {
 				state.Status = "cancelled"
@@ -159,12 +170,14 @@ func (s Service) RunRepairCampaign(ctx context.Context, projectRef, sprintRef st
 			}
 			authorized = true
 			emitRepairCampaign(req.Progress, state, wi, ii, "Running isolated issue repair")
-			result, runErr := s.RunRepair(ctx, projectRef, sprintRef, RepairRunRequest{RepairRunID: prepared.Packet.RepairRunID, WriterToken: req.WriterToken, SessionID: state.Workers[wi].SessionID, WorkerNumber: state.Workers[wi].Number, WorkerQueueSize: len(state.Workers[wi].Issues)})
+			intermediate := state.Completed+1 < state.Total
+			result, runErr := s.RunRepair(ctx, projectRef, sprintRef, RepairRunRequest{RepairRunID: prepared.Packet.RepairRunID, WriterToken: req.WriterToken, SessionID: state.Workers[wi].SessionID, WorkerNumber: state.Workers[wi].Number, WorkerQueueSize: len(state.Workers[wi].Issues), WorkerRoot: workerRoot, campaignAuthorized: true, campaignIntermediate: intermediate})
 			item.Outcome = result.Outcome
 			if result.Runtime != nil {
 				state.Workers[wi].SessionID = result.Runtime.SessionID
 			}
-			if runErr != nil || result.Outcome != RepairOutcomeVerified && result.Outcome != RepairOutcomeVerifiedWithFindings {
+			acceptable := result.Outcome == RepairOutcomeVerified || result.Outcome == RepairOutcomeVerifiedWithFindings || intermediate && result.Outcome == RepairOutcomeCampaignPending
+			if runErr != nil || !acceptable {
 				item.Status, item.Reason = "failed", strings.TrimSpace(result.Reason)
 				if runErr == nil {
 					runErr = fmt.Errorf("repair %s ended with %s", result.RepairRunID, result.Outcome)
@@ -177,13 +190,6 @@ func (s Service) RunRepairCampaign(ctx context.Context, projectRef, sprintRef st
 			if err := store.publishRepairCampaign(state, req.WriterToken); err != nil {
 				return state, err
 			}
-			if repairCampaignNeedsRefresh(state) {
-				emitRepairCampaign(req.Progress, state, wi, ii, "Refreshing QA before the next issue")
-				runErr = s.refreshRepairCampaignAuthority(ctx, projectRef, sprintRef, req.WriterToken)
-				if runErr != nil {
-					return finishRepairCampaignFailure(store, state, req.WriterToken, runErr)
-				}
-			}
 		}
 	}
 	now := s.now().UTC()
@@ -192,26 +198,6 @@ func (s Service) RunRepairCampaign(ctx context.Context, projectRef, sprintRef st
 		return state, err
 	}
 	return state, nil
-}
-
-func repairCampaignNeedsRefresh(state RepairCampaignState) bool {
-	return state.Status == "running" && state.Completed < state.Total
-}
-
-func (s Service) refreshRepairCampaignAuthority(ctx context.Context, projectRef, sprintRef string, token QAWriterToken) error {
-	review, err := s.Review(ctx, projectRef, sprintRef, ReviewRequest{})
-	if err != nil || review.Status != ReviewCompleted || review.Verdict != ReviewPass && review.Verdict != ReviewPassWithFindings {
-		return NewQAError(QAErrorAdmissionBlocked, "refresh repair campaign", "post-repair Conformance Review did not pass", err)
-	}
-	smoke, err := s.RunSmoke(ctx, projectRef, sprintRef, SmokeRequest{NonInteractive: true})
-	if err != nil || smoke.Status != SmokeCompleted || smoke.Verdict != SmokePass && smoke.Verdict != SmokePassWithOpenIssues {
-		return NewQAError(QAErrorAdmissionBlocked, "refresh repair campaign", "post-repair containing smoke did not pass", err)
-	}
-	qa, err := s.RunQA(ctx, projectRef, sprintRef, QARunRequest{EvidenceProducing: true, WriterToken: token})
-	if err != nil || qa.State.Phase != QAPhaseCompleted {
-		return NewQAError(QAErrorAdmissionBlocked, "refresh repair campaign", "post-repair evidence-producing QA did not complete", err)
-	}
-	return nil
 }
 
 func currentRepairAdjudication(store QAStore) (QAAdjudication, error) {

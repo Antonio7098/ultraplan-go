@@ -343,6 +343,7 @@ type RepairOutcome string
 const (
 	RepairOutcomeVerified             RepairOutcome = "verified"
 	RepairOutcomeVerifiedWithFindings RepairOutcome = "verified_with_findings"
+	RepairOutcomeCampaignPending      RepairOutcome = "verified_pending_campaign"
 	RepairOutcomeFailed               RepairOutcome = "failed"
 	RepairOutcomeBlocked              RepairOutcome = "blocked"
 	RepairOutcomeEscalated            RepairOutcome = "escalated"
@@ -363,12 +364,13 @@ const (
 type RepairGateStatus string
 
 const (
-	RepairGatePending RepairGateStatus = "pending"
-	RepairGateRunning RepairGateStatus = "running"
-	RepairGatePassed  RepairGateStatus = "passed"
-	RepairGateFailed  RepairGateStatus = "failed"
-	RepairGateBlocked RepairGateStatus = "blocked"
-	RepairGateSkipped RepairGateStatus = "skipped"
+	RepairGatePending  RepairGateStatus = "pending"
+	RepairGateRunning  RepairGateStatus = "running"
+	RepairGatePassed   RepairGateStatus = "passed"
+	RepairGateFailed   RepairGateStatus = "failed"
+	RepairGateBlocked  RepairGateStatus = "blocked"
+	RepairGateSkipped  RepairGateStatus = "skipped"
+	RepairGateDeferred RepairGateStatus = "deferred"
 )
 
 type RepairStopReason string

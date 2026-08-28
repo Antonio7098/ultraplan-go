@@ -88,12 +88,15 @@ type RepairConfirmRequest struct {
 }
 
 type RepairRunRequest struct {
-	RepairRunID     string
-	WriterToken     QAWriterToken
-	Progress        func(RepairProgress)
-	SessionID       string
-	WorkerNumber    int
-	WorkerQueueSize int
+	RepairRunID          string
+	WriterToken          QAWriterToken
+	Progress             func(RepairProgress)
+	SessionID            string
+	WorkerNumber         int
+	WorkerQueueSize      int
+	WorkerRoot           string
+	campaignAuthorized   bool
+	campaignIntermediate bool
 }
 
 type RepairRecoverRequest struct {
@@ -250,8 +253,10 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 			return RepairPrepareResult{}, NewQAError(QAErrorAdmissionBlocked, "prepare automatic repair", "automatic repair is unavailable until qualifying manual proof exists", proofErr)
 		}
 	}
-	if err := validateRepairFlowAdmission(flow); err != nil {
-		return RepairPrepareResult{}, err
+	if !req.campaignAuthorized {
+		if err := validateRepairFlowAdmission(flow); err != nil {
+			return RepairPrepareResult{}, err
+		}
 	}
 	fence := s.qaWriterFence
 	if fence == nil {
@@ -272,7 +277,7 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 	if err != nil {
 		return RepairPrepareResult{}, NewQAError(QAErrorAdmissionBlocked, "prepare repair", "current evidence-producing QA state is required", err)
 	}
-	if !qaState.Freshness.Current || qaState.Phase != QAPhaseCompleted || qaState.CurrentAttemptID == "" || qaState.CanonicalAssessment != AssessmentPassWithFindings && qaState.CanonicalAssessment != AssessmentPass {
+	if (!qaState.Freshness.Current && !req.campaignAuthorized) || qaState.Phase != QAPhaseCompleted || qaState.CurrentAttemptID == "" || qaState.CanonicalAssessment != AssessmentPassWithFindings && qaState.CanonicalAssessment != AssessmentPass {
 		return RepairPrepareResult{}, NewQAError(QAErrorAdmissionBlocked, "prepare repair", "QA must be current, complete, and acceptable", nil)
 	}
 	if priorRepairErr == nil && priorRepair.Phase == RepairPhasePrepared && priorRepair.Freshness.Current && priorRepair.Mode == req.Mode && priorRepair.QAAttemptID == qaState.CurrentAttemptID {
@@ -305,9 +310,15 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 	if manifestErr != nil || strings.TrimSpace(manifest.Target) == "" {
 		return RepairPrepareResult{}, NewQAError(QAErrorStaleInput, "prepare repair", "recorded implementation worktree is unavailable", nil)
 	}
-	currentIdentity, err := targetIdentity(manifest.Target)
-	if err != nil || currentIdentity != qaMap.ImplementationFingerprint || currentIdentity != qaMap.Target.Fingerprint {
+	currentTarget, err := repairTargetIdentity(manifest.Target)
+	if err != nil || !req.campaignAuthorized && (currentTarget.Fingerprint != qaMap.ImplementationFingerprint || currentTarget.Fingerprint != qaMap.Target.Fingerprint) {
 		return RepairPrepareResult{}, NewQAError(QAErrorStaleInput, "prepare repair", "implementation target changed after QA", err)
+	}
+	packetTarget := qaMap.Target
+	implementationFingerprint := qaMap.ImplementationFingerprint
+	if req.campaignAuthorized {
+		packetTarget = currentTarget
+		implementationFingerprint = currentTarget.Fingerprint
 	}
 	capabilities := pprocess.IsolationCapabilityFacts()
 	if !capabilities.NativeProtectedRootDeny || !capabilities.ProcessGroup || !capabilities.DescendantCleanup || !capabilities.WorkspaceRemoval {
@@ -347,7 +358,7 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 		PlanIDs: planIDs, MapID: qaMap.ID, ShardIDs: repairShardIDs(plans), TheoryIDs: repairTheoryIDs(plans),
 		ExpectationRefs: repairExpectationRefs(plans), ExactReproducer: exact, Checks: checks, AllowedPaths: allowed,
 		ForbiddenPaths: repairForbiddenPaths(), AcceptanceCriteria: repairAcceptanceCriteria(plans), Mode: req.Mode, Budgets: req.Budgets, BudgetSources: append([]QAEffectiveSource(nil), req.BudgetSources...),
-		Target: qaMap.Target, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint,
+		Target: packetTarget, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: implementationFingerprint,
 		ReviewFingerprint: flow.Review.Fingerprint, SmokeFingerprint: repairSmokeFingerprint(flow.Smoke), PolicyFingerprint: policyFingerprint,
 		IsolationFingerprint: isolationFingerprint, PreparedAt: now,
 	})
@@ -509,18 +520,26 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 		return RepairResult{}, err
 	}
 	emitRepair(req.Progress, RepairProgress{Phase: RepairPhaseProposing, Cycle: cycleNumber, Message: "Preparing isolated proposal"})
-	parent, err := os.MkdirTemp("", "ultraplan-repair-parent-")
-	if err != nil {
-		return RepairResult{}, err
+	parent := strings.TrimSpace(req.WorkerRoot)
+	ownedParent := parent == ""
+	if ownedParent {
+		parent, err = os.MkdirTemp("", "ultraplan-repair-parent-")
+		if err != nil {
+			return RepairResult{}, err
+		}
 	}
 	parentRemoved := false
 	defer func() {
-		if !parentRemoved {
+		if ownedParent && !parentRemoved {
 			retErr = errors.Join(retErr, os.RemoveAll(parent))
 		}
 	}()
 	limits := pprocess.IsolationLimits{MaxFiles: MaximumQABudgets().TreeFiles, MaxBytes: MaximumQABudgets().TreeBytes, MaxFileSize: MaximumQABudgets().FileBytes, Timeout: packet.Budgets.WallTime}
-	workspace, err := pprocess.CreateIsolation(lockedCtx, pprocess.IsolationRequest{SourceRoot: manifest.Target, ParentDir: parent, Prefix: packet.RepairRunID, ProtectedRoots: []string{s.root, manifest.Target}, Limits: limits})
+	destination := ""
+	if !ownedParent {
+		destination = filepath.Join(parent, "workspace")
+	}
+	workspace, err := pprocess.CreateIsolation(lockedCtx, pprocess.IsolationRequest{SourceRoot: manifest.Target, ParentDir: parent, Prefix: packet.RepairRunID, Destination: destination, ProtectedRoots: []string{s.root, manifest.Target}, Limits: limits})
 	if err != nil {
 		return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopPrerequisite, "cannot create a protected isolated repair workspace", err)
 	}
@@ -568,8 +587,11 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	}
 	if runErr != nil || lockedCtx.Err() != nil {
 		cleanup := workspace.Cleanup()
-		parentErr := os.Remove(parent)
-		parentRemoved = parentErr == nil || errors.Is(parentErr, fs.ErrNotExist)
+		parentErr := error(nil)
+		if ownedParent {
+			parentErr = os.Remove(parent)
+			parentRemoved = parentErr == nil || errors.Is(parentErr, fs.ErrNotExist)
+		}
 		stop := RepairStopPrerequisite
 		if lockedCtx.Err() != nil {
 			stop = RepairStopCancellation
@@ -648,9 +670,9 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 		return RepairResult{}, errors.Join(err, cleanupError(workspace.Cleanup()))
 	}
 	emitRepair(req.Progress, RepairProgress{Phase: RepairPhaseReverifying, Cycle: cycleNumber, Message: "Running progressive reverification"})
-	reverification, exactRemoved, requiredPassed := s.runRepairReverification(lockedCtx, packet, manifest.Target, flow, cycleNumber, req.Progress)
+	reverification, exactRemoved, issueChecksPassed, completeLadder := s.runRepairReverification(lockedCtx, packet, manifest.Target, flow, cycleNumber, req.campaignAuthorized, req.campaignIntermediate, req.Progress)
 	for _, gate := range reverification.Gates {
-		if gate.Status != RepairGateSkipped {
+		if gate.Status != RepairGateSkipped && gate.Status != RepairGateDeferred {
 			state.Consumed.Commands++
 			state.Consumed.OutputBytes += gate.OutputBytes
 		}
@@ -663,8 +685,13 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	}
 	cleanupStarted := s.now().UTC()
 	cleanupResult := workspace.Cleanup()
-	parentErr := os.Remove(parent)
-	parentRemoved = parentErr == nil || errors.Is(parentErr, fs.ErrNotExist)
+	parentErr := error(nil)
+	if ownedParent {
+		parentErr = os.Remove(parent)
+		parentRemoved = parentErr == nil || errors.Is(parentErr, fs.ErrNotExist)
+	} else {
+		parentRemoved = true
+	}
 	finalTarget, targetErr := repairTargetIdentity(manifest.Target)
 	cleanupDuration := s.now().UTC().Sub(cleanupStarted)
 	cleanup := &RepairCleanup{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: cycleNumber, ProcessTreeTerminated: cleanupResult.Complete, WorkspaceRemoved: cleanupResult.Complete && parentRemoved, CompensationKnown: true, TargetCurrent: targetErr == nil && finalTarget.Fingerprint == afterApply.Fingerprint, LeaseReleased: false, Duration: cleanupDuration, DurationMS: cleanupDuration.Milliseconds(), Diagnostic: joinRepairDiagnostics(cleanupResult.Error, errorString(parentErr), errorString(targetErr))}
@@ -697,8 +724,14 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	if err != nil {
 		return RepairResult{}, err
 	}
-	facts := RepairOutcomeFacts{Mode: packet.Mode, ExactIssueRemoved: exactRemoved, AllRequiredPassed: requiredPassed, OnlyNonBlocking: flow.Review.Verdict == ReviewPassWithFindings || flow.Smoke.Verdict == SmokePassWithOpenIssues, CleanupComplete: cleanup.Complete, TargetCurrent: cleanup.TargetCurrent, IssueStillReproduces: !exactRemoved, RequiredCheckFailed: !requiredPassed, UnsafeOrUncertain: !cleanup.Complete, Stagnated: !RepairMadeProgress(progress), StopReason: cycle.StopReason}
-	outcome, outcomeErr := DeriveRepairOutcome(facts)
+	facts := RepairOutcomeFacts{Mode: packet.Mode, ExactIssueRemoved: exactRemoved, AllRequiredPassed: issueChecksPassed, OnlyNonBlocking: flow.Review.Verdict == ReviewPassWithFindings || flow.Smoke.Verdict == SmokePassWithOpenIssues, CleanupComplete: cleanup.Complete, TargetCurrent: cleanup.TargetCurrent, IssueStillReproduces: !exactRemoved, RequiredCheckFailed: !issueChecksPassed, UnsafeOrUncertain: !cleanup.Complete, Stagnated: !RepairMadeProgress(progress), StopReason: cycle.StopReason}
+	var outcome RepairOutcome
+	var outcomeErr error
+	if req.campaignIntermediate && exactRemoved && issueChecksPassed && cleanup.Complete && cleanup.TargetCurrent {
+		outcome = RepairOutcomeCampaignPending
+	} else {
+		outcome, outcomeErr = DeriveRepairOutcome(facts)
+	}
 	if outcomeErr != nil {
 		return RepairResult{}, outcomeErr
 	}
@@ -714,7 +747,7 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	if evidenceErr != nil {
 		return RepairResult{}, evidenceErr
 	}
-	result = RepairResult{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, Mode: packet.Mode, Outcome: outcome, Reason: repairOutcomeReason(outcome), StopReason: stop, Consumed: state.Consumed, Runtime: state.Runtime, Target: finalTarget, CleanupComplete: cleanup.Complete, ProductionApplied: state.Consumed.MutationCycles > 0, CompleteLadder: requiredPassed, UnresolvedIssues: unresolvedRepairIssues(packet, exactRemoved), Evidence: evidenceRefs, NextAction: repairOutcomeNextAction(outcome), CompletedAt: s.now().UTC()}
+	result = RepairResult{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, Mode: packet.Mode, Outcome: outcome, Reason: repairOutcomeReason(outcome), StopReason: stop, Consumed: state.Consumed, Runtime: state.Runtime, Target: finalTarget, CleanupComplete: cleanup.Complete, ProductionApplied: state.Consumed.MutationCycles > 0, CompleteLadder: completeLadder, UnresolvedIssues: unresolvedRepairIssues(packet, exactRemoved), Evidence: evidenceRefs, NextAction: repairOutcomeNextAction(outcome), CompletedAt: s.now().UTC()}
 	state.UpdatedAt = result.CompletedAt
 	if err := store.PublishRepairResult(result, state, flow, req.WriterToken); err != nil {
 		return RepairResult{}, err
@@ -1656,7 +1689,7 @@ func splitRepairLines(data []byte) []string {
 	return strings.Split(value, "\n")
 }
 
-func (s Service) runRepairReverification(ctx context.Context, packet RepairIssuePacket, target string, flow FlowState, cycle int, progress func(RepairProgress)) (RepairReverification, bool, bool) {
+func (s Service) runRepairReverification(ctx context.Context, packet RepairIssuePacket, target string, flow FlowState, cycle int, campaignAuthorized, campaignIntermediate bool, progress func(RepairProgress)) (RepairReverification, bool, bool, bool) {
 	byGate := make(map[RepairGateKind]RepairCheckDescriptor, len(packet.Checks))
 	for _, check := range packet.Checks {
 		if _, exists := byGate[check.Gate]; !exists {
@@ -1666,6 +1699,7 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 	results := make([]RepairGateResult, 0, len(RepairGateOrder()))
 	stopped := false
 	exactRemoved := false
+	completeLadder := true
 	for _, gate := range RepairGateOrder() {
 		if stopped {
 			results = append(results, RepairGateResult{Gate: gate, Status: RepairGateSkipped, Reason: "a narrower required gate did not pass", NextAction: "Resolve the first non-pass and start a newly confirmed repair."})
@@ -1680,10 +1714,18 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 		emitRepair(progress, RepairProgress{Phase: RepairPhaseReverifying, Cycle: cycle, Gate: gate, Message: "Running " + string(gate)})
 		started := s.now().UTC()
 		result := RepairGateResult{Gate: gate, Status: RepairGatePassed}
+		if gate == RepairGateContainingSmoke && campaignIntermediate {
+			result.Status = RepairGateDeferred
+			result.Reason = "global containing smoke is deferred until the final issue in this confirmed campaign queue"
+			result.NextAction = "Continue the issue-scoped queue; the final issue must pass containing smoke."
+			completeLadder = false
+			results = append(results, result)
+			continue
+		}
 		if check.Executable == "@product" {
 			switch gate {
 			case RepairGateContainingSmoke:
-				if flow.Smoke == nil || flow.Smoke.Stale || repairSmokeFingerprint(flow.Smoke) != packet.SmokeFingerprint {
+				if flow.Smoke == nil || !campaignAuthorized && (flow.Smoke.Stale || repairSmokeFingerprint(flow.Smoke) != packet.SmokeFingerprint) {
 					result.Status = RepairGateBlocked
 					result.Reason = "containing smoke selection authority became stale"
 					result.NextAction = "Prepare a new repair packet from current smoke authority."
@@ -1748,7 +1790,8 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 			exactRemoved = true
 		}
 	}
-	return RepairReverification{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: cycle, Gates: results, IssueIDsBefore: []string{packet.Issue.ID}, IssueIDsAfter: unresolvedRepairIssues(packet, exactRemoved), HighestSeverityBefore: packet.Issue.Severity, HighestSeverityAfter: chooseSeverity(exactRemoved, "", packet.Issue.Severity), CompletedAt: s.now().UTC()}, exactRemoved, !stopped
+	issueChecksPassed := !stopped
+	return RepairReverification{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: cycle, Gates: results, IssueIDsBefore: []string{packet.Issue.ID}, IssueIDsAfter: unresolvedRepairIssues(packet, exactRemoved), HighestSeverityBefore: packet.Issue.Severity, HighestSeverityAfter: chooseSeverity(exactRemoved, "", packet.Issue.Severity), CompletedAt: s.now().UTC()}, exactRemoved, issueChecksPassed, issueChecksPassed && completeLadder
 }
 
 func repairSmokeResultFingerprint(result SmokeResult) string {
@@ -1912,6 +1955,8 @@ func repairOutcomeReason(outcome RepairOutcome) string {
 		return "the exact issue and every frozen progressive gate passed with proven cleanup"
 	case RepairOutcomeVerifiedWithFindings:
 		return "the exact issue and required gates passed; current non-blocking findings remain"
+	case RepairOutcomeCampaignPending:
+		return "the issue-scoped gates passed; global containing smoke is deferred to the final campaign issue"
 	case RepairOutcomeFailed:
 		return "deterministic reverification shows the issue or a required check still fails"
 	case RepairOutcomeBlocked:
@@ -1929,6 +1974,8 @@ func repairOutcomeNextAction(outcome RepairOutcome) string {
 	switch outcome {
 	case RepairOutcomeVerified, RepairOutcomeVerifiedWithFindings:
 		return "Inspect the retained result and repaired-target smoke evidence."
+	case RepairOutcomeCampaignPending:
+		return "Continue the confirmed worker queue; the final issue must pass global containing smoke."
 	case RepairOutcomeFailed:
 		return "Adjudicate the remaining failure before preparing another packet."
 	case RepairOutcomeBlocked:
@@ -2077,7 +2124,7 @@ func validRepairPhase(value RepairPhase) bool {
 
 func validRepairOutcome(value RepairOutcome) bool {
 	switch value {
-	case RepairOutcomeVerified, RepairOutcomeVerifiedWithFindings, RepairOutcomeFailed, RepairOutcomeBlocked, RepairOutcomeEscalated, RepairOutcomeStalled:
+	case RepairOutcomeVerified, RepairOutcomeVerifiedWithFindings, RepairOutcomeCampaignPending, RepairOutcomeFailed, RepairOutcomeBlocked, RepairOutcomeEscalated, RepairOutcomeStalled:
 		return true
 	default:
 		return false

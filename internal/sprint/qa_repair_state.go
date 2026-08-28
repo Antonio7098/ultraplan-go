@@ -528,11 +528,15 @@ func ValidateRepairResult(result RepairResult) error {
 		return fmt.Errorf("manual repair cannot publish stalled")
 	}
 	verified := result.Outcome == RepairOutcomeVerified || result.Outcome == RepairOutcomeVerifiedWithFindings
+	pending := result.Outcome == RepairOutcomeCampaignPending
 	if verified && (!result.CleanupComplete || !result.ProductionApplied || !result.CompleteLadder || len(result.UnresolvedIssues) != 0 || result.StopReason != RepairStopVerified) {
 		return fmt.Errorf("verified repair result lacks complete apply, ladder, cleanup, or issue resolution")
 	}
 	if !verified && result.CompleteLadder {
 		return fmt.Errorf("non-verified repair result cannot claim a complete ladder")
+	}
+	if pending && (!result.CleanupComplete || !result.ProductionApplied || len(result.UnresolvedIssues) != 0 || result.StopReason != RepairStopNone) {
+		return fmt.Errorf("campaign-pending repair lacks issue-scoped apply, cleanup, or resolution")
 	}
 	if result.ProductionApplied && result.Consumed.MutationCycles == 0 {
 		return fmt.Errorf("repair result apply claim lacks a consumed mutation cycle")
@@ -632,6 +636,10 @@ func ValidateRepairReverification(value RepairReverification) error {
 		case RepairGateSkipped:
 			if !blocked || strings.TrimSpace(gate.Reason) == "" || strings.TrimSpace(gate.NextAction) == "" {
 				return fmt.Errorf("skipped repair gate lacks prior stop and guidance")
+			}
+		case RepairGateDeferred:
+			if blocked || gate.Gate != RepairGateContainingSmoke || strings.TrimSpace(gate.Reason) == "" || strings.TrimSpace(gate.NextAction) == "" {
+				return fmt.Errorf("deferred repair gate is not a guided final campaign smoke deferral")
 			}
 		default:
 			return fmt.Errorf("repair reverification is not terminal")

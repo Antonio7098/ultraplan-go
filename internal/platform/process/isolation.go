@@ -31,6 +31,7 @@ type IsolationRequest struct {
 	SourceRoot     string
 	ParentDir      string
 	Prefix         string
+	Destination    string
 	ProtectedRoots []string
 	Limits         IsolationLimits
 }
@@ -105,9 +106,20 @@ func CreateIsolation(ctx context.Context, req IsolationRequest) (IsolationWorksp
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return IsolationWorkspace{}, fmt.Errorf("create isolation parent: %w", err)
 	}
-	root, err := os.MkdirTemp(parent, safePrefix(req.Prefix))
-	if err != nil {
-		return IsolationWorkspace{}, fmt.Errorf("create isolation workspace: %w", err)
+	root := ""
+	if strings.TrimSpace(req.Destination) != "" {
+		root, err = filepath.Abs(req.Destination)
+		if err != nil || filepath.Dir(root) != parent {
+			return IsolationWorkspace{}, fmt.Errorf("fixed isolation destination must be a direct child of its parent")
+		}
+		if err = os.Mkdir(root, 0o700); err != nil {
+			return IsolationWorkspace{}, fmt.Errorf("create fixed isolation workspace: %w", err)
+		}
+	} else {
+		root, err = os.MkdirTemp(parent, safePrefix(req.Prefix))
+		if err != nil {
+			return IsolationWorkspace{}, fmt.Errorf("create isolation workspace: %w", err)
+		}
 	}
 	created := IsolationWorkspace{Path: root, CreatedAt: time.Now().UTC(), Capabilities: isolationCapabilities()}
 	copyCtx, cancel := context.WithTimeout(ctx, req.Limits.Timeout)
