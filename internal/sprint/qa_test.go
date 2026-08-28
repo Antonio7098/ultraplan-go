@@ -43,8 +43,25 @@ type qaCancellationRuntime struct {
 
 type qaPanicRuntime struct{}
 
+type qaEmptyTheoryRuntime struct{}
+
 func (qaPanicRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {
 	panic("runtime adapter panic")
+}
+
+func (qaEmptyTheoryRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {
+	return pruntime.Result{
+		Status:         "completed",
+		TerminalOutput: `{"schema_version":1,"theories":[],"evidence":[],"context_requests":[],"check_requests":[]}`,
+		Permissions:    pruntime.PermissionSummary{Mode: "restricted", Default: "deny"},
+		Usage: pruntime.Usage{
+			InputTokens: 101, InputTokensKnown: true,
+			OutputTokens: 17, OutputTokensKnown: true,
+			CacheReadTokens: 73, CacheReadTokensKnown: true,
+			Turns: 1, TurnsKnown: true,
+		},
+		EstimatedCost: &pruntime.CostEstimate{Amount: 0.001, Currency: "USD", Estimate: true},
+	}, nil
 }
 
 func withTestQAMapFence(service Service, fence func(QAMap) error) Service {
@@ -300,6 +317,27 @@ func TestQAInvestigationEnforcesTurnsAndRetainsUsageCost(t *testing.T) {
 	blocked, err := service.runOneQAShard(context.Background(), qaMap, qaMap.Shards[0], target, token)
 	if typed, ok := AsQAError(err); !ok || typed.Category != QAErrorBudgetExhausted || len(blocked.Attempts) != 1 || blocked.Attempts[0].StopReason != "investigator iteration limit exceeded" {
 		t.Fatalf("iteration limit shard=%+v err=%v", blocked, err)
+	}
+}
+
+func TestQAInvestigationRetainsAttemptWhenRuntimeReturnsNoTheories(t *testing.T) {
+	root, _, target, qaMap, _, _, token := qaRunFixture(t)
+	service := NewService(root).
+		WithQASettings(QASettings{Runtime: StageRuntime{Model: "openai/qa"}, Budgets: qaMap.Budgets}).
+		WithRuntime(qaEmptyTheoryRuntime{}).
+		WithQAMapFence(func(QAMap) error { return nil })
+
+	blocked, err := service.runOneQAShard(context.Background(), qaMap, qaMap.Shards[0], target, token)
+	typed, ok := AsQAError(err)
+	if !ok || typed.Category != QAErrorInvalidState {
+		t.Fatalf("error = %v", err)
+	}
+	if len(blocked.Attempts) != 1 {
+		t.Fatalf("attempts = %d", len(blocked.Attempts))
+	}
+	attempt := blocked.Attempts[0]
+	if attempt.Usage.InputTokens != 101 || attempt.Usage.OutputTokens != 17 || attempt.Usage.CacheReadTokens != 73 || attempt.Usage.Turns != 1 || attempt.EstimatedCost == nil {
+		t.Fatalf("retained attempt = %+v", attempt)
 	}
 }
 

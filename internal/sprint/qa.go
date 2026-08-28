@@ -1010,6 +1010,7 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 		theories = append(theories, theory)
 	}
 	if len(theories) == 0 {
+		shard.Attempts = append(shard.Attempts, attempt)
 		return shard, NewQAError(QAErrorInvalidState, "investigate shard", "investigator returned no falsifiable theories", nil)
 	}
 	if err := s.validateCurrentQAMap(qaMap); err != nil {
