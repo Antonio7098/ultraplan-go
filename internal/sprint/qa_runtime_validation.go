@@ -74,7 +74,12 @@ func qaInvestigatorValidationSpec(budgets QABudgets, capture *qaOutputCapture) *
 			if content == "" && capture != nil {
 				content = capture.load()
 			}
-			_, diagnostic, err := decodeQAInvestigatorOutput(pruntime.Result{Status: string(vctx.Result.Status), SessionID: string(vctx.Result.SessionID), TerminalOutput: content}, budgets.ShardOutputBytes)
+			output, diagnostic, err := decodeQAInvestigatorOutput(pruntime.Result{Status: string(vctx.Result.Status), SessionID: string(vctx.Result.SessionID), TerminalOutput: content}, budgets.ShardOutputBytes)
+			if err == nil && len(output.Theories) == 0 {
+				check.Observed = "theories array is empty"
+				check.Detail = "QA investigator output has no falsifiable theory"
+				return check
+			}
 			if err == nil {
 				check.Passed, check.Observed, check.Detail = true, "valid", "QA investigator output passed strict decoding"
 				return check
@@ -122,5 +127,5 @@ func qaValidationRepairPrompt(failures []agentwrap.ValidationFailure) string {
 	if len(details) == 0 {
 		details = append(details, "the previous output failed strict QA validation")
 	}
-	return "Return only one corrected strict QA JSON object. Do not perform more tool calls. Unknown fields and text outside the object are rejected. Required top-level fields are schema_version, theories, evidence, context_requests, and check_requests. schema_version must be 1 and the other fields must be arrays. A valid minimal object is {\"schema_version\":1,\"theories\":[],\"evidence\":[],\"context_requests\":[],\"check_requests\":[]}. Rejection: " + strings.Join(details, "; ")
+	return "Return only one corrected strict QA JSON object. Do not perform more tool calls. Unknown fields and text outside the object are rejected. Required top-level fields are schema_version, theories, evidence, context_requests, and check_requests. schema_version must be 1 and the other fields must be arrays. theories must contain at least one falsifiable theory. If context is insufficient, return an inconclusive theory plus a bounded context request; an empty theories array is rejected. Rejection: " + strings.Join(details, "; ")
 }

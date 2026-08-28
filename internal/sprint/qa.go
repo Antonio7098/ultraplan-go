@@ -431,16 +431,26 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	state.UpdatedAt = s.now().UTC()
 	var evidencePublication *QAEvidencePublication
 	if req.EvidenceProducing {
-		bundle, assessment, evidenceErr := s.buildQAEvidencePublication(runCtx, sp, mapResult.Map, manifest.Target, shards, req.Progress)
-		if evidenceErr != nil {
-			return s.publishTerminalQAFailureWithSynthesis(store, flow, mapResult.Map, shards, synthesis, state, req.WriterToken, evidenceErr)
-		}
-		evidencePublication = &bundle
-		state.NextAction = assessment.NextAction
-		state.CanonicalAssessment = assessment.Assessment
-		if assessment.Assessment == AssessmentFail || assessment.Assessment == AssessmentBlocked || assessment.Assessment == AssessmentIncomplete {
+		if countCompletedQAShards(shards) == 0 {
+			// There is no evidence work to perform. Preserve the synthesis result and
+			// its actionable shard blockers instead of letting target materialization
+			// replace them with a secondary isolation error.
 			state.Phase = QAPhaseBlocked
 			state.Run.TerminalResult = QATerminalBlocked
+			state.NextAction = synthesis.NextAction
+			state.Blocker = &QABlocker{Category: QAErrorInvalidState, Scope: "synthesis", Summary: "no QA shard produced evidence-ready theories", NextAction: synthesis.NextAction}
+		} else {
+			bundle, assessment, evidenceErr := s.buildQAEvidencePublication(runCtx, sp, mapResult.Map, manifest.Target, shards, req.Progress)
+			if evidenceErr != nil {
+				return s.publishTerminalQAFailureWithSynthesis(store, flow, mapResult.Map, shards, synthesis, state, req.WriterToken, evidenceErr)
+			}
+			evidencePublication = &bundle
+			state.NextAction = assessment.NextAction
+			state.CanonicalAssessment = assessment.Assessment
+			if assessment.Assessment == AssessmentFail || assessment.Assessment == AssessmentBlocked || assessment.Assessment == AssessmentIncomplete {
+				state.Phase = QAPhaseBlocked
+				state.Run.TerminalResult = QATerminalBlocked
+			}
 		}
 	}
 	if err := store.Publish(QAPublication{Shards: shards, Synthesis: &synthesis, State: state, Flow: flow, Evidence: evidencePublication}, req.WriterToken); err != nil {
@@ -506,7 +516,9 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 	records := make([]QAEvidenceRecord, 0, len(shards)*2)
 	candidateByKey := make(map[string]QAIssueCandidate)
 	evaluators := make([]QAModelObservation, 0)
-	completedEvidence := 0
+	approvedPathsByShard := make(map[string][]string, len(shards))
+	descriptorsByShard := make(map[string][]QACheckDescriptor, len(shards))
+	totalEvidence := 0
 	for _, shard := range shards {
 		if shard.Phase != QAPhaseCompleted {
 			continue
@@ -515,7 +527,6 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 		if len(approvedPaths) == 0 {
 			continue
 		}
-		emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_started", ShardID: shard.ID, Completed: completedEvidence, Total: len(shards), Message: "Running isolated evidence check"})
 		descriptors, checkErr := ApprovedQAChecks(target, approvedPaths, qaMap.Budgets)
 		if checkErr != nil {
 			return QAEvidencePublication{}, QAAssessmentRecord{}, checkErr
@@ -527,6 +538,21 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 			}
 			descriptors = []QACheckDescriptor{{ID: checkID, Timeout: qaMap.Budgets.CommandTimeout, OutputLimit: qaMap.Budgets.CommandOutputBytes}}
 		}
+		approvedPathsByShard[shard.ID] = approvedPaths
+		descriptorsByShard[shard.ID] = descriptors
+		totalEvidence += len(descriptors)
+	}
+	completedEvidence := 0
+	for _, shard := range shards {
+		if shard.Phase != QAPhaseCompleted {
+			continue
+		}
+		approvedPaths := approvedPathsByShard[shard.ID]
+		if len(approvedPaths) == 0 {
+			continue
+		}
+		emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_started", ShardID: shard.ID, Completed: completedEvidence, Total: totalEvidence, Message: "Running isolated evidence check"})
+		descriptors := descriptorsByShard[shard.ID]
 		for _, descriptor := range descriptors {
 			confirmed := make([]QATheory, 0, len(shard.Theories))
 			confirmedIDs := make([]string, 0, len(shard.Theories))
@@ -559,7 +585,7 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 			}
 			plans, records = append(plans, plan), append(records, record)
 			completedEvidence++
-			emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_completed", ShardID: shard.ID, Completed: completedEvidence, Total: len(shards), Message: "Isolated evidence check complete"})
+			emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_completed", ShardID: shard.ID, Completed: completedEvidence, Total: totalEvidence, Message: "Isolated evidence check complete"})
 			if record.Outcome != QAEvidenceFail {
 				continue
 			}
@@ -1200,6 +1226,16 @@ func countTerminalQAShards(shards []QAShard) int {
 	total := 0
 	for _, shard := range shards {
 		if shard.Phase == QAPhaseCompleted || shard.Phase == QAPhaseBlocked {
+			total++
+		}
+	}
+	return total
+}
+
+func countCompletedQAShards(shards []QAShard) int {
+	total := 0
+	for _, shard := range shards {
+		if shard.Phase == QAPhaseCompleted {
 			total++
 		}
 	}

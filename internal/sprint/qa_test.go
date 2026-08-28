@@ -217,6 +217,18 @@ func TestQATerminalFailurePublicationAndProgressBound(t *testing.T) {
 	}
 }
 
+func TestCountCompletedQAShardsExcludesBlockedTerminalShards(t *testing.T) {
+	shards := []QAShard{
+		{Phase: QAPhaseCompleted},
+		{Phase: QAPhaseBlocked},
+		{Phase: QAPhaseCancelled},
+		{Phase: QAPhaseMapped},
+	}
+	if got := countCompletedQAShards(shards); got != 1 {
+		t.Fatalf("completed evidence-ready shards = %d, want 1", got)
+	}
+}
+
 func TestQATerminalSynthesisFailureRetainsSynthesisArtifact(t *testing.T) {
 	root, sp, _, qaMap, flow, state, token := qaRunFixture(t)
 	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error { return nil })
@@ -326,7 +338,7 @@ func TestQAInvestigatorValidationUsesAgentwrapRepairPolicy(t *testing.T) {
 	}
 	failure := agentwrap.ValidationFailure{Observed: `kind=unknown_field; json: unknown field "extra"`}
 	prompt := spec.Repair.BuildPrompt(agentwrap.RepairContext{Validation: agentwrap.ValidationResult{Failures: []agentwrap.ValidationFailure{failure}}, Attempt: 1, MaxAttempts: 2})
-	if !strings.Contains(prompt, `unknown field "extra"`) || !strings.Contains(prompt, `"schema_version":1`) {
+	if !strings.Contains(prompt, `unknown field "extra"`) || !strings.Contains(prompt, "theories must contain at least one") {
 		t.Fatalf("repair prompt=%q", prompt)
 	}
 	continued := spec.Repair.OverrideRequest(agentwrap.RepairContext{Attempt: 1}, agentwrap.RunRequest{SessionID: "qa-session", SessionAction: agentwrap.SessionActionContinue})
@@ -343,7 +355,15 @@ func TestQAInvestigatorAgentwrapValidatorReturnsDiagnosticFailure(t *testing.T) 
 	if invalid.Passed || len(invalid.Failures) != 1 || !strings.Contains(invalid.Failures[0].Observed, "unknown_field") || !strings.Contains(invalid.Failures[0].Observed, `unknown field "extra"`) {
 		t.Fatalf("invalid validation=%+v", invalid)
 	}
-	valid := agentwrap.ValidateRun(context.Background(), agentwrap.RunRequest{}, agentwrap.RunResult{Status: agentwrap.StatusCompleted, TerminalOutput: `{"schema_version":1,"theories":[],"evidence":[],"context_requests":[],"check_requests":[]}`}, *spec)
+	empty := agentwrap.ValidateRun(context.Background(), agentwrap.RunRequest{}, agentwrap.RunResult{Status: agentwrap.StatusCompleted, TerminalOutput: `{"schema_version":1,"theories":[],"evidence":[],"context_requests":[],"check_requests":[]}`}, *spec)
+	if empty.Passed || len(empty.Failures) != 1 || !strings.Contains(empty.Failures[0].Observed, "theories array is empty") {
+		t.Fatalf("empty validation=%+v", empty)
+	}
+	runtimeResult, err := (&qaInvestigatorRuntime{}).StartRun(context.Background(), pruntime.Request{Metadata: map[string]string{"shard": "qa-v1-shard-test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := agentwrap.ValidateRun(context.Background(), agentwrap.RunRequest{}, agentwrap.RunResult{Status: agentwrap.StatusCompleted, TerminalOutput: runtimeResult.TerminalOutput}, *spec)
 	if !valid.Passed {
 		t.Fatalf("valid validation=%+v", valid)
 	}
