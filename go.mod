@@ -5,10 +5,11 @@ go 1.26
 require gopkg.in/yaml.v3 v3.0.1
 
 require (
-	github.com/Antonio7098/agentwrap v0.0.0-20260826113904-26c0d9c30379
+	github.com/Antonio7098/agentwrap v0.0.0-20260828135345-cc51e269777b
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
+	github.com/gorilla/mux v1.8.1
 	github.com/yuin/goldmark v1.7.13
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.57.0
