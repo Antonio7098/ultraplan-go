@@ -936,7 +936,7 @@ func (s Service) runReviewer(ctx context.Context, m ReviewManifest, c ReviewInpu
 	}
 	req := s.runtimeRequest(prompt, map[string]string{"project": m.Project, "sprint": m.Sprint, "stage": string(StageReview), "coverage": c.ID, "model_source": m.ModelSource})
 	req.WorkDir = m.ReviewerRoot
-	req.Model = strings.TrimPrefix(m.Model, req.Provider+"/")
+	req.Provider, req.Model = splitProviderModel(m.Model)
 	req.Sandbox = "read_only"
 	req.Permissions = "restricted"
 	req.RequireCaps = appendUnique(req.RequireCaps, "permissions")

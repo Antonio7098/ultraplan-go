@@ -199,6 +199,24 @@ func TestReviewManifestExecutionAndArtifactPreservation(t *testing.T) {
 	}
 }
 
+func TestReviewOverrideSplitsNestedOpenRouterModel(t *testing.T) {
+	root, _ := reviewFixture(t)
+	runtime := &reviewRuntime{}
+	service := NewService(root).WithRuntime(runtime)
+	result, err := service.Review(context.Background(), "proj", "01", ReviewRequest{
+		Concurrency:   2,
+		ModelOverride: "openrouter/minimax/minimax-m3:free",
+	})
+	if err != nil || result.Verdict != ReviewPass {
+		t.Fatalf("review result=%+v err=%v", result, err)
+	}
+	for _, req := range runtime.requests {
+		if req.Provider != "openrouter" || req.Model != "minimax/minimax-m3:free" {
+			t.Fatalf("runtime model routing = %q/%q", req.Provider, req.Model)
+		}
+	}
+}
+
 func TestReviewFingerprintIgnoresSmokeOnlyProjectIndexChanges(t *testing.T) {
 	root, _ := reviewFixture(t)
 	indexPath := filepath.Join(root, "projects", "proj", "project-index.md")
