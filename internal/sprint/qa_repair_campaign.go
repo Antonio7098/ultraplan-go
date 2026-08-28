@@ -134,15 +134,28 @@ func (s Service) RunRepairCampaign(ctx context.Context, projectRef, sprintRef st
 				return finishRepairCampaignFailure(store, state, req.WriterToken, NewQAError(QAErrorRuntimeUnavailable, "continue repair campaign worker", "the runtime did not retain the worker session required for a multi-issue queue", nil))
 			}
 			item.CurrentIssueID, item.Status = issue.ID, "preparing"
+			state.UpdatedAt = s.now().UTC()
+			if err := store.publishRepairCampaign(state, req.WriterToken); err != nil {
+				return state, err
+			}
 			emitRepairCampaign(req.Progress, state, wi, ii, "Freezing one issue packet")
 			prepared, runErr := s.PrepareRepair(ctx, projectRef, sprintRef, RepairPrepareRequest{IssueID: issue.ID, Mode: RepairModeAutomatic, Budgets: req.Budgets, BudgetSources: req.Sources, WriterToken: req.WriterToken, campaignAuthorized: authorized})
 			if runErr != nil {
 				return finishRepairCampaignFailure(store, state, req.WriterToken, runErr)
 			}
-			item.RepairRunID, item.Status = prepared.Packet.RepairRunID, "confirmed"
+			item.RepairRunID, item.Status = prepared.Packet.RepairRunID, "prepared"
+			state.UpdatedAt = s.now().UTC()
+			if err := store.publishRepairCampaign(state, req.WriterToken); err != nil {
+				return state, err
+			}
 			_, runErr = s.ConfirmRepair(ctx, projectRef, sprintRef, RepairConfirmRequest{RepairRunID: prepared.Packet.RepairRunID, Confirmer: req.Confirmer, AutomaticOptIn: true, WriterToken: req.WriterToken, campaignAuthorized: authorized})
 			if runErr != nil {
 				return finishRepairCampaignFailure(store, state, req.WriterToken, runErr)
+			}
+			item.Status = "confirmed"
+			state.UpdatedAt = s.now().UTC()
+			if err := store.publishRepairCampaign(state, req.WriterToken); err != nil {
+				return state, err
 			}
 			authorized = true
 			emitRepairCampaign(req.Progress, state, wi, ii, "Running isolated issue repair")
@@ -164,10 +177,12 @@ func (s Service) RunRepairCampaign(ctx context.Context, projectRef, sprintRef st
 			if err := store.publishRepairCampaign(state, req.WriterToken); err != nil {
 				return state, err
 			}
-			emitRepairCampaign(req.Progress, state, wi, ii, "Refreshing QA before the next issue")
-			runErr = s.refreshRepairCampaignAuthority(ctx, projectRef, sprintRef, req.WriterToken)
-			if runErr != nil {
-				return finishRepairCampaignFailure(store, state, req.WriterToken, runErr)
+			if repairCampaignNeedsRefresh(state) {
+				emitRepairCampaign(req.Progress, state, wi, ii, "Refreshing QA before the next issue")
+				runErr = s.refreshRepairCampaignAuthority(ctx, projectRef, sprintRef, req.WriterToken)
+				if runErr != nil {
+					return finishRepairCampaignFailure(store, state, req.WriterToken, runErr)
+				}
 			}
 		}
 	}
@@ -177,6 +192,10 @@ func (s Service) RunRepairCampaign(ctx context.Context, projectRef, sprintRef st
 		return state, err
 	}
 	return state, nil
+}
+
+func repairCampaignNeedsRefresh(state RepairCampaignState) bool {
+	return state.Status == "running" && state.Completed < state.Total
 }
 
 func (s Service) refreshRepairCampaignAuthority(ctx context.Context, projectRef, sprintRef string, token QAWriterToken) error {
@@ -288,7 +307,7 @@ func ValidateRepairCampaignState(state RepairCampaignState) error {
 			return fmt.Errorf("invalid repair campaign worker")
 		}
 		for _, issue := range worker.Issues {
-			if strings.TrimSpace(issue.OriginalIssueID) == "" || strings.TrimSpace(issue.Title) == "" || strings.TrimSpace(issue.IssueClass) == "" || strings.TrimSpace(issue.RootCauseClaim) == "" || issue.Status != "queued" && issue.Status != "preparing" && issue.Status != "confirmed" && issue.Status != "verified" && issue.Status != "resolved" && issue.Status != "failed" {
+			if strings.TrimSpace(issue.OriginalIssueID) == "" || strings.TrimSpace(issue.Title) == "" || strings.TrimSpace(issue.IssueClass) == "" || strings.TrimSpace(issue.RootCauseClaim) == "" || issue.Status != "queued" && issue.Status != "preparing" && issue.Status != "prepared" && issue.Status != "confirmed" && issue.Status != "verified" && issue.Status != "resolved" && issue.Status != "failed" {
 				return fmt.Errorf("invalid repair campaign issue")
 			}
 			count++

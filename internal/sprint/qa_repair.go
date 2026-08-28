@@ -1345,7 +1345,7 @@ func loadRepairEvidence(store QAStore, qaMap QAMap, adjudication QAAdjudication,
 		if err != nil {
 			return nil, nil, err
 		}
-		if record.Outcome != QAEvidenceFail || !record.Contained || !record.Cleanup.Complete || record.TargetIdentityBefore != qaMap.ImplementationFingerprint || record.TargetIdentityAfter != qaMap.ImplementationFingerprint || !record.Repeatable && len(record.Commands) == 0 {
+		if !repairEvidenceMatchesMap(record, qaMap) {
 			return nil, nil, NewQAError(QAErrorAdmissionBlocked, "prepare repair", "issue evidence is not current, failing, contained, and reproducible", nil)
 		}
 		plan, err := store.LoadEvidencePlan(qaMap.SemanticAttemptID, record.PlanID, qaMap.Budgets)
@@ -1364,6 +1364,13 @@ func loadRepairEvidence(store QAStore, qaMap QAMap, adjudication QAAdjudication,
 	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
 	sort.Slice(plans, func(i, j int) bool { return plans[i].ID < plans[j].ID })
 	return records, plans, nil
+}
+
+func repairEvidenceMatchesMap(record QAEvidenceRecord, qaMap QAMap) bool {
+	return record.Outcome == QAEvidenceFail && record.Contained && record.Cleanup.Complete &&
+		record.ImplementationFingerprint == qaMap.ImplementationFingerprint &&
+		record.TargetIdentityBefore != "" && record.TargetIdentityBefore == record.TargetIdentityAfter &&
+		(record.Repeatable || len(record.Commands) > 0)
 }
 
 func freezeRepairChecks(runID string, plans []QAEvidencePlan, evidence []QAEvidenceRecord, qaMap QAMap, flow FlowState, budgets RepairBudgets) ([]RepairCheckDescriptor, RepairCheckDescriptor, error) {

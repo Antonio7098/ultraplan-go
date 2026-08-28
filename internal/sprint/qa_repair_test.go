@@ -354,6 +354,9 @@ func TestRepairCampaignCreatesConfiguredWorkersAndMatchesFreshIssues(t *testing.
 	if len(state.Workers) != 2 || state.Total != 3 || len(state.Workers[0].Issues) != 2 {
 		t.Fatalf("campaign state = %+v", state)
 	}
+	if err := ValidateRepairCampaignState(state); err != nil {
+		t.Fatalf("new campaign state is not publishable: %v; state=%+v", err, state)
+	}
 	freshGroup, _ := NewQAV2ID("group", "alpha", "38-repair", "fresh", "a")
 	freshIssue := QAIssue{ID: "fresh-issue", RootCauseGroupID: freshGroup, Title: "renamed", IssueClass: "logic", Location: "internal/a.go", RepairEligible: true}
 	matched := matchCampaignIssue(QAAdjudication{Issues: []QAIssue{freshIssue}, Groups: []QARootCauseGroup{{ID: freshGroup, Claim: "shared cause"}}}, state.Workers[0].Issues[0])
@@ -386,6 +389,44 @@ func TestRepairCampaignStateIsDurablyReplaceable(t *testing.T) {
 	loaded, err := store.LoadRepairCampaign()
 	if err != nil || loaded.Status != "completed" || loaded.Completed != 1 {
 		t.Fatalf("loaded campaign = %+v, %v", loaded, err)
+	}
+}
+
+func TestRepairCampaignRefreshesOnlyWhenAnotherIssueRemains(t *testing.T) {
+	state := RepairCampaignState{Status: "running", Completed: 1, Total: 2}
+	if !repairCampaignNeedsRefresh(state) {
+		t.Fatal("campaign with a queued issue did not require authority refresh")
+	}
+	state.Completed = 2
+	if repairCampaignNeedsRefresh(state) {
+		t.Fatal("completed campaign requested an unnecessary authority refresh")
+	}
+	state.Status, state.Completed = "failed", 1
+	if repairCampaignNeedsRefresh(state) {
+		t.Fatal("terminal campaign requested authority refresh")
+	}
+}
+
+func TestRepairEvidenceUsesGitAndTreeIdentitiesForTheirOwnPurposes(t *testing.T) {
+	qaMap := QAMap{ImplementationFingerprint: strings.Repeat("a", 64)}
+	record := QAEvidenceRecord{
+		Outcome: QAEvidenceFail, Contained: true, Repeatable: true,
+		Cleanup:                   QACleanupFacts{Complete: true},
+		ImplementationFingerprint: qaMap.ImplementationFingerprint,
+		TargetIdentityBefore:      strings.Repeat("b", 64),
+		TargetIdentityAfter:       strings.Repeat("b", 64),
+	}
+	if !repairEvidenceMatchesMap(record, qaMap) {
+		t.Fatal("unchanged real QA tree identity was rejected because it differs from the Git implementation fingerprint")
+	}
+	record.TargetIdentityAfter = strings.Repeat("c", 64)
+	if repairEvidenceMatchesMap(record, qaMap) {
+		t.Fatal("target tree drift was admitted")
+	}
+	record.TargetIdentityAfter = record.TargetIdentityBefore
+	record.ImplementationFingerprint = strings.Repeat("d", 64)
+	if repairEvidenceMatchesMap(record, qaMap) {
+		t.Fatal("stale Git implementation fingerprint was admitted")
 	}
 }
 

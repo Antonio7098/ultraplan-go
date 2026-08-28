@@ -937,8 +937,27 @@ func validateQAAdjudication(value QAAdjudication, attemptID string, budgets QABu
 	if len(value.AcceptedIDs)+len(value.Rejected) > budgets.EvidenceRecords || len(value.Issues) > budgets.Issues {
 		return fmt.Errorf("QA adjudication exceeds frozen limits")
 	}
+	rootGroups := make(map[string]struct{}, len(value.Groups))
+	for _, group := range value.Groups {
+		if !validQAV2ID(group.ID, "group") || strings.TrimSpace(group.Claim) == "" || strings.TrimSpace(group.IssueClass) == "" || len(group.EvidenceIDs) == 0 {
+			return fmt.Errorf("invalid root-cause group")
+		}
+		if _, duplicate := rootGroups[group.ID]; duplicate {
+			return fmt.Errorf("duplicate root-cause group")
+		}
+		rootGroups[group.ID] = struct{}{}
+	}
 	issues := make(map[string]struct{}, len(value.Issues))
 	for _, issue := range value.Issues {
+		if !validQAV2ID(issue.ID, "issue") || strings.TrimSpace(issue.Title) == "" || strings.TrimSpace(issue.IssueClass) == "" || len(issue.EvidenceIDs) == 0 {
+			return fmt.Errorf("invalid promoted issue")
+		}
+		if _, ok := rootGroups[issue.RootCauseGroupID]; !ok {
+			return fmt.Errorf("promoted issue references an unknown root-cause group")
+		}
+		if _, duplicate := issues[issue.ID]; duplicate {
+			return fmt.Errorf("duplicate promoted issue")
+		}
 		issues[issue.ID] = struct{}{}
 	}
 	groupIDs := make(map[string]struct{}, len(value.RepairGroups))

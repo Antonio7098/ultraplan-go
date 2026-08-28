@@ -68,6 +68,36 @@ func TestQAAdjudicationAdmitsDeterministicallySufficientFactFailure(t *testing.T
 	}
 }
 
+func TestQAAdjudicationDeduplicatesCandidatesWithOneRootCause(t *testing.T) {
+	budgets := DefaultQABudgets()
+	attemptID, _ := NewQASemanticAttemptID("alpha", "38-repair", QASemanticIdentity{ChangedPaths: []string{"a.go"}})
+	shardID, _ := NewQAShardID("alpha", "38-repair", attemptID, QAShardIdentity{Kind: QAShardPrimary, ChangedPaths: []string{"a.go"}, BehavioralConcerns: []string{"formatting"}, ExpectationRefs: []string{"REQ-1"}})
+	plan, err := FreezeQAEvidencePlan("alpha", "38-repair", QAEvidencePlan{AttemptID: attemptID, ShardID: shardID, ExpectationRefs: []string{"REQ-1"}, Kind: QACheckFact, ConfirmationCondition: "gofmt passes", RefutationCondition: "gofmt fails", InconclusiveCondition: "gofmt cannot run", ApprovedPaths: []string{"a.go"}, Executable: "gofmt", Args: []string{"-l", "a.go"}, Timeout: time.Minute, OutputLimit: 1024, CleanupRequired: true, GovernedInputFingerprint: testQAFingerprint, ImplementationFingerprint: strings.Repeat("b", 64), MapFingerprint: strings.Repeat("c", 64)}, budgets, time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := make([]QAEvidenceRecord, 2)
+	for i := range records {
+		evidenceID, _ := NewQAV2ID("evidence", "alpha", "38-repair", plan.ID, i)
+		records[i] = QAEvidenceRecord{SchemaVersion: 2, ID: evidenceID, PlanID: plan.ID, AttemptID: attemptID, ShardID: shardID, WorkspaceID: "opaque", WorkspaceIdentity: strings.Repeat("d", 64), TargetIdentityBefore: strings.Repeat("e", 64), TargetIdentityAfter: strings.Repeat("e", 64), GovernedInputFingerprint: plan.GovernedInputFingerprint, ImplementationFingerprint: plan.ImplementationFingerprint, MapFingerprint: plan.MapFingerprint, Commands: []QACommandResult{{Executable: "gofmt", ArgsDigest: strings.Repeat("f", 64), ExitCode: 1}}, Outcome: QAEvidenceFail, ReasonCode: "command_failed", Contained: true, Cleanup: QACleanupFacts{Attempted: true, DescendantsTerminated: true, WorkspaceRemoved: true, Complete: true}, CompletedAt: time.Unix(int64(2+i), 0)}
+	}
+	candidates := []QAIssueCandidate{
+		{Claim: "approved gofmt check fails", Title: "Formatting check failed (shard B)", IssueClass: "source_integrity", Severity: "low", Location: "a.go", EvidenceIDs: []string{records[1].ID}, RepairEligible: true},
+		{Claim: "approved gofmt check fails", Title: "Formatting check failed (shard A)", IssueClass: "source_integrity", Severity: "high", Location: "a.go", EvidenceIDs: []string{records[0].ID}, RegressionCandidate: true},
+	}
+	result, err := AdjudicateQA(QAAdjudicationRequest{Project: "alpha", Sprint: "38-repair", AttemptID: attemptID, MapFingerprint: plan.MapFingerprint, Plans: []QAEvidencePlan{plan}, Evidence: records, Candidates: candidates, Budgets: budgets, Now: time.Unix(4, 0), RepairAssignmentMode: "grouped", IssuesPerRepairAgent: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Groups) != 1 || len(result.Issues) != 1 || len(result.RepairAssignments) != 1 {
+		t.Fatalf("duplicate root cause was not collapsed: %+v", result)
+	}
+	issue := result.Issues[0]
+	if len(issue.EvidenceIDs) != 2 || issue.Title != "Formatting check failed (shard A)" || issue.Severity != "high" || !issue.RepairEligible || !issue.RegressionCandidate {
+		t.Fatalf("deduplicated issue did not preserve aggregate facts: %+v", issue)
+	}
+}
+
 func TestPlanRepairAssignmentsPreservesIssueScopedRuns(t *testing.T) {
 	issues := []QAIssue{
 		{ID: "issue-a", RootCauseGroupID: "root-a", RepairEligible: true},

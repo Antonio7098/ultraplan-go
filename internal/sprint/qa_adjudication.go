@@ -93,8 +93,14 @@ func AdjudicateQA(req QAAdjudicationRequest) (QAAdjudication, error) {
 		accepted[record.ID] = record
 	}
 
+	type issueAggregate struct {
+		title               string
+		severity            string
+		repairEligible      bool
+		regressionCandidate bool
+	}
 	groups := map[string]*QARootCauseGroup{}
-	issues := make([]QAIssue, 0, len(req.Candidates))
+	issueAggregates := map[string]*issueAggregate{}
 	for _, candidate := range req.Candidates {
 		candidate.EvidenceIDs = normalizeQAStrings(candidate.EvidenceIDs)
 		if strings.TrimSpace(candidate.Claim) == "" || strings.TrimSpace(candidate.Title) == "" || strings.TrimSpace(candidate.IssueClass) == "" || len(candidate.EvidenceIDs) == 0 {
@@ -123,22 +129,44 @@ func AdjudicateQA(req QAAdjudicationRequest) (QAAdjudication, error) {
 			groups[groupID] = group
 		}
 		group.EvidenceIDs = normalizeQAStrings(append(group.EvidenceIDs, candidate.EvidenceIDs...))
+		title := strings.TrimSpace(candidate.Title)
+		severity := normalizeQASeverity(candidate.Severity)
+		aggregate := issueAggregates[groupID]
+		if aggregate == nil {
+			aggregate = &issueAggregate{title: title, severity: severity}
+			issueAggregates[groupID] = aggregate
+		} else {
+			if title < aggregate.title {
+				aggregate.title = title
+			}
+			if qaSeverityRank(severity) > qaSeverityRank(aggregate.severity) {
+				aggregate.severity = severity
+			}
+		}
+		aggregate.repairEligible = aggregate.repairEligible || candidate.RepairEligible
+		aggregate.regressionCandidate = aggregate.regressionCandidate || candidate.RegressionCandidate
+	}
+
+	groupIDs := make([]string, 0, len(groups))
+	for groupID := range groups {
+		groupIDs = append(groupIDs, groupID)
+	}
+	sort.Strings(groupIDs)
+	groupList := make([]QARootCauseGroup, 0, len(groupIDs))
+	issues := make([]QAIssue, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		group := groups[groupID]
+		aggregate := issueAggregates[groupID]
 		issueID, err := NewQAV2ID("issue", req.Project, req.Sprint, groupID, struct {
 			Title       string
 			EvidenceIDs []string
-		}{strings.TrimSpace(candidate.Title), candidate.EvidenceIDs})
+		}{aggregate.title, group.EvidenceIDs})
 		if err != nil {
 			return QAAdjudication{}, err
 		}
-		issues = append(issues, QAIssue{ID: issueID, RootCauseGroupID: groupID, Title: strings.TrimSpace(candidate.Title), IssueClass: strings.TrimSpace(candidate.IssueClass), Severity: normalizeQASeverity(candidate.Severity), Location: location, EvidenceIDs: candidate.EvidenceIDs, PromotionReason: "current contained failing evidence is repeatable or deterministically sufficient and satisfies the frozen plan", RepairEligible: candidate.RepairEligible, RegressionCandidate: candidate.RegressionCandidate})
-	}
-
-	groupList := make([]QARootCauseGroup, 0, len(groups))
-	for _, group := range groups {
 		groupList = append(groupList, *group)
+		issues = append(issues, QAIssue{ID: issueID, RootCauseGroupID: groupID, Title: aggregate.title, IssueClass: group.IssueClass, Severity: aggregate.severity, Location: group.Location, EvidenceIDs: group.EvidenceIDs, PromotionReason: "current contained failing evidence is repeatable or deterministically sufficient and satisfies the frozen plan", RepairEligible: aggregate.repairEligible, RegressionCandidate: aggregate.regressionCandidate})
 	}
-	sort.Slice(groupList, func(i, j int) bool { return groupList[i].ID < groupList[j].ID })
-	sort.Slice(issues, func(i, j int) bool { return issues[i].ID < issues[j].ID })
 	repairGroups := suggestedRepairIssueGroups(groupList, issues)
 	mode, perAgent := req.RepairAssignmentMode, req.IssuesPerRepairAgent
 	if mode == "" {
@@ -176,6 +204,19 @@ func AdjudicateQA(req QAAdjudicationRequest) (QAAdjudication, error) {
 		return QAAdjudication{}, err
 	}
 	return QAAdjudication{SchemaVersion: QAEvidenceSchemaVersion, ID: id, AttemptID: req.AttemptID, MapFingerprint: req.MapFingerprint, AcceptedIDs: acceptedIDs, Rejected: rejected, Groups: groupList, Issues: issues, RepairGroups: repairGroups, RepairAssignments: assignments, Evaluators: append([]QAModelObservation(nil), req.Evaluators...), CompletedAt: completedAt}, nil
+}
+
+func qaSeverityRank(severity string) int {
+	switch normalizeQASeverity(severity) {
+	case "critical":
+		return 4
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func suggestedRepairIssueGroups(groups []QARootCauseGroup, issues []QAIssue) []QARepairIssueGroup {
