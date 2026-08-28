@@ -745,6 +745,9 @@ func (s Service) prepareQAAttempt(store QAStore, flow FlowState, qaMap QAMap, re
 			return prior, shards, nil
 		}
 	}
+	if prior, err := store.LoadState(); err == nil && prior.CurrentAttemptID == qaMap.SemanticAttemptID {
+		return QAState{}, nil, NewQAError(QAErrorConflict, "run", "the current semantic attempt already exists; use qa resume", nil)
+	}
 	state := QAState{SchemaVersion: QASchemaVersion, Project: qaMap.Project, Sprint: qaMap.Sprint, Phase: QAPhaseMapped,
 		Freshness:        QAFreshness{Current: true, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint, ReviewFingerprint: qaMap.ReviewFingerprint, PolicyFingerprint: qaMap.PolicyFingerprint},
 		CurrentAttemptID: qaMap.SemanticAttemptID, CompletedShards: countTerminalQAShards(qaMap.Shards), TotalShards: len(qaMap.Shards), Run: qaRunCorrelation(req.WriterToken, QARunClaimed), NextAction: "Run the mapped read-only QA shards.", UpdatedAt: now}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
@@ -186,6 +187,10 @@ func TestRuntimeProgressSummaryIsUsefulAndOmitsMessages(t *testing.T) {
 	}
 	if runtimeEventIsProgress(runtimepkg.Event{Type: "message.part", Kind: "message"}) {
 		t.Fatal("message bodies must not be streamed as progress")
+	}
+	leaky := runtimeProgressSummary(runtimepkg.Event{Type: "opencode.log.rate_limit", Kind: "warning", Payload: map[string]any{"detail": "rate limited\nunrelated session log\x00tail"}})
+	if strings.ContainsAny(leaky, "\r\n\x00") || strings.Contains(leaky, "  ") {
+		t.Fatalf("multiline progress was not bounded to one line: %q", leaky)
 	}
 }
 

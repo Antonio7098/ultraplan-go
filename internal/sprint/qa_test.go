@@ -235,6 +235,21 @@ func TestQATerminalSynthesisFailureRetainsSynthesisArtifact(t *testing.T) {
 	}
 }
 
+func TestQANewStartRejectsExistingSemanticAttemptBeforeRuntimeWork(t *testing.T) {
+	root, sp, _, qaMap, flow, state, token := qaRunFixture(t)
+	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error { return nil })
+	if err := store.Publish(QAPublication{Map: &qaMap, Shards: qaMap.Shards, State: state, Flow: flow}, token); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(root)
+	_, _, err := service.prepareQAAttempt(store, flow, qaMap, QARunRequest{WriterToken: token}, QASettings{Budgets: qaMap.Budgets})
+	typed, ok := AsQAError(err)
+	if !ok || typed.Category != QAErrorConflict || !strings.Contains(typed.Detail, "qa resume") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestQAPermissionRejectsFallbackAndTargetDrift(t *testing.T) {
 	root, _, target, qaMap, _, _, token := qaRunFixture(t)
 	settings := QASettings{Runtime: StageRuntime{Model: "openai/qa", Variant: "high"}, Budgets: qaMap.Budgets}

@@ -442,12 +442,27 @@ func runtimeProgressSummary(event runtimepkg.Event) string {
 		if text == "" || text == "<nil>" {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s=%s", key, config.RedactValue("runtime."+key, text)))
+		parts = append(parts, fmt.Sprintf("%s=%s", key, boundedRuntimeProgressValue(key, text)))
 	}
 	if len(parts) == 0 {
 		return "event"
 	}
 	return strings.Join(parts, " ")
+}
+
+func boundedRuntimeProgressValue(key, value string) string {
+	value = config.RedactValue("runtime."+key, value)
+	value = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\x00' {
+			return ' '
+		}
+		return r
+	}, value)
+	value = strings.Join(strings.Fields(value), " ")
+	if len(value) > 512 {
+		value = value[:512]
+	}
+	return value
 }
 
 func runtimeEventValue(event runtimepkg.Event, keys ...string) string {
