@@ -26,7 +26,9 @@ func LoadFlowState(root string, s Sprint) (FlowState, error) {
 			return FlowState{}, pathErr
 		}
 		switch state.SchemaVersion {
-		case PreviousFlowStateSchemaVersion, LegacyFlowStateSchemaVersion:
+		case PreviousFlowStateSchemaVersion:
+			state = migrateFlowStateV2(s, state)
+		case LegacyFlowStateSchemaVersion:
 			state = migrateFlowStateV1(root, s, state)
 		case FlowStateSchemaVersion:
 			if isPreCodeContextStages(state.Stages) {
@@ -75,7 +77,13 @@ func LoadFlowState(root string, s Sprint) (FlowState, error) {
 	} else if !errors.Is(err, io.EOF) {
 		return FlowState{}, fmt.Errorf("%w: %s: trailing JSON: %v", ErrFlowStateMalformed, path, err)
 	}
-	if header.SchemaVersion == PreviousFlowStateSchemaVersion || header.SchemaVersion == LegacyFlowStateSchemaVersion {
+	if header.SchemaVersion == PreviousFlowStateSchemaVersion {
+		state = migrateFlowStateV2(s, state)
+		if err := ValidateFlowState(root, s, state, path); err != nil {
+			return FlowState{}, err
+		}
+	}
+	if header.SchemaVersion == LegacyFlowStateSchemaVersion {
 		state = migrateFlowStateV1(root, s, state)
 		if err := ValidateFlowState(root, s, state, path); err != nil {
 			return FlowState{}, err
@@ -155,6 +163,14 @@ func legacyFlowState(root string, s Sprint) bool {
 		return false
 	}
 	return header.SchemaVersion == 0 && header.Version == 1
+}
+
+func migrateFlowStateV2(sp Sprint, state FlowState) FlowState {
+	state.SchemaVersion = FlowStateSchemaVersion
+	if isPreCodeContextStages(state.Stages) {
+		state.Stages = interpretPreCodeContextStages(sp, state.Stages)
+	}
+	return state
 }
 
 func migrateFlowStateV1(root string, sp Sprint, state FlowState) FlowState {

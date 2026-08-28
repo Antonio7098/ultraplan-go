@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -79,14 +80,15 @@ func TestFlowStateMigratesExactlyOnePredecessor(t *testing.T) {
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
 	state := NewFlowState(sp, completeStates(sp), now)
 	state.SchemaVersion = PreviousFlowStateSchemaVersion
-	state.Review = &ReviewStageState{Status: ReviewCompleted, Verdict: ReviewPass, Path: ArtifactRelPath(sp, StageReview), LastRunAt: &now, Fingerprint: "legacy", Completed: 1, Total: 1}
+	coverage := []ReviewCoverageResult{{SchemaVersion: 1, CoverageID: "contract-preserved", Applicability: "direct", Summary: "preserve this review detail", Findings: []ReviewFinding{}}}
+	state.Review = &ReviewStageState{Status: ReviewCompleted, Verdict: ReviewPass, Path: ArtifactRelPath(sp, StageReview), LastRunAt: &now, Fingerprint: "current", Completed: 1, Total: 1, LastComplete: &ReviewCompletion{Verdict: ReviewPass, Artifact: ArtifactRelPath(sp, StageReview), ArtifactDigest: strings.Repeat("a", 64), InputFingerprint: "current", CompletedAt: now, Coverage: coverage}}
 	path, _ := FlowStatePath(root, sp)
 	writeJSON(t, path, state)
 	loaded, err := LoadFlowState(root, sp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.SchemaVersion != FlowStateSchemaVersion || loaded.Review == nil || !loaded.Review.Stale || loaded.Review.LastComplete == nil {
+	if loaded.SchemaVersion != FlowStateSchemaVersion || loaded.Review == nil || loaded.Review.Stale || loaded.Review.LastComplete == nil || !reflect.DeepEqual(loaded.Review.LastComplete.Coverage, coverage) {
 		t.Fatalf("migration=%+v", loaded)
 	}
 	data, _ := os.ReadFile(path)
