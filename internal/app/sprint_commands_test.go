@@ -1303,3 +1303,16 @@ func TestParseSprintFlowArgsRejectsInvalidStageOverride(t *testing.T) {
 		t.Fatal("expected error for unsupported override stage")
 	}
 }
+
+func TestRepairSemanticOutcomeErrorFailsNonVerifiedResults(t *testing.T) {
+	for _, outcome := range []sprint.RepairOutcome{sprint.RepairOutcomeBlocked, sprint.RepairOutcomeFailed, sprint.RepairOutcomeEscalated, sprint.RepairOutcomeStalled} {
+		if err := repairSemanticOutcomeError(sprint.RepairResult{Outcome: outcome}, nil); err == nil {
+			t.Fatalf("outcome %q was reported as operational success", outcome)
+		}
+	}
+	for _, outcome := range []sprint.RepairOutcome{sprint.RepairOutcomeVerified, sprint.RepairOutcomeVerifiedWithFindings} {
+		if err := repairSemanticOutcomeError(sprint.RepairResult{Outcome: outcome}, nil); err != nil {
+			t.Fatalf("outcome %q failed: %v", outcome, err)
+		}
+	}
+}

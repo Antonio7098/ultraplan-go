@@ -173,6 +173,7 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 			result.RunID = token.RunID
 			result.SemanticOutcome = string(r.Outcome)
 			result.Message = fmt.Sprintf("repair=%s outcome=%s stop=%s cleanup=%t next=%s", r.RepairRunID, r.Outcome, r.StopReason, r.CleanupComplete, r.NextAction)
+			e = repairSemanticOutcomeError(r, e)
 			severity := "info"
 			if r.Outcome == sprint.RepairOutcomeEscalated {
 				severity = "critical"

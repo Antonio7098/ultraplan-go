@@ -1128,6 +1128,13 @@ func operationStatusForError(err error) string {
 	return "complete"
 }
 
+func repairSemanticOutcomeError(result sprint.RepairResult, err error) error {
+	if err != nil || result.Outcome == "" || result.Outcome == sprint.RepairOutcomeVerified || result.Outcome == sprint.RepairOutcomeVerifiedWithFindings {
+		return err
+	}
+	return sprint.NewQAError(sprint.QAErrorInvalidState, "run repair", "repair ended without a verified outcome", nil)
+}
+
 func renderSprintRepair(deps dependencies, view string, result RepairStatusResult) {
 	fmt.Fprintf(deps.stdout, "Repair %s\n  sprint: %s/%s\n  phase: %s\n  fresh: %t\n", view, result.Project, result.Sprint, result.Phase, result.Fresh)
 	if result.RepairRunID != "" {

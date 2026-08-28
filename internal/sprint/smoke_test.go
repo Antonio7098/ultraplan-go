@@ -371,6 +371,11 @@ Complete alpha.
 	if qaResult.Smoke.Verdict != result.Verdict || qaResult.Smoke.Protocol != result.Protocol || qaResult.Smoke.ScopeKind != result.ScopeKind || qaResult.Smoke.Scope != result.Scope || len(runner.calls) != 4 {
 		t.Fatalf("smoke parity direct=%+v qa=%+v calls=%v", result, qaResult.Smoke, runner.calls)
 	}
+	writeFileContent(t, root, "package repaircheck\n", "internal", "repaircheck", "changed.go")
+	repaired, repairErr := service.runSmoke(context.Background(), "proj", "01", SmokeRequest{ForceReview: true, OverrideConfirmed: true, OverrideRationale: "bounded repair reverification", NonInteractive: true, RepairVerification: true})
+	if repairErr != nil || repaired.Verdict != SmokePass || len(runner.calls) != 6 {
+		t.Fatalf("repaired-target smoke result=%+v calls=%v err=%v", repaired, runner.calls, repairErr)
+	}
 	roadmapData, err := os.ReadFile(filepath.Join(root, "projects", "proj", "roadmap.md"))
 	if err != nil || !strings.Contains(string(roadmapData), "> Status: delivered") {
 		t.Fatalf("roadmap was not reconciled: %q err=%v", roadmapData, err)

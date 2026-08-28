@@ -329,6 +329,9 @@ func TestRepairProposalCarriesVersionedPromptIdentity(t *testing.T) {
 			t.Errorf("%s = %q, want %q", key, request.Metadata[key], want)
 		}
 	}
+	if request.Policy.UnsupportedBehavior != "" {
+		t.Fatalf("unsupported permission behavior = %q, want fail-closed default", request.Policy.UnsupportedBehavior)
+	}
 }
 
 type repairFailingRunner struct{}
@@ -353,6 +356,15 @@ func TestRepairDiagnosticRedactsSecretsAndHostPaths(t *testing.T) {
 		if got := boundRepairText(value, 512); got != "[redacted repair diagnostic]" {
 			t.Errorf("%q => %q", value, got)
 		}
+	}
+}
+
+func TestJoinRepairDiagnosticsOmitsEmptyEntries(t *testing.T) {
+	if got := joinRepairDiagnostics("", " ", "target drift"); got != "target drift" {
+		t.Fatalf("diagnostic = %q", got)
+	}
+	if got := joinRepairDiagnostics("", " "); got != "" {
+		t.Fatalf("empty diagnostic = %q", got)
 	}
 }
 

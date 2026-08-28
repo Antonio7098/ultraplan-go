@@ -117,6 +117,32 @@ func (store QAStore) LoadRepairApplyJournal(attemptID, runID string, cycle int) 
 	return value, nil
 }
 
+func (store QAStore) LoadRepairCycle(attemptID, runID string, cycle int) (RepairCycle, error) {
+	if err := validateRepairScopeIDs(attemptID, runID); err != nil || cycle <= 0 {
+		return RepairCycle{}, NewQAError(QAErrorInvalidState, "load repair cycle", "invalid repair cycle identity", err)
+	}
+	path, err := store.resolve(filepath.ToSlash(filepath.Join(QARepairCycleRelPath(store.sprint, attemptID, runID, cycle), "cycle.json")))
+	if err != nil {
+		return RepairCycle{}, err
+	}
+	var value RepairCycle
+	if err := store.readStrictVersion(path, "repair-cycle", QARepairSchemaVersion, &value); err != nil {
+		return RepairCycle{}, err
+	}
+	if value.RepairRunID != runID || value.Number != cycle {
+		return RepairCycle{}, NewQAError(QAErrorInvalidState, "load repair cycle", "repair cycle is stored under the wrong identity", nil)
+	}
+	return value, nil
+}
+
+func (store QAStore) loadRepairCycleRecord(attemptID, runID string, cycle int, name string, value any) error {
+	path, err := store.resolve(filepath.ToSlash(filepath.Join(QARepairCycleRelPath(store.sprint, attemptID, runID, cycle), name)))
+	if err != nil {
+		return err
+	}
+	return store.readStrictVersion(path, "repair-"+strings.TrimSuffix(name, ".json"), QARepairSchemaVersion, value)
+}
+
 func (store QAStore) loadRepairPreimage(operation RepairApplyOperation) ([]byte, error) {
 	path, err := store.resolve(operation.PreimagePath)
 	if err != nil {

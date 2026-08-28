@@ -63,10 +63,18 @@ type RepairPrepareResult struct {
 }
 
 type RepairSnapshot struct {
-	State        RepairState         `json:"state"`
-	Packet       *RepairIssuePacket  `json:"packet,omitempty"`
-	Confirmation *RepairConfirmation `json:"confirmation,omitempty"`
-	Result       *RepairResult       `json:"result,omitempty"`
+	State        RepairState           `json:"state"`
+	Packet       *RepairIssuePacket    `json:"packet,omitempty"`
+	Confirmation *RepairConfirmation   `json:"confirmation,omitempty"`
+	Result       *RepairResult         `json:"result,omitempty"`
+	Cycles       []RepairCycleSnapshot `json:"cycles,omitempty"`
+}
+
+type RepairCycleSnapshot struct {
+	Cycle          RepairCycle           `json:"cycle"`
+	Scope          *RepairScopeRecord    `json:"scope,omitempty"`
+	Reverification *RepairReverification `json:"reverification,omitempty"`
+	Cleanup        *RepairCleanup        `json:"cleanup,omitempty"`
 }
 
 type RepairConfirmRequest struct {
@@ -150,6 +158,35 @@ func (s Service) RepairStatus(projectRef, sprintRef string) (RepairSnapshot, err
 			return RepairSnapshot{}, NewQAError(QAErrorPersistenceFailure, "load repair result", "repair result is unavailable", loadErr)
 		}
 		out.Result = &result
+	}
+	for cycleNumber := state.EarliestCycle; cycleNumber > 0 && cycleNumber <= state.Consumed.Cycles; cycleNumber++ {
+		cycle, loadErr := store.LoadRepairCycle(state.QAAttemptID, state.RepairRunID, cycleNumber)
+		if loadErr != nil {
+			return RepairSnapshot{}, NewQAError(QAErrorPersistenceFailure, "load repair cycle", "repair cycle is unavailable", loadErr)
+		}
+		item := RepairCycleSnapshot{Cycle: cycle}
+		if cycle.Scope != nil {
+			var value RepairScopeRecord
+			if loadErr := store.loadRepairCycleRecord(state.QAAttemptID, state.RepairRunID, cycleNumber, "scope.json", &value); loadErr != nil {
+				return RepairSnapshot{}, loadErr
+			}
+			item.Scope = &value
+		}
+		if cycle.Reverification != nil {
+			var value RepairReverification
+			if loadErr := store.loadRepairCycleRecord(state.QAAttemptID, state.RepairRunID, cycleNumber, "reverification.json", &value); loadErr != nil {
+				return RepairSnapshot{}, loadErr
+			}
+			item.Reverification = &value
+		}
+		if cycle.Cleanup != nil {
+			var value RepairCleanup
+			if loadErr := store.loadRepairCycleRecord(state.QAAttemptID, state.RepairRunID, cycleNumber, "cleanup.json", &value); loadErr != nil {
+				return RepairSnapshot{}, loadErr
+			}
+			item.Cleanup = &value
+		}
+		out.Cycles = append(out.Cycles, item)
 	}
 	return out, nil
 }
@@ -471,8 +508,29 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	}
 	start := s.now().UTC()
 	runtimeResult, runErr := runtime.StartRun(lockedCtx, request)
+	runtimeCompleted := s.now().UTC()
 	state.Consumed.RuntimeAttempts++
 	state.Consumed.ModelTurns += int(runtimeResult.Usage.Turns)
+	runtimeEvents := runtimeResult.EventStats.Total
+	if runtimeEvents == 0 {
+		runtimeEvents = int64(len(runtimeResult.Events))
+	}
+	state.Runtime = &RepairRuntimeObservation{
+		Provider:          request.Provider,
+		Model:             request.Model,
+		Variant:           request.Metadata["variant"],
+		SessionID:         runtimeResult.SessionID,
+		Usage:             qaUsageSummary(runtimeResult.Usage),
+		StartedAt:         start,
+		CompletedAt:       runtimeCompleted,
+		Duration:          runtimeCompleted.Sub(start),
+		RuntimeEvents:     runtimeEvents,
+		RetainedEvents:    len(runtimeResult.Events),
+		ObservedToolCalls: qaObservedToolCalls(runtimeResult.Events),
+	}
+	if runtimeResult.EstimatedCost != nil && runtimeResult.EstimatedCost.Source != "unpriced" && (runtimeResult.EstimatedCost.Source != "" || runtimeResult.EstimatedCost.Amount != 0) {
+		state.Runtime.EstimatedCost = &QACostSummary{Amount: runtimeResult.EstimatedCost.Amount, Currency: runtimeResult.EstimatedCost.Currency, Estimate: runtimeResult.EstimatedCost.Estimate, Source: runtimeResult.EstimatedCost.Source}
+	}
 	if runErr != nil || lockedCtx.Err() != nil {
 		cleanup := workspace.Cleanup()
 		parentErr := os.Remove(parent)
@@ -556,6 +614,12 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	}
 	emitRepair(req.Progress, RepairProgress{Phase: RepairPhaseReverifying, Cycle: cycleNumber, Message: "Running progressive reverification"})
 	reverification, exactRemoved, requiredPassed := s.runRepairReverification(lockedCtx, packet, manifest.Target, flow, cycleNumber, req.Progress)
+	for _, gate := range reverification.Gates {
+		if gate.Status != RepairGateSkipped {
+			state.Consumed.Commands++
+			state.Consumed.OutputBytes += gate.OutputBytes
+		}
+	}
 	state.Phase = RepairPhaseCleaning
 	state.NextAction = "Prove workspace, process, target, and lease cleanup."
 	state.UpdatedAt = s.now().UTC()
@@ -567,7 +631,7 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	parentErr := os.Remove(parent)
 	parentRemoved = parentErr == nil || errors.Is(parentErr, fs.ErrNotExist)
 	finalTarget, targetErr := repairTargetIdentity(manifest.Target)
-	cleanup := &RepairCleanup{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: cycleNumber, ProcessTreeTerminated: cleanupResult.Complete, WorkspaceRemoved: cleanupResult.Complete && parentRemoved, CompensationKnown: true, TargetCurrent: targetErr == nil && finalTarget.Fingerprint == afterApply.Fingerprint, LeaseReleased: false, Duration: s.now().UTC().Sub(cleanupStarted), Diagnostic: strings.TrimSpace(strings.Join([]string{cleanupResult.Error, errorString(parentErr), errorString(targetErr)}, "; "))}
+	cleanup := &RepairCleanup{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: cycleNumber, ProcessTreeTerminated: cleanupResult.Complete, WorkspaceRemoved: cleanupResult.Complete && parentRemoved, CompensationKnown: true, TargetCurrent: targetErr == nil && finalTarget.Fingerprint == afterApply.Fingerprint, LeaseReleased: false, Duration: s.now().UTC().Sub(cleanupStarted), Diagnostic: joinRepairDiagnostics(cleanupResult.Error, errorString(parentErr), errorString(targetErr))}
 	cleanup.Complete = cleanup.ProcessTreeTerminated && cleanup.WorkspaceRemoved && cleanup.CompensationKnown && cleanup.TargetCurrent
 	progress := RepairProgressFact{ExactFailureRemoved: exactRemoved, IssueCountBefore: 1, IssueCountAfter: boolInt(!exactRemoved), SeverityBefore: packet.Issue.Severity, SeverityAfter: chooseSeverity(exactRemoved, "", packet.Issue.Severity)}
 	cycle := RepairCycle{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Number: cycleNumber, Progress: progress, StartedAt: start}
@@ -614,7 +678,7 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	if evidenceErr != nil {
 		return RepairResult{}, evidenceErr
 	}
-	result = RepairResult{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, Mode: packet.Mode, Outcome: outcome, Reason: repairOutcomeReason(outcome), StopReason: stop, Consumed: state.Consumed, Target: finalTarget, CleanupComplete: cleanup.Complete, ProductionApplied: state.Consumed.MutationCycles > 0, CompleteLadder: requiredPassed, UnresolvedIssues: unresolvedRepairIssues(packet, exactRemoved), Evidence: evidenceRefs, NextAction: repairOutcomeNextAction(outcome), CompletedAt: s.now().UTC()}
+	result = RepairResult{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: packet.QAAttemptID, RepairRunID: packet.RepairRunID, Mode: packet.Mode, Outcome: outcome, Reason: repairOutcomeReason(outcome), StopReason: stop, Consumed: state.Consumed, Runtime: state.Runtime, Target: finalTarget, CleanupComplete: cleanup.Complete, ProductionApplied: state.Consumed.MutationCycles > 0, CompleteLadder: requiredPassed, UnresolvedIssues: unresolvedRepairIssues(packet, exactRemoved), Evidence: evidenceRefs, NextAction: repairOutcomeNextAction(outcome), CompletedAt: s.now().UTC()}
 	state.UpdatedAt = result.CompletedAt
 	if err := store.PublishRepairResult(result, state, flow, req.WriterToken); err != nil {
 		return RepairResult{}, err
@@ -788,7 +852,7 @@ func (s Service) RecoverRepair(ctx context.Context, projectRef, sprintRef string
 	if evidenceErr != nil {
 		return RepairResult{}, evidenceErr
 	}
-	result := RepairResult{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: state.QAAttemptID, RepairRunID: state.RepairRunID, Mode: state.Mode, Outcome: outcome, Reason: reason, StopReason: stop, Consumed: state.Consumed, Target: currentTarget, CleanupComplete: cleanupComplete, ProductionApplied: productionApplied, CompleteLadder: false, UnresolvedIssues: []string{packet.Issue.ID}, Evidence: evidenceRefs, NextAction: repairOutcomeNextAction(outcome), CompletedAt: s.now().UTC()}
+	result := RepairResult{SchemaVersion: QARepairSchemaVersion, Project: sp.Project, Sprint: sp.Slug, QAAttemptID: state.QAAttemptID, RepairRunID: state.RepairRunID, Mode: state.Mode, Outcome: outcome, Reason: reason, StopReason: stop, Consumed: state.Consumed, Runtime: state.Runtime, Target: currentTarget, CleanupComplete: cleanupComplete, ProductionApplied: productionApplied, CompleteLadder: false, UnresolvedIssues: []string{packet.Issue.ID}, Evidence: evidenceRefs, NextAction: repairOutcomeNextAction(outcome), CompletedAt: s.now().UTC()}
 	state.UpdatedAt = result.CompletedAt
 	if err := store.PublishRepairResult(result, state, flow, req.WriterToken); err != nil {
 		return RepairResult{}, err
@@ -1459,7 +1523,7 @@ func (s Service) repairProposalRequest(packet RepairIssuePacket, workspace strin
 	request.Sandbox = "workspace_write"
 	request.Permissions = "restricted"
 	request.RequireCaps = appendUnique(request.RequireCaps, "permissions")
-	request.Policy = pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": "allow", "list": "allow", "search": "allow", "glob": "allow", "write": "allow", "edit": "allow", "patch": "allow", "bash": "deny", "shell": "deny"}, UnsupportedBehavior: "error"}
+	request.Policy = pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": "allow", "list": "allow", "search": "allow", "glob": "allow", "write": "allow", "edit": "allow", "patch": "allow", "bash": "deny", "shell": "deny"}}
 	for _, rel := range packet.AllowedPaths {
 		path := filepath.Join(workspace, filepath.FromSlash(rel))
 		if !inside(workspace, path) {
@@ -1609,6 +1673,7 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 				}
 				processResult, runErr := s.processRunner.Run(ctx, pprocess.Request{Executable: check.Executable, Args: append([]string(nil), check.Args...), Dir: workdir, Env: pprocess.SortedEnvironment(environment), Timeout: check.Timeout, StdoutLimit: check.OutputLimit, StderrLimit: check.OutputLimit, CleanupGrace: packet.Budgets.CleanupTimeout})
 				result.ExitCode = processResult.ExitCode
+				result.OutputBytes = len(processResult.Stdout) + len(processResult.Stderr)
 				result.OutputHash = hashBytes([]byte(processResult.Stdout + "\x00" + processResult.Stderr))
 				if runErr != nil || processResult.ExitCode != 0 {
 					result.Status, result.Reason, result.NextAction = RepairGateFailed, "frozen check did not pass", "Inspect retained check evidence and adjudicate the remaining failure."
@@ -1682,7 +1747,7 @@ func (s Service) finishRepairWithoutApply(store QAStore, state RepairState, flow
 	if evidenceErr != nil {
 		return RepairResult{}, errors.Join(cause, evidenceErr)
 	}
-	result := RepairResult{SchemaVersion: QARepairSchemaVersion, Project: state.Project, Sprint: state.Sprint, QAAttemptID: state.QAAttemptID, RepairRunID: state.RepairRunID, Mode: state.Mode, Outcome: outcome, Reason: detail, StopReason: stop, Consumed: state.Consumed, Target: packet.Target, CleanupComplete: false, UnresolvedIssues: []string{packet.Issue.ID}, Evidence: evidenceRefs, NextAction: repairOutcomeNextAction(outcome), CompletedAt: s.now().UTC()}
+	result := RepairResult{SchemaVersion: QARepairSchemaVersion, Project: state.Project, Sprint: state.Sprint, QAAttemptID: state.QAAttemptID, RepairRunID: state.RepairRunID, Mode: state.Mode, Outcome: outcome, Reason: detail, StopReason: stop, Consumed: state.Consumed, Runtime: state.Runtime, Target: packet.Target, CleanupComplete: false, UnresolvedIssues: []string{packet.Issue.ID}, Evidence: evidenceRefs, NextAction: repairOutcomeNextAction(outcome), CompletedAt: s.now().UTC()}
 	state.UpdatedAt = result.CompletedAt
 	if err := store.PublishRepairResult(result, state, flow, token); err != nil {
 		return RepairResult{}, errors.Join(cause, err)
@@ -1704,6 +1769,16 @@ func cleanupError(result pprocess.CleanupResult) error {
 		return nil
 	}
 	return errors.New(result.Error)
+}
+
+func joinRepairDiagnostics(values ...string) string {
+	clean := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			clean = append(clean, value)
+		}
+	}
+	return strings.Join(clean, "; ")
 }
 
 func sameRepairPaths(a, b []string) bool {

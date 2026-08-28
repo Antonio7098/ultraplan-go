@@ -99,35 +99,39 @@ type RepairRequest struct {
 }
 
 type RepairStatusResult struct {
-	SchemaVersion      int                        `json:"schema_version"`
-	Project            string                     `json:"project"`
-	Sprint             string                     `json:"sprint"`
-	Phase              string                     `json:"phase"`
-	Fresh              bool                       `json:"fresh"`
-	FreshnessReasons   []string                   `json:"freshness_reasons,omitempty"`
-	RepairRunID        string                     `json:"repair_run_id,omitempty"`
-	QAAttemptID        string                     `json:"qa_attempt_id,omitempty"`
-	OperationRunID     string                     `json:"operation_run_id,omitempty"`
-	OperationalAttempt string                     `json:"operational_attempt_id,omitempty"`
-	FencingGeneration  uint64                     `json:"fencing_generation,omitempty"`
-	RunLifecycle       string                     `json:"run_lifecycle,omitempty"`
-	Mode               string                     `json:"mode,omitempty"`
-	Packet             *RepairPacketSummary       `json:"packet,omitempty"`
-	Confirmation       *RepairConfirmSummary      `json:"confirmation,omitempty"`
-	CurrentCycle       int                        `json:"current_cycle,omitempty"`
-	EarliestCycle      int                        `json:"earliest_cycle,omitempty"`
-	Outcome            string                     `json:"outcome,omitempty"`
-	StopReason         string                     `json:"stop_reason,omitempty"`
-	CleanupComplete    bool                       `json:"cleanup_complete"`
-	ProductionApplied  bool                       `json:"production_applied"`
-	CompleteLadder     bool                       `json:"complete_ladder"`
-	UnresolvedIssues   []string                   `json:"unresolved_issues,omitempty"`
-	Deadline           time.Time                  `json:"deadline,omitempty"`
-	UpdatedAt          time.Time                  `json:"updated_at,omitempty"`
-	NextAction         string                     `json:"next_action"`
-	Reason             string                     `json:"reason,omitempty"`
-	Blocker            *QABlockerSummary          `json:"blocker,omitempty"`
-	EffectiveSources   []sprint.QAEffectiveSource `json:"effective_sources,omitempty"`
+	SchemaVersion      int                              `json:"schema_version"`
+	Project            string                           `json:"project"`
+	Sprint             string                           `json:"sprint"`
+	Phase              string                           `json:"phase"`
+	Fresh              bool                             `json:"fresh"`
+	FreshnessReasons   []string                         `json:"freshness_reasons,omitempty"`
+	RepairRunID        string                           `json:"repair_run_id,omitempty"`
+	QAAttemptID        string                           `json:"qa_attempt_id,omitempty"`
+	OperationRunID     string                           `json:"operation_run_id,omitempty"`
+	OperationalAttempt string                           `json:"operational_attempt_id,omitempty"`
+	FencingGeneration  uint64                           `json:"fencing_generation,omitempty"`
+	RunLifecycle       string                           `json:"run_lifecycle,omitempty"`
+	Mode               string                           `json:"mode,omitempty"`
+	Packet             *RepairPacketSummary             `json:"packet,omitempty"`
+	Confirmation       *RepairConfirmSummary            `json:"confirmation,omitempty"`
+	CurrentCycle       int                              `json:"current_cycle,omitempty"`
+	EarliestCycle      int                              `json:"earliest_cycle,omitempty"`
+	Outcome            string                           `json:"outcome,omitempty"`
+	StopReason         string                           `json:"stop_reason,omitempty"`
+	CleanupComplete    bool                             `json:"cleanup_complete"`
+	ProductionApplied  bool                             `json:"production_applied"`
+	CompleteLadder     bool                             `json:"complete_ladder"`
+	UnresolvedIssues   []string                         `json:"unresolved_issues,omitempty"`
+	Deadline           time.Time                        `json:"deadline,omitempty"`
+	UpdatedAt          time.Time                        `json:"updated_at,omitempty"`
+	NextAction         string                           `json:"next_action"`
+	Reason             string                           `json:"reason,omitempty"`
+	Blocker            *QABlockerSummary                `json:"blocker,omitempty"`
+	EffectiveSources   []sprint.QAEffectiveSource       `json:"effective_sources,omitempty"`
+	Consumed           sprint.RepairConsumed            `json:"consumed"`
+	Runtime            *sprint.RepairRuntimeObservation `json:"runtime,omitempty"`
+	Cycles             []sprint.RepairCycleSnapshot     `json:"cycles,omitempty"`
+	ResultDetail       *sprint.RepairResult             `json:"repair_result,omitempty"`
 }
 
 type RepairPacketSummary struct {
@@ -870,6 +874,9 @@ func repairSnapshotProjection(snapshot sprint.RepairSnapshot) RepairStatusResult
 		UpdatedAt:          state.UpdatedAt,
 		NextAction:         displaySafe(state.NextAction),
 		Blocker:            qaBlockerProjection(state.Blocker),
+		Consumed:           state.Consumed,
+		Runtime:            state.Runtime,
+		Cycles:             append([]sprint.RepairCycleSnapshot(nil), snapshot.Cycles...),
 	}
 	if packet := snapshot.Packet; packet != nil {
 		out.Packet = &RepairPacketSummary{
@@ -900,6 +907,10 @@ func repairSnapshotProjection(snapshot sprint.RepairSnapshot) RepairStatusResult
 		out.UnresolvedIssues = append([]string(nil), result.UnresolvedIssues...)
 		out.NextAction = displaySafe(result.NextAction)
 		out.Reason = displaySafe(result.Reason)
+		out.Consumed = result.Consumed
+		out.Runtime = result.Runtime
+		copyResult := *result
+		out.ResultDetail = &copyResult
 	}
 	return out
 }
