@@ -217,6 +217,44 @@ func TestReviewOverrideSplitsNestedOpenRouterModel(t *testing.T) {
 	}
 }
 
+func TestFocusedReviewReusesValidatedCoverageFromIncompleteAttempt(t *testing.T) {
+	root, sp := reviewFixture(t)
+	runtime := &reviewRuntime{}
+	service := NewService(root).WithRuntime(runtime)
+	completed, err := service.Review(context.Background(), "proj", "01", ReviewRequest{ModelOverride: "openrouter/minimax/minimax-m3:free"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, findings, err := service.PrepareReview("proj", "01", ReviewRequest{ModelOverride: "openrouter/minimax/minimax-m3:free"})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("prepare: err=%v findings=%+v", err, findings)
+	}
+	state, err := LoadFlowState(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoints := make([]ReviewCoverageCheckpoint, 0, len(completed.Coverage))
+	now := time.Now().UTC()
+	for _, result := range completed.Coverage {
+		copy := result
+		checkpoints = append(checkpoints, ReviewCoverageCheckpoint{CoverageID: result.CoverageID, Status: AttemptCompleted, UpdatedAt: now, Result: &copy})
+	}
+	failedID := manifest.Coverage[0].ID
+	checkpoints[0].Status, checkpoints[0].Result = AttemptFailed, nil
+	state.Review.LastComplete = nil
+	state.Review.Resume = &ReviewResumeState{AttemptID: "review-attempt", InputFingerprint: manifest.Fingerprint, Model: manifest.Model, UpdatedAt: now, Coverage: checkpoints}
+	if err := SaveFlowState(root, sp, state); err != nil {
+		t.Fatal(err)
+	}
+	focused, err := service.Review(context.Background(), "proj", "01", ReviewRequest{Focus: []string{failedID}, ModelOverride: manifest.Model})
+	if err != nil || focused.Verdict != ReviewPass || len(focused.Coverage) != len(manifest.Coverage) {
+		t.Fatalf("focused result=%+v err=%v", focused, err)
+	}
+	if runtime.calls != len(manifest.Coverage)+1 {
+		t.Fatalf("runtime calls=%d want %d", runtime.calls, len(manifest.Coverage)+1)
+	}
+}
+
 func TestReviewFingerprintIgnoresSmokeOnlyProjectIndexChanges(t *testing.T) {
 	root, _ := reviewFixture(t)
 	indexPath := filepath.Join(root, "projects", "proj", "project-index.md")

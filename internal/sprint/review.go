@@ -472,14 +472,21 @@ func (s Service) Review(ctx context.Context, projectRef, sprintRef string, req R
 	}
 	result.Status = ReviewRunning
 	result.Restarted = req.Restart
+	var runCoverage []ReviewInput
+	var coverage []ReviewCoverageResult
+	if len(req.Focus) > 0 {
+		runCoverage, coverage, err = s.reviewCoveragePlan(projectRef, sprintRef, m, req.Focus)
+		if err != nil {
+			result.Status, result.Verdict = ReviewBlocked, ReviewVerdictBlocked
+			result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "focus", Message: safeReviewText(s.root, err.Error())})
+			return s.persistReviewFailure(projectRef, sprintRef, result, 0, len(m.Coverage), err)
+		}
+	}
 	if err := s.saveReviewState(projectRef, sprintRef, result, 0, len(m.Coverage)); err != nil {
 		return result, err
 	}
-	runCoverage, coverage, focusErr := s.reviewCoveragePlan(projectRef, sprintRef, m, req.Focus)
-	if focusErr != nil {
-		result.Status, result.Verdict = ReviewBlocked, ReviewVerdictBlocked
-		result.Diagnostics = append(result.Diagnostics, ReviewDiagnostic{Code: "focus", Message: safeReviewText(s.root, focusErr.Error())})
-		return s.persistReviewFailure(projectRef, sprintRef, result, 0, len(m.Coverage), focusErr)
+	if len(req.Focus) == 0 {
+		runCoverage, coverage = m.Coverage, make([]ReviewCoverageResult, len(m.Coverage))
 	}
 	resumeSessions := map[string]string{}
 	completed := 0
@@ -705,16 +712,23 @@ func (s Service) reviewCoveragePlan(projectRef, sprintRef string, m ReviewManife
 		}
 	}
 	state, err := LoadFlowState(s.root, Sprint{Project: m.Project, Slug: m.Sprint, Path: filepath.Join(s.root, filepath.FromSlash(m.SprintRoot))})
-	if err != nil || state.Review == nil || state.Review.LastComplete == nil {
-		return nil, nil, fmt.Errorf("focused review requires a previous complete review with retained coverage")
-	}
-	previous := state.Review.LastComplete
-	if previous.InputFingerprint != m.Fingerprint {
-		return nil, nil, fmt.Errorf("focused review cannot retain coverage from a different input fingerprint")
-	}
 	retained := map[string]ReviewCoverageResult{}
-	for _, item := range previous.Coverage {
-		retained[item.CoverageID] = item
+	if err != nil || state.Review == nil {
+		return nil, nil, fmt.Errorf("focused review requires same-fingerprint retained coverage")
+	}
+	if previous := state.Review.LastComplete; previous != nil && previous.InputFingerprint == m.Fingerprint {
+		for _, item := range previous.Coverage {
+			retained[item.CoverageID] = item
+		}
+	} else if resume := state.Review.Resume; resume != nil && resume.InputFingerprint == m.Fingerprint && resume.Model == m.Model {
+		for _, checkpoint := range resume.Coverage {
+			if checkpoint.Status != AttemptCompleted || checkpoint.Result == nil || !reviewCoverageCheckpointValid(s.root, m, *checkpoint.Result) {
+				continue
+			}
+			retained[checkpoint.CoverageID] = *checkpoint.Result
+		}
+	} else {
+		return nil, nil, fmt.Errorf("focused review cannot retain coverage from a different input fingerprint or model")
 	}
 	var run []ReviewInput
 	for i, item := range m.Coverage {
