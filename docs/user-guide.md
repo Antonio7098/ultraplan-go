@@ -377,13 +377,15 @@ UltraPlan accepts the durable operation before confirmation and dispatch. One ru
 
 Use `repair status`, `packet`, `cycles`, and `result` for bounded inspection. Cancel with the durable operation ID shown by status. After interruption, `repair resume` reconciles the last durable boundary without replaying a proposal or apply. `repair recover` uses the same runtime-free compensation path. Do not edit verification JSON or apply a retained patch manually. Automatic mode requires a current qualifying manual proof and explicit opt-in on both prepare and start.
 
-To process all current promoted issues with the configured assignment policy, start a repair campaign:
+To process all current promoted issues with the configured assignment policy, start a repair campaign. In UltraPlan vocabulary, an assignment is an adjudication-time issue queue, a repair run handles one issue, and a campaign is the durable coordinator that executes all current assignments:
 
 ```bash
 ultraplan sprint <project> <sprint> repair campaign --confirmer "$USER" --yes --json
 ```
 
-With `qa.repair_assignment_mode: grouped`, UltraPlan partitions similar issues into queues of at most `qa.issues_per_repair_agent` items and reuses one repair model session for each queue. Repairs are still issue-scoped and mutations run serially. Each item gets a fresh adjudication match, immutable packet, independent repair run, and complete verification ladder. A campaign requires the same qualifying manual proof as automatic repair and stops at the first failed item.
+With `qa.repair_assignment_mode: grouped`, UltraPlan partitions similar issues into queues of at most `qa.issues_per_repair_agent` items and reuses one repair model session for each queue. Repairs remain issue-scoped and mutations run serially. Each item gets a fresh adjudication match, immutable packet, isolated copy, independent repair run, scoped verification, result, and cleanup. The campaign does not give a worker one combined multi-issue packet.
+
+An intermediate issue in a multi-issue queue can finish as `verified_pending_campaign`. Its scoped gates, production apply, and cleanup passed, while containing smoke remains deferred. The final issue must pass the full ladder, including containing smoke, before the campaign completes. The pending outcome is not standalone success. A campaign requires the same qualifying manual proof as automatic repair and stops at the first failed item.
 
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`. A project may override only the area-reasoning prompt, final-reasoning prompt, and final-reasoning template. Project status reports which source is effective.
 

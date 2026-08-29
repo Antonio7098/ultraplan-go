@@ -158,6 +158,10 @@ The runtime proposes in a disposable isolated copy. Product code derives the pat
 
 Repair state uses strict schema v1 records under the current QA attempt, private `0700` directories and `0600` files, immutable create-or-compare records, digest-bound pointers, writer checks before every write and rename, a mutation lease, and a `terminalizing` barrier before lease release and result publication. Recovery compares production bytes only with journaled preimage and postimage digests and compensates an exact postimage from the retained private preimage. Drift or ambiguity escalates; process absence, patch presence, and target bytes never imply success. Automatic admission requires a qualifying current real manual proof and explicit opt-in.
 
+A repair assignment is the adjudication-time plan for an ordered queue of issue IDs. A repair run handles exactly one issue from that queue. A repair campaign is the durable execution that coordinates all assignments from one adjudication. It creates one worker per assignment, reuses one model session within each worker queue, and processes repository mutations serially. The campaign never combines issues into one repair packet or mutation cycle. Each issue receives a fresh packet, isolated copy, repair run, scoped verification, result, and cleanup.
+
+For a multi-issue queue, an intermediate issue may finish as `verified_pending_campaign`. This means its scoped gates passed and its production apply and cleanup completed, but the repaired-target containing smoke gate is deferred until the last issue in the queue. The final issue must complete the full ladder, including containing smoke, before the campaign can complete. A pending outcome is not standalone repair success and cannot complete a campaign by itself.
+
 The dependency direction remains `internal/web` → `internal/app` → `internal/sprint`; web does not import sprint, inspect verification files, build prompts, invoke runtimes, or decide outcomes.
 
 ## Deferred Phase 4 Capabilities

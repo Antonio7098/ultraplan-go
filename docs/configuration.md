@@ -128,13 +128,16 @@ repair verification gates remain product-owned deterministic work.
 the compatibility default and requires `issues_per_repair_agent: 1`. `grouped`
 accepts 1 through 16. Adjudication records root-cause grouping suggestions and
 creates `ceil(repair-eligible issues / issues_per_repair_agent)` sequential
-worker queues. The repair campaign creates one reusable model session per
-non-empty queue and processes production mutations serially. After a verified
-repair, UltraPlan reruns evidence-producing QA before it resolves and freezes
-the next issue. Every queue item receives one frozen issue packet, one isolated
-repair run, and its own verification ladder. A worker never receives a
-multi-issue patch packet. Campaign admission requires a qualifying manual repair
-proof and explicit confirmation.
+worker queues. These queues are repair assignments. A repair run handles one
+issue. A repair campaign is the durable coordinator that executes all current
+assignments. It creates one reusable model session per non-empty queue and
+processes production mutations serially. Every queue item receives a fresh
+adjudication match, frozen issue packet, isolated repair run, scoped gates,
+result, and cleanup. A worker never receives a multi-issue patch packet.
+Intermediate items may record `verified_pending_campaign` and defer containing
+smoke. The final item must pass the full ladder before the campaign completes.
+Campaign admission requires a qualifying manual repair proof and explicit
+confirmation.
 
 ## Environment Overrides
 
