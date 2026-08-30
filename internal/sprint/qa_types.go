@@ -1022,6 +1022,7 @@ type QASemanticIdentity struct {
 	ImplementationFingerprint string   `json:"implementation_fingerprint"`
 	ReviewFingerprint         string   `json:"review_fingerprint"`
 	PolicyFingerprint         string   `json:"policy_fingerprint"`
+	FoundationFingerprint     string   `json:"foundation_fingerprint,omitempty"`
 	ChangedPaths              []string `json:"changed_paths"`
 }
 

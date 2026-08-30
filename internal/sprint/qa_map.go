@@ -223,7 +223,11 @@ func BuildQAMap(input QAMapInput) (QAMap, error) {
 			return QAMap{}, NewQAError(QAErrorInvalidState, "map", err.Error(), err)
 		}
 	}
-	identity := QASemanticIdentity{GovernedInputFingerprint: input.GovernedInputFingerprint, ImplementationFingerprint: input.ImplementationFingerprint, ReviewFingerprint: input.ReviewFingerprint, PolicyFingerprint: input.PolicyFingerprint, ChangedPaths: paths}
+	foundationFingerprint := ""
+	if input.Foundation != nil {
+		foundationFingerprint = input.Foundation.Fingerprint
+	}
+	identity := QASemanticIdentity{GovernedInputFingerprint: input.GovernedInputFingerprint, ImplementationFingerprint: input.ImplementationFingerprint, ReviewFingerprint: input.ReviewFingerprint, PolicyFingerprint: input.PolicyFingerprint, FoundationFingerprint: foundationFingerprint, ChangedPaths: paths}
 	attemptID, err := NewQASemanticAttemptID(input.Project, input.Sprint, identity)
 	if err != nil {
 		return QAMap{}, err

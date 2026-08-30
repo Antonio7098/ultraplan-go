@@ -102,3 +102,23 @@ func TestInvestigatorTheoryMaximumIsInclusive(t *testing.T) {
 		t.Fatal("one theory above the configured maximum must be rejected")
 	}
 }
+
+func TestFoundationFingerprintChangesSemanticAttemptIdentity(t *testing.T) {
+	input := qaMapInputFixture()
+	first := &QAFoundation{Fingerprint: strings.Repeat("a", 64)}
+	second := &QAFoundation{Fingerprint: strings.Repeat("b", 64)}
+	firstIdentity := QASemanticIdentity{GovernedInputFingerprint: input.GovernedInputFingerprint, ImplementationFingerprint: input.ImplementationFingerprint, ReviewFingerprint: input.ReviewFingerprint, PolicyFingerprint: input.PolicyFingerprint, FoundationFingerprint: first.Fingerprint, ChangedPaths: input.ChangedPaths}
+	secondIdentity := firstIdentity
+	secondIdentity.FoundationFingerprint = second.Fingerprint
+	firstID, err := NewQASemanticAttemptID(input.Project, input.Sprint, firstIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := NewQASemanticAttemptID(input.Project, input.Sprint, secondIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstID == secondID {
+		t.Fatal("foundation changes must produce a distinct semantic attempt")
+	}
+}
