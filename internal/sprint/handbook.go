@@ -27,6 +27,7 @@ type HandbookManifest struct {
 	SprintIndexPath  string
 	OutputPath       string
 	Evidence         []EvidenceEntry
+	ProjectReasoning []SelectedItem
 }
 
 func BuildHandbookManifest(root string, sp Sprint, inputs PlanningInputs, catalog project.ProjectIndex) (HandbookManifest, []ValidationFinding) {
@@ -40,6 +41,7 @@ func BuildHandbookManifest(root string, sp Sprint, inputs PlanningInputs, catalo
 		SprintIndexPath:  ArtifactRelPath(sp, StageSprintIndex),
 		OutputPath:       ArtifactRelPath(sp, StageTechnicalHandbook),
 	}
+	manifest.ProjectReasoning = append(manifest.ProjectReasoning, index.ProjectReasoning...)
 	seen := map[string]bool{}
 	for _, selected := range index.EvidenceReports {
 		key := strings.ToLower(selected.Name + "\x00" + selected.Path)
@@ -93,6 +95,9 @@ func ValidateTechnicalHandbookContent(content string, manifest HandbookManifest)
 	}
 	sections := markdownSections(content)
 	required := []string{"Selected Studies And Reports", "Relevant Patterns", "Trade-Offs", "Anti-Patterns And Warnings", "Open Questions For Reasoning", "Evidence Pointers"}
+	if len(manifest.ProjectReasoning) > 0 {
+		required = append(required, "Project Reasoning Applied")
+	}
 	for _, section := range required {
 		if strings.TrimSpace(sections[section]) == "" {
 			findings = append(findings, finding(section, "", "", "missing required section", "section was not found or has no content", "Add evidence-backed handbook content for this section."))

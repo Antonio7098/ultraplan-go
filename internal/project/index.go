@@ -8,6 +8,8 @@ import (
 )
 
 var recognizedSections = map[string]CatalogSection{
+	string(SectionProjectReasoningPolicy):     SectionProjectReasoningPolicy,
+	string(SectionProjectReasoningTemplates):  SectionProjectReasoningTemplates,
 	string(SectionSourceDocuments):            SectionSourceDocuments,
 	string(SectionActiveContractPool):         SectionActiveContractPool,
 	string(SectionAvailableEvidenceReports):   SectionAvailableEvidenceReports,
@@ -41,6 +43,23 @@ func ParseProjectIndex(content string) (ProjectIndex, []ValidationFinding) {
 			headers = cells
 			continue
 		}
+		if section == SectionProjectReasoningPolicy {
+			row := rowMap(headers, cells)
+			setting, value := strings.ToLower(trimInlineCode(row["setting"])), strings.ToLower(trimInlineCode(row["value"]))
+			switch setting {
+			case "mode":
+				if value != string(ProjectReasoningOptional) && value != string(ProjectReasoningRequired) {
+					findings = append(findings, ValidationFinding{Severity: SeverityError, Section: section, Problem: "invalid project reasoning mode", Cause: fmt.Sprintf("line %d: expected optional or required", i+1), Suggestion: "Set Mode to optional or required."})
+				} else {
+					index.ProjectReasoningPolicy.Mode = ProjectReasoningMode(value)
+				}
+			case "required review verdict":
+				index.ProjectReasoningPolicy.RequiredReviewVerdict = value
+			default:
+				findings = append(findings, ValidationFinding{Severity: SeverityError, Section: section, Problem: "unknown project reasoning setting", Cause: fmt.Sprintf("line %d: %s", i+1, setting), Suggestion: "Use Mode or Required Review Verdict."})
+			}
+			continue
+		}
 		entry, err := entryFromRow(section, headers, cells)
 		if err != nil {
 			findings = append(findings, ValidationFinding{
@@ -57,13 +76,18 @@ func ParseProjectIndex(content string) (ProjectIndex, []ValidationFinding) {
 	return index, findings
 }
 
-func entryFromRow(section CatalogSection, headers, cells []string) (CatalogEntry, error) {
+func rowMap(headers, cells []string) map[string]string {
 	row := map[string]string{}
 	for i, h := range headers {
 		if i < len(cells) {
 			row[strings.ToLower(strings.TrimSpace(h))] = cells[i]
 		}
 	}
+	return row
+}
+
+func entryFromRow(section CatalogSection, headers, cells []string) (CatalogEntry, error) {
+	row := rowMap(headers, cells)
 	name := firstNonEmpty(row["document"], row["contract"], row["report"], row["template"], row["protocol"], row["decision"], row["harness"])
 	path := firstNonEmpty(row["path"], row["output path"])
 	if name == "" {

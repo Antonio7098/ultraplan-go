@@ -36,7 +36,7 @@ type SkillsPlan struct {
 }
 
 func StageSkills() []StageSkill {
-	return []StageSkill{
+	skills := []StageSkill{
 		{
 			Stage:            "reconcile",
 			Name:             "ultraplan-reconcile-review-smoke",
@@ -246,6 +246,31 @@ After the user confirms the Git mutation, run:
 If an interrupted conflict reconciliation is resumable, use ` + "`merge continue --yes`" + `. Use ` + "`merge abort --yes`" + ` only when the user explicitly asks to discard the active merge. Do not run Git merge, add, commit, reset, checkout, branch, or push commands yourself.`,
 		},
 	}
+	for _, stage := range []struct{ key, display, description string }{
+		{"project-reasoning-index", "UltraPlan Project Reasoning Index", "Select project decision areas and assign governed evidence"},
+		{"project-area-reasoning", "UltraPlan Project Area Reasoning", "Run selected project decision areas in dependency order"},
+		{"project-final-reasoning", "UltraPlan Project Final Reasoning", "Synthesize the accepted project contract"},
+		{"project-reasoning-review", "UltraPlan Project Reasoning Review", "Adversarially review and accept project reasoning"},
+	} {
+		cliStage := strings.TrimPrefix(stage.key, "project-")
+		if stage.key == "project-final-reasoning" {
+			cliStage = "reasoning"
+		}
+		if stage.key == "project-reasoning-review" {
+			cliStage = "review"
+		}
+		skills = append(skills, StageSkill{Stage: stage.key, Name: "ultraplan-" + stage.key, DisplayName: stage.display, ShortDescription: stage.description, CanonicalFlow: true, Prerequisites: []string{"a project-index.md with project reasoning policy and template catalog"}, Prompt: "# Project Reasoning\n\nRun the selected project-wide reasoning stage through UltraPlan's governed project reasoning lifecycle.", StageWorkflow: fmt.Sprintf(`Resolve the project from the supplied project path or explicit reference, then inspect:
+
+    ultraplan project <project> reasoning status
+    ultraplan project <project> reasoning prompt %s
+
+Run exactly this stage and its unmet prerequisites through the resumable canonical flow:
+
+    ultraplan project <project> reasoning flow --to %s
+
+Then run `+"`ultraplan project <project> reasoning validate`"+` and report outputs, freshness, verdict, and blockers. Do not write generated project reasoning under the sprint-template `+"`projects/<project>/reasoning/`"+` directory.`, cliStage, cliStage)})
+	}
+	return skills
 }
 
 func ResolveStageSkills(selection string) ([]StageSkill, error) {
@@ -372,6 +397,9 @@ func stageSkillFiles(skills []StageSkill) map[string]string {
 }
 
 func renderStageSkill(skill StageSkill) string {
+	if strings.HasPrefix(skill.Stage, "project-") {
+		return renderProjectReasoningStageSkill(skill)
+	}
 	prerequisites := make([]string, 0, len(skill.Prerequisites))
 	for _, prerequisite := range skill.Prerequisites {
 		prerequisites = append(prerequisites, "- "+prerequisite)
@@ -449,6 +477,31 @@ The current resolved CLI prompt wins over this embedded baseline.
 
 %s
 `, skill.Name, skill.Stage, skill.Name, skill.DisplayName, targetResolutionRule, stateRule, strings.Join(prerequisites, "\n"), prerequisiteRule, ownerRule, promptStep, validationStep, skill.StageWorkflow, strings.TrimSpace(skill.Prompt))
+}
+
+func renderProjectReasoningStageSkill(skill StageSkill) string {
+	return fmt.Sprintf(`---
+name: %s
+description: Manually run this exact UltraPlan project reasoning stage. Use only when the user explicitly invokes $%s or directly asks to run this stage; do not invoke implicitly.
+---
+
+# %s
+
+1. Resolve the UltraPlan workspace and project from the supplied path or explicit reference.
+2. Run commands from the workspace root. Inspect `+"`ultraplan project <project> reasoning status`"+` first.
+3. Check the project reasoning policy, manifest, selected templates, assigned evidence, source documents, dependencies, and current fingerprints. Never write project outputs under `+"`projects/<project>/reasoning/`"+`; that directory contains sprint reasoning templates.
+4. Use the canonical commands in the workflow below. The CLI owns reference resolution, containment checks, candidate promotion, fingerprints, resumability, freshness, and verdict state. Do not reproduce those transitions by hand.
+5. If the target is already complete and current, report that state and ask before regenerating it.
+6. Finish with output paths, validation results, freshness, verdict, and the exact recovery command for any blocker.
+
+## Stage workflow
+
+%s
+
+## Canonical stage prompt
+
+%s
+`, skill.Name, skill.Name, skill.DisplayName, skill.StageWorkflow, strings.TrimSpace(skill.Prompt))
 }
 
 func renderStageSkillMetadata(skill StageSkill) string {

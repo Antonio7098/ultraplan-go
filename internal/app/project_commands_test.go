@@ -50,7 +50,7 @@ func TestProjectListStatusAndValidate(t *testing.T) {
 	assertContains(t, stdout, "Markdown docs: 1")
 	assertContains(t, stdout, "Reasoning defaults:")
 	assertContains(t, stdout, "prompts/create-area-reasoning.md: builtin:prompts/create-area-reasoning.md")
-	assertContains(t, stdout, "Project area reasoning documents: 0")
+	assertContains(t, stdout, "Sprint reasoning templates: 0")
 	assertContains(t, stdout, "Catalog: ok")
 
 	stdout, stderr, status = runForTest([]string{"--workspace", dir, "project", "alpha", "validate"})

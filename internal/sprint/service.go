@@ -510,6 +510,13 @@ func (s Service) ValidatePlan(projectRef, sprintRef string) (ValidationResult, e
 		}
 	}
 	sortSprintFindings(findings)
+	if len(findings) == 0 {
+		if selected, parseFindings := ParseSprintIndex(inputs.SprintIndex); len(parseFindings) == 0 {
+			if err := s.writeProjectReasoningLock(sp, selected); err != nil {
+				return ValidationResult{}, err
+			}
+		}
+	}
 	return ValidationResult{Project: sp.Project, Sprint: sp.Slug, Artifact: workspace.Rel(s.root, path), Findings: findings}, nil
 }
 
@@ -960,6 +967,9 @@ func (s Service) FlowReasoning(ctx context.Context, projectRef, sprintRef string
 }
 
 func (s Service) resolveSprintInputs(projectRef, sprintRef string) (Sprint, PlanningInputs, project.ProjectIndex, error) {
+	if err := project.NewService(s.root).RequireAcceptedReasoning(projectRef); err != nil {
+		return Sprint{}, PlanningInputs{}, project.ProjectIndex{}, err
+	}
 	return s.resolveSprintInputsWithCreate(projectRef, sprintRef, false)
 }
 
@@ -1006,6 +1016,9 @@ func (s Service) resolveSprintInputsWithCreate(projectRef, sprintRef string, cre
 }
 
 func (s Service) resolveSprintForRequirements(projectRef, sprintRef string, createMissing bool) (Sprint, project.ProjectIndex, []string, error) {
+	if err := project.NewService(s.root).RequireAcceptedReasoning(projectRef); err != nil {
+		return Sprint{}, project.ProjectIndex{}, nil, err
+	}
 	projects, err := project.DiscoverProjects(s.root)
 	if err != nil {
 		return Sprint{}, project.ProjectIndex{}, nil, err
@@ -1050,6 +1063,9 @@ func (s Service) resolveSprintForRequirements(projectRef, sprintRef string, crea
 // CreateWorkspace materializes the sprint directory for a project and slug
 // without running any flow stage. An existing sprint is returned unchanged.
 func (s Service) CreateWorkspace(projectRef, sprintRef string) (Sprint, error) {
+	if err := project.NewService(s.root).RequireAcceptedReasoning(projectRef); err != nil {
+		return Sprint{}, err
+	}
 	projects, err := project.DiscoverProjects(s.root)
 	if err != nil {
 		return Sprint{}, err

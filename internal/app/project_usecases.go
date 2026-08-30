@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 
 	"github.com/Antonio7098/ultraplan-go/internal/project"
@@ -18,6 +19,7 @@ type ProjectSummary struct {
 	Catalog                string
 	ReasoningDefaults      []project.ReasoningDefault
 	AreaReasoningDocuments []string
+	ProjectReasoning       project.ProjectReasoningStatus
 	Findings               []DisplayFinding
 	Artifacts              []DisplayArtifact
 }
@@ -50,6 +52,7 @@ func (u dashboardUseCases) ProjectSummaries(ctx context.Context) ([]ProjectSumma
 			Catalog:                string(status.Catalog),
 			ReasoningDefaults:      append([]project.ReasoningDefault(nil), status.ReasoningDefaults...),
 			AreaReasoningDocuments: append([]string(nil), status.AreaReasoningDocuments...),
+			ProjectReasoning:       status.ProjectReasoning,
 			Artifacts: []DisplayArtifact{
 				{Label: "project-index", Path: workspace.Rel(u.root, filepath.Join(p.Path, "project-index.md")), Kind: "markdown"},
 				{Label: "roadmap", Path: workspace.Rel(u.root, filepath.Join(p.Path, "roadmap.md")), Kind: "markdown"},
@@ -60,6 +63,11 @@ func (u dashboardUseCases) ProjectSummaries(ctx context.Context) ([]ProjectSumma
 		}
 		for _, doc := range status.AreaReasoningDocuments {
 			summary.Artifacts = append(summary.Artifacts, DisplayArtifact{Label: "area-reasoning", Path: doc, Kind: "markdown"})
+		}
+		for _, doc := range status.ProjectReasoning.Outputs {
+			if info, statErr := os.Stat(filepath.Join(u.root, filepath.FromSlash(doc))); statErr == nil && !info.IsDir() {
+				summary.Artifacts = append(summary.Artifacts, DisplayArtifact{Label: "project-reasoning", Path: doc, Kind: "markdown"})
+			}
 		}
 		for _, f := range status.ValidationFinds {
 			summary.Findings = append(summary.Findings, projectFinding(f))

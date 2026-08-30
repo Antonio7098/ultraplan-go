@@ -13,6 +13,7 @@ type SprintIndex struct {
 	Contracts          []SelectedItem
 	EvidenceReports    []SelectedItem
 	ReasoningTemplates []SelectedItem
+	ProjectReasoning   []SelectedItem
 	ReviewProtocols    []SelectedItem
 	ExcludedContexts   []SelectedItem
 	NoTemplates        bool
@@ -28,6 +29,7 @@ var sprintIndexSections = map[string]string{
 	"Selected Contracts":           "contracts",
 	"Selected Evidence Reports":    "evidence",
 	"Selected Reasoning Templates": "templates",
+	"Selected Project Reasoning":   "project-reasoning",
 	"Required Review Protocols":    "protocols",
 	"Excluded Context":             "excluded",
 }
@@ -111,6 +113,8 @@ func ParseSprintIndex(content string) (SprintIndex, []ValidationFinding) {
 			index.EvidenceReports = append(index.EvidenceReports, item)
 		case "templates":
 			index.ReasoningTemplates = append(index.ReasoningTemplates, item)
+		case "project-reasoning":
+			index.ProjectReasoning = append(index.ProjectReasoning, item)
 		case "protocols":
 			index.ReviewProtocols = append(index.ReviewProtocols, item)
 		case "excluded":
@@ -153,7 +157,7 @@ func selectedFromRow(section string, headers, cells []string) (SelectedItem, err
 		}
 	}
 	item := SelectedItem{
-		Name: trimCell(first(row["contract"], row["report"], row["template"], row["protocol"], row["context"], row["decision"])),
+		Name: trimCell(first(row["contract"], row["report"], row["template"], row["protocol"], row["context"], row["decision"], row["document"])),
 		Path: trimCell(first(row["path"], row["output path"])),
 		Why:  trimCell(first(row["why selected"], row["covers"], row["required evidence"], row["reason excluded"], row["constraint for this sprint"])),
 	}
@@ -232,6 +236,8 @@ func sectionName(section string) string {
 		return "Required Review Protocols"
 	case "excluded":
 		return "Excluded Context"
+	case "project-reasoning":
+		return "Selected Project Reasoning"
 	default:
 		return section
 	}

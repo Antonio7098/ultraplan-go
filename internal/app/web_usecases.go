@@ -167,20 +167,21 @@ type WebArtifactLink struct {
 }
 
 type WebProjectResult struct {
-	Ref            string
-	Name           string
-	Docs           []string
-	Findings       []DisplayFinding
-	Artifacts      []WebArtifactLink
-	Sprints        []WebSprintResult
-	Roadmap        []WebRoadmapPhase
-	SprintCounts   CollectionInfo
-	Brief          WebProjectBrief
-	Documents      []WebDocumentPreview
-	Delivered      int
-	Active         int
-	Planned        int
-	NeedsAttention int
+	Ref              string
+	Name             string
+	Docs             []string
+	Findings         []DisplayFinding
+	Artifacts        []WebArtifactLink
+	Sprints          []WebSprintResult
+	Roadmap          []WebRoadmapPhase
+	SprintCounts     CollectionInfo
+	Brief            WebProjectBrief
+	Documents        []WebDocumentPreview
+	Delivered        int
+	Active           int
+	Planned          int
+	NeedsAttention   int
+	ProjectReasoning project.ProjectReasoningStatus
 }
 
 type WebProjectBrief struct {
@@ -1396,12 +1397,13 @@ func (u *webUseCases) webProject(item ProjectSummary, sprints []WebSprintResult)
 		findings = []DisplayFinding{}
 	}
 	return WebProjectResult{
-		Ref:       u.issue("project", item.Name),
-		Name:      item.Name,
-		Docs:      docs,
-		Findings:  findings,
-		Artifacts: u.webArtifacts(item.Artifacts),
-		Sprints:   nonNil(sprints),
+		Ref:              u.issue("project", item.Name),
+		Name:             item.Name,
+		Docs:             docs,
+		Findings:         findings,
+		Artifacts:        u.webArtifacts(item.Artifacts),
+		Sprints:          nonNil(sprints),
+		ProjectReasoning: item.ProjectReasoning,
 	}
 }
 

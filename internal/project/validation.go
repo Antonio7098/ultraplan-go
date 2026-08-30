@@ -57,12 +57,12 @@ func ValidateProject(root string, p Project, files ProjectFiles) ValidationResul
 			if entry.External {
 				continue
 			}
-			if entry.Section == SectionAvailableReasoningTemplate {
+			if entry.Section == SectionAvailableReasoningTemplate || entry.Section == SectionProjectReasoningTemplates {
 				path := normalizeCatalogPath(entry.Path)
 				projectsPrefix := "projects/"
 				ownProjectPrefix := "projects/" + p.Name + "/"
 				if strings.HasPrefix(path, projectsPrefix) && !strings.HasPrefix(path, ownProjectPrefix) {
-					findings = append(findings, catalogFinding(entry, "cross-project reasoning template", "reasoning templates under projects/ must belong to the selected project", "Move the template into projects/"+p.Name+"/reasoning/ or use a shared workspace path outside projects/.", nil))
+					findings = append(findings, catalogFinding(entry, "cross-project reasoning template", "reasoning templates under projects/ must belong to the selected project", "Move the template into projects/"+p.Name+"/ or use a shared workspace path outside projects/.", nil))
 					continue
 				}
 			}

@@ -37,6 +37,12 @@ This handbook distills the studies and reports selected by `sprint-index.md` for
 
 - [Pressure that sprint reasoning must account for]
 
+## Project Reasoning Applied
+
+| Project Reasoning Document | Accepted Constraint | Sprint Interpretation |
+| --- | --- | --- |
+| `[path]` | `[constraint]` | `[how it applies to this sprint]` |
+
 ## Open Questions For Reasoning
 
 - [Question that must be resolved in area-specific reasoning or sprint reasoning]

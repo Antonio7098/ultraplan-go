@@ -561,7 +561,7 @@ func renderItemSummary(b *strings.Builder, m Model, item navItem) {
 	switch route.Kind {
 	case RouteProjects:
 		if p, ok := findProject(m.Data.Projects, item.Label); ok {
-			fmt.Fprintf(b, "    docs=%s roadmap=%s index=%s catalog=%s findings=%d\n", p.DocsDir, p.Roadmap, p.ProjectIndex, p.Catalog, len(p.Findings))
+			fmt.Fprintf(b, "    docs=%s roadmap=%s index=%s catalog=%s project_reasoning=%s/%s findings=%d\n", p.DocsDir, p.Roadmap, p.ProjectIndex, p.Catalog, p.ProjectReasoning.Mode, p.ProjectReasoning.Verdict, len(p.Findings))
 		}
 	case RouteProjectSprints:
 		if s, ok := findSprint(m.Data.Sprints, route.Project, item.Label); ok {

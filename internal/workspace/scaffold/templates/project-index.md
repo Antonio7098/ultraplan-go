@@ -5,6 +5,13 @@
 
 This document defines what can be selected for project work. It does not decide what any individual sprint must use.
 
+## Project Reasoning Policy
+
+| Setting | Value |
+| --- | --- |
+| Mode | optional |
+| Required Review Verdict | pass |
+
 ## Project Scope
 
 - **Project Slug:** `[project-slug]`
@@ -25,6 +32,12 @@ This document defines what can be selected for project work. It does not decide 
 | --- | --- | --- |
 | `[project-specific area]` | `projects/[project-slug]/reasoning/[area].md` | `[selection rule]` |
 | `[shared area]` | `reasoning/[area].md` | `[selection rule]` |
+
+## Available Project Reasoning Templates
+
+| Template | Path | Use When |
+| --- | --- | --- |
+| `[project decision cluster]` | `projects/[project-slug]/project-reasoning-templates/[area].md` | `[selection rule]` |
 
 ## Available Studies
 

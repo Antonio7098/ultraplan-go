@@ -1,6 +1,7 @@
 package sprint
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/Antonio7098/ultraplan-go/internal/project"
@@ -13,6 +14,24 @@ func ValidateSprintIndexContent(content string, catalog project.ProjectIndex) (S
 	findings = append(findings, validateReasoningTemplates(index.ReasoningTemplates, catalog)...)
 	findings = append(findings, validateSubset(index.ReviewProtocols, catalog, project.SectionReviewProtocols, "Required Review Protocols")...)
 	findings = append(findings, validateExcluded(index.ExcludedContexts)...)
+	if catalog.ProjectReasoningPolicy.Mode == project.ProjectReasoningRequired {
+		if len(index.ProjectReasoning) == 0 {
+			findings = append(findings, finding("Selected Project Reasoning", "", "", "missing selected project reasoning", "required project reasoning policy needs the accepted synthesis", "Select project-reasoning/reasoning.md and any current area documents that apply."))
+		}
+		hasSynthesis := false
+		for _, item := range index.ProjectReasoning {
+			clean := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(filepath.FromSlash(item.Path))), "./")
+			if strings.HasSuffix(clean, "/project-reasoning/reasoning.md") {
+				hasSynthesis = true
+			}
+			if !strings.Contains(clean, "/project-reasoning/") || strings.Contains(clean, "..") || strings.HasPrefix(clean, "/") {
+				findings = append(findings, finding("Selected Project Reasoning", item.Name, item.Path, "invalid project reasoning path", "selection is outside the accepted project-reasoning manifest", "Select the synthesis or an area document under this project's project-reasoning directory."))
+			}
+		}
+		if !hasSynthesis {
+			findings = append(findings, finding("Selected Project Reasoning", "Project synthesis", "", "missing project synthesis", "the final accepted project synthesis is mandatory", "Select projects/<project>/project-reasoning/reasoning.md."))
+		}
+	}
 	sortSprintFindings(findings)
 	return index, findings
 }

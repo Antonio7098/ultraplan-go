@@ -109,6 +109,7 @@ func RenderTechnicalHandbookPrompt(root string, manifest HandbookManifest) Promp
 	appendInjectedWorkspaceFile(root, &b, "Technical Handbook Template", "templates/technical-handbook.md")
 	fmt.Fprintln(&b, "\nHard constraints:")
 	fmt.Fprintln(&b, "- Read and cite only the selected evidence reports in the manifest.")
+	fmt.Fprintln(&b, "- Apply the accepted project reasoning selected by sprint-index.md and record that application in Project Reasoning Applied.")
 	fmt.Fprintln(&b, "- Use workspace-relative paths in handbook citations.")
 	fmt.Fprintln(&b, "- Write editable Markdown only to the output path.")
 	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, selected evidence reports, source repositories, config, Git state, implementation files, sprint-index.md, reasoning artifacts, or plan.md.")
@@ -116,6 +117,13 @@ func RenderTechnicalHandbookPrompt(root string, manifest HandbookManifest) Promp
 	sp := Sprint{Project: manifest.ProjectSlug, Slug: manifest.SprintSlug, Path: filepath.Join(root, filepath.FromSlash(manifest.SprintRoot))}
 	inputs := []directPromptInput{directSprintArtifactInput(root, sp, StageSprintIndex)}
 	inputs = append(inputs, directSelectedEvidenceInputs(root, manifest.Evidence)...)
+	if data, err := os.ReadFile(filepath.Join(sp.Path, "sprint-index.md")); err == nil {
+		if index, findings := ParseSprintIndex(string(data)); len(findings) == 0 {
+			for _, item := range index.ProjectReasoning {
+				inputs = append(inputs, directWorkspaceInput(root, "project-reasoning-"+slugReviewID(item.Name), "accepted-project-reasoning", item.Path))
+			}
+		}
+	}
 	prompt = appendDirectInputPacket(prompt, inputs)
 	return PromptPreview{Project: manifest.ProjectSlug, Sprint: manifest.SprintSlug, Prompt: prompt}
 }

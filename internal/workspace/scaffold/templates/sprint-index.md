@@ -42,6 +42,14 @@ All paths must appear in the project index's "Available Reasoning Templates" tab
 | ------------ | -------------------------------------------------------------- | ------------ |
 | `[template]` | `.ultra/projects/[project-slug]/sprints/[sprint-slug]/reasoning/[name].md` | `[reason]`   |
 
+## Selected Project Reasoning
+
+Select only accepted, current documents catalogued by `project-reasoning/index.md`. The final synthesis is mandatory when project reasoning is required.
+
+| Document | Path | Why Selected |
+| --- | --- | --- |
+| Project synthesis | `projects/[project-slug]/project-reasoning/reasoning.md` | Governing project constraints |
+
 ## Prior Decisions To Carry Forward
 
 All decision paths must appear in the project index's "Prior Decisions" table.

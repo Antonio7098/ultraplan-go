@@ -3,8 +3,9 @@ package project
 import "sort"
 
 type Service struct {
-	root  string
-	store FSStore
+	root             string
+	store            FSStore
+	reasoningRuntime ReasoningRuntime
 }
 
 func NewService(root string) Service {
@@ -39,10 +40,12 @@ func (s Service) Status(ref string) (ProjectStatus, error) {
 	for _, entry := range index.Entries {
 		path := normalizeCatalogPath(entry.Path)
 		if entry.Section == SectionAvailableReasoningTemplate && len(path) > len(projectReasoningPrefix) && path[:len(projectReasoningPrefix)] == projectReasoningPrefix {
-			status.AreaReasoningDocuments = append(status.AreaReasoningDocuments, path)
+			status.SprintReasoningTemplates = append(status.SprintReasoningTemplates, path)
 		}
 	}
-	sort.Strings(status.AreaReasoningDocuments)
+	sort.Strings(status.SprintReasoningTemplates)
+	status.AreaReasoningDocuments = append([]string(nil), status.SprintReasoningTemplates...)
+	status.ProjectReasoning, _ = s.ReasoningStatus(ref)
 	return status, nil
 }
 

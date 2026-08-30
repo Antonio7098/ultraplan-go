@@ -155,6 +155,13 @@ func directSelectedReasoningContext(root string, sp Sprint, manifest ReasoningMa
 			inputs = append(inputs, directWorkspaceInput(root, group.kind+"-"+slugReviewID(item.Name), group.kind, item.Path))
 		}
 	}
+	if data, err := os.ReadFile(filepath.Join(sp.Path, "sprint-index.md")); err == nil {
+		if index, findings := ParseSprintIndex(string(data)); len(findings) == 0 {
+			for _, item := range index.ProjectReasoning {
+				inputs = append(inputs, directWorkspaceInput(root, "project-reasoning-"+slugReviewID(item.Name), "accepted-project-reasoning", item.Path))
+			}
+		}
+	}
 	return inputs
 }
 

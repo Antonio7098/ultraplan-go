@@ -8,6 +8,8 @@ type Project struct {
 type CatalogSection string
 
 const (
+	SectionProjectReasoningPolicy     CatalogSection = "Project Reasoning Policy"
+	SectionProjectReasoningTemplates  CatalogSection = "Available Project Reasoning Templates"
 	SectionSourceDocuments            CatalogSection = "Source Documents"
 	SectionActiveContractPool         CatalogSection = "Active Contract Pool"
 	SectionAvailableEvidenceReports   CatalogSection = "Available Evidence Reports"
@@ -17,7 +19,20 @@ const (
 )
 
 type ProjectIndex struct {
-	Entries []CatalogEntry
+	Entries                []CatalogEntry
+	ProjectReasoningPolicy ProjectReasoningPolicy
+}
+
+type ProjectReasoningMode string
+
+const (
+	ProjectReasoningOptional ProjectReasoningMode = "optional"
+	ProjectReasoningRequired ProjectReasoningMode = "required"
+)
+
+type ProjectReasoningPolicy struct {
+	Mode                  ProjectReasoningMode
+	RequiredReviewVerdict string
 }
 
 type CatalogEntry struct {
@@ -42,16 +57,19 @@ const (
 )
 
 type ProjectStatus struct {
-	Project                Project
-	DocsDir                StatusState
-	MarkdownDocs           []string
-	Roadmap                StatusState
-	ProjectIndex           StatusState
-	SprintsDir             StatusState
-	SprintDirs             []string
-	Catalog                StatusState
-	ReasoningDefaults      []ReasoningDefault
+	Project                  Project
+	DocsDir                  StatusState
+	MarkdownDocs             []string
+	Roadmap                  StatusState
+	ProjectIndex             StatusState
+	SprintsDir               StatusState
+	SprintDirs               []string
+	Catalog                  StatusState
+	ReasoningDefaults        []ReasoningDefault
+	SprintReasoningTemplates []string
+	// AreaReasoningDocuments remains populated for API compatibility.
 	AreaReasoningDocuments []string
+	ProjectReasoning       ProjectReasoningStatus
 	ValidationFinds        []ValidationFinding
 }
 

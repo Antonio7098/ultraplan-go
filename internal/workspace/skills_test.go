@@ -24,8 +24,8 @@ func TestMaterialiseAllStageSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	skills := StageSkills()
-	if len(skills) != 12 {
-		t.Fatalf("stage skill count = %d, want 12", len(skills))
+	if len(skills) != 16 {
+		t.Fatalf("stage skill count = %d, want 16", len(skills))
 	}
 	for _, skill := range skills {
 		base := filepath.Join(root, ".agents", "skills", skill.Name)
@@ -36,14 +36,17 @@ func TestMaterialiseAllStageSkills(t *testing.T) {
 		body := string(content)
 		wants := []string{
 			"name: " + skill.Name,
-			"do not stop at a proposal",
-			"status --json",
 			"Canonical stage prompt",
 			strings.TrimSpace(skill.Prompt),
 		}
+		if strings.HasPrefix(skill.Stage, "project-") {
+			wants = append(wants, "reasoning status", "canonical commands")
+		} else {
+			wants = append(wants, "do not stop at a proposal", "status --json")
+		}
 		if skill.Stage == "reconcile" {
 			wants = append(wants, "A stale review fingerprint is context for reconciliation, not a prerequisite failure")
-		} else {
+		} else if !strings.HasPrefix(skill.Stage, "project-") {
 			wants = append(wants, "ask whether to fill them")
 		}
 		for _, want := range wants {
@@ -181,7 +184,8 @@ func TestOnlyGovernedRuntimeStagesDelegateStageExecutionToCLI(t *testing.T) {
 		body := renderStageSkill(skill)
 		ownsStageWork := strings.Contains(body, "The invoking agent owns the actual stage work") ||
 			(skill.Stage == "execute" && strings.Contains(body, "Act as the execution agent and perform the entire stage manually")) ||
-			((skill.Stage == "code-context" || skill.Stage == "merge") && strings.Contains(body, "manual-only skill deliberately delegates"))
+			((skill.Stage == "code-context" || skill.Stage == "merge") && strings.Contains(body, "manual-only skill deliberately delegates")) ||
+			(strings.HasPrefix(skill.Stage, "project-") && strings.Contains(body, "canonical commands"))
 		if !ownsStageWork {
 			t.Fatalf("%s skill is missing the agent-owned execution contract", skill.Name)
 		}

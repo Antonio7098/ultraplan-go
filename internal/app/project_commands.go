@@ -3,8 +3,11 @@ package app
 import (
 	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
+	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
 
 func runProject(deps dependencies, args []string) error {
@@ -34,6 +37,9 @@ func runProject(deps dependencies, args []string) error {
 		return err
 	}
 	service := project.NewService(root.Path)
+	if len(args) >= 3 && args[1] == "reasoning" {
+		return runProjectReasoning(deps, root.Path, service, args[0], args[2:])
+	}
 	switch {
 	case len(args) == 1 && args[0] == "list":
 		projects, err := service.ListProjects()
@@ -100,9 +106,13 @@ func renderProjectStatus(deps dependencies, status project.ProjectStatus) {
 	for _, item := range status.ReasoningDefaults {
 		fmt.Fprintf(deps.stdout, "  %s: %s\n", item.RelativePath, item.Source)
 	}
-	fmt.Fprintf(deps.stdout, "Project area reasoning documents: %d\n", len(status.AreaReasoningDocuments))
-	for _, path := range status.AreaReasoningDocuments {
+	fmt.Fprintf(deps.stdout, "Sprint reasoning templates: %d\n", len(status.SprintReasoningTemplates))
+	for _, path := range status.SprintReasoningTemplates {
 		fmt.Fprintf(deps.stdout, "  %s\n", path)
+	}
+	fmt.Fprintf(deps.stdout, "Project reasoning: mode=%s accepted=%t fresh=%t verdict=%s\n", status.ProjectReasoning.Mode, status.ProjectReasoning.Accepted, status.ProjectReasoning.Fresh, status.ProjectReasoning.Verdict)
+	for _, blocker := range status.ProjectReasoning.Blockers {
+		fmt.Fprintf(deps.stdout, "  blocker: %s\n", blocker)
 	}
 	fmt.Fprintf(deps.stdout, "Catalog: %s\n", status.Catalog)
 	if len(status.ValidationFinds) > 0 {
@@ -136,12 +146,76 @@ Usage:
   ultraplan project list
   ultraplan project <project> status
   ultraplan project <project> validate
+  ultraplan project <project> reasoning status
+  ultraplan project <project> reasoning prompt <index|area-reasoning|reasoning|review>
+  ultraplan project <project> reasoning flow --to <stage>
+  ultraplan project <project> reasoning validate
 
 Commands:
   list                List discovered project roots.
   <project> status    Show project docs, roadmap, index, sprints, and catalog health.
   <project> validate  Validate project files and project-index.md catalog references.
 `
+}
+
+func runProjectReasoning(deps dependencies, root string, service project.Service, ref string, args []string) error {
+	if len(args) == 1 && args[0] == "status" {
+		st, err := service.ReasoningStatus(ref)
+		if err != nil {
+			return mapProjectError("project.reasoning.status", err)
+		}
+		fmt.Fprintf(deps.stdout, "Project reasoning: mode=%s accepted=%t fresh=%t verdict=%s stage=%s\n", st.Mode, st.Accepted, st.Fresh, st.Verdict, st.CurrentStage)
+		for _, b := range st.Blockers {
+			fmt.Fprintf(deps.stdout, "  blocker: %s\n", b)
+		}
+		return nil
+	}
+	if len(args) == 2 && args[0] == "prompt" {
+		stage := project.ProjectReasoningStage(args[1])
+		prompt, err := service.ReasoningPrompt(ref, stage)
+		if err != nil {
+			return classified(ExitValidation, "project.reasoning.prompt: %v", err)
+		}
+		fmt.Fprint(deps.stdout, prompt)
+		return nil
+	}
+	if len(args) == 1 && args[0] == "validate" {
+		st, findings, err := service.ValidateReasoning(ref)
+		if err != nil {
+			return mapProjectError("project.reasoning.validate", err)
+		}
+		fmt.Fprintf(deps.stdout, "Project reasoning: accepted=%t fresh=%t verdict=%s\n", st.Accepted, st.Fresh, st.Verdict)
+		for _, f := range findings {
+			fmt.Fprintf(deps.stderr, "error problem=%q cause=%q suggestion=%q\n", f.Problem, f.Cause, f.Suggestion)
+		}
+		if len(findings) > 0 {
+			return classified(ExitValidation, "project.reasoning.validate: validation failed")
+		}
+		return nil
+	}
+	if len(args) == 3 && args[0] == "flow" && args[1] == "--to" {
+		effective, err := loadEffectiveConfig(workspace.Root{Path: root}, deps, config.CLIOverrides{})
+		if err != nil {
+			return err
+		}
+		rt, err := deps.sprintRuntimeFactory(effective.Config)
+		if err != nil {
+			return classified(ExitRuntime, "project.reasoning.flow: %v", err)
+		}
+		result, err := service.WithRuntime(rt).ReasoningFlow(deps.ctx, ref, project.ProjectReasoningStage(args[2]))
+		if err != nil {
+			return classified(ExitRuntime, "project.reasoning.flow: %v", err)
+		}
+		fmt.Fprintf(deps.stdout, "Project reasoning: to=%s accepted=%t fresh=%t verdict=%s\n", result.To, result.Status.Accepted, result.Status.Fresh, result.Status.Verdict)
+		if len(result.Completed) > 0 {
+			fmt.Fprintf(deps.stdout, "Completed: %s\n", strings.Join(result.Completed, ", "))
+		}
+		if len(result.Skipped) > 0 {
+			fmt.Fprintf(deps.stdout, "Resumed: %s\n", strings.Join(result.Skipped, ", "))
+		}
+		return nil
+	}
+	return classified(ExitUsage, "project reasoning: expected status, prompt <stage>, flow --to <stage>, or validate")
 }
 
 func projectListHelp() string {
