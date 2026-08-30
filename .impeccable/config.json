@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font-size",
+        "value": "1.12rem",
+        "createdAt": "2026-08-30T18:10:27.163Z",
+        "reason": "DESIGN.md defines 1.12rem as the documented lead-text minimum for this established UltraPlan surface."
+      }
+    ]
+  }
+}
