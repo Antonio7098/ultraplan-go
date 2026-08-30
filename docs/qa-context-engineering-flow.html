@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="A visual architecture report for reducing agent discovery in UltraPlan's QA and repair stages.">
+  <meta name="description" content="Implementation and measured comparison of context-engineered QA and repair in UltraPlan.">
   <title>QA Context Engineering | UltraPlan</title>
   <style>
     :root {
@@ -269,7 +269,7 @@
       overflow: hidden;
     }
 
-    .flow-panel.proposed { border-color: color-mix(in oklab, var(--model) 52%, var(--line)); }
+    .flow-panel.implemented { border-color: color-mix(in oklab, var(--model) 52%, var(--line)); }
     .panel-head { padding: 20px 22px; border-bottom: 1px solid var(--line); }
     .panel-head h3 { margin: 6px 0 5px; font-size: var(--font-title); letter-spacing: -.025em; }
     .panel-head p { margin: 0; color: var(--muted); font-size: var(--font-body); }
@@ -681,7 +681,8 @@
       </div>
       <nav aria-label="Report sections">
         <a href="#baseline">Measured baseline</a>
-        <a href="#comparison">Current vs proposed</a>
+        <a href="#measured-result">Measured result</a>
+        <a href="#comparison">Before vs implemented</a>
         <a href="#arbiter">Arbiter authority</a>
         <a href="#packs">Context packs</a>
         <a href="#repair">Repair</a>
@@ -693,9 +694,9 @@
   <main id="main" class="shell">
     <header class="hero">
       <div>
-        <span class="eyebrow">QA context engineering proposal</span>
+        <span class="eyebrow">QA context engineering implementation</span>
         <h1>Reason once.<br>Enforce every time.</h1>
-        <p class="hero-lede">Give each model a <strong>small, complete, cited context pack</strong>. Let a stronger arbiter challenge and override investigator claims. Keep evidence, promotion, mutation, and verification under deterministic control.</p>
+        <p class="hero-lede">Give each model a <strong>bounded, complete, cited context pack</strong>. Let a stronger arbiter challenge and override investigator claims. Keep evidence, promotion, mutation, and verification under deterministic control.</p>
       </div>
       <aside class="authority-card" aria-labelledby="authority-title">
         <span class="tag model-color">Decision boundary</span>
@@ -811,11 +812,73 @@ ULTRAPLAN_QA_MODEL='openrouter/minimax/minimax-m3:free' /usr/bin/time -v \
       </div>
     </section>
 
+    <section id="measured-result" aria-labelledby="measured-result-title">
+      <div class="section-heading">
+        <span class="section-index">COMPARISON / 2026-08-30</span>
+        <h2 id="measured-result-title">The control plane improved; defect recall and token efficiency did not.</h2>
+        <p>The valid post-change run used the same preserved target, fixture, model, <code>high</code> variant, and QA-only method as the baseline. Source commit <code>15a7cbb70adad1bb6983ad2ea1a34524704c61b7</code> built a 458,651-byte, 228-block foundation, mapped eight initial semantic shards without fallback, and completed four bounded follow-ups. The run finished <code>pass_with_findings</code>.</p>
+      </div>
+
+      <div class="metrics baseline-metrics" aria-label="Context-engineered QA totals">
+        <div class="metric"><strong>16</strong><span>model sessions</span></div>
+        <div class="metric"><strong>33</strong><span>model completions</span></div>
+        <div class="metric"><strong>1,104,909</strong><span>input tokens</span></div>
+        <div class="metric"><strong>793,619</strong><span>cache-read tokens</span></div>
+        <div class="metric"><strong>103,365</strong><span>output tokens</span></div>
+        <div class="metric"><strong>0</strong><span>tool calls</span></div>
+      </div>
+
+      <div class="callout baseline-note">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M11 3v10m0 4v.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <div><strong>Result: zero of three seeded defects identified; zero confirmed.</strong><p><code>CE-01</code> and <code>CE-02</code> were missed. The web shard quoted the exact <code>CE-03</code> line, <code>limit = parsed - 1</code>, but incorrectly confirmed it as intentional 1-based-to-0-based conversion. Surfacing a line while defending the defect receives no identification credit.</p></div>
+      </div>
+
+      <table class="comparison" aria-label="Baseline and context-engineered QA comparison">
+        <thead><tr><th scope="col">Measure</th><th scope="col">Baseline</th><th scope="col">Context-engineered</th><th scope="col">Change</th></tr></thead>
+        <tbody>
+          <tr><td>Seeded defects identified</td><td>1 / 3</td><td>0 / 3</td><td>-1</td></tr>
+          <tr><td>Seeded defects confirmed</td><td>0 / 3</td><td>0 / 3</td><td>unchanged</td></tr>
+          <tr><td>Sessions / completions</td><td>10 / 39</td><td>16 / 33</td><td>+60.0% / -15.4%</td></tr>
+          <tr><td>Input / cached / output</td><td>217,798 / 977,549 / 34,684</td><td>1,104,909 / 793,619 / 103,365</td><td>+407.3% / -18.8% / +198.0%</td></tr>
+          <tr><td>Input + cached + output</td><td>1,230,031</td><td>2,001,893</td><td>+62.8%</td></tr>
+          <tr><td>Tool calls</td><td>49</td><td>0</td><td>-100%</td></tr>
+          <tr><td>Wall / summed session time</td><td>442.61 / 700.960 s</td><td>639.44 / 981.568 s</td><td>+44.5% / +40.0%</td></tr>
+        </tbody>
+      </table>
+
+      <div class="permission-grid">
+        <article class="permission allow">
+          <h3>What worked</h3>
+          <ul>
+            <li>All eleven changed paths had semantic primary ownership.</li>
+            <li>Investigators made no live repository reads, searches, globs, or shell calls.</li>
+            <li>Approved context arrived as same-session deltas under deterministic path bounds.</li>
+            <li>Exact sessions, prompts, token fields, context metrics, and evidence remain inspectable.</li>
+          </ul>
+        </article>
+        <article class="permission deny">
+          <h3>What failed</h3>
+          <ul>
+            <li>Persisted prompt text grew from 39,674 bytes to 3,205,870 bytes across the run.</li>
+            <li>Cache-read share fell from 81.8% to 41.8% of input-plus-cache-read accounting.</li>
+            <li>The arbiter failed strict output validation and used deterministic fallback.</li>
+            <li>Thirty-eight theories created more findings without improving seeded-defect recall.</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="decision">
+        <div class="decision-icon"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M5 11h12M11 5l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><h3>Keep the architecture; tighten the projections before claiming efficiency.</h3><p>The implementation now has the intended immutable context, validation, authority, repair, and telemetry boundaries. This one paired trial does not support an effectiveness or cost claim. The next experiment should shrink mapper and arbiter inputs, reserve defect-generation capacity for adversarial hypotheses, add explicit asymmetric-set and boundary-value invariants, and require arbiter correction to converge without fallback.</p></div>
+        <a class="tag" href="../../ultraplan-go-workspace-qa-comparison-20260830-context-engineering-semantic-final/comparison-artifacts/README.md">Evidence manifest</a>
+      </div>
+    </section>
+
     <section id="comparison" aria-labelledby="comparison-title">
       <div class="section-heading">
         <span class="section-index">01 / SYSTEM FLOW</span>
-        <h2 id="comparison-title">The current pipeline asks agents to discover. The proposed pipeline asks them to decide.</h2>
-        <p>The main efficiency gain is not a shorter prompt. It is moving repository discovery into one reusable, deterministic foundation and projecting only the relevant slices downstream.</p>
+        <h2 id="comparison-title">The old pipeline asked agents to discover. The implemented pipeline asks them to decide.</h2>
+        <p>The intended efficiency mechanism is not a shorter instruction header. It is moving repository discovery into one reusable, deterministic foundation and projecting only the relevant slices downstream; the measured result shows those slices still need to become smaller.</p>
       </div>
 
       <div class="flow-grid">
@@ -860,13 +923,13 @@ ULTRAPLAN_QA_MODEL='openrouter/minimax/minimax-m3:free' /usr/bin/time -v \
           </div>
         </article>
 
-        <article class="flow-panel proposed">
+        <article class="flow-panel implemented">
           <header class="panel-head">
-            <span class="tag model-color">Proposed</span>
+            <span class="tag model-color">Implemented</span>
             <h3>Complete packs, bounded judgment</h3>
             <p>Models receive the evidence needed for their decision. Code validates every boundary and owns side effects.</p>
           </header>
-          <div class="flow" aria-label="Proposed QA flow">
+          <div class="flow" aria-label="Implemented QA flow">
             <div class="node context">
               <span class="kind">Built once</span>
               <h3>Frozen QA foundation</h3>
@@ -908,7 +971,7 @@ ULTRAPLAN_QA_MODEL='openrouter/minimax/minimax-m3:free' /usr/bin/time -v \
 
     <section aria-labelledby="architecture-title">
       <div class="section-heading">
-        <span class="section-index">02 / PROPOSED ARCHITECTURE</span>
+        <span class="section-index">02 / IMPLEMENTED ARCHITECTURE</span>
         <h2 id="architecture-title">One foundation feeds four purpose-built projections.</h2>
         <p>The full foundation is an internal source of truth. Consumers receive views of it, not four separately assembled prompts.</p>
       </div>
@@ -1161,20 +1224,20 @@ ULTRAPLAN_QA_MODEL='openrouter/minimax/minimax-m3:free' /usr/bin/time -v \
 
     <section id="roadmap" aria-labelledby="roadmap-title">
       <div class="section-heading">
-        <span class="section-index">08 / IMPLEMENTATION ORDER</span>
-        <h2 id="roadmap-title">Build observability and the foundation before changing model topology.</h2>
-        <p>This order makes the efficiency claim measurable and keeps each architecture change reversible.</p>
+        <span class="section-index">08 / DELIVERY STATUS</span>
+        <h2 id="roadmap-title">The architecture is shipped; measurement defines the next iteration.</h2>
+        <p>Every planned control-plane item is implemented. Repair clustering remains an experiment because the measured QA run did not establish an efficiency or quality gain.</p>
       </div>
 
       <div class="priority-list">
-        <article class="priority"><h3>Instrument discovery cost</h3><p>Record input, output, reasoning, cache reads and writes, tool calls, distinct files and bytes read, repeated reads, expansions, follow-ups, elapsed time, and first-pass repair success.</p><span class="impact">Baseline</span></article>
-        <article class="priority"><h3>Create the QA foundation schema</h3><p>Introduce stable block IDs, fingerprints, exact requirement text, diffs, symbols, relationships, review facts, execution handoff, evidence descriptors, and omissions.</p><span class="impact">Highest</span></article>
-        <article class="priority"><h3>Project shard packs</h3><p>Replace all-expectations packets with exact criterion ownership and cited source slices. Continue approved context expansions in-session as deltas.</p><span class="impact">Highest</span></article>
-        <article class="priority"><h3>Add semantic mapping</h3><p>Let a strong structured model propose behavioral shards. Retain the current deterministic mapper as fallback and validate all output in code.</p><span class="impact">High</span></article>
-        <article class="priority"><h3>Add the powerful arbiter</h3><p>Define explicit override records and make semantic supersession visible in provenance. Keep deterministic adjudication as the final policy gate.</p><span class="impact">High</span></article>
-        <article class="priority"><h3>Complete repair packs</h3><p>Auto-inject promoted reasoning, accepted evidence, criteria, source blocks, access bounds, and target delta into per-issue repair.</p><span class="impact">High</span></article>
-        <article class="priority"><h3>Deduplicate checks and gates</h3><p>Execute identical commands once per snapshot, map results by fingerprint, and remove dormant or redundant evaluator paths.</p><span class="impact">Medium</span></article>
-        <article class="priority"><h3>Test semantic repair clusters</h3><p>Only after metrics exist, compare per-issue repair with clusters of two or three issues sharing root cause, files, and checks.</p><span class="impact">Measured</span></article>
+        <article class="priority"><h3>Instrument discovery cost</h3><p>Records tokens, tools, files and bytes read, repeated reads, searches, expansions, continuations, and durations.</p><span class="impact">Shipped</span></article>
+        <article class="priority"><h3>Create the QA foundation schema</h3><p>Stable block IDs, fingerprints, exact requirements, diff hunks, symbols, relationships, review facts, handoff, checks, and omissions are retained.</p><span class="impact">Shipped</span></article>
+        <article class="priority"><h3>Project shard packs</h3><p>Exact criterion citations and source slices replace all-expectations packets; approved expansion is a same-session delta.</p><span class="impact">Shipped</span></article>
+        <article class="priority"><h3>Add semantic mapping</h3><p>A structured model proposes behavioral shards; strict code validation and deterministic fallback remain mandatory.</p><span class="impact">Shipped</span></article>
+        <article class="priority"><h3>Add the cross-shard arbiter</h3><p>Override records are evidence-bound and immutable; deterministic adjudication remains the final policy gate.</p><span class="impact">Shipped</span></article>
+        <article class="priority"><h3>Complete repair packs</h3><p>Promoted reasoning, accepted evidence, criteria, source blocks, access bounds, target delta, and overrides are injected per issue.</p><span class="impact">Shipped</span></article>
+        <article class="priority"><h3>Deduplicate checks and gates</h3><p>Identical checks execute once per snapshot and repair verification includes the deduplicated evidence checks plus repair gates.</p><span class="impact">Shipped</span></article>
+        <article class="priority"><h3>Test semantic repair clusters</h3><p>Keep per-issue repair as the default. Revisit clusters only after smaller projections improve repeated QA trials.</p><span class="impact">Deferred</span></article>
       </div>
 
       <div class="metrics" aria-label="Success measures">
@@ -1187,8 +1250,8 @@ ULTRAPLAN_QA_MODEL='openrouter/minimax/minimax-m3:free' /usr/bin/time -v \
 
   <footer>
     <div class="shell">
-      <span>Architecture analysis based on the current UltraPlan QA and repair implementation.</span>
-      <span>Baseline snapshot: <code>e61e75cf</code> + fixture <code>8ea80805</code> · QA telemetry captured 2026-08-30.</span>
+      <span>Context-engineered QA shipped at <code>15a7cbb7</code>; measured evidence is preserved beside the control.</span>
+      <span>Target: <code>e61e75cf</code> + fixture <code>8ea80805</code> · paired QA telemetry captured 2026-08-30.</span>
     </div>
   </footer>
 </body>
