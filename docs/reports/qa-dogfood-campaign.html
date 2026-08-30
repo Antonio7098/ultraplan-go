@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>QA dogfood campaign | UltraPlan</title>
+  <style>
+    :root {
+      --workspace: #211d27;
+      --panel: #2a2531;
+      --raised: #312b39;
+      --inset: #18151d;
+      --control: #383141;
+      --border: #443b4d;
+      --text: #fbf9fc;
+      --muted: #d5cbdc;
+      --subtle: #a698ad;
+      --accent: #db4f94;
+      --accent-soft: #4a253d;
+      --success: #56c793;
+      --warning: #e9bd55;
+      --danger: oklch(0.901233 0.057189 343.694);
+      --measure: 74ch;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--workspace);
+      color: var(--text);
+      font: 14px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    ::selection { background: var(--accent); color: #160c12; }
+    a { color: var(--danger); text-underline-offset: .22em; }
+    a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: .5rem; }
+    .skip { position: fixed; left: 1rem; top: -5rem; z-index: 10; padding: .55rem .8rem; background: var(--text); color: var(--workspace); }
+    .skip:focus { top: 1rem; }
+    header, main, footer { width: min(1120px, calc(100% - 2rem)); margin-inline: auto; }
+    header { padding: clamp(3rem, 8vw, 6.5rem) 0 2rem; }
+    h1, h2, h3 { line-height: 1.12; letter-spacing: -.025em; text-wrap: balance; }
+    h1 { margin: 0; max-width: 13ch; font-size: clamp(3rem, 8vw, 5.5rem); letter-spacing: -.04em; }
+    h2 { margin: 0 0 1rem; font-size: clamp(1.65rem, 3vw, 2.15rem); }
+    h3 { margin: 0 0 .65rem; font-size: 1.05rem; }
+    p { max-width: var(--measure); margin: 0 0 1rem; color: var(--muted); }
+    .lede { max-width: 67ch; margin-top: 1.35rem; font-size: 1.05rem; color: var(--text); }
+    .meta { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.6rem; }
+    .tag { border: 1px solid var(--border); border-radius: 999px; padding: .2rem .58rem; color: var(--muted); font-size: .7rem; }
+    .tag.ok::before { content: ""; display: inline-block; width: .46rem; height: .46rem; margin-right: .4rem; border-radius: 50%; background: var(--success); }
+    main { padding-bottom: 5rem; }
+    section { padding: clamp(2rem, 6vw, 4.5rem) 0; border-top: 1px solid var(--border); }
+    .verdict { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(16rem, .65fr); gap: 1rem; }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: .65rem; padding: clamp(1.1rem, 3vw, 1.6rem); }
+    .panel p:last-child { margin-bottom: 0; }
+    .callout { background: linear-gradient(135deg, var(--accent-soft), var(--panel) 72%); box-shadow: 0 16px 42px rgb(0 0 0 / 18%); }
+    .result { color: var(--success); font-size: clamp(1.65rem, 5vw, 3rem); font-weight: 720; line-height: 1; letter-spacing: -.04em; }
+    .label { display: block; margin-bottom: .55rem; color: var(--subtle); font-size: .7rem; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
+    .facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; overflow: hidden; margin-top: 1rem; border: 1px solid var(--border); border-radius: .65rem; background: var(--border); }
+    .fact { min-width: 0; padding: 1rem; background: var(--panel); }
+    .fact strong { display: block; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+    .fact span { color: var(--subtle); font-size: .7rem; }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .65rem; margin-top: 1.4rem; list-style: none; padding: 0; counter-reset: stage; }
+    .flow li { position: relative; min-height: 7rem; padding: 1rem; background: var(--panel); border: 1px solid var(--border); border-radius: .65rem; counter-increment: stage; }
+    .flow li::before { content: counter(stage, decimal-leading-zero); display: block; margin-bottom: 1.5rem; color: var(--success); font: 700 .72rem/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; }
+    .flow li:not(:last-child)::after { content: ""; position: absolute; right: -.7rem; top: 1.18rem; width: .72rem; height: 1px; background: var(--success); }
+    .flow strong { display: block; font-size: 1.05rem; }
+    .flow small { color: var(--subtle); }
+    .queue { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: .8rem; margin-top: 1.5rem; }
+    .queue .arrow { align-self: center; color: var(--accent); font-size: 1.65rem; }
+    .issue { padding: 1.1rem; background: var(--inset); border: 1px solid var(--border); border-radius: .65rem; }
+    .issue.pending { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+    .issue.complete { border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
+    .status { display: inline-flex; align-items: center; gap: .4rem; margin-bottom: .7rem; padding: .15rem .48rem; border: 1px solid currentColor; border-radius: 999px; font-size: .7rem; }
+    .pending .status { color: var(--warning); }
+    .complete .status { color: var(--success); }
+    .meters { margin-top: 1.5rem; }
+    .meter { display: grid; grid-template-columns: 9rem minmax(0, 1fr) 6rem; gap: .8rem; align-items: center; margin: .7rem 0; }
+    .track { height: .62rem; overflow: hidden; border-radius: 999px; background: var(--control); }
+    .fill { height: 100%; border-radius: inherit; background: var(--accent); }
+    .meter output { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+    .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .timeline { margin: 1.5rem 0 0; padding: 0; list-style: none; }
+    .timeline li { display: grid; grid-template-columns: 8.5rem 1rem minmax(0, 1fr); gap: .8rem; padding-bottom: 1.35rem; }
+    .timeline time { color: var(--subtle); font: .78rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .mark { position: relative; width: .64rem; height: .64rem; margin-top: .28rem; border-radius: 50%; background: var(--success); }
+    .mark::after { content: ""; position: absolute; top: .65rem; left: calc(50% - .5px); width: 1px; height: calc(100% + 1.1rem); background: var(--border); }
+    .timeline li:last-child .mark::after { display: none; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: .72rem .65rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { color: var(--subtle); font-size: .7rem; letter-spacing: .09em; text-transform: uppercase; }
+    td { color: var(--muted); }
+    code { color: var(--danger); font: .88em/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+    details { border-top: 1px solid var(--border); }
+    details:last-child { border-bottom: 1px solid var(--border); }
+    summary { padding: .9rem 0; cursor: pointer; color: var(--text); font-weight: 650; }
+    details p { padding-bottom: .8rem; }
+    .limits { border-color: color-mix(in srgb, var(--warning) 35%, var(--border)); }
+    footer { padding: 2rem 0 4rem; border-top: 1px solid var(--border); color: var(--subtle); font-size: .7rem; }
+    @media (max-width: 800px) {
+      .verdict, .two { grid-template-columns: 1fr; }
+      .facts { grid-template-columns: repeat(2, 1fr); }
+      .flow { grid-template-columns: repeat(2, 1fr); }
+      .flow li:not(:last-child)::after { display: none; }
+      .queue { grid-template-columns: 1fr; }
+      .queue .arrow { transform: rotate(90deg); justify-self: center; }
+    }
+    @media (max-width: 500px) {
+      header, main, footer { width: min(100% - 1.2rem, 1120px); }
+      .facts, .flow { grid-template-columns: 1fr; }
+      .meter { grid-template-columns: 1fr auto; }
+      .track { grid-column: 1 / -1; grid-row: 2; }
+      .timeline li { grid-template-columns: 1fr; gap: .25rem; }
+      .mark { display: none; }
+      table { display: block; overflow-x: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    @media print {
+      :root { color-scheme: light; --workspace: #fff; --panel: #f7f4f8; --raised: #fff; --inset: #eee8f0; --control: #ded6e1; --border: #cbc0ce; --text: #211d27; --muted: #413848; --subtle: #66596d; --accent: #a72366; --accent-soft: #f5deea; }
+      body { font-size: 11pt; }
+      header { padding-top: 1rem; }
+      section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#report">Skip to report</a>
+  <header>
+    <h1>QA dogfood campaign</h1>
+    <p class="lede">A real run through UltraPlan’s QA and grouped repair machinery, with the uncomfortable parts left in: hidden usage, duplicate findings, unsafe queue completion, and the fixes needed to complete two repairs in one retained model session.</p>
+    <div class="meta">
+      <span class="tag ok">Two-issue queue completed</span>
+      <span class="tag">28–30 August 2026</span>
+      <span class="tag">OpenRouter MiniMax M3 free</span>
+      <span class="tag">Sprint 38 focus</span>
+    </div>
+  </header>
+
+  <main id="report">
+    <section class="verdict" aria-labelledby="verdict-title">
+      <div class="panel callout">
+        <span class="label">Campaign verdict</span>
+        <div class="result" id="verdict-title">Proven for the exercised two-issue queue</div>
+        <p>The same model session repaired two issues in order. Each issue kept its own packet, isolated copy, apply, verification result, and cleanup. The final issue passed containing smoke before the campaign completed.</p>
+      </div>
+      <div class="panel limits">
+        <span class="label">Confidence boundary</span>
+        <h2>Not universal proof</h2>
+        <p>Queues larger than two, multiple workers, cancellation during mutation, recovery after apply, and injected gate failures remain untested.</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="facts-title">
+      <h2 id="facts-title">The run in numbers</h2>
+      <div class="facts">
+        <div class="fact"><strong>2 / 2</strong><span>issues completed</span></div>
+        <div class="fact"><strong>1</strong><span>shared model session</span></div>
+        <div class="fact"><strong>52,837</strong><span>cache-read tokens</span></div>
+        <div class="fact"><strong>~110 s</strong><span>campaign wall time</span></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="flow-title">
+      <h2 id="flow-title">QA to repair workflow</h2>
+      <p>Product code owns admission, evidence checks, adjudication, patch validation, production apply, and verdicts. Models investigate and propose. They do not grant themselves commands or mutation scope.</p>
+      <ol class="flow">
+        <li><strong>Admission</strong><small>current inputs and authority</small></li>
+        <li><strong>QA map</strong><small>deterministic shards</small></li>
+        <li><strong>Investigate</strong><small>read-only model work</small></li>
+        <li><strong>Evidence</strong><small>approved isolated checks</small></li>
+        <li><strong>Synthesis</strong><small>dedupe and interactions</small></li>
+        <li><strong>Adjudicate</strong><small>promote eligible issues</small></li>
+        <li><strong>Assign</strong><small>ordered worker queues</small></li>
+        <li><strong>Repair</strong><small>one issue per run</small></li>
+        <li><strong>Verify</strong><small>scoped then containing</small></li>
+        <li><strong>Terminal</strong><small>durable campaign result</small></li>
+      </ol>
+    </section>
+
+    <section aria-labelledby="queue-title">
+      <h2 id="queue-title">What the campaign actually did</h2>
+      <p>Campaign ID <code>repair-campaign-v1-25669934257fb8cc03a87524</code>. Both repairs retained session <code>ses_fb5ea385cffeCvqzbMvihJJumE</code>.</p>
+      <div class="queue">
+        <article class="issue pending">
+          <span class="status">Pending campaign</span>
+          <h3>Issue 1</h3>
+          <p><code>repair-v1-run-1d4566d5b18fb2a026f326ee</code></p>
+          <p>Five scoped gates passed. Production apply and cleanup completed. Containing smoke was deferred until the queue’s last issue.</p>
+        </article>
+        <div class="arrow" aria-hidden="true">→</div>
+        <article class="issue complete">
+          <span class="status">Full ladder passed</span>
+          <h3>Issue 2</h3>
+          <p><code>repair-v1-run-ba83f9ffa31986df3696d335</code></p>
+          <p>All six gates passed. The repaired-target containing smoke completed in 19.917 seconds, allowing the campaign to complete.</p>
+        </article>
+      </div>
+      <div class="meters" aria-label="Repair usage comparison">
+        <div class="meter"><span>Issue 1 cache</span><div class="track"><div class="fill" style="width:90.3%"></div></div><output>25,074</output></div>
+        <div class="meter"><span>Issue 2 cache</span><div class="track"><div class="fill" style="width:100%"></div></div><output>27,763</output></div>
+        <div class="meter"><span>Issue 1 runtime</span><div class="track"><div class="fill" style="width:90.7%"></div></div><output>24.593 s</output></div>
+        <div class="meter"><span>Issue 2 runtime</span><div class="track"><div class="fill" style="width:100%"></div></div><output>27.121 s</output></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="usage-title">
+      <h2 id="usage-title">Usage and evidence</h2>
+      <div class="two">
+        <div class="panel">
+          <h3>Issue 1</h3>
+          <table>
+            <tbody>
+              <tr><th>Outcome</th><td><code>verified_pending_campaign</code></td></tr>
+              <tr><th>Input / output</th><td>84 / 46 tokens</td></tr>
+              <tr><th>Cache read</th><td>25,074 tokens</td></tr>
+              <tr><th>Commands</th><td>5</td></tr>
+              <tr><th>Cleanup</th><td>Proven</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <h3>Issue 2</h3>
+          <table>
+            <tbody>
+              <tr><th>Outcome</th><td><code>verified_with_findings</code></td></tr>
+              <tr><th>Input / output</th><td>84 / 21 tokens</td></tr>
+              <tr><th>Cache read</th><td>27,763 tokens</td></tr>
+              <tr><th>Commands</th><td>6</td></tr>
+              <tr><th>Cleanup</th><td>Proven</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p style="margin-top:1rem">Provider-reported cost was zero on the selected OpenRouter free route. That records price, not an absence of compute. The provider database retained the transcript until cleanup policy expiry, but no transcript or disposable test result was committed.</p>
+    </section>
+
+    <section aria-labelledby="fixes-title">
+      <h2 id="fixes-title">What broke, and what changed</h2>
+      <ol class="timeline">
+        <li><time>agentwrap cc51e26</time><span class="mark"></span><div><h3>Usage fields were empty</h3><p>The OpenCode projector expected the wrong usage shape. The update restored input, output, cache, timing, and cost propagation.</p></div></li>
+        <li><time>324b4a97</time><span class="mark"></span><div><h3>Equivalent findings duplicated</h3><p>Synthesis and adjudication now deduplicate by normalized claim, issue class, and location. Evidence is unioned and the strongest severity survives.</p></div></li>
+        <li><time>324b4a97</time><span class="mark"></span><div><h3>Evidence identity checks compared the wrong facts</h3><p>The implementation and bounded-tree comparisons now use independently observed identities.</p></div></li>
+        <li><time>ffac3594</time><span class="mark"></span><div><h3>A grouped queue could not finish truthfully</h3><p>The repair protocol gained an explicit pending outcome, a deferred smoke gate, stable worker paths, safe next-packet rebasing, and a mandatory final global gate.</p></div></li>
+        <li><time>4caf1c34</time><span class="mark"></span><div><h3>“Campaign” had no formal definition</h3><p>Architecture, CLI, user, and configuration docs now distinguish assignment, repair run, and campaign.</p></div></li>
+      </ol>
+    </section>
+
+    <section aria-labelledby="proof-title">
+      <h2 id="proof-title">Proof boundary</h2>
+      <div class="two">
+        <div class="panel">
+          <h3>Proven</h3>
+          <p>Two issues in one grouped queue. One retained session. Fresh isolated copies. Serial production applies. Intermediate scoped success. Final containing smoke. Durable usage, cleanup, and campaign outcomes.</p>
+        </div>
+        <div class="panel limits">
+          <h3>Still needs fault injection</h3>
+          <p>Three-issue queues, multiple workers, cancellation at each mutation boundary, runtime death after apply, exact compensation, target drift, intermediate gate failure, final smoke failure, and web reconnect under load.</p>
+        </div>
+      </div>
+      <details>
+        <summary>Source verification commands</summary>
+        <p><code>go test ./internal/platform/process ./internal/sprint ./internal/web</code><br><code>go test ./internal/app -run 'Repair|QAAdjudication|SprintQA'</code><br><code>go test -race ./internal/platform/process ./internal/sprint</code><br><code>go vet ./internal/platform/process ./internal/sprint ./internal/app ./internal/web</code><br><code>git diff --check</code></p>
+      </details>
+      <details>
+        <summary>Known test-suite limitation</summary>
+        <p>The broad application suite still encounters an unrelated timeout in the existing study run-loop test. All repair-focused application tests passed. This report does not count the unrelated timeout as repair evidence.</p>
+      </details>
+      <details>
+        <summary>Why this report is reconstructed</summary>
+        <p>The first report and disposable evidence lived under <code>/tmp/ultraplan-repair-loop-dogfood-20260828</code>. That directory expired. This durable version reconstructs the measurements and findings retained in the campaign record and source history.</p>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    UltraPlan QA dogfood campaign. Reconstructed 30 August 2026 and stored under <code>docs/reports</code>.
+  </footer>
+</body>
+</html>
