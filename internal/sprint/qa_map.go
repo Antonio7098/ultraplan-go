@@ -30,6 +30,7 @@ type QAMapInput struct {
 	Target                    QATargetIdentity
 	Settings                  QASettings
 	ApprovedChecks            []QAApprovedCheckRef
+	Foundation                *QAFoundation
 }
 
 type QAMapResult struct {
@@ -95,6 +96,14 @@ func (s Service) QAMap(projectRef, sprintRef string) (QAMapResult, error) {
 		return QAMapResult{}, err
 	}
 	context := qaAdjacentContext(manifest.Target, changed, settings.Budgets.ContextPathsPerShard)
+	for _, paths := range context {
+		for _, rel := range paths {
+			data, readErr := os.ReadFile(filepath.Join(manifest.Target, filepath.FromSlash(rel)))
+			if readErr == nil {
+				manifest.Contents["target/"+rel] = string(data)
+			}
+		}
+	}
 	expectations := make([]string, 0, len(manifest.Coverage))
 	for _, coverage := range manifest.Coverage {
 		expectations = append(expectations, coverage.ID)
@@ -117,6 +126,11 @@ func (s Service) QAMap(projectRef, sprintRef string) (QAMapResult, error) {
 	}
 	target := QATargetIdentity{Fingerprint: implementationFingerprint, Scope: "current_checkout", GitHead: gitHead, GitIndex: gitIndex, GitWorktree: gitWorktree}
 	addQAWorkspaceProvenance(&target, sp, manifest.Target)
+	reviewArtifact, _ := s.store.ReadArtifact(sp, StageReview)
+	foundation, err := BuildQAFoundation(manifest, governedFingerprint, implementationFingerprint, flow.Review.Fingerprint, checkRefs, settings.Budgets, reviewArtifact)
+	if err != nil {
+		return QAMapResult{}, NewQAError(QAErrorInvalidState, "map", "cannot build the frozen QA foundation", err)
+	}
 	input := QAMapInput{
 		Project: sp.Project, Sprint: sp.Slug, ChangedPaths: changed, ContextPaths: context,
 		ExpectationRefs: expectations, RiskTags: qaRiskTags(changed), InputRefs: inputRefs,
@@ -126,9 +140,13 @@ func (s Service) QAMap(projectRef, sprintRef string) (QAMapResult, error) {
 		Target:                  target,
 		Settings:                settings,
 		ApprovedChecks:          checkRefs,
+		Foundation:              &foundation,
 	}
 	qaMap, err := BuildQAMap(input)
 	if err != nil {
+		return QAMapResult{}, err
+	}
+	if err := s.prepareQAShardPacks(&qaMap); err != nil {
 		return QAMapResult{}, err
 	}
 	data, err := NormalizedQAMapBytes(qaMap)
@@ -136,6 +154,22 @@ func (s Service) QAMap(projectRef, sprintRef string) (QAMapResult, error) {
 		return QAMapResult{}, err
 	}
 	return QAMapResult{Map: qaMap, NormalizedBytes: data, DryRun: true}, nil
+}
+
+func (s Service) prepareQAShardPacks(qaMap *QAMap) error {
+	for i := range qaMap.Shards {
+		prompt, err := s.RenderQAInvestigatorPrompt(*qaMap, qaMap.Shards[i])
+		if err != nil {
+			return NewQAError(QAErrorBudgetExhausted, "map", "prepared investigator context exceeds the prompt budget", err)
+		}
+		qaMap.Shards[i].PreparedPromptBytes = len(prompt)
+		marker := strings.Index(prompt, "<<< END STABLE QA INVESTIGATOR PREFIX >>>")
+		if marker >= 0 {
+			qaMap.Shards[i].PreparedPrefixBytes = marker + len("<<< END STABLE QA INVESTIGATOR PREFIX >>>\n")
+		}
+		qaMap.Shards[i].PackComplete = qaShardPackComplete(*qaMap, qaMap.Shards[i])
+	}
+	return nil
 }
 
 func addQAWorkspaceProvenance(target *QATargetIdentity, sp Sprint, targetPath string) {
@@ -298,7 +332,10 @@ func BuildQAMap(input QAMapInput) (QAMap, error) {
 		coverage.BoundaryOverlaps = nil
 	}
 	coverage.BlockedPaths = normalizeQAStrings(coverage.BlockedPaths)
-	result := QAMap{SchemaVersion: 1, ID: mapID, Project: input.Project, Sprint: input.Sprint, SemanticAttemptID: attemptID, GovernedInputFingerprint: input.GovernedInputFingerprint, ImplementationFingerprint: input.ImplementationFingerprint, ReviewFingerprint: input.ReviewFingerprint, PolicyFingerprint: input.PolicyFingerprint, CheckCatalogFingerprint: input.CheckCatalogFingerprint, Budgets: input.Settings.Budgets, EffectiveSources: sources, Target: input.Target, Coverage: coverage, Shards: shards, InputRefs: inputRefs}
+	for i := range shards {
+		shards[i].ContextBlockIDs = qaContextBlockIDs(qaProjectFoundation(input.Foundation, shards[i]))
+	}
+	result := QAMap{SchemaVersion: 1, ID: mapID, Project: input.Project, Sprint: input.Sprint, SemanticAttemptID: attemptID, GovernedInputFingerprint: input.GovernedInputFingerprint, ImplementationFingerprint: input.ImplementationFingerprint, ReviewFingerprint: input.ReviewFingerprint, PolicyFingerprint: input.PolicyFingerprint, CheckCatalogFingerprint: input.CheckCatalogFingerprint, Budgets: input.Settings.Budgets, EffectiveSources: sources, Target: input.Target, Coverage: coverage, Shards: shards, InputRefs: inputRefs, Foundation: input.Foundation, Mapper: &QAMapperRecord{Executor: "deterministic", Fallback: true, Reason: "semantic mapper has not run"}}
 	if err := ValidateQAMap(result); err != nil {
 		return QAMap{}, NewQAError(QAErrorInvalidState, "map", err.Error(), err)
 	}

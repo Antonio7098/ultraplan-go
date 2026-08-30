@@ -1,0 +1,1195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="A visual architecture report for reducing agent discovery in UltraPlan's QA and repair stages.">
+  <title>QA Context Engineering | UltraPlan</title>
+  <style>
+    :root {
+      --bg: oklch(0.22813 0.020366 307.469);
+      --surface: oklch(0.267101 0.02016 311.799);
+      --surface-2: oklch(0.279864 0.021572 309.532);
+      --surface-3: oklch(0.154761 0.01316 338.901);
+      --control: oklch(0.313674 0.030572 310.061);
+      --line: oklch(0.266943 0.015262 302.425);
+      --line-strong: oklch(0.266817 0.02897 344.461);
+      --text: oklch(0.980735 0.004092 301.426);
+      --muted: oklch(0.880303 0.03077 342.696);
+      --quiet: oklch(0.657087 0.028226 307.985);
+      --model: oklch(0.591646 0.217985 0.584);
+      --model-soft: oklch(0.256077 0.063004 342.914);
+      --code: #56c793;
+      --code-soft: color-mix(in oklab, var(--code) 10%, var(--surface));
+      --context: oklch(0.836861 0.164422 84.429);
+      --context-soft: color-mix(in oklab, var(--context) 10%, var(--surface));
+      --risk: oklch(0.901233 0.057189 343.694);
+      --risk-soft: color-mix(in oklab, var(--risk) 9%, var(--surface));
+      --radius: .65rem;
+      --radius-sm: .5rem;
+      --radius-cell: .18rem;
+      --font-display: clamp(3rem, 8vw, 5.5rem);
+      --font-headline: clamp(1.65rem, 3vw, 2.15rem);
+      --font-lead: clamp(1.12rem, 2vw, 1.45rem);
+      --font-title: 1.05rem;
+      --font-body: 14px;
+      --font-label: .7rem;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --shadow: 0 16px 42px rgb(0 0 0 / 17%);
+      --content: 1180px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      scrollbar-color: var(--line-strong) var(--bg);
+    }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 78% 2%, color-mix(in oklab, var(--model) 10%, transparent), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      font: var(--font-body)/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      text-rendering: optimizeLegibility;
+    }
+
+    ::selection { background: color-mix(in oklab, var(--model) 35%, transparent); color: var(--text); }
+
+    a { color: inherit; }
+    a:focus-visible, button:focus-visible { outline: 2px solid var(--context); outline-offset: 3px; }
+
+    .skip-link {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 20;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      background: var(--text);
+      color: var(--bg);
+      transform: translateY(-160%);
+    }
+
+    .skip-link:focus { transform: translateY(0); }
+
+    .shell {
+      width: min(calc(100% - 40px), var(--content));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid color-mix(in oklab, var(--line-strong) 68%, transparent);
+      background: color-mix(in oklab, var(--bg) 88%, transparent);
+      backdrop-filter: blur(16px);
+    }
+
+    .topbar-inner {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 720;
+      letter-spacing: -.02em;
+    }
+
+    .brand-mark {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 3px;
+      transform: rotate(45deg);
+    }
+
+    .brand-mark i {
+      display: block;
+      border-radius: var(--radius-cell);
+      background: var(--model);
+    }
+
+    .brand-mark i:nth-child(2), .brand-mark i:nth-child(3) { background: var(--context); }
+    .brand-mark i:nth-child(4) { background: var(--code); }
+
+    nav { display: flex; align-items: center; gap: 2px; }
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: var(--font-body);
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+    }
+    nav a:hover { color: var(--text); background: var(--surface-2); }
+
+    main { padding-bottom: 96px; }
+
+    .hero {
+      padding: 76px 0 50px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.28fr) minmax(310px, .72fr);
+      gap: 48px;
+      align-items: end;
+    }
+
+    .eyebrow, .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--context);
+      font-size: var(--font-label);
+      font-weight: 760;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 24px;
+      height: 1px;
+      background: currentColor;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      max-width: 780px;
+      margin: 18px 0 20px;
+      font-size: var(--font-display);
+      line-height: .82;
+      letter-spacing: -.04em;
+      font-weight: 700;
+    }
+
+    .hero-lede {
+      max-width: 740px;
+      color: var(--muted);
+      font-size: var(--font-lead);
+      line-height: 1.45;
+    }
+
+    .hero-lede strong { color: var(--text); font-weight: 680; }
+
+    .authority-card {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: color-mix(in oklab, var(--surface-2) 88%, transparent);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+
+    .authority-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 2px;
+      background: var(--model);
+    }
+
+    .authority-card h2 { margin: 10px 0 11px; font-size: var(--font-title); line-height: 1.3; }
+    .authority-card p { color: var(--muted); margin-bottom: 18px; }
+
+    .boundary {
+      display: grid;
+      gap: 9px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .boundary li {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 9px;
+      align-items: start;
+      color: var(--muted);
+      font-size: var(--font-body);
+    }
+
+    .boundary svg { margin-top: 3px; color: var(--code); }
+    .boundary .no svg { color: var(--risk); }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px 18px;
+      margin: 0 0 34px;
+      padding: 13px 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: var(--font-label);
+    }
+
+    .legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .model-color { color: var(--model); }
+    .code-color { color: var(--code); }
+    .context-color { color: var(--context); }
+    .risk-color { color: var(--risk); }
+
+    section { scroll-margin-top: 82px; padding: 54px 0; border-top: 1px solid var(--line); }
+    .section-heading {
+      max-width: 790px;
+      margin-bottom: 32px;
+    }
+    .section-index { color: var(--quiet); font: 650 var(--font-label)/1.2 var(--font-mono); }
+    h2 {
+      margin: 9px 0 12px;
+      font-size: var(--font-headline);
+      line-height: 1.15;
+      letter-spacing: -.025em;
+    }
+    .section-heading > p { color: var(--muted); font-size: var(--font-title); }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 22px;
+    }
+
+    .flow-panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .flow-panel.proposed { border-color: color-mix(in oklab, var(--model) 52%, var(--line)); }
+    .panel-head { padding: 20px 22px; border-bottom: 1px solid var(--line); }
+    .panel-head h3 { margin: 6px 0 5px; font-size: var(--font-title); letter-spacing: -.025em; }
+    .panel-head p { margin: 0; color: var(--muted); font-size: var(--font-body); }
+    .flow { padding: 22px; }
+
+    .node {
+      position: relative;
+      padding: 15px 17px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface-2);
+    }
+    .node + .node { margin-top: 25px; }
+    .node + .node::before {
+      content: "";
+      position: absolute;
+      width: 1px;
+      height: 25px;
+      left: 30px;
+      bottom: 100%;
+      background: var(--line-strong);
+    }
+    .node + .node::after {
+      content: "";
+      position: absolute;
+      left: 27px;
+      top: -6px;
+      width: 6px;
+      height: 6px;
+      border-right: 1px solid var(--line-strong);
+      border-bottom: 1px solid var(--line-strong);
+      transform: rotate(45deg);
+    }
+    .node .kind { font: 700 var(--font-label)/1.2 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
+    .node h3 { margin: 6px 0 3px; font-size: var(--font-title); }
+    .node p { margin: 0; color: var(--muted); font-size: var(--font-body); line-height: 1.55; }
+    .node.model { border-color: color-mix(in oklab, var(--model) 34%, var(--line)); }
+    .node.model .kind { color: var(--model); }
+    .node.code { border-color: color-mix(in oklab, var(--code) 30%, var(--line)); }
+    .node.code .kind { color: var(--code); }
+    .node.context { border-color: color-mix(in oklab, var(--context) 34%, var(--line)); background: var(--context-soft); }
+    .node.context .kind { color: var(--context); }
+    .node.risk { border-color: color-mix(in oklab, var(--risk) 34%, var(--line)); background: var(--risk-soft); }
+    .node.risk .kind { color: var(--risk); }
+
+    .fault {
+      margin-top: 20px;
+      padding: 14px 16px;
+      border: 1px dashed color-mix(in oklab, var(--risk) 54%, transparent);
+      border-radius: var(--radius-sm);
+      color: var(--muted);
+      background: color-mix(in oklab, var(--risk-soft) 48%, transparent);
+      font-size: var(--font-body);
+    }
+
+    .architecture {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr 52px 1.18fr 52px 1fr;
+      gap: 0;
+      align-items: stretch;
+      padding: 24px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .arch-column { display: flex; flex-direction: column; gap: 14px; }
+    .arch-arrow { display: grid; place-items: center; color: var(--line-strong); }
+    .arch-arrow svg { width: 32px; }
+    .arch-box {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+    }
+    .arch-box.context { border-top: 3px solid var(--context); }
+    .arch-box.model { border-top: 3px solid var(--model); }
+    .arch-box.code { border-top: 3px solid var(--code); }
+    .arch-box h3 { margin: 7px 0 6px; font-size: var(--font-title); }
+    .arch-box p { margin: 0; color: var(--muted); font-size: var(--font-body); }
+    .arch-box.big { flex: 1; padding: 22px; }
+    .arch-box.big h3 { font-size: var(--font-title); }
+
+    .mini-flow {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+      margin-top: 16px;
+    }
+    .mini-flow span {
+      padding: 9px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-3);
+      color: var(--muted);
+      font-size: var(--font-label);
+      text-align: center;
+    }
+
+    .callout {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 15px;
+      align-items: start;
+      margin-top: 22px;
+      padding: 18px 20px;
+      border: 1px solid color-mix(in oklab, var(--code) 37%, var(--line));
+      border-radius: var(--radius);
+      background: var(--code-soft);
+    }
+    .callout svg { color: var(--code); }
+    .callout strong { display: block; margin-bottom: 3px; }
+    .callout p { margin: 0; color: var(--muted); font-size: var(--font-body); }
+
+    .override-diagram {
+      display: grid;
+      grid-template-columns: 1fr 62px 1.2fr 62px 1fr;
+      align-items: center;
+      gap: 0;
+    }
+    .override-step {
+      min-height: 240px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .override-step.center { border-color: color-mix(in oklab, var(--model) 60%, var(--line)); background: var(--model-soft); }
+    .override-step.final { border-color: color-mix(in oklab, var(--code) 46%, var(--line)); }
+    .override-step h3 { margin: 10px 0 8px; font-size: var(--font-title); }
+    .override-step p { color: var(--muted); font-size: var(--font-body); }
+    .override-arrow { color: var(--line-strong); text-align: center; }
+    .override-arrow svg { width: 36px; }
+
+    .record {
+      margin-top: 15px;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      background: color-mix(in oklab, var(--bg) 62%, transparent);
+      font: var(--font-label)/1.65 var(--font-mono);
+      color: var(--muted);
+    }
+    .record b { color: var(--text); font-weight: 650; }
+    .record .v { color: var(--model); }
+    .record .e { color: var(--context); }
+
+    .permission-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      margin-top: 22px;
+    }
+    .permission {
+      padding: 20px;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .permission.allow { border-top: 2px solid var(--model); }
+    .permission.deny { border-top: 2px solid var(--risk); }
+    .permission h3 { font-size: var(--font-title); }
+    .permission ul { margin: 0; padding-left: 18px; color: var(--muted); }
+    .permission li + li { margin-top: 7px; }
+
+    .pack-map {
+      display: grid;
+      grid-template-columns: minmax(250px, .7fr) minmax(0, 1.3fr);
+      gap: 24px;
+    }
+    .pack-core {
+      position: sticky;
+      top: 88px;
+      align-self: start;
+      padding: 24px;
+      border: 1px solid color-mix(in oklab, var(--context) 55%, var(--line));
+      border-radius: var(--radius);
+      background: var(--context-soft);
+    }
+    .pack-core h3 { margin: 8px 0; font-size: var(--font-title); }
+    .pack-core p { color: var(--muted); }
+    .pack-core code { color: var(--context); }
+    .pack-layers { display: grid; gap: 12px; }
+    .pack-layer {
+      display: grid;
+      grid-template-columns: 36px minmax(140px, .38fr) 1fr;
+      gap: 14px;
+      align-items: start;
+      padding: 17px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+    .pack-num {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      color: var(--context);
+      background: var(--context-soft);
+      font: 700 var(--font-label) var(--font-mono);
+    }
+    .pack-layer h3 { margin: 4px 0 0; font-size: var(--font-title); }
+    .pack-layer p { margin: 2px 0 0; color: var(--muted); font-size: var(--font-body); }
+
+    .consumer-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 22px;
+    }
+    .consumer {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface-2);
+      font-size: var(--font-body);
+    }
+    .consumer strong { display: block; margin-bottom: 3px; color: var(--model); }
+    .consumer span { color: var(--muted); }
+
+    .comparison {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .comparison th, .comparison td { padding: 15px 17px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .comparison th { color: var(--muted); font-size: var(--font-label); letter-spacing: .08em; text-transform: uppercase; text-align: left; background: var(--surface-2); }
+    .comparison td:first-child { color: var(--muted); width: 24%; }
+    .comparison td:nth-child(2), .comparison td:nth-child(3) { width: 38%; }
+    .comparison tr:last-child td { border-bottom: 0; }
+    .comparison .winner { color: var(--code); font-weight: 700; }
+    .comparison .warn { color: var(--context); }
+
+    .decision {
+      display: grid;
+      grid-template-columns: 52px 1fr auto;
+      gap: 17px;
+      align-items: center;
+      margin-top: 20px;
+      padding: 19px;
+      border: 1px solid color-mix(in oklab, var(--code) 42%, var(--line));
+      border-radius: var(--radius);
+      background: var(--code-soft);
+    }
+    .decision-icon {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: color-mix(in oklab, var(--code) 13%, transparent);
+      color: var(--code);
+    }
+    .decision h3 { margin: 0 0 3px; font-size: var(--font-title); }
+    .decision p { margin: 0; color: var(--muted); font-size: var(--font-body); }
+    .decision .tag { color: var(--code); white-space: nowrap; }
+
+    .cache-rail {
+      display: grid;
+      gap: 15px;
+    }
+    .cache-row {
+      display: grid;
+      grid-template-columns: 110px minmax(0, 1fr) auto minmax(170px, .42fr);
+      align-items: stretch;
+      gap: 0;
+    }
+    .cache-label { display: flex; align-items: center; font-weight: 700; color: var(--model); }
+    .cache-stable, .cache-delta {
+      padding: 16px;
+      border: 1px solid var(--line);
+      font: var(--font-label)/1.45 var(--font-mono);
+    }
+    .cache-stable { border-radius: var(--radius-sm) 0 0 var(--radius-sm); background: var(--context-soft); color: var(--muted); }
+    .cache-delta { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--model-soft); color: var(--muted); }
+    .cache-boundary { display: grid; place-items: center; padding: 0 10px; background: var(--surface-3); color: var(--quiet); font: var(--font-label) var(--font-mono); writing-mode: vertical-rl; }
+
+    .executor-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .executor {
+      min-height: 190px;
+      padding: 17px;
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .executor:last-child { border-right: 0; }
+    .executor .step { color: var(--quiet); font: 700 var(--font-label) var(--font-mono); }
+    .executor h3 { margin: 13px 0 7px; font-size: var(--font-title); }
+    .executor p { color: var(--muted); font-size: var(--font-body); }
+    .executor.model { box-shadow: inset 0 3px var(--model); }
+    .executor.code { box-shadow: inset 0 3px var(--code); }
+    .executor.context { box-shadow: inset 0 3px var(--context); }
+
+    .priority-list { counter-reset: priority; display: grid; gap: 0; border-top: 1px solid var(--line); }
+    .priority {
+      counter-increment: priority;
+      display: grid;
+      grid-template-columns: 54px minmax(180px, .55fr) minmax(0, 1fr) 110px;
+      gap: 17px;
+      align-items: start;
+      padding: 21px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .priority::before { content: counter(priority, decimal-leading-zero); color: var(--quiet); font: 700 var(--font-label) var(--font-mono); }
+    .priority h3 { margin: 0; font-size: var(--font-title); }
+    .priority p { margin: 0; color: var(--muted); font-size: var(--font-body); }
+    .impact { text-align: right; color: var(--code); font: 700 var(--font-label) var(--font-mono); text-transform: uppercase; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .metric {
+      padding: 17px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+    .metric strong { display: block; margin-bottom: 4px; font-size: var(--font-body); }
+    .metric span { color: var(--muted); font-size: var(--font-body); }
+    .baseline-metrics { grid-template-columns: repeat(6, 1fr); }
+    .baseline-metrics .metric strong { color: var(--text); font: 700 1.45rem/1 var(--font-mono); }
+    .baseline-metrics .metric span { display: block; margin-top: 8px; }
+    .baseline-note { margin-top: 18px; }
+    .baseline-note code { color: var(--context); }
+    .repro-command { margin: 18px 0 0; padding: 17px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--muted); font: var(--font-label)/1.7 var(--font-mono); white-space: pre; }
+    .comparison td:first-child code { color: var(--context); }
+
+    footer {
+      padding: 28px 0 42px;
+      border-top: 1px solid var(--line);
+      color: var(--quiet);
+      font-size: var(--font-label);
+    }
+    footer .shell { display: flex; justify-content: space-between; gap: 20px; }
+    code { font-family: var(--font-mono); font-size: .92em; }
+
+    @media (max-width: 930px) {
+      nav { display: none; }
+      .hero, .flow-grid, .pack-map { grid-template-columns: 1fr; }
+      .pack-core { position: static; }
+      .architecture { grid-template-columns: 1fr; gap: 14px; }
+      .arch-arrow { transform: rotate(90deg); height: 32px; }
+      .override-diagram { grid-template-columns: 1fr; gap: 12px; }
+      .override-step { min-height: 0; }
+      .override-arrow { transform: rotate(90deg); }
+      .executor-grid { grid-template-columns: 1fr 1fr; }
+      .executor { border-bottom: 1px solid var(--line); }
+      .consumer-strip { grid-template-columns: 1fr 1fr; }
+      .baseline-metrics { grid-template-columns: repeat(3, 1fr); }
+      .cache-row { grid-template-columns: 86px 1fr; gap: 0; }
+      .cache-stable, .cache-delta { border-radius: 0; }
+      .cache-boundary { writing-mode: horizontal-tb; grid-column: 2; padding: 5px; }
+      .cache-delta { grid-column: 2; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+      .cache-stable { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+    }
+
+    @media (max-width: 640px) {
+      .shell { width: min(calc(100% - 24px), var(--content)); }
+      .hero { padding-top: 48px; }
+      h1 { font-size: var(--font-display); }
+      section { padding: 42px 0; }
+      .permission-grid, .metrics { grid-template-columns: 1fr; }
+      .baseline-metrics { grid-template-columns: 1fr 1fr; }
+      .pack-layer { grid-template-columns: 32px 1fr; }
+      .pack-layer p { grid-column: 2; }
+      .consumer-strip { grid-template-columns: 1fr; }
+      .comparison { display: block; overflow-x: auto; }
+      .decision { grid-template-columns: 44px 1fr; }
+      .decision .tag { grid-column: 2; }
+      .executor-grid { grid-template-columns: 1fr; }
+      .priority { grid-template-columns: 36px 1fr; }
+      .priority p, .priority .impact { grid-column: 2; text-align: left; }
+      footer .shell { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+
+    @media print {
+      body { print-color-adjust: exact; }
+      .topbar { position: static; }
+      section { break-inside: avoid; }
+      .pack-core { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to report</a>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <div class="brand" aria-label="UltraPlan architecture report">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        UltraPlan / QA architecture
+      </div>
+      <nav aria-label="Report sections">
+        <a href="#baseline">Measured baseline</a>
+        <a href="#comparison">Current vs proposed</a>
+        <a href="#arbiter">Arbiter authority</a>
+        <a href="#packs">Context packs</a>
+        <a href="#repair">Repair</a>
+        <a href="#roadmap">Roadmap</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="shell">
+    <header class="hero">
+      <div>
+        <span class="eyebrow">QA context engineering proposal</span>
+        <h1>Reason once.<br>Enforce every time.</h1>
+        <p class="hero-lede">Give each model a <strong>small, complete, cited context pack</strong>. Let a stronger arbiter challenge and override investigator claims. Keep evidence, promotion, mutation, and verification under deterministic control.</p>
+      </div>
+      <aside class="authority-card" aria-labelledby="authority-title">
+        <span class="tag model-color">Decision boundary</span>
+        <h2 id="authority-title">The arbiter can overrule an investigator.</h2>
+        <p>Its authority is semantic, not operational. Every override must point to immutable evidence and pass a code-enforced gate.</p>
+        <ul class="boundary">
+          <li>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Replace, merge, split, confirm, or refute a theory.
+          </li>
+          <li class="no">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 4 8 8m0-8-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            Cannot invent evidence, weaken acceptance criteria, or authorize a patch.
+          </li>
+        </ul>
+      </aside>
+    </header>
+
+    <div class="legend" aria-label="Diagram legend">
+      <span class="model-color"><i class="dot"></i> Model judgment</span>
+      <span class="code-color"><i class="dot"></i> Deterministic enforcement</span>
+      <span class="context-color"><i class="dot"></i> Frozen context artifact</span>
+      <span class="risk-color"><i class="dot"></i> Current waste or risk</span>
+    </div>
+
+    <section id="baseline" aria-labelledby="baseline-title">
+      <div class="section-heading">
+        <span class="section-index">BASELINE / 2026-08-30</span>
+        <h2 id="baseline-title">The valid control run investigated deeply, but confirmed none of three seeded defects.</h2>
+        <p>This is the pre-improvement control for Sprint 37. The QA-only run used <code>openrouter/minimax/minimax-m3:free</code> against a persistent isolated snapshot. All three known defects were placed inside the governed changed-path map. Synthetic review and smoke placeholders satisfied admission and are excluded from every number below.</p>
+      </div>
+
+      <div class="metrics baseline-metrics" aria-label="QA baseline totals">
+        <div class="metric"><strong>10</strong><span>investigator sessions</span></div>
+        <div class="metric"><strong>39</strong><span>model completions</span></div>
+        <div class="metric"><strong>217,798</strong><span>input tokens</span></div>
+        <div class="metric"><strong>977,549</strong><span>cache-read tokens</span></div>
+        <div class="metric"><strong>34,684</strong><span>output tokens</span></div>
+        <div class="metric"><strong>49</strong><span>tool calls</span></div>
+      </div>
+
+      <div class="callout baseline-note">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M11 3v10m0 4v.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <div><strong>Result: completed with findings; one of three seeded defects was identified, none was confirmed.</strong><p>The pagination defect was described accurately but retained as <code>inconclusive</code>. The isolation added-file omission and exact-theory-limit rejection were missed. The run also produced six confirmed outcomes unrelated to the seeded fixture. Seed score: 33.3% identified, 0% confirmed.</p></div>
+      </div>
+
+      <table class="comparison" aria-label="QA baseline aggregation by shard level">
+        <thead><tr><th scope="col">Level</th><th scope="col">Sessions / completions</th><th scope="col">Input / cached / output</th><th scope="col">Tools</th><th scope="col">Summed session time</th></tr></thead>
+        <tbody>
+          <tr><td><code>primary</code></td><td>5 / 21</td><td>152,083 / 668,661 / 17,596</td><td>28</td><td>455.026 s</td></tr>
+          <tr><td><code>boundary</code></td><td>1 / 2</td><td>5,174 / 4,235 / 1,993</td><td>0</td><td>29.632 s</td></tr>
+          <tr><td><code>follow-up</code></td><td>4 / 16</td><td>60,541 / 304,653 / 15,095</td><td>21</td><td>216.302 s</td></tr>
+          <tr><td><code>whole run</code></td><td>10 / 39</td><td>217,798 / 977,549 / 34,684</td><td>49</td><td>700.960 s</td></tr>
+        </tbody>
+      </table>
+
+      <div class="permission-grid">
+        <article class="permission deny">
+          <h3>Seeded defects</h3>
+          <ul>
+            <li><code>CE-01</code> omits files added only to the isolation “after” tree. Missed.</li>
+            <li><code>CE-02</code> rejects exactly the allowed maximum theory count. Missed.</li>
+            <li><code>CE-03</code> decrements the requested issue-page limit. Identified, inconclusive.</li>
+          </ul>
+        </article>
+        <article class="permission allow">
+          <h3>Measurement boundary</h3>
+          <ul>
+            <li>QA wall time: 442.61 s; summed session time: 700.960 s.</li>
+            <li>Provider cost: $0.00 as reported by the selected free route.</li>
+            <li>Reasoning and cache-write tokens: 0 as reported.</li>
+            <li>23 zero-delay rate-limit events; no provider or model fallback.</li>
+            <li>30 reads, 12 searches, 6 globs, and 1 invalid/disallowed tool attempt.</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="decision">
+        <div class="decision-icon"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M5 11h12M11 5l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><h3>Every persisted call and tool event is retained.</h3><p>The 1.53 MB ledger contains exact stored user prompts, repair prompts, responses, tool inputs and outputs, model settings, token fields, costs, and timestamps. The runtime does not expose provider wire headers or hidden system text; those fields are marked unavailable, never inferred as zero. Calibration runs using the stale empty-response prompt and out-of-scope fixtures are preserved but excluded.</p></div>
+        <a class="tag" href="../../ultraplan-go-workspace-qa-baseline-20260830/baseline-artifacts/qa-agent-calls.json">Raw call ledger</a>
+      </div>
+
+      <div class="section-heading">
+        <span class="section-index">REPRODUCIBILITY</span>
+        <h2>Persistent inputs make the post-change comparison repeatable.</h2>
+        <p>The source checkout is <code>/home/antonioborgerees/coding/ultraplan/ultraplan-go</code>. The preserved workspace is <code>/home/antonioborgerees/coding/ultraplan/ultraplan-go-workspace-qa-baseline-20260830</code>. Its configured target is <code>/home/antonioborgerees/coding/ultraplan/ultraplan-go-qa-baseline-snapshot-20260830</code>, with Git metadata beside it at the same path plus <code>.git</code>.</p>
+      </div>
+
+      <table class="comparison" aria-label="QA baseline reproducibility identities">
+        <tbody>
+          <tr><td>Target commit</td><td colspan="3"><code>e61e75cfb0fad389e2f57c27502f7bde5dd8021f</code></td></tr>
+          <tr><td>Fixture patch</td><td colspan="3"><code>baseline-artifacts/fixture.patch</code></td></tr>
+          <tr><td>Fixture SHA-256</td><td colspan="3"><code>8ea8080506f0964cf3ca944c77e2f052f3d73f301e13c2a2dfb882d7528e33da</code></td></tr>
+          <tr><td>Baseline source</td><td colspan="3"><code>b56119030995bcf601665c361b2e02c7f586407e</code></td></tr>
+          <tr><td>Runtime database</td><td colspan="3"><code>projects/ultraplan-go/sprints/37-evidence-qa-smoke/.ultraplan/runtime/opencode/1603680f93ad0c917ce5b77288adb1ce/opencode.db</code></td></tr>
+        </tbody>
+      </table>
+
+      <pre class="repro-command" aria-label="Comparison rerun command">cp -a --reflink=auto \
+  /home/antonioborgerees/coding/ultraplan/ultraplan-go-workspace-qa-baseline-20260830 \
+  /home/antonioborgerees/coding/ultraplan/ultraplan-go-workspace-qa-comparison-YYYYMMDD
+cd /home/antonioborgerees/coding/ultraplan/ultraplan-go
+go build -trimpath -o /home/antonioborgerees/coding/ultraplan/ultraplan-go-workspace-qa-comparison-YYYYMMDD/ultraplan-comparison ./cmd/ultraplan
+ULTRAPLAN_QA_MODEL='openrouter/minimax/minimax-m3:free' /usr/bin/time -v \
+  /home/antonioborgerees/coding/ultraplan/ultraplan-go-workspace-qa-comparison-YYYYMMDD/ultraplan-comparison \
+  --workspace /home/antonioborgerees/coding/ultraplan/ultraplan-go-workspace-qa-comparison-YYYYMMDD \
+  sprint ultraplan-go 37-evidence-qa-smoke qa --json</pre>
+
+      <div class="callout baseline-note">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M11 3v10m0 4v.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <div><strong>Keep the experiment QA-only.</strong><p>The copied review and smoke states are synthetic admission placeholders. Do not rerun either stage. Verify the target commit and fixture digest before the comparison, then record the improved source commit and binary digest as the only intended implementation variables. Full commands and caveats are in the artifact manifest.</p></div>
+      </div>
+    </section>
+
+    <section id="comparison" aria-labelledby="comparison-title">
+      <div class="section-heading">
+        <span class="section-index">01 / SYSTEM FLOW</span>
+        <h2 id="comparison-title">The current pipeline asks agents to discover. The proposed pipeline asks them to decide.</h2>
+        <p>The main efficiency gain is not a shorter prompt. It is moving repository discovery into one reusable, deterministic foundation and projecting only the relevant slices downstream.</p>
+      </div>
+
+      <div class="flow-grid">
+        <article class="flow-panel">
+          <header class="panel-head">
+            <span class="tag risk-color">Current</span>
+            <h3>Thin packets, repeated discovery</h3>
+            <p>Stage names imply semantic judgment, but much of synthesis and adjudication is exact matching and validation.</p>
+          </header>
+          <div class="flow" aria-label="Current QA flow">
+            <div class="node code">
+              <span class="kind">Deterministic</span>
+              <h3>Path-based shard mapper</h3>
+              <p>Groups by directory and extension. Assigns every expectation ID to every shard.</p>
+            </div>
+            <div class="node model">
+              <span class="kind">Agent per shard</span>
+              <h3>Investigator reads the repository</h3>
+              <p>Receives paths, risk tags, fingerprints, and check IDs. It must rediscover requirement meaning, source behavior, and relationships.</p>
+            </div>
+            <div class="node risk">
+              <span class="kind">Round trip</span>
+              <h3>Context expansion becomes a new task</h3>
+              <p>Approved paths are handed to a fresh follow-up shard, causing repeated reads and lost reasoning state.</p>
+            </div>
+            <div class="node code">
+              <span class="kind">Deterministic</span>
+              <h3>Synthesis by normalized string keys</h3>
+              <p>Sorts and groups claims, detects narrow contradictions, and schedules inconclusive follow-ups.</p>
+            </div>
+            <div class="node code">
+              <span class="kind">Deterministic</span>
+              <h3>Evidence and adjudication</h3>
+              <p>Validates fingerprints, containment, repeatability, and accepted failing evidence before promotion.</p>
+            </div>
+            <div class="node model">
+              <span class="kind">Agent per issue</span>
+              <h3>Repair from another thin packet</h3>
+              <p>Gets IDs and path bounds, but not the complete theory, exact requirement, failure excerpt, or relevant source blocks.</p>
+            </div>
+            <div class="fault"><strong>Efficiency failure:</strong> the same facts are rediscovered across mapper, investigators, follow-ups, and repairs. The system spends tool calls reconstructing context it already possessed upstream.</div>
+          </div>
+        </article>
+
+        <article class="flow-panel proposed">
+          <header class="panel-head">
+            <span class="tag model-color">Proposed</span>
+            <h3>Complete packs, bounded judgment</h3>
+            <p>Models receive the evidence needed for their decision. Code validates every boundary and owns side effects.</p>
+          </header>
+          <div class="flow" aria-label="Proposed QA flow">
+            <div class="node context">
+              <span class="kind">Built once</span>
+              <h3>Frozen QA foundation</h3>
+              <p>Exact requirements, diff hunks, symbols, review facts, source excerpts, dependency edges, check catalog, provenance, and fingerprints.</p>
+            </div>
+            <div class="node model">
+              <span class="kind">Strong structured model</span>
+              <h3>Semantic mapper</h3>
+              <p>Proposes behavioral shards and exact requirement ownership from the foundation. No repository tools unless the pack has a declared gap.</p>
+            </div>
+            <div class="node code">
+              <span class="kind">Deterministic</span>
+              <h3>Map validator and projector</h3>
+              <p>Checks coverage, path containment, budgets, and freshness. Produces a minimal cited pack for each shard.</p>
+            </div>
+            <div class="node model">
+              <span class="kind">Model first, agent fallback</span>
+              <h3>Shard investigators</h3>
+              <p>Decide from exact criteria and cited source blocks. Any expansion appends a delta to the same session.</p>
+            </div>
+            <div class="node model">
+              <span class="kind">More powerful model</span>
+              <h3>Cross-shard arbiter</h3>
+              <p>Challenges claims, resolves semantic conflicts, merges root causes, and emits explicit override records tied to evidence.</p>
+            </div>
+            <div class="node code">
+              <span class="kind">Deterministic</span>
+              <h3>Adjudication, repair bounds, verification</h3>
+              <p>Validates arbiter references and promotion rules, builds issue packs, applies patches, and runs deduplicated checks.</p>
+            </div>
+            <div class="callout">
+              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M11 2.5 19 6v5.5c0 4.4-3.4 7.2-8 8-4.6-.8-8-3.6-8-8V6l8-3.5Z" stroke="currentColor" stroke-width="1.6"/><path d="m7.7 11 2.1 2.1 4.6-4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <div><strong>Authority remains layered.</strong><p>Models interpret. Deterministic code validates evidence and policy. Only the product applies mutations.</p></div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="architecture-title">
+      <div class="section-heading">
+        <span class="section-index">02 / PROPOSED ARCHITECTURE</span>
+        <h2 id="architecture-title">One foundation feeds four purpose-built projections.</h2>
+        <p>The full foundation is an internal source of truth. Consumers receive views of it, not four separately assembled prompts.</p>
+      </div>
+
+      <div class="architecture" role="img" aria-label="QA foundation flows through semantic analysis and deterministic enforcement to repair">
+        <div class="arch-column">
+          <div class="arch-box context big">
+            <span class="tag context-color">Immutable artifact</span>
+            <h3>QA foundation</h3>
+            <p>Requirements, diffs, symbols, code relationships, review findings, execution handoff, approved checks, omissions, budgets, and content hashes.</p>
+            <div class="mini-flow"><span>Block IDs</span><span>Provenance</span><span>Fingerprint</span></div>
+          </div>
+          <div class="arch-box code">
+            <span class="tag code-color">Code</span>
+            <h3>Projection builder</h3>
+            <p>Selects blocks by shard, theory, evidence, or issue. Enforces byte and path budgets.</p>
+          </div>
+        </div>
+
+        <div class="arch-arrow" aria-hidden="true"><svg viewBox="0 0 36 20" fill="none"><path d="M2 10h30m-7-7 7 7-7 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+
+        <div class="arch-column">
+          <div class="arch-box model">
+            <span class="tag model-color">Projection 1</span>
+            <h3>Map pack → semantic mapper</h3>
+            <p>Enough cross-repository context to define behavioral shards and assign exact acceptance criteria.</p>
+          </div>
+          <div class="arch-box model">
+            <span class="tag model-color">Projection 2</span>
+            <h3>Shard packs → investigators</h3>
+            <p>Only the relevant hunks, symbols, criteria, tests, relationships, and prior findings.</p>
+          </div>
+          <div class="arch-box model">
+            <span class="tag model-color">Projection 3</span>
+            <h3>Synthesis pack → strong arbiter</h3>
+            <p>All validated theories and evidence summaries, plus only the blocks needed to compare them.</p>
+          </div>
+          <div class="arch-box model">
+            <span class="tag model-color">Projection 4</span>
+            <h3>Issue pack → repair agent</h3>
+            <p>Promoted root cause, observed failure, exact requirement, relevant source, path bounds, and target delta.</p>
+          </div>
+        </div>
+
+        <div class="arch-arrow" aria-hidden="true"><svg viewBox="0 0 36 20" fill="none"><path d="M2 10h30m-7-7 7 7-7 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+
+        <div class="arch-column">
+          <div class="arch-box code">
+            <span class="tag code-color">Gate 1</span>
+            <h3>Schema and citation validation</h3>
+            <p>Every claim references current block IDs, paths, expectations, theories, or evidence.</p>
+          </div>
+          <div class="arch-box code">
+            <span class="tag code-color">Gate 2</span>
+            <h3>Promotion policy</h3>
+            <p>Only accepted failing evidence can promote a repair candidate.</p>
+          </div>
+          <div class="arch-box code">
+            <span class="tag code-color">Gate 3</span>
+            <h3>Patch and check authority</h3>
+            <p>Writable paths, patch application, evidence execution, and final verification remain deterministic.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="arbiter" aria-labelledby="arbiter-title">
+      <div class="section-heading">
+        <span class="section-index">03 / ARBITER AUTHORITY</span>
+        <h2 id="arbiter-title">A stronger arbiter can change the conclusion, never the record.</h2>
+        <p>The investigator is a witness, not the final semantic authority. The arbiter receives a broader cross-shard view and may supersede a local claim when its cited reasoning is stronger.</p>
+      </div>
+
+      <div class="override-diagram">
+        <article class="override-step">
+          <span class="tag">Investigator output</span>
+          <h3>Local claim</h3>
+          <p>“The retry loop can double-submit after a timeout.” The investigator marks it confirmed and cites source and test blocks.</p>
+          <div class="record"><b>theory</b>: th-17<br><b>outcome</b>: confirmed<br><b>refs</b>: <span class="e">src-08, test-03</span></div>
+        </article>
+
+        <div class="override-arrow" aria-hidden="true"><svg viewBox="0 0 40 24" fill="none"><path d="M2 12h34m-8-8 8 8-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+
+        <article class="override-step center">
+          <span class="tag model-color">Powerful arbiter</span>
+          <h3>Cross-shard override</h3>
+          <p>Sees that the shared idempotency layer prevents duplication. Reframes the issue as lost error attribution and refutes the original outcome.</p>
+          <div class="record"><b>supersedes</b>: th-17<br><b>outcome</b>: <span class="v">refuted</span><br><b>replacement</b>: lost attribution<br><b>reason_refs</b>: <span class="e">src-08, src-22, ev-11</span><br><b>confidence</b>: 0.91</div>
+        </article>
+
+        <div class="override-arrow" aria-hidden="true"><svg viewBox="0 0 40 24" fill="none"><path d="M2 12h34m-8-8 8 8-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+
+        <article class="override-step final">
+          <span class="tag code-color">Deterministic gate</span>
+          <h3>Validated decision</h3>
+          <p>Code verifies that every referenced theory, block, and evidence record is current. Promotion still requires accepted failing evidence.</p>
+          <div class="record"><b>override_valid</b>: true<br><b>evidence_mutated</b>: false<br><b>repair_eligible</b>: policy result</div>
+        </article>
+      </div>
+
+      <div class="permission-grid">
+        <article class="permission allow">
+          <h3>Arbiter may</h3>
+          <ul>
+            <li>Confirm, refute, or replace an investigator’s claim.</li>
+            <li>Merge duplicate theories or split an over-broad theory.</li>
+            <li>Resolve contradictions using cross-shard context.</li>
+            <li>Identify a shared root cause or interaction.</li>
+            <li>Request a precisely scoped follow-up when evidence is insufficient.</li>
+          </ul>
+        </article>
+        <article class="permission deny">
+          <h3>Arbiter may not</h3>
+          <ul>
+            <li>Create, edit, or relabel immutable evidence results.</li>
+            <li>Cite a source block, theory, or check that does not exist.</li>
+            <li>Relax an acceptance criterion or path boundary.</li>
+            <li>Promote a claim without the required failing evidence.</li>
+            <li>Apply a patch or decide that verification passed.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="packs" aria-labelledby="packs-title">
+      <div class="section-heading">
+        <span class="section-index">04 / CONTEXT PACKS</span>
+        <h2 id="packs-title">A context pack is a cited projection, not a larger prompt.</h2>
+        <p>It should contain the minimum complete evidence for one decision. Every block is addressable, attributable, and reusable without another repository search.</p>
+      </div>
+
+      <div class="pack-map">
+        <aside class="pack-core">
+          <span class="tag context-color">Foundation contract</span>
+          <h3>Stable facts, once</h3>
+          <p>Build after implementation and execution are frozen. Address each unit as <code>kind:id@hash</code>, then project by consumer.</p>
+          <ul class="boundary">
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.8"/></svg>Exact text, not just IDs</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.8"/></svg>Source and execution provenance</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.8"/></svg>Snapshot fingerprint</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.8"/></svg>Explicit omissions and budgets</li>
+          </ul>
+        </aside>
+
+        <div class="pack-layers">
+          <article class="pack-layer"><span class="pack-num">01</span><h3>Identity</h3><p>Run, map, baseline, implementation, and check-plan fingerprints. Stale packs fail closed.</p></article>
+          <article class="pack-layer"><span class="pack-num">02</span><h3>Acceptance</h3><p>Exact requirement and acceptance-criterion text keyed by ID, including source provenance.</p></article>
+          <article class="pack-layer"><span class="pack-num">03</span><h3>Change</h3><p>Baseline-to-current diff hunks, enclosing symbols, full small files, and content-addressed excerpts for large files.</p></article>
+          <article class="pack-layer"><span class="pack-num">04</span><h3>Relationships</h3><p>Call, data, interface, configuration, dependency, and test edges relevant to the changed behavior.</p></article>
+          <article class="pack-layer"><span class="pack-num">05</span><h3>Prior knowledge</h3><p>Execution handoff, path-relevant review findings, post-execution source excerpts, and known uncertainties.</p></article>
+          <article class="pack-layer"><span class="pack-num">06</span><h3>Evidence</h3><p>Approved check descriptors, sanitized results, repeatability metadata, expected versus observed behavior, and bounded logs.</p></article>
+          <article class="pack-layer"><span class="pack-num">07</span><h3>Authority</h3><p>Readable and writable paths, live-read policy, tool budget, output schema, and required citation fields.</p></article>
+        </div>
+      </div>
+
+      <div class="consumer-strip" aria-label="Context pack consumers">
+        <div class="consumer"><strong>Mapper</strong><span>Broad structural view, exact criteria.</span></div>
+        <div class="consumer"><strong>Investigator</strong><span>One shard, cited behavioral context.</span></div>
+        <div class="consumer"><strong>Arbiter</strong><span>Cross-shard theories and evidence.</span></div>
+        <div class="consumer"><strong>Repair</strong><span>One promoted root cause and target.</span></div>
+      </div>
+
+      <div class="callout">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M11 3v16M3 11h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <div><strong>Context expansion should be a delta, not a restart.</strong><p>When code approves extra paths, append the exact excerpts and relationships to the same investigator session. Start a fresh follow-up only when the investigative objective changes.</p></div>
+      </div>
+    </section>
+
+    <section id="repair" aria-labelledby="repair-title">
+      <div class="section-heading">
+        <span class="section-index">05 / REPAIR EFFICIENCY</span>
+        <h2 id="repair-title">Keep per-issue repair until grouping changes the unit of work.</h2>
+        <p>The two current modes perform the same number of model proposals and isolated mutations. Grouped mode only reuses a conversation session, while resending full packets into an ever-growing history.</p>
+      </div>
+
+      <table class="comparison">
+        <thead><tr><th scope="col">Dimension</th><th scope="col">One model session per issue</th><th scope="col">One session per X issues</th></tr></thead>
+        <tbody>
+          <tr><td>Model calls</td><td><strong>N</strong></td><td><strong>N</strong></td></tr>
+          <tr><td>Issue packets and copies</td><td>N packets, N isolated copies</td><td>N packets, N isolated copies</td></tr>
+          <tr><td>Prompt history</td><td class="winner">Clean issue-local context</td><td class="warn">Prior issue turns accumulate; each continuation resends the next full packet</td></tr>
+          <tr><td>Failure isolation</td><td class="winner">Strong. No reasoning bleed between issues.</td><td>Weaker. A bad assumption can persist across the queue.</td></tr>
+          <tr><td>Reuse today</td><td>No session reuse</td><td>Session setup only. Stable prefix caching is not yet exploited.</td></tr>
+          <tr><td>Semantic grouping</td><td>Not required</td><td class="warn">Absent. Queues are fixed ID chunks, not related root causes.</td></tr>
+          <tr><td>Best use</td><td class="winner">Current default</td><td>Future clusters of 2–3 tightly related issues, after measurement</td></tr>
+        </tbody>
+      </table>
+
+      <div class="decision">
+        <div class="decision-icon"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="m5 11 4 4 8-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><h3>Recommendation: per issue, with a complete issue pack and a cached stable prefix.</h3><p>Later, add semantic repair clusters only when issues share a root cause, writable paths, and verification surface. Cap clusters at two or three issues.</p></div>
+        <span class="tag">Most efficient now</span>
+      </div>
+
+      <div class="permission-grid">
+        <article class="permission allow">
+          <h3>Repair pack additions</h3>
+          <ul>
+            <li>Complete promoted theory and arbiter override chain.</li>
+            <li>Exact acceptance text and expected versus observed behavior.</li>
+            <li>Bounded failure output and accepted evidence records.</li>
+            <li>Relevant source excerpts and dependency edges.</li>
+            <li>Separate read-only context and writable path allowlists.</li>
+            <li>Current target delta, including prior campaign patches.</li>
+          </ul>
+        </article>
+        <article class="permission allow">
+          <h3>Mechanical savings</h3>
+          <ul>
+            <li>Run identical evidence checks once per frozen snapshot.</li>
+            <li>Map one result to every shard that cites the check.</li>
+            <li>Deduplicate identical repair gates before execution.</li>
+            <li>Defer campaign-wide smoke once, then run it at the end.</li>
+            <li>Cache stable repair instructions and project metadata.</li>
+            <li>Do not call an unused three-vote evaluator.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="cache-title">
+      <div class="section-heading">
+        <span class="section-index">06 / CACHE SHAPE</span>
+        <h2 id="cache-title">Put stable truth before the cache boundary. Send only the decision delta after it.</h2>
+        <p>Prompt caching helps only when the shared prefix is byte-stable and reused. The context-pack design creates that boundary explicitly.</p>
+      </div>
+
+      <div class="cache-rail">
+        <div class="cache-row"><div class="cache-label">Investigator</div><div class="cache-stable">platform + tools + investigator policy + schema + QA foundation</div><div class="cache-boundary">cache boundary</div><div class="cache-delta">shard projection + task</div></div>
+        <div class="cache-row"><div class="cache-label">Arbiter</div><div class="cache-stable">arbiter authority + override schema + QA foundation</div><div class="cache-boundary">cache boundary</div><div class="cache-delta">theories + evidence + conflicts</div></div>
+        <div class="cache-row"><div class="cache-label">Repair</div><div class="cache-stable">write policy + repair protocol + project foundation</div><div class="cache-boundary">cache boundary</div><div class="cache-delta">issue pack + target delta</div></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="routing-title">
+      <div class="section-heading">
+        <span class="section-index">07 / EXECUTOR ROUTING</span>
+        <h2 id="routing-title">Use agents only where live exploration or mutation is part of the job.</h2>
+        <p>A model can make a bounded semantic decision from a complete pack. An agent is justified when it must discover missing context or edit files.</p>
+      </div>
+
+      <div class="executor-grid">
+        <article class="executor code"><span class="step">01</span><h3>Foundation builder</h3><span class="tag code-color">Code</span><p>Collects, fingerprints, sanitizes, budgets, and indexes reusable facts.</p></article>
+        <article class="executor model"><span class="step">02</span><h3>Semantic mapper</h3><span class="tag model-color">Strong model</span><p>Structured call from a complete map pack. Agent fallback only for declared gaps.</p></article>
+        <article class="executor model"><span class="step">03</span><h3>Investigation</h3><span class="tag model-color">Model → agent</span><p>Use a direct call when pack-complete. Escalate to tools only when evidence is missing.</p></article>
+        <article class="executor model"><span class="step">04</span><h3>Arbitration</h3><span class="tag model-color">Powerful model</span><p>One cross-shard structured decision with explicit overrides and citations.</p></article>
+        <article class="executor code"><span class="step">05</span><h3>Adjudication</h3><span class="tag code-color">Code</span><p>Validates references and promotion policy. Repair agents edit; code applies and verifies.</p></article>
+      </div>
+    </section>
+
+    <section id="roadmap" aria-labelledby="roadmap-title">
+      <div class="section-heading">
+        <span class="section-index">08 / IMPLEMENTATION ORDER</span>
+        <h2 id="roadmap-title">Build observability and the foundation before changing model topology.</h2>
+        <p>This order makes the efficiency claim measurable and keeps each architecture change reversible.</p>
+      </div>
+
+      <div class="priority-list">
+        <article class="priority"><h3>Instrument discovery cost</h3><p>Record input, output, reasoning, cache reads and writes, tool calls, distinct files and bytes read, repeated reads, expansions, follow-ups, elapsed time, and first-pass repair success.</p><span class="impact">Baseline</span></article>
+        <article class="priority"><h3>Create the QA foundation schema</h3><p>Introduce stable block IDs, fingerprints, exact requirement text, diffs, symbols, relationships, review facts, execution handoff, evidence descriptors, and omissions.</p><span class="impact">Highest</span></article>
+        <article class="priority"><h3>Project shard packs</h3><p>Replace all-expectations packets with exact criterion ownership and cited source slices. Continue approved context expansions in-session as deltas.</p><span class="impact">Highest</span></article>
+        <article class="priority"><h3>Add semantic mapping</h3><p>Let a strong structured model propose behavioral shards. Retain the current deterministic mapper as fallback and validate all output in code.</p><span class="impact">High</span></article>
+        <article class="priority"><h3>Add the powerful arbiter</h3><p>Define explicit override records and make semantic supersession visible in provenance. Keep deterministic adjudication as the final policy gate.</p><span class="impact">High</span></article>
+        <article class="priority"><h3>Complete repair packs</h3><p>Auto-inject promoted reasoning, accepted evidence, criteria, source blocks, access bounds, and target delta into per-issue repair.</p><span class="impact">High</span></article>
+        <article class="priority"><h3>Deduplicate checks and gates</h3><p>Execute identical commands once per snapshot, map results by fingerprint, and remove dormant or redundant evaluator paths.</p><span class="impact">Medium</span></article>
+        <article class="priority"><h3>Test semantic repair clusters</h3><p>Only after metrics exist, compare per-issue repair with clusters of two or three issues sharing root cause, files, and checks.</p><span class="impact">Measured</span></article>
+      </div>
+
+      <div class="metrics" aria-label="Success measures">
+        <div class="metric"><strong>Discovery efficiency</strong><span>Distinct useful bytes ÷ total bytes read; repeated reads and searches per conclusion.</span></div>
+        <div class="metric"><strong>Decision efficiency</strong><span>Cost and latency per accepted theory, override, promoted issue, and successful repair.</span></div>
+        <div class="metric"><strong>Quality guardrail</strong><span>Evidence completeness, override validity, first-pass repair rate, escaped defects, and regressions.</span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell">
+      <span>Architecture analysis based on the current UltraPlan QA and repair implementation.</span>
+      <span>Baseline snapshot: <code>e61e75cf</code> + fixture <code>8ea80805</code> · QA telemetry captured 2026-08-30.</span>
+    </div>
+  </footer>
+</body>
+</html>

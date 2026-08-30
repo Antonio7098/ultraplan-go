@@ -348,6 +348,25 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 	if err != nil {
 		return RepairPrepareResult{}, err
 	}
+	repairTheories, err := loadRepairTheories(store, qaMap, plans)
+	if err != nil {
+		return RepairPrepareResult{}, err
+	}
+	synthesis, synthesisErr := store.LoadSynthesis(qaMap.SemanticAttemptID, qaMap.Budgets)
+	var arbiterOverrides []QAArbiterOverride
+	if synthesisErr == nil && synthesis.Arbitration != nil {
+		wanted := stringSet(repairTheoryIDs(plans))
+		for _, override := range synthesis.Arbitration.Overrides {
+			for _, theoryID := range override.TheoryIDs {
+				if wanted[theoryID] {
+					arbiterOverrides = append(arbiterOverrides, override)
+					break
+				}
+			}
+		}
+	}
+	contextBlocks := repairContextBlocks(qaMap, allowed, repairExpectationRefs(plans))
+	targetDelta := repairTargetDelta(qaMap, allowed)
 	planIDs := make([]string, 0, len(plans))
 	for _, plan := range plans {
 		planIDs = append(planIDs, plan.ID)
@@ -356,7 +375,7 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 		Project: sp.Project, Sprint: sp.Slug, QAAttemptID: qaState.CurrentAttemptID, RepairRunID: runID,
 		Issue: issue, RootCauseGroup: group, AdjudicationID: adjudication.ID, EvidenceIDs: issue.EvidenceIDs,
 		PlanIDs: planIDs, MapID: qaMap.ID, ShardIDs: repairShardIDs(plans), TheoryIDs: repairTheoryIDs(plans),
-		ExpectationRefs: repairExpectationRefs(plans), ExactReproducer: exact, Checks: checks, AllowedPaths: allowed,
+		ExpectationRefs: repairExpectationRefs(plans), Theories: repairTheories, Evidence: append([]QAEvidenceRecord(nil), evidence...), EvidencePlans: append([]QAEvidencePlan(nil), plans...), ContextBlocks: contextBlocks, ArbiterOverrides: arbiterOverrides, TargetDelta: targetDelta, ExactReproducer: exact, Checks: checks, AllowedPaths: allowed,
 		ForbiddenPaths: repairForbiddenPaths(), AcceptanceCriteria: repairAcceptanceCriteria(plans), Mode: req.Mode, Budgets: req.Budgets, BudgetSources: append([]QAEffectiveSource(nil), req.BudgetSources...),
 		Target: packetTarget, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: implementationFingerprint,
 		ReviewFingerprint: flow.Review.Fingerprint, SmokeFingerprint: repairSmokeFingerprint(flow.Smoke), PolicyFingerprint: policyFingerprint,
@@ -1009,6 +1028,11 @@ func FinalizeRepairPacket(packet RepairIssuePacket) (RepairIssuePacket, error) {
 	packet.TheoryIDs = normalizeQAStrings(packet.TheoryIDs)
 	packet.ExpectationRefs = normalizeQAStrings(packet.ExpectationRefs)
 	packet.AcceptanceCriteria = normalizeQAStrings(packet.AcceptanceCriteria)
+	sort.Slice(packet.Theories, func(i, j int) bool { return packet.Theories[i].ID < packet.Theories[j].ID })
+	sort.Slice(packet.Evidence, func(i, j int) bool { return packet.Evidence[i].ID < packet.Evidence[j].ID })
+	sort.Slice(packet.EvidencePlans, func(i, j int) bool { return packet.EvidencePlans[i].ID < packet.EvidencePlans[j].ID })
+	sort.Slice(packet.ContextBlocks, func(i, j int) bool { return packet.ContextBlocks[i].ID < packet.ContextBlocks[j].ID })
+	sort.Slice(packet.ArbiterOverrides, func(i, j int) bool { return packet.ArbiterOverrides[i].ID < packet.ArbiterOverrides[j].ID })
 	var err error
 	packet.AllowedPaths, err = NormalizeRepairPaths(packet.AllowedPaths)
 	if err != nil {
@@ -1045,6 +1069,16 @@ func ValidateRepairPacket(packet RepairIssuePacket) error {
 	}
 	if len(packet.AllowedPaths) == 0 {
 		return fmt.Errorf("repair packet requires a finite production path set")
+	}
+	for _, theory := range packet.Theories {
+		if err := ValidateQATheory(theory); err != nil || !containsQAString(packet.TheoryIDs, theory.ID) {
+			return fmt.Errorf("repair packet contains an invalid theory snapshot")
+		}
+	}
+	for _, block := range packet.ContextBlocks {
+		if !validFingerprint(block.ContentSHA256) || strings.TrimSpace(block.Content) == "" {
+			return fmt.Errorf("repair packet contains an invalid context block")
+		}
 	}
 	for _, path := range packet.AllowedPaths {
 		if ClassifyRepairPath(path) != RepairPathProduction {
@@ -1600,6 +1634,7 @@ func (s Service) repairProposalRequest(packet RepairIssuePacket, workspace strin
 	request.Provider, request.Model = splitProviderModel(runtimeSettings.Model)
 	request.Metadata["variant"] = runtimeSettings.Variant
 	request.Metadata["reasoning_effort"] = runtimeSettings.Variant
+	request.Cache = pruntime.CacheDirective{Key: "qa-repair/" + packet.Project + "/" + packet.Sprint + "/" + request.Provider + "/" + request.Model + "/" + runtimeSettings.Variant + "/" + hashBytes([]byte(repairProposalPromptBody)), BreakpointBytes: len(repairProposalPromptBody), PrefixDigest: hashBytes([]byte(repairProposalPromptBody)), Mode: "stable-prefix"}
 	request.WorkDir = filepath.Clean(workspace)
 	request.Timeout = packet.Budgets.WallTime
 	request.Sandbox = "workspace_write"
@@ -1615,6 +1650,50 @@ func (s Service) repairProposalRequest(packet RepairIssuePacket, workspace strin
 	}
 	sort.Slice(request.Policy.PathRules, func(i, j int) bool { return request.Policy.PathRules[i].Path < request.Policy.PathRules[j].Path })
 	return request, nil
+}
+
+func loadRepairTheories(store QAStore, qaMap QAMap, plans []QAEvidencePlan) ([]QATheory, error) {
+	wanted := stringSet(repairTheoryIDs(plans))
+	shardIDs := repairShardIDs(plans)
+	result := make([]QATheory, 0, len(wanted))
+	for _, shardID := range shardIDs {
+		shard, err := store.LoadShard(qaMap.SemanticAttemptID, shardID)
+		if err != nil {
+			return nil, err
+		}
+		for _, theory := range shard.Theories {
+			if wanted[theory.ID] {
+				result = append(result, theory)
+			}
+		}
+	}
+	return result, nil
+}
+
+func repairContextBlocks(qaMap QAMap, paths, expectations []string) []QAContextBlock {
+	if qaMap.Foundation == nil {
+		return nil
+	}
+	var result []QAContextBlock
+	for _, block := range qaMap.Foundation.Blocks {
+		if containsQAString(paths, block.Path) || shareQAString(block.RelatedPaths, paths) || shareQAString(block.ExpectationRefs, expectations) || block.Kind == "authority" {
+			result = append(result, block)
+		}
+	}
+	return result
+}
+
+func repairTargetDelta(qaMap QAMap, paths []string) string {
+	if qaMap.Foundation == nil {
+		return ""
+	}
+	var blocks []string
+	for _, block := range qaMap.Foundation.Blocks {
+		if block.Kind == "change" && (containsQAString(paths, block.Path) || shareQAString(block.RelatedPaths, paths)) {
+			blocks = append(blocks, block.Content)
+		}
+	}
+	return strings.Join(blocks, "\n")
 }
 
 func deriveRepairProposal(target, isolated string, changedPaths []string, packet RepairIssuePacket) ([]byte, map[string][]byte, map[string]string, int64, error) {
@@ -1697,6 +1776,7 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 		}
 	}
 	results := make([]RepairGateResult, 0, len(RepairGateOrder()))
+	executed := make(map[string]RepairGateResult)
 	stopped := false
 	exactRemoved := false
 	completeLadder := true
@@ -1710,6 +1790,18 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 			results = append(results, RepairGateResult{Gate: gate, Status: RepairGateBlocked, Reason: "frozen gate descriptor is unavailable", NextAction: "Produce a current QA packet with the complete ladder."})
 			stopped = true
 			continue
+		}
+		executionKey := repairCheckExecutionKey(check)
+		if check.Executable != "@product" {
+			if cached, exists := executed[executionKey]; exists {
+				cached.Gate = gate
+				cached.Reason = "reused identical frozen check result from an earlier gate"
+				results = append(results, cached)
+				if cached.Status != RepairGatePassed {
+					stopped = true
+				}
+				continue
+			}
 		}
 		emitRepair(progress, RepairProgress{Phase: RepairPhaseReverifying, Cycle: cycle, Gate: gate, Message: "Running " + string(gate)})
 		started := s.now().UTC()
@@ -1784,6 +1876,9 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 		result.Duration = s.now().UTC().Sub(started)
 		result.DurationMS = result.Duration.Milliseconds()
 		results = append(results, result)
+		if check.Executable != "@product" {
+			executed[executionKey] = result
+		}
 		if result.Status != RepairGatePassed {
 			stopped = true
 		} else if gate == RepairGateExactReproducer {
@@ -1792,6 +1887,18 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 	}
 	issueChecksPassed := !stopped
 	return RepairReverification{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: cycle, Gates: results, IssueIDsBefore: []string{packet.Issue.ID}, IssueIDsAfter: unresolvedRepairIssues(packet, exactRemoved), HighestSeverityBefore: packet.Issue.Severity, HighestSeverityAfter: chooseSeverity(exactRemoved, "", packet.Issue.Severity), CompletedAt: s.now().UTC()}, exactRemoved, issueChecksPassed, issueChecksPassed && completeLadder
+}
+
+func repairCheckExecutionKey(check RepairCheckDescriptor) string {
+	digest, _ := repairDigest(struct {
+		Executable string
+		Args       []string
+		Workdir    string
+		Env        []string
+		Timeout    time.Duration
+		Output     int
+	}{check.Executable, check.Args, check.Workdir, normalizeQAStrings(check.EnvironmentNames), check.Timeout, check.OutputLimit})
+	return digest
 }
 
 func repairSmokeResultFingerprint(result SmokeResult) string {

@@ -100,7 +100,15 @@ func SynthesizeQAWithChallenges(qaMap QAMap, shards []QAShard, challenges []QACh
 			ids = append(ids, theory.ID)
 			confirmed = confirmed || theory.Outcome == QATheoryConfirmed
 			refuted = refuted || theory.Outcome == QATheoryRefuted
-			if theory.Outcome == QATheoryCrossShard || theory.Outcome == QATheoryInconclusive {
+			// Approved path expansion continues in the existing session. A fresh
+			// shard remains available when no compatible continuation happened or
+			// the objective is genuinely cross-shard.
+			owner := shardByTheory[theory.ID]
+			continued := false
+			for _, attempt := range owner.Attempts {
+				continued = continued || attempt.ContextMetrics.Expansions > 0
+			}
+			if theory.Outcome == QATheoryCrossShard || theory.Outcome == QATheoryInconclusive && !continued {
 				followCandidates = append(followCandidates, theory)
 			}
 		}

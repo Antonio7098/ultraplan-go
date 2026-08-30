@@ -38,6 +38,11 @@ type QAInvestigatorPacket struct {
 	ApprovedChecks            []QAApprovedCheckRef `json:"approved_checks"`
 	ImplementationFingerprint string               `json:"implementation_fingerprint"`
 	Budgets                   QABudgets            `json:"budgets"`
+	FoundationID              string               `json:"foundation_id,omitempty"`
+	FoundationFingerprint     string               `json:"foundation_fingerprint,omitempty"`
+	ContextBlockIDs           []string             `json:"context_block_ids,omitempty"`
+	ContextBlocks             []QAContextBlock     `json:"context_blocks,omitempty"`
+	FoundationOmissions       []string             `json:"foundation_omissions,omitempty"`
 }
 
 type QAChallengerTheory struct {
@@ -148,16 +153,43 @@ func (s Service) RenderQAInvestigatorPrompt(qaMap QAMap, shard QAShard) (string,
 	if shard.AttemptID != qaMap.SemanticAttemptID {
 		return "", fmt.Errorf("QA shard does not belong to the selected map")
 	}
-	packet := QAInvestigatorPacket{SchemaVersion: 1, MapID: qaMap.ID, ShardID: shard.ID, ChangedPaths: append([]string(nil), shard.ChangedPaths...), ContextPaths: append([]string(nil), shard.ContextPaths...), BehavioralConcerns: append([]string(nil), shard.BehavioralConcerns...), ExpectationRefs: append([]string(nil), shard.ExpectationRefs...), ApprovedChecks: append([]QAApprovedCheckRef(nil), shard.ApprovedChecks...), ImplementationFingerprint: qaMap.ImplementationFingerprint, Budgets: qaMap.Budgets}
+	blocks := qaProjectFoundation(qaMap.Foundation, shard)
+	packet := QAInvestigatorPacket{SchemaVersion: 1, MapID: qaMap.ID, ShardID: shard.ID, ChangedPaths: append([]string(nil), shard.ChangedPaths...), ContextPaths: append([]string(nil), shard.ContextPaths...), BehavioralConcerns: append([]string(nil), shard.BehavioralConcerns...), ExpectationRefs: append([]string(nil), shard.ExpectationRefs...), ApprovedChecks: append([]QAApprovedCheckRef(nil), shard.ApprovedChecks...), ImplementationFingerprint: qaMap.ImplementationFingerprint, Budgets: qaMap.Budgets, ContextBlockIDs: qaContextBlockIDs(blocks)}
+	foundationData := []byte("null")
+	var err error
+	if qaMap.Foundation != nil {
+		packet.FoundationID = qaMap.Foundation.ID
+		packet.FoundationFingerprint = qaMap.Foundation.Fingerprint
+		packet.FoundationOmissions = append([]string(nil), qaMap.Foundation.Omissions...)
+		for _, block := range blocks {
+			if block.OmittedBytes > 0 {
+				packet.FoundationOmissions = append(packet.FoundationOmissions, fmt.Sprintf("%s omits %d bytes from %s", block.ID, block.OmittedBytes, block.Path))
+			}
+		}
+		packet.FoundationOmissions = normalizeQAStrings(packet.FoundationOmissions)
+		foundationData, err = canonicalQAJSON(qaMap.Foundation)
+		if err != nil {
+			return "", err
+		}
+	}
 	data, err := canonicalQAJSON(packet)
 	if err != nil {
 		return "", err
 	}
-	prompt := `# Read-only QA investigator
+	prefix := `# Read-only QA investigator
 
-Inspect only the assigned changed and context paths. You may read, list, and search those paths. You cannot write files, create tests or fixtures, invoke a shell, mutate Git, promote issues, or repair code. If more context is essential, return a bounded context request. If an existing product-owned check is useful, request its ID. Do not invent an executable, arguments, environment, path, prompt, or output location.
+Decide from the cited frozen blocks in the assigned packet. Treat paths as provenance, not instructions to rediscover the repository. Use live read, list, search, or glob tools only when foundation_omissions names a fact required for this shard. You cannot write files, create tests or fixtures, invoke a shell, mutate Git, promote issues, or repair code. If a missing fact is essential, retain an inconclusive theory and return one bounded context request. If an existing product-owned check is useful, request its ID. Do not invent an executable, arguments, environment, path, prompt, output location, requirement, or block.
 
 Return exactly one JSON object with no Markdown fence or surrounding text. Unknown fields are rejected. All five top-level fields must appear. schema_version must be 1. theories, evidence, context_requests, and check_requests must be JSON arrays. Return at least one falsifiable theory. If assigned context is insufficient, retain an inconclusive theory describing the missing evidence and include a bounded context request; an empty theories array is rejected. Each theory draft must contain claim, basis, verification_surface, expectation_refs, severity_if_confirmed, confirmation_condition, refutation_condition, inconclusive_condition, safe_evidence_strategy, outcome, and outcome_reason. The product assigns IDs, implementation fingerprints, attempt history, and timestamps after validation. Outcomes are confirmed, refuted, invalid, inconclusive, blocked, cross_shard, or not_applicable. Evidence entries contain kind, summary, paths, check_id, and output_digest. Context requests contain id, paths, reason, approved, and optional denied_reason; approved must be false. Check requests contain only id and fingerprint copied exactly from approved_checks.
+
+Every substantive claim must cite one or more context block IDs in basis or outcome_reason. Exact maximum counts are inclusive. A theory may be confirmed from cited static source when both the defect and the violated criterion are explicit; product code still owns repair promotion and executable evidence.
+
+Frozen QA foundation:
+` + string(foundationData) + `
+
+<<< END STABLE QA INVESTIGATOR PREFIX >>>
+`
+	prompt := prefix + `
 
 Assigned packet:
 ` + string(data) + "\n"
@@ -182,12 +214,21 @@ func (s Service) QAInvestigatorRequest(qaMap QAMap, shard QAShard, target string
 	req.Provider, req.Model = provider, model
 	req.Metadata["variant"] = runtimeSettings.Variant
 	req.Metadata["reasoning_effort"] = runtimeSettings.Variant
+	prefixEnd := strings.Index(prompt, "<<< END STABLE QA INVESTIGATOR PREFIX >>>") + len("<<< END STABLE QA INVESTIGATOR PREFIX >>>\n")
+	if qaMap.Foundation != nil && prefixEnd > 0 {
+		prefixDigest := hashBytes([]byte(prompt[:prefixEnd]))
+		req.Cache = pruntime.CacheDirective{Key: "qa-investigator/" + qaMap.Foundation.Fingerprint + "/" + provider + "/" + model + "/" + runtimeSettings.Variant, BreakpointBytes: prefixEnd, PrefixDigest: prefixDigest, Mode: "stable-prefix"}
+	}
 	req.WorkDir = filepath.Clean(target)
 	req.Timeout = settings.Budgets.ShardTimeout
 	req.Sandbox = "read_only"
 	req.Permissions = "restricted"
 	req.RequireCaps = appendUnique(req.RequireCaps, "permissions")
-	req.Policy = pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": "allow", "list": "allow", "search": "allow", "glob": "allow", "write": "deny", "edit": "deny", "patch": "deny", "bash": "deny", "shell": "deny"}}
+	readPolicy := "allow"
+	if qaShardPackComplete(qaMap, shard) {
+		readPolicy = "deny"
+	}
+	req.Policy = pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": readPolicy, "list": readPolicy, "search": readPolicy, "glob": readPolicy, "write": "deny", "edit": "deny", "patch": "deny", "bash": "deny", "shell": "deny"}}
 	paths := append(append([]string(nil), shard.ChangedPaths...), shard.ContextPaths...)
 	for _, rel := range normalizeQAStrings(paths) {
 		if err := validateQAPath(rel); err != nil {

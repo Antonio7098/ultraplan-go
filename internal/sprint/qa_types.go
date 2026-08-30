@@ -479,6 +479,12 @@ type RepairIssuePacket struct {
 	ShardIDs                  []string                `json:"shard_ids"`
 	TheoryIDs                 []string                `json:"theory_ids,omitempty"`
 	ExpectationRefs           []string                `json:"expectation_refs"`
+	Theories                  []QATheory              `json:"theories,omitempty"`
+	Evidence                  []QAEvidenceRecord      `json:"evidence,omitempty"`
+	EvidencePlans             []QAEvidencePlan        `json:"evidence_plans,omitempty"`
+	ContextBlocks             []QAContextBlock        `json:"context_blocks,omitempty"`
+	ArbiterOverrides          []QAArbiterOverride     `json:"arbiter_overrides,omitempty"`
+	TargetDelta               string                  `json:"target_delta,omitempty"`
 	ExactReproducer           RepairCheckDescriptor   `json:"exact_reproducer"`
 	Checks                    []RepairCheckDescriptor `json:"checks"`
 	AllowedPaths              []string                `json:"allowed_paths"`
@@ -732,24 +738,28 @@ type QACoverage struct {
 }
 
 type QAShard struct {
-	SchemaVersion      int                     `json:"schema_version"`
-	ID                 string                  `json:"id"`
-	AttemptID          string                  `json:"attempt_id"`
-	Kind               QAShardKind             `json:"kind"`
-	Title              string                  `json:"title"`
-	ChangedPaths       []string                `json:"changed_paths,omitempty"`
-	ContextPaths       []string                `json:"context_paths,omitempty"`
-	OverlapPaths       []string                `json:"overlap_paths,omitempty"`
-	BoundaryReason     string                  `json:"boundary_reason,omitempty"`
-	BehavioralConcerns []string                `json:"behavioral_concerns"`
-	ExpectationRefs    []string                `json:"expectation_refs"`
-	RiskTags           []string                `json:"risk_tags,omitempty"`
-	ApprovedChecks     []QAApprovedCheckRef    `json:"approved_checks,omitempty"`
-	ParentTheoryIDs    []string                `json:"parent_theory_ids,omitempty"`
-	Phase              QAPhaseStatus           `json:"phase"`
-	Blocker            *QABlocker              `json:"blocker,omitempty"`
-	Attempts           []QAInvestigatorAttempt `json:"attempts,omitempty"`
-	Theories           []QATheory              `json:"theories,omitempty"`
+	SchemaVersion       int                     `json:"schema_version"`
+	ID                  string                  `json:"id"`
+	AttemptID           string                  `json:"attempt_id"`
+	Kind                QAShardKind             `json:"kind"`
+	Title               string                  `json:"title"`
+	ChangedPaths        []string                `json:"changed_paths,omitempty"`
+	ContextPaths        []string                `json:"context_paths,omitempty"`
+	OverlapPaths        []string                `json:"overlap_paths,omitempty"`
+	BoundaryReason      string                  `json:"boundary_reason,omitempty"`
+	BehavioralConcerns  []string                `json:"behavioral_concerns"`
+	ExpectationRefs     []string                `json:"expectation_refs"`
+	RiskTags            []string                `json:"risk_tags,omitempty"`
+	ApprovedChecks      []QAApprovedCheckRef    `json:"approved_checks,omitempty"`
+	ContextBlockIDs     []string                `json:"context_block_ids,omitempty"`
+	PreparedPromptBytes int                     `json:"prepared_prompt_bytes,omitempty"`
+	PreparedPrefixBytes int                     `json:"prepared_prefix_bytes,omitempty"`
+	PackComplete        bool                    `json:"pack_complete"`
+	ParentTheoryIDs     []string                `json:"parent_theory_ids,omitempty"`
+	Phase               QAPhaseStatus           `json:"phase"`
+	Blocker             *QABlocker              `json:"blocker,omitempty"`
+	Attempts            []QAInvestigatorAttempt `json:"attempts,omitempty"`
+	Theories            []QATheory              `json:"theories,omitempty"`
 }
 
 type QAMap struct {
@@ -769,6 +779,48 @@ type QAMap struct {
 	Coverage                  QACoverage          `json:"coverage"`
 	Shards                    []QAShard           `json:"shards"`
 	InputRefs                 []QAArtifactRef     `json:"input_refs"`
+	Foundation                *QAFoundation       `json:"foundation,omitempty"`
+	Mapper                    *QAMapperRecord     `json:"mapper,omitempty"`
+}
+
+// QAContextBlock is one content-addressed fact in the frozen QA foundation.
+// Consumers cite block IDs instead of rediscovering the same fact from a path.
+type QAContextBlock struct {
+	ID              string   `json:"id"`
+	Kind            string   `json:"kind"`
+	Path            string   `json:"path,omitempty"`
+	StartLine       int      `json:"start_line,omitempty"`
+	EndLine         int      `json:"end_line,omitempty"`
+	Content         string   `json:"content"`
+	ContentSHA256   string   `json:"content_sha256"`
+	Provenance      string   `json:"provenance"`
+	ExpectationRefs []string `json:"expectation_refs,omitempty"`
+	RelatedPaths    []string `json:"related_paths,omitempty"`
+	Symbols         []string `json:"symbols,omitempty"`
+	OmittedBytes    int      `json:"omitted_bytes,omitempty"`
+}
+
+type QAFoundation struct {
+	SchemaVersion             int                  `json:"schema_version"`
+	ID                        string               `json:"id"`
+	Fingerprint               string               `json:"fingerprint"`
+	GovernedInputFingerprint  string               `json:"governed_input_fingerprint"`
+	ImplementationFingerprint string               `json:"implementation_fingerprint"`
+	ReviewFingerprint         string               `json:"review_fingerprint"`
+	Blocks                    []QAContextBlock     `json:"blocks"`
+	ApprovedChecks            []QAApprovedCheckRef `json:"approved_checks,omitempty"`
+	Omissions                 []string             `json:"omissions,omitempty"`
+	TotalBytes                int                  `json:"total_bytes"`
+}
+
+type QAMapperRecord struct {
+	Executor     string `json:"executor"`
+	Model        string `json:"model,omitempty"`
+	Fallback     bool   `json:"fallback"`
+	Reason       string `json:"reason,omitempty"`
+	PromptBytes  int    `json:"prompt_bytes,omitempty"`
+	PrefixBytes  int    `json:"prefix_bytes,omitempty"`
+	PrefixDigest string `json:"prefix_digest,omitempty"`
 }
 
 type QAEvidenceSummary struct {
@@ -812,12 +864,28 @@ type QAInvestigatorAttempt struct {
 	RuntimeEvents        int64               `json:"runtime_events"`
 	RetainedEvents       int                 `json:"retained_events"`
 	ObservedToolCalls    int                 `json:"observed_tool_calls"`
+	ContextMetrics       QAContextMetrics    `json:"context_metrics"`
 	EstimatedCost        *QACostSummary      `json:"estimated_cost,omitempty"`
 	FailureKind          string              `json:"failure_kind,omitempty"`
 	Retryable            bool                `json:"retryable,omitempty"`
 	StopReason           string              `json:"stop_reason,omitempty"`
 	OutputDiagnostic     *QAOutputDiagnostic `json:"output_diagnostic,omitempty"`
 	Repair               *QARepairDiagnostic `json:"repair,omitempty"`
+}
+
+type QAContextMetrics struct {
+	PromptBytes       int            `json:"prompt_bytes"`
+	PrefixBytes       int            `json:"prefix_bytes"`
+	PrefixDigest      string         `json:"prefix_digest,omitempty"`
+	CacheCohort       string         `json:"cache_cohort,omitempty"`
+	ToolCallsByKind   map[string]int `json:"tool_calls_by_kind,omitempty"`
+	DistinctFilesRead int            `json:"distinct_files_read"`
+	ReadBytes         int64          `json:"read_bytes"`
+	RepeatedReads     int            `json:"repeated_reads"`
+	SearchCalls       int            `json:"search_calls"`
+	Expansions        int            `json:"expansions"`
+	ContinuationBytes int            `json:"continuation_bytes"`
+	Duration          time.Duration  `json:"duration"`
 }
 
 // QAOutputDiagnostic retains bounded facts about rejected investigator output
@@ -900,6 +968,38 @@ type QAChallenge struct {
 	EvidenceRefs         []string `json:"evidence_refs,omitempty"`
 }
 
+type QAArbiterAction string
+
+const (
+	QAArbiterConfirm QAArbiterAction = "confirm"
+	QAArbiterRefute  QAArbiterAction = "refute"
+	QAArbiterReplace QAArbiterAction = "replace"
+	QAArbiterMerge   QAArbiterAction = "merge"
+	QAArbiterSplit   QAArbiterAction = "split"
+)
+
+// QAArbiterOverride records a semantic supersession without mutating the
+// investigator's retained theory or any evidence record.
+type QAArbiterOverride struct {
+	ID               string          `json:"id"`
+	TheoryIDs        []string        `json:"theory_ids"`
+	Action           QAArbiterAction `json:"action"`
+	Outcome          QATheoryOutcome `json:"outcome"`
+	ReplacementClaim string          `json:"replacement_claim,omitempty"`
+	Reason           string          `json:"reason"`
+	ReasonRefs       []string        `json:"reason_refs"`
+	Confidence       float64         `json:"confidence"`
+}
+
+type QAArbitration struct {
+	SchemaVersion int                 `json:"schema_version"`
+	MapID         string              `json:"map_id"`
+	Model         string              `json:"model,omitempty"`
+	Overrides     []QAArbiterOverride `json:"overrides,omitempty"`
+	Fallback      bool                `json:"fallback"`
+	Reason        string              `json:"reason,omitempty"`
+}
+
 type QASynthesis struct {
 	SchemaVersion  int                     `json:"schema_version"`
 	ID             string                  `json:"id"`
@@ -907,6 +1007,7 @@ type QASynthesis struct {
 	MapID          string                  `json:"map_id"`
 	TheoryIDs      []string                `json:"theory_ids"`
 	Challenges     []QAChallenge           `json:"challenges,omitempty"`
+	Arbitration    *QAArbitration          `json:"arbitration,omitempty"`
 	Deduplicated   map[string][]string     `json:"deduplicated,omitempty"`
 	Contradictions [][]string              `json:"contradictions,omitempty"`
 	Interactions   []string                `json:"interactions,omitempty"`
@@ -1128,6 +1229,14 @@ func ValidateQAMap(m QAMap) error {
 	if err := validateQABudgets(m.Budgets); err != nil {
 		return err
 	}
+	if m.Foundation != nil {
+		if err := ValidateQAFoundation(*m.Foundation); err != nil {
+			return err
+		}
+		if m.Foundation.ImplementationFingerprint != m.ImplementationFingerprint || m.Foundation.GovernedInputFingerprint != m.GovernedInputFingerprint || m.Foundation.ReviewFingerprint != m.ReviewFingerprint {
+			return fmt.Errorf("QA foundation does not match the map fingerprints")
+		}
+	}
 	owners := map[string]int{}
 	ownerIDs := map[string]string{}
 	for _, shard := range m.Shards {
@@ -1218,6 +1327,21 @@ func ValidateQASynthesis(synthesis QASynthesis, budgets QABudgets) error {
 		for _, theoryID := range challenge.TheoryIDs {
 			if _, ok := theoryIDs[theoryID]; !ok {
 				return fmt.Errorf("QA synthesis challenge references an unknown theory")
+			}
+		}
+	}
+	if synthesis.Arbitration != nil {
+		if synthesis.Arbitration.SchemaVersion != QASchemaVersion || synthesis.Arbitration.MapID != synthesis.MapID {
+			return fmt.Errorf("invalid QA arbitration identity")
+		}
+		for _, override := range synthesis.Arbitration.Overrides {
+			if len(override.TheoryIDs) == 0 || strings.TrimSpace(override.Reason) == "" || len(override.ReasonRefs) == 0 || override.Confidence < 0 || override.Confidence > 1 || !containsQATheoryOutcome(override.Outcome) {
+				return fmt.Errorf("invalid QA arbiter override")
+			}
+			for _, theoryID := range override.TheoryIDs {
+				if _, ok := theoryIDs[theoryID]; !ok {
+					return fmt.Errorf("QA arbiter override references an unknown theory")
+				}
 			}
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
@@ -25,34 +26,44 @@ type RuntimeTokenMetric struct {
 }
 
 type SprintRuntimeMetric struct {
-	Stage              PlanningStage      `json:"stage"`
-	Operation          string             `json:"operation,omitempty"`
-	Task               string             `json:"task,omitempty"`
-	Coverage           string             `json:"coverage,omitempty"`
-	RunID              string             `json:"run_id,omitempty"`
-	SessionID          string             `json:"session_id,omitempty"`
-	Status             string             `json:"status,omitempty"`
-	Provider           string             `json:"provider,omitempty"`
-	Model              string             `json:"model,omitempty"`
-	PromptBytes        int                `json:"prompt_bytes"`
-	SharedPrefixBytes  int                `json:"shared_prefix_bytes,omitempty"`
-	StageSuffixBytes   int                `json:"stage_suffix_bytes"`
-	SharedPrefixDigest string             `json:"shared_prefix_sha256,omitempty"`
-	CacheKey           string             `json:"cache_key,omitempty"`
-	InputTokens        RuntimeTokenMetric `json:"input_tokens"`
-	OutputTokens       RuntimeTokenMetric `json:"output_tokens"`
-	ReasoningTokens    RuntimeTokenMetric `json:"reasoning_tokens"`
-	CacheReadTokens    RuntimeTokenMetric `json:"cache_read_tokens"`
-	CacheWriteTokens   RuntimeTokenMetric `json:"cache_write_tokens"`
-	TotalTokens        RuntimeTokenMetric `json:"total_tokens"`
-	Turns              RuntimeTokenMetric `json:"turns"`
-	CostAmount         float64            `json:"cost_amount,omitempty"`
-	CostCurrency       string             `json:"cost_currency,omitempty"`
-	CostEstimated      bool               `json:"cost_estimated,omitempty"`
-	CostSource         string             `json:"cost_source,omitempty"`
-	StartedAt          time.Time          `json:"started_at,omitempty"`
-	FinishedAt         time.Time          `json:"finished_at,omitempty"`
-	ErrorCategory      string             `json:"error_category,omitempty"`
+	Stage               PlanningStage      `json:"stage"`
+	Operation           string             `json:"operation,omitempty"`
+	Task                string             `json:"task,omitempty"`
+	Coverage            string             `json:"coverage,omitempty"`
+	RunID               string             `json:"run_id,omitempty"`
+	SessionID           string             `json:"session_id,omitempty"`
+	Status              string             `json:"status,omitempty"`
+	Provider            string             `json:"provider,omitempty"`
+	Model               string             `json:"model,omitempty"`
+	PromptBytes         int                `json:"prompt_bytes"`
+	SharedPrefixBytes   int                `json:"shared_prefix_bytes,omitempty"`
+	StageSuffixBytes    int                `json:"stage_suffix_bytes"`
+	SharedPrefixDigest  string             `json:"shared_prefix_sha256,omitempty"`
+	CacheKey            string             `json:"cache_key,omitempty"`
+	InputTokens         RuntimeTokenMetric `json:"input_tokens"`
+	OutputTokens        RuntimeTokenMetric `json:"output_tokens"`
+	ReasoningTokens     RuntimeTokenMetric `json:"reasoning_tokens"`
+	CacheReadTokens     RuntimeTokenMetric `json:"cache_read_tokens"`
+	CacheWriteTokens    RuntimeTokenMetric `json:"cache_write_tokens"`
+	TotalTokens         RuntimeTokenMetric `json:"total_tokens"`
+	Turns               RuntimeTokenMetric `json:"turns"`
+	CostAmount          float64            `json:"cost_amount,omitempty"`
+	CostCurrency        string             `json:"cost_currency,omitempty"`
+	CostEstimated       bool               `json:"cost_estimated,omitempty"`
+	CostSource          string             `json:"cost_source,omitempty"`
+	StartedAt           time.Time          `json:"started_at,omitempty"`
+	FinishedAt          time.Time          `json:"finished_at,omitempty"`
+	ErrorCategory       string             `json:"error_category,omitempty"`
+	ErrorDetail         string             `json:"error_detail,omitempty"`
+	ToolCalls           int                `json:"tool_calls"`
+	ToolCallsByKind     map[string]int     `json:"tool_calls_by_kind,omitempty"`
+	Continuation        bool               `json:"continuation"`
+	ContinuationBytes   int                `json:"continuation_bytes,omitempty"`
+	ParentRunID         string             `json:"parent_run_id,omitempty"`
+	RepairOf            string             `json:"repair_of,omitempty"`
+	RetryOf             string             `json:"retry_of,omitempty"`
+	DurationMs          int64              `json:"duration_ms,omitempty"`
+	TimeToFirstOutputMs int64              `json:"time_to_first_output_ms,omitempty"`
 }
 
 type SprintRuntimeMetrics struct {
@@ -136,6 +147,17 @@ func (s Service) recordRuntimeMetric(sp Sprint, stage PlanningStage, req pruntim
 		return err
 	}
 	explanation := explainComposedPrompt(req.Prompt)
+	if req.Cache.BreakpointBytes > 0 {
+		explanation.SharedPrefixBytes = req.Cache.BreakpointBytes
+		explanation.StageSuffixBytes = len(req.Prompt) - req.Cache.BreakpointBytes
+		explanation.SharedPrefixDigest = req.Cache.PrefixDigest
+		explanation.CacheKey = req.Cache.Key
+	}
+	toolKinds, firstOutput := runtimeEventMetrics(result)
+	toolCalls := 0
+	for _, count := range toolKinds {
+		toolCalls += count
+	}
 	record := SprintRuntimeMetric{
 		Stage: stage, Operation: req.Metadata["operation"], Task: req.Metadata["task"], Coverage: req.Metadata["coverage"],
 		RunID: result.RunID, SessionID: result.SessionID, Status: result.Status, Provider: req.Provider, Model: req.Model,
@@ -145,6 +167,17 @@ func (s Service) recordRuntimeMetric(sp Sprint, stage PlanningStage, req pruntim
 		ReasoningTokens: metricToken(result.Usage.ReasoningTokensKnown, result.Usage.ReasoningTokens), CacheReadTokens: metricToken(result.Usage.CacheReadTokensKnown, result.Usage.CacheReadTokens),
 		CacheWriteTokens: metricToken(result.Usage.CacheWriteTokensKnown, result.Usage.CacheWriteTokens), TotalTokens: metricToken(result.Usage.TotalTokensKnown, result.Usage.TotalTokens),
 		Turns: metricToken(result.Usage.TurnsKnown, result.Usage.Turns), StartedAt: result.StartedAt, FinishedAt: result.FinishedAt,
+		ToolCalls: toolCalls, ToolCallsByKind: toolKinds, Continuation: req.SessionAction == "continue", ParentRunID: req.ParentTraceID,
+		RepairOf: req.Metadata["repair_of"], RetryOf: req.Metadata["retry_of"],
+	}
+	if req.SessionAction == "continue" {
+		record.ContinuationBytes = len(req.Prompt)
+	}
+	if !result.StartedAt.IsZero() && !result.FinishedAt.IsZero() {
+		record.DurationMs = result.FinishedAt.Sub(result.StartedAt).Milliseconds()
+	}
+	if firstOutput > 0 {
+		record.TimeToFirstOutputMs = firstOutput
 	}
 	if result.EstimatedCost != nil {
 		record.CostAmount, record.CostCurrency, record.CostEstimated = result.EstimatedCost.Amount, result.EstimatedCost.Currency, result.EstimatedCost.Estimate
@@ -152,6 +185,7 @@ func (s Service) recordRuntimeMetric(sp Sprint, stage PlanningStage, req pruntim
 	}
 	if result.Error != nil {
 		record.ErrorCategory = result.Error.Category
+		record.ErrorDetail = qaSafeDiagnostic(result.Error.UserDetail)
 	}
 	metrics.Runs = append(metrics.Runs, record)
 	if len(metrics.Runs) > maxRuntimeMetricRecords {
@@ -168,6 +202,35 @@ func (s Service) recordRuntimeMetric(sp Sprint, stage PlanningStage, req pruntim
 		return err
 	}
 	return atomicWriteFile(path, data)
+}
+
+func runtimeEventMetrics(result pruntime.Result) (map[string]int, int64) {
+	kinds := map[string]int{}
+	var firstOutput int64
+	for _, event := range result.Events {
+		kind := strings.ToLower(strings.TrimSpace(event.Kind))
+		typeName := strings.ToLower(strings.TrimSpace(event.Type))
+		if strings.Contains(kind, "tool") || strings.Contains(typeName, "tool_use") || strings.Contains(typeName, "tool.call") {
+			name := "unknown"
+			for _, key := range []string{"tool", "tool_name", "name"} {
+				if value, ok := event.Payload[key].(string); ok && strings.TrimSpace(value) != "" {
+					name = strings.ToLower(strings.TrimSpace(value))
+					break
+				}
+			}
+			kinds[name]++
+		}
+		if firstOutput == 0 && !result.StartedAt.IsZero() && !event.Time.IsZero() && (strings.Contains(kind, "text") || strings.Contains(typeName, "text") || event.Payload["content"] != nil) {
+			firstOutput = event.Time.Sub(result.StartedAt).Milliseconds()
+			if firstOutput < 0 {
+				firstOutput = 0
+			}
+		}
+	}
+	if len(kinds) == 0 {
+		kinds = nil
+	}
+	return kinds, firstOutput
 }
 
 func metricToken(known bool, value int64) RuntimeTokenMetric {

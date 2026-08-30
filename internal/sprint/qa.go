@@ -355,6 +355,10 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	if err != nil || len(findings) > 0 {
 		return QARunResult{}, NewQAError(QAErrorStaleInput, "run", "cannot resolve the current governed target", err)
 	}
+	mapResult.Map = s.refineQAMapSemantically(lockedCtx, mapResult.Map, manifest.Target)
+	if err := s.prepareQAShardPacks(&mapResult.Map); err != nil {
+		return QARunResult{}, err
+	}
 	flow, err := LoadFlowState(s.root, sp)
 	if err != nil {
 		return QARunResult{}, NewQAError(QAErrorInvalidState, "run", "flow state is unavailable", err)
@@ -400,10 +404,17 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	}
 	emitQA(req.Progress, QAProgress{Phase: QAPhaseSynthesizing, Event: "synthesis_started", Completed: state.CompletedShards, Total: state.TotalShards, Message: "QA synthesis started"})
 	var synthesis QASynthesis
+	var decisionShards []QAShard
 	for {
-		synthesis, err = SynthesizeQA(mapResult.Map, shards)
+		arbitration := s.arbitrateQA(runCtx, mapResult.Map, shards, manifest.Target)
+		decisionShards = applyQAArbitration(shards, arbitration)
+		synthesis, err = SynthesizeQA(mapResult.Map, decisionShards)
 		if err != nil {
 			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
+		}
+		synthesis.Arbitration = &arbitration
+		if err := ValidateQASynthesis(synthesis, mapResult.Map.Budgets); err != nil {
+			return s.publishTerminalQAFailureWithSynthesis(store, flow, mapResult.Map, shards, synthesis, state, req.WriterToken, err)
 		}
 		follow := pendingQASynthesisFollowUps(synthesis, shards, mapResult.Map.Budgets.FollowUpShards)
 		if len(follow) == 0 {
@@ -440,7 +451,7 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 			state.NextAction = synthesis.NextAction
 			state.Blocker = &QABlocker{Category: QAErrorInvalidState, Scope: "synthesis", Summary: "no QA shard produced evidence-ready theories", NextAction: synthesis.NextAction}
 		} else {
-			bundle, assessment, evidenceErr := s.buildQAEvidencePublication(runCtx, sp, mapResult.Map, manifest.Target, shards, req.Progress)
+			bundle, assessment, evidenceErr := s.buildQAEvidencePublication(runCtx, sp, mapResult.Map, manifest.Target, decisionShards, req.Progress)
 			if evidenceErr != nil {
 				return s.publishTerminalQAFailureWithSynthesis(store, flow, mapResult.Map, shards, synthesis, state, req.WriterToken, evidenceErr)
 			}
@@ -543,6 +554,7 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 		totalEvidence += len(descriptors)
 	}
 	completedEvidence := 0
+	executedChecks := make(map[string]QAEvidenceRecord)
 	for _, shard := range shards {
 		if shard.Phase != QAPhaseCompleted {
 			continue
@@ -579,9 +591,24 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 			if planErr != nil {
 				return QAEvidencePublication{}, QAAssessmentRecord{}, planErr
 			}
-			record, runErr := RunQAInvestigation(ctx, QAInvestigationRequest{Project: sp.Project, Sprint: sp.Slug, TargetRoot: target, WorkspaceParent: workspaceParent, ProtectedRoots: []string{s.root, target}, Plan: plan, Budgets: qaMap.Budgets, ExpectedTargetID: targetTreeIdentity.Digest, Now: s.now})
-			if runErr != nil {
-				return QAEvidencePublication{}, QAAssessmentRecord{}, runErr
+			checkKey, _ := fingerprintQAValue(struct {
+				Descriptor QACheckDescriptor
+				Paths      []string
+				Target     string
+			}{descriptor, approvedPaths, targetTreeIdentity.Digest})
+			record, reused := executedChecks[checkKey]
+			if reused {
+				record, planErr = cloneQAEvidenceForPlan(sp, record, plan)
+				if planErr != nil {
+					return QAEvidencePublication{}, QAAssessmentRecord{}, planErr
+				}
+			} else {
+				var runErr error
+				record, runErr = RunQAInvestigation(ctx, QAInvestigationRequest{Project: sp.Project, Sprint: sp.Slug, TargetRoot: target, WorkspaceParent: workspaceParent, ProtectedRoots: []string{s.root, target}, Plan: plan, Budgets: qaMap.Budgets, ExpectedTargetID: targetTreeIdentity.Digest, Now: s.now})
+				if runErr != nil {
+					return QAEvidencePublication{}, QAAssessmentRecord{}, runErr
+				}
+				executedChecks[checkKey] = record
 			}
 			plans, records = append(plans, plan), append(records, record)
 			completedEvidence++
@@ -643,6 +670,23 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorStaleInput, "publish evidence", "implementation changed during evidence production", err)
 	}
 	return QAEvidencePublication{Plans: plans, Records: records, Adjudication: &adjudication, Assessment: &assessment, Report: []byte(report), Budgets: qaMap.Budgets}, assessment, nil
+}
+
+func cloneQAEvidenceForPlan(sp Sprint, source QAEvidenceRecord, plan QAEvidencePlan) (QAEvidenceRecord, error) {
+	record := source
+	record.ID = ""
+	record.PlanID, record.AttemptID, record.ShardID = plan.ID, plan.AttemptID, plan.ShardID
+	record.GovernedInputFingerprint, record.ImplementationFingerprint, record.MapFingerprint = plan.GovernedInputFingerprint, plan.ImplementationFingerprint, plan.MapFingerprint
+	id, err := NewQAV2ID("evidence", sp.Project, sp.Slug, plan.ID, struct {
+		Source   string
+		Commands []QACommandResult
+		Outcome  QAEvidenceOutcome
+	}{source.ID, record.Commands, record.Outcome})
+	if err != nil {
+		return QAEvidenceRecord{}, err
+	}
+	record.ID = id
+	return record, nil
 }
 
 func qaHasTextEvidencePaths(paths []string) bool {
@@ -948,7 +992,7 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 		return shard, NewQAError(QAErrorStaleInput, "investigate shard", "implementation identity no longer matches the QA map", identityErr)
 	}
 	started := s.now().UTC()
-	result, runErr := s.runtime.StartRun(ctx, request)
+	result, runErr := s.startQARuntime(ctx, qaMap, request)
 	if result.TerminalOutput == "" {
 		result.TerminalOutput = capture.load()
 	}
@@ -958,7 +1002,7 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 	if runtimeEvents == 0 {
 		runtimeEvents = int64(len(result.Events))
 	}
-	attempt := QAInvestigatorAttempt{ID: fmt.Sprintf("%s/%s/1", token.OperationalAttemptID, shard.ID), Number: 1, StartedAt: started, CompletedAt: &completed, ImplementationBefore: before, ImplementationAfter: after, Usage: qaUsageSummary(result.Usage), RuntimeEvents: runtimeEvents, RetainedEvents: len(result.Events), ObservedToolCalls: qaObservedToolCalls(result.Events)}
+	attempt := QAInvestigatorAttempt{ID: fmt.Sprintf("%s/%s/1", token.OperationalAttemptID, shard.ID), Number: 1, StartedAt: started, CompletedAt: &completed, ImplementationBefore: before, ImplementationAfter: after, Usage: qaUsageSummary(result.Usage), RuntimeEvents: runtimeEvents, RetainedEvents: len(result.Events), ObservedToolCalls: qaObservedToolCalls(result.Events), ContextMetrics: qaAttemptContextMetrics(request, result.Events, completed.Sub(started))}
 	if result.Repair.Configured {
 		attempt.Repair = &QARepairDiagnostic{Attempted: result.Repair.Attempted, MaxAttempts: result.Repair.MaxAttempts, AttemptCount: result.Repair.AttemptCount, Exhausted: result.Repair.Exhausted, ExhaustedReason: result.Repair.ExhaustedReason, PermissionDenied: result.Repair.PermissionDenied, UnsupportedSameSession: result.Repair.UnsupportedSameSession}
 	}
@@ -1010,7 +1054,7 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 		return shard, NewQAError(QAErrorInvalidState, "investigate shard", "runtime returned invalid investigator output without validation repair metadata", decodeErr)
 	}
 	attempt.StopReason = "terminal investigator output accepted"
-	if len(output.Theories) > qaMap.Budgets.TheoriesPerShard || len(output.Context) > qaMap.Budgets.ContextExpansions || len(output.Checks) > qaMap.Budgets.CommandsPerAttempt {
+	if !withinQAInvestigatorBudgets(output, qaMap.Budgets) {
 		return shard, NewQAError(QAErrorBudgetExhausted, "investigate shard", "investigator output exceeds map-owned limits", nil)
 	}
 	attempt.ContextRequests = append([]QAContextRequest(nil), output.Context...)
@@ -1031,6 +1075,28 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 		approved, reason := approveQAContextPaths(target, contextRequest.Paths)
 		contextRequest.Approved = approved
 		contextRequest.DeniedReason = reason
+	}
+	approvedContext := make([]string, 0)
+	for _, contextRequest := range attempt.ContextRequests {
+		if contextRequest.Approved {
+			approvedContext = append(approvedContext, contextRequest.Paths...)
+		}
+	}
+	approvedContext = normalizeQAStrings(approvedContext)
+	if len(approvedContext) > 0 && result.SessionID != "" {
+		continuedResult, continuedOutput, continuationBytes, continueErr := s.continueQAInvestigator(ctx, qaMap, shard, target, request, result.SessionID, approvedContext)
+		attempt.ContextMetrics.Expansions++
+		attempt.ContextMetrics.ContinuationBytes += continuationBytes
+		if continueErr != nil {
+			attempt.StopReason = "approved context continuation failed"
+			shard.Attempts = append(shard.Attempts, attempt)
+			return shard, continueErr
+		}
+		output = continuedOutput
+		attempt.Usage = mergeQAUsage(attempt.Usage, qaUsageSummary(continuedResult.Usage))
+		attempt.RuntimeEvents += continuedResult.EventStats.Total
+		attempt.RetainedEvents += len(continuedResult.Events)
+		attempt.ObservedToolCalls += qaObservedToolCalls(continuedResult.Events)
 	}
 	checks, err := ApprovedQAChecks(target, qaMap.Coverage.ChangedPaths, qaMap.Budgets)
 	if err != nil {
@@ -1077,6 +1143,72 @@ func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, 
 	shard.Phase = QAPhaseCompleted
 	shard.Blocker = nil
 	return shard, nil
+}
+
+func withinQAInvestigatorBudgets(output qaInvestigatorOutput, budgets QABudgets) bool {
+	return len(output.Theories) <= budgets.TheoriesPerShard && len(output.Context) <= budgets.ContextExpansions && len(output.Checks) <= budgets.CommandsPerAttempt
+}
+
+func (s Service) continueQAInvestigator(ctx context.Context, qaMap QAMap, shard QAShard, target string, initial pruntime.Request, sessionID string, paths []string) (pruntime.Result, qaInvestigatorOutput, int, error) {
+	blocks := make([]QAContextBlock, 0, len(paths))
+	for _, rel := range paths {
+		data, err := os.ReadFile(filepath.Join(target, filepath.FromSlash(rel)))
+		if err != nil {
+			return pruntime.Result{}, qaInvestigatorOutput{}, 0, NewQAError(QAErrorStaleInput, "continue investigator", "approved context path is no longer readable", err)
+		}
+		blocks = append(blocks, newQAContextBlock("source", rel, string(data), "approved in-session context delta", shard.ExpectationRefs, []string{rel}))
+	}
+	delta, err := canonicalQAJSON(struct {
+		SchemaVersion int              `json:"schema_version"`
+		ShardID       string           `json:"shard_id"`
+		Blocks        []QAContextBlock `json:"blocks"`
+	}{QASchemaVersion, shard.ID, blocks})
+	if err != nil {
+		return pruntime.Result{}, qaInvestigatorOutput{}, 0, err
+	}
+	prompt := "Approved context delta follows. Continue the same investigation without repeating repository discovery. Return the complete five-field investigator JSON object, replacing any earlier provisional theories. Cite the new block IDs where used.\n\n" + string(delta) + "\n"
+	if len(prompt) > qaMap.Budgets.PromptBytes {
+		return pruntime.Result{}, qaInvestigatorOutput{}, len(prompt), NewQAError(QAErrorBudgetExhausted, "continue investigator", "context delta exceeds prompt budget", nil)
+	}
+	req := initial
+	req.Prompt, req.SessionID, req.SessionAction, req.Cache = prompt, sessionID, "continue", pruntime.CacheDirective{}
+	req.Policy = qaNoToolPolicy()
+	capture := &qaOutputCapture{}
+	req.Validation = qaInvestigatorValidationSpec(qaMap.Budgets, capture)
+	req.OnEvent = func(event pruntime.Event) { capture.observe(event.Payload) }
+	result, runErr := s.startQARuntime(ctx, qaMap, req)
+	if result.TerminalOutput == "" {
+		result.TerminalOutput = capture.load()
+	}
+	if runErr != nil {
+		return result, qaInvestigatorOutput{}, len(prompt), NewQAError(QAErrorRuntimeUnavailable, "continue investigator", "same-session context continuation failed", runErr)
+	}
+	if result.SessionID != sessionID || result.Permissions.Mode != "restricted" || result.Permissions.Default != "deny" || result.Permissions.UnsupportedCount != 0 {
+		return result, qaInvestigatorOutput{}, len(prompt), NewQAError(QAErrorPermissionDenied, "continue investigator", "runtime did not preserve the restricted investigator session", nil)
+	}
+	output, _, err := decodeQAInvestigatorOutput(result, qaMap.Budgets.ShardOutputBytes)
+	if err != nil {
+		return result, qaInvestigatorOutput{}, len(prompt), NewQAError(QAErrorInvalidState, "continue investigator", "context continuation returned invalid output", err)
+	}
+	return result, output, len(prompt), nil
+}
+
+func mergeQAUsage(left, right QAUsageSummary) QAUsageSummary {
+	left.InputTokensKnown = left.InputTokensKnown && right.InputTokensKnown
+	left.OutputTokensKnown = left.OutputTokensKnown && right.OutputTokensKnown
+	left.TotalTokensKnown = left.TotalTokensKnown && right.TotalTokensKnown
+	left.ReasoningTokensKnown = left.ReasoningTokensKnown && right.ReasoningTokensKnown
+	left.CacheReadTokensKnown = left.CacheReadTokensKnown && right.CacheReadTokensKnown
+	left.CacheWriteTokensKnown = left.CacheWriteTokensKnown && right.CacheWriteTokensKnown
+	left.TurnsKnown = left.TurnsKnown && right.TurnsKnown
+	left.InputTokens += right.InputTokens
+	left.OutputTokens += right.OutputTokens
+	left.TotalTokens += right.TotalTokens
+	left.ReasoningTokens += right.ReasoningTokens
+	left.CacheReadTokens += right.CacheReadTokens
+	left.CacheWriteTokens += right.CacheWriteTokens
+	left.Turns += right.Turns
+	return left
 }
 
 func approveQAContextPaths(target string, paths []string) (bool, string) {
@@ -1264,6 +1396,69 @@ func qaObservedToolCalls(events []pruntime.Event) int {
 		}
 	}
 	return count
+}
+
+func qaAttemptContextMetrics(req pruntime.Request, events []pruntime.Event, duration time.Duration) QAContextMetrics {
+	metric := QAContextMetrics{PromptBytes: len(req.Prompt), PrefixBytes: req.Cache.BreakpointBytes, PrefixDigest: req.Cache.PrefixDigest, CacheCohort: req.Cache.Key, Duration: duration, ToolCallsByKind: map[string]int{}}
+	reads := map[string]int{}
+	for _, event := range events {
+		kind := strings.ToLower(strings.TrimSpace(event.Kind + " " + event.Type))
+		if !strings.Contains(kind, "tool") {
+			continue
+		}
+		name := "unknown"
+		for _, key := range []string{"tool", "tool_name", "name"} {
+			if value, ok := event.Payload[key].(string); ok && strings.TrimSpace(value) != "" {
+				name = strings.ToLower(strings.TrimSpace(value))
+				break
+			}
+		}
+		metric.ToolCallsByKind[name]++
+		if strings.Contains(name, "search") || strings.Contains(name, "grep") {
+			metric.SearchCalls++
+		}
+		if strings.Contains(name, "read") {
+			path := qaEventString(event.Payload, "path", "file", "file_path", "filePath")
+			if path != "" {
+				reads[path]++
+			}
+			metric.ReadBytes += int64(qaEventTextBytes(event.Payload))
+		}
+	}
+	for _, count := range reads {
+		metric.DistinctFilesRead++
+		if count > 1 {
+			metric.RepeatedReads += count - 1
+		}
+	}
+	if len(metric.ToolCallsByKind) == 0 {
+		metric.ToolCallsByKind = nil
+	}
+	return metric
+}
+
+func qaEventString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := payload[key].(string); ok {
+			return strings.TrimSpace(value)
+		}
+		if nested, ok := payload["input"].(map[string]any); ok {
+			if value, ok := nested[key].(string); ok {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return ""
+}
+
+func qaEventTextBytes(payload map[string]any) int {
+	total := 0
+	for _, key := range []string{"content", "output", "text"} {
+		if value, ok := payload[key].(string); ok {
+			total += len(value)
+		}
+	}
+	return total
 }
 
 func emitQA(progress func(QAProgress), event QAProgress) {

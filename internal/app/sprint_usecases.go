@@ -230,6 +230,8 @@ type QAResult struct {
 	Target                       QATargetIdentitySummary    `json:"target"`
 	Coverage                     QACoverageSummary          `json:"coverage"`
 	InputRefs                    []QAArtifactRefSummary     `json:"input_refs,omitempty"`
+	Foundation                   *QAFoundationSummary       `json:"foundation,omitempty"`
+	Mapper                       *sprint.QAMapperRecord     `json:"mapper,omitempty"`
 	Limits                       QALimitsSummary            `json:"limits"`
 	ChangedPaths                 int                        `json:"changed_paths"`
 	CoveredPaths                 int                        `json:"covered_paths"`
@@ -314,24 +316,28 @@ type QALimitsSummary struct {
 }
 
 type QAShardSummary struct {
-	ID                 string                         `json:"id"`
-	AttemptID          string                         `json:"attempt_id,omitempty"`
-	Kind               string                         `json:"kind"`
-	Title              string                         `json:"title"`
-	Phase              string                         `json:"phase"`
-	ChangedPaths       []string                       `json:"changed_paths,omitempty"`
-	ContextPaths       []string                       `json:"context_paths,omitempty"`
-	OverlapPaths       []string                       `json:"overlap_paths,omitempty"`
-	BoundaryReason     string                         `json:"boundary_reason,omitempty"`
-	BehavioralConcerns []string                       `json:"behavioral_concerns,omitempty"`
-	ExpectationRefs    []string                       `json:"expectation_refs,omitempty"`
-	RiskTags           []string                       `json:"risk_tags,omitempty"`
-	ApprovedChecks     []QAApprovedCheckSummary       `json:"approved_checks,omitempty"`
-	ParentTheoryIDs    []string                       `json:"parent_theory_ids,omitempty"`
-	Attempts           []QAInvestigatorAttemptSummary `json:"attempts,omitempty"`
-	TheoryCount        int                            `json:"theory_count"`
-	Theories           []QATheorySummary              `json:"theories,omitempty"`
-	Blocker            *QABlockerSummary              `json:"blocker,omitempty"`
+	ID                  string                         `json:"id"`
+	AttemptID           string                         `json:"attempt_id,omitempty"`
+	Kind                string                         `json:"kind"`
+	Title               string                         `json:"title"`
+	Phase               string                         `json:"phase"`
+	ChangedPaths        []string                       `json:"changed_paths,omitempty"`
+	ContextPaths        []string                       `json:"context_paths,omitempty"`
+	OverlapPaths        []string                       `json:"overlap_paths,omitempty"`
+	BoundaryReason      string                         `json:"boundary_reason,omitempty"`
+	BehavioralConcerns  []string                       `json:"behavioral_concerns,omitempty"`
+	ExpectationRefs     []string                       `json:"expectation_refs,omitempty"`
+	RiskTags            []string                       `json:"risk_tags,omitempty"`
+	ApprovedChecks      []QAApprovedCheckSummary       `json:"approved_checks,omitempty"`
+	ParentTheoryIDs     []string                       `json:"parent_theory_ids,omitempty"`
+	ContextBlockIDs     []string                       `json:"context_block_ids,omitempty"`
+	PreparedPromptBytes int                            `json:"prepared_prompt_bytes,omitempty"`
+	PreparedPrefixBytes int                            `json:"prepared_prefix_bytes,omitempty"`
+	PackComplete        bool                           `json:"pack_complete"`
+	Attempts            []QAInvestigatorAttemptSummary `json:"attempts,omitempty"`
+	TheoryCount         int                            `json:"theory_count"`
+	Theories            []QATheorySummary              `json:"theories,omitempty"`
+	Blocker             *QABlockerSummary              `json:"blocker,omitempty"`
 }
 
 type QAApprovedCheckSummary struct {
@@ -384,6 +390,16 @@ type QAInvestigatorAttemptSummary struct {
 	StopReason           string                     `json:"stop_reason,omitempty"`
 	OutputDiagnostic     *sprint.QAOutputDiagnostic `json:"output_diagnostic,omitempty"`
 	Repair               *sprint.QARepairDiagnostic `json:"repair,omitempty"`
+	ContextMetrics       sprint.QAContextMetrics    `json:"context_metrics"`
+}
+
+type QAFoundationSummary struct {
+	ID          string         `json:"id"`
+	Fingerprint string         `json:"fingerprint"`
+	Blocks      map[string]int `json:"blocks_by_kind"`
+	BlockCount  int            `json:"block_count"`
+	TotalBytes  int            `json:"total_bytes"`
+	Omissions   []string       `json:"omissions,omitempty"`
 }
 
 type QABlockerSummary struct {
@@ -433,17 +449,18 @@ type QATheoryResult struct {
 
 type QASynthesisResult struct {
 	QAResult
-	ID             string               `json:"id,omitempty"`
-	MapID          string               `json:"map_id,omitempty"`
-	NextAction     string               `json:"synthesis_next_action,omitempty"`
-	TheoryIDs      []string             `json:"theory_ids"`
-	Challenges     []QAChallengeSummary `json:"challenges,omitempty"`
-	OutcomeTotals  map[string]int       `json:"synthesis_outcome_totals,omitempty"`
-	Deduplicated   map[string][]string  `json:"deduplicated,omitempty"`
-	Contradictions [][]string           `json:"contradictions,omitempty"`
-	Interactions   []string             `json:"interactions,omitempty"`
-	Blockers       []QABlockerSummary   `json:"blockers,omitempty"`
-	FollowUpShards []QAShardSummary     `json:"follow_up_shards"`
+	ID             string                `json:"id,omitempty"`
+	MapID          string                `json:"map_id,omitempty"`
+	NextAction     string                `json:"synthesis_next_action,omitempty"`
+	TheoryIDs      []string              `json:"theory_ids"`
+	Challenges     []QAChallengeSummary  `json:"challenges,omitempty"`
+	Arbitration    *sprint.QAArbitration `json:"arbitration,omitempty"`
+	OutcomeTotals  map[string]int        `json:"synthesis_outcome_totals,omitempty"`
+	Deduplicated   map[string][]string   `json:"deduplicated,omitempty"`
+	Contradictions [][]string            `json:"contradictions,omitempty"`
+	Interactions   []string              `json:"interactions,omitempty"`
+	Blockers       []QABlockerSummary    `json:"blockers,omitempty"`
+	FollowUpShards []QAShardSummary      `json:"follow_up_shards"`
 }
 
 type QAChallengeSummary struct {
@@ -1010,6 +1027,7 @@ func (u dashboardUseCases) QASynthesis(ctx context.Context, req QARequest) (QASy
 	}
 	result.ID, result.MapID, result.NextAction = snapshot.Synthesis.ID, snapshot.Synthesis.MapID, snapshot.Synthesis.NextAction
 	result.TheoryIDs = append([]string(nil), snapshot.Synthesis.TheoryIDs...)
+	result.Arbitration = snapshot.Synthesis.Arbitration
 	for _, challenge := range snapshot.Synthesis.Challenges {
 		result.Challenges = append(result.Challenges, QAChallengeSummary{ID: challenge.ID, TheoryIDs: append([]string(nil), challenge.TheoryIDs...), Claim: displaySafe(challenge.Claim), Basis: displaySafe(challenge.Basis), SafeEvidenceStrategy: displaySafe(challenge.SafeEvidenceStrategy), EvidenceRefs: append([]string(nil), challenge.EvidenceRefs...)})
 	}
@@ -1264,7 +1282,7 @@ func (u dashboardUseCases) withQAConformanceReview(req QARequest, result QAResul
 }
 
 func qaMapProjection(qaMap sprint.QAMap) QAResult {
-	result := QAResult{SchemaVersion: 1, Project: qaMap.Project, Sprint: qaMap.Sprint, Phase: string(sprint.QAPhaseMapped), Fresh: true, AttemptID: qaMap.SemanticAttemptID, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint, ReviewFingerprint: qaMap.ReviewFingerprint, MapFingerprint: qaMap.ID, PolicyFingerprint: qaMap.PolicyFingerprint, CheckCatalogFingerprint: qaMap.CheckCatalogFingerprint, EffectiveSources: qaEffectiveSourcesProjection(qaMap.EffectiveSources), Target: qaTargetProjection(qaMap.Target), Coverage: qaCoverageProjection(qaMap.Coverage), InputRefs: qaArtifactRefsProjection(qaMap.InputRefs), Limits: qaLimitsProjection(qaMap.Budgets), ChangedPaths: len(qaMap.Coverage.ChangedPaths), CoveredPaths: len(qaMap.Coverage.PrimaryOwners), TotalShards: len(qaMap.Shards), NextAction: "Start QA evidence production from this current deterministic map."}
+	result := QAResult{SchemaVersion: 1, Project: qaMap.Project, Sprint: qaMap.Sprint, Phase: string(sprint.QAPhaseMapped), Fresh: true, AttemptID: qaMap.SemanticAttemptID, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: qaMap.ImplementationFingerprint, ReviewFingerprint: qaMap.ReviewFingerprint, MapFingerprint: qaMap.ID, PolicyFingerprint: qaMap.PolicyFingerprint, CheckCatalogFingerprint: qaMap.CheckCatalogFingerprint, EffectiveSources: qaEffectiveSourcesProjection(qaMap.EffectiveSources), Target: qaTargetProjection(qaMap.Target), Coverage: qaCoverageProjection(qaMap.Coverage), InputRefs: qaArtifactRefsProjection(qaMap.InputRefs), Foundation: qaFoundationProjection(qaMap.Foundation), Mapper: qaMap.Mapper, Limits: qaLimitsProjection(qaMap.Budgets), ChangedPaths: len(qaMap.Coverage.ChangedPaths), CoveredPaths: len(qaMap.Coverage.PrimaryOwners), TotalShards: len(qaMap.Shards), NextAction: "Start QA evidence production from this current map."}
 	for _, shard := range qaMap.Shards {
 		result.Shards = append(result.Shards, qaShardProjection(shard))
 	}
@@ -1284,6 +1302,8 @@ func qaSnapshotProjection(snapshot sprint.QASnapshot) QAResult {
 		result.Target = qaTargetProjection(snapshot.Map.Target)
 		result.Coverage = qaCoverageProjection(snapshot.Map.Coverage)
 		result.InputRefs = qaArtifactRefsProjection(snapshot.Map.InputRefs)
+		result.Foundation = qaFoundationProjection(snapshot.Map.Foundation)
+		result.Mapper = snapshot.Map.Mapper
 		result.Limits = qaLimitsProjection(snapshot.Map.Budgets)
 		result.ChangedPaths = len(snapshot.Map.Coverage.ChangedPaths)
 		result.CoveredPaths = len(snapshot.Map.Coverage.PrimaryOwners)
@@ -1299,6 +1319,17 @@ func qaArtifactRefProjection(ref *sprint.QAArtifactRef) *QAArtifactRefSummary {
 		return nil
 	}
 	return &QAArtifactRefSummary{Path: displaySafe(ref.Path), Digest: ref.Digest}
+}
+
+func qaFoundationProjection(foundation *sprint.QAFoundation) *QAFoundationSummary {
+	if foundation == nil {
+		return nil
+	}
+	result := &QAFoundationSummary{ID: foundation.ID, Fingerprint: foundation.Fingerprint, Blocks: map[string]int{}, BlockCount: len(foundation.Blocks), TotalBytes: foundation.TotalBytes, Omissions: qaDisplayStrings(foundation.Omissions)}
+	for _, block := range foundation.Blocks {
+		result.Blocks[displaySafe(block.Kind)]++
+	}
+	return result
 }
 
 func qaArtifactRefsProjection(refs []sprint.QAArtifactRef) []QAArtifactRefSummary {
@@ -1357,7 +1388,7 @@ func qaLimitsProjection(b sprint.QABudgets) QALimitsSummary {
 }
 
 func qaShardProjection(shard sprint.QAShard) QAShardSummary {
-	result := QAShardSummary{ID: shard.ID, AttemptID: shard.AttemptID, Kind: string(shard.Kind), Title: displaySafe(shard.Title), Phase: string(shard.Phase), ChangedPaths: qaDisplayStrings(shard.ChangedPaths), ContextPaths: qaDisplayStrings(shard.ContextPaths), OverlapPaths: qaDisplayStrings(shard.OverlapPaths), BoundaryReason: displaySafe(shard.BoundaryReason), BehavioralConcerns: qaDisplayStrings(shard.BehavioralConcerns), ExpectationRefs: qaDisplayStrings(shard.ExpectationRefs), RiskTags: qaDisplayStrings(shard.RiskTags), ParentTheoryIDs: append([]string(nil), shard.ParentTheoryIDs...), TheoryCount: len(shard.Theories), Blocker: qaBlockerProjection(shard.Blocker)}
+	result := QAShardSummary{ID: shard.ID, AttemptID: shard.AttemptID, Kind: string(shard.Kind), Title: displaySafe(shard.Title), Phase: string(shard.Phase), ChangedPaths: qaDisplayStrings(shard.ChangedPaths), ContextPaths: qaDisplayStrings(shard.ContextPaths), OverlapPaths: qaDisplayStrings(shard.OverlapPaths), BoundaryReason: displaySafe(shard.BoundaryReason), BehavioralConcerns: qaDisplayStrings(shard.BehavioralConcerns), ExpectationRefs: qaDisplayStrings(shard.ExpectationRefs), RiskTags: qaDisplayStrings(shard.RiskTags), ParentTheoryIDs: append([]string(nil), shard.ParentTheoryIDs...), ContextBlockIDs: append([]string(nil), shard.ContextBlockIDs...), PreparedPromptBytes: shard.PreparedPromptBytes, PreparedPrefixBytes: shard.PreparedPrefixBytes, PackComplete: shard.PackComplete, TheoryCount: len(shard.Theories), Blocker: qaBlockerProjection(shard.Blocker)}
 	for _, check := range shard.ApprovedChecks {
 		result.ApprovedChecks = append(result.ApprovedChecks, QAApprovedCheckSummary{ID: check.ID, Fingerprint: check.Fingerprint})
 	}
@@ -1385,7 +1416,7 @@ func qaTheoryProjection(theory sprint.QATheory) QATheorySummary {
 }
 
 func qaAttemptProjection(attempt sprint.QAInvestigatorAttempt) QAInvestigatorAttemptSummary {
-	result := QAInvestigatorAttemptSummary{ID: attempt.ID, Number: attempt.Number, StartedAt: attempt.StartedAt, CompletedAt: attempt.CompletedAt, ImplementationBefore: attempt.ImplementationBefore, ImplementationAfter: attempt.ImplementationAfter, Usage: attempt.Usage, EstimatedCost: attempt.EstimatedCost, FailureKind: displaySafe(attempt.FailureKind), Retryable: attempt.Retryable, StopReason: displaySafe(attempt.StopReason), OutputDiagnostic: attempt.OutputDiagnostic, Repair: attempt.Repair}
+	result := QAInvestigatorAttemptSummary{ID: attempt.ID, Number: attempt.Number, StartedAt: attempt.StartedAt, CompletedAt: attempt.CompletedAt, ImplementationBefore: attempt.ImplementationBefore, ImplementationAfter: attempt.ImplementationAfter, Usage: attempt.Usage, EstimatedCost: attempt.EstimatedCost, FailureKind: displaySafe(attempt.FailureKind), Retryable: attempt.Retryable, StopReason: displaySafe(attempt.StopReason), OutputDiagnostic: attempt.OutputDiagnostic, Repair: attempt.Repair, ContextMetrics: attempt.ContextMetrics}
 	if attempt.CompletedAt != nil && !attempt.StartedAt.IsZero() {
 		result.Duration = attempt.CompletedAt.Sub(attempt.StartedAt).Round(time.Millisecond).String()
 	}
