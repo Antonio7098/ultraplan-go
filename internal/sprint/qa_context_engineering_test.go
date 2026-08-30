@@ -135,3 +135,15 @@ func TestDiffFoundationKeepsEveryHunk(t *testing.T) {
 		t.Fatalf("diff hunks were not preserved: %+v", blocks)
 	}
 }
+
+func TestSemanticProjectionAddsExactExpectationBlock(t *testing.T) {
+	foundation := &QAFoundation{Blocks: []QAContextBlock{
+		{ID: "qa-v1-block-aaaaaaaaaaaaaaaaaaaaaaaa", ExpectationRefs: []string{"contract-performance"}, Content: "PERF-UI-001 rendering and layout"},
+		{ID: "qa-v1-block-bbbbbbbbbbbbbbbbbbbbbbbb", ExpectationRefs: []string{"contract-performance"}, Content: "PERF-BOUND-001 page size pagination and bounded list endpoints"},
+	}}
+	proposal := qaSemanticShardProposal{Title: "issue pagination", BehavioralConcerns: []string{"bounded issue page size"}, ExpectationRefs: []string{"contract-performance"}}
+	ids := qaCompleteExpectationProjection(foundation, proposal)
+	if len(ids) != 1 || ids[0] != foundation.Blocks[1].ID {
+		t.Fatalf("projection ids = %v, want pagination criterion", ids)
+	}
+}

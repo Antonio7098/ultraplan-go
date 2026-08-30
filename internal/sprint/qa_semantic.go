@@ -103,11 +103,9 @@ func applyQASemanticMap(qaMap QAMap, output qaSemanticMapperOutput) (QAMap, erro
 	paths := stringSet(qaMap.Coverage.ChangedPaths)
 	availableExpectations := map[string]bool{}
 	availableBlocks := map[string]bool{}
-	blockExpectations := map[string]map[string]bool{}
 	availablePaths := map[string]bool{}
 	for _, block := range qaMap.Foundation.Blocks {
 		availableBlocks[block.ID] = true
-		blockExpectations[block.ID] = stringSet(block.ExpectationRefs)
 		if block.Kind == "source" && block.Path != "" {
 			availablePaths[block.Path] = true
 		}
@@ -142,22 +140,13 @@ func applyQASemanticMap(qaMap QAMap, output qaSemanticMapperOutput) (QAMap, erro
 			if !availableExpectations[ref] {
 				return QAMap{}, fmt.Errorf("semantic shard invented expectation %q", ref)
 			}
-			cited := false
-			for _, id := range proposal.ContextBlockIDs {
-				if blockExpectations[id][ref] {
-					cited = true
-					break
-				}
-			}
-			if !cited {
-				return QAMap{}, fmt.Errorf("semantic shard did not cite an exact block for expectation %q", ref)
-			}
 		}
 		for _, id := range proposal.ContextBlockIDs {
 			if !availableBlocks[id] {
 				return QAMap{}, fmt.Errorf("semantic shard invented context block %q", id)
 			}
 		}
+		proposal.ContextBlockIDs = qaCompleteExpectationProjection(qaMap.Foundation, proposal)
 		identity := QAShardIdentity{Kind: proposal.Kind, ChangedPaths: proposal.ChangedPaths, ContextPaths: proposal.ContextPaths, BehavioralConcerns: proposal.BehavioralConcerns, ExpectationRefs: proposal.ExpectationRefs}
 		id, err := NewQAShardID(qaMap.Project, qaMap.Sprint, qaMap.ID, identity)
 		if err != nil {
@@ -207,6 +196,60 @@ func applyQASemanticMap(qaMap QAMap, output qaSemanticMapperOutput) (QAMap, erro
 		qaMap.Coverage.BoundaryOverlaps = nil
 	}
 	return qaMap, ValidateQAMap(qaMap)
+}
+
+func qaCompleteExpectationProjection(foundation *QAFoundation, proposal qaSemanticShardProposal) []string {
+	selected := stringSet(proposal.ContextBlockIDs)
+	query := strings.ToLower(strings.Join(append(append([]string{proposal.Title}, proposal.BehavioralConcerns...), append(proposal.ChangedPaths, proposal.ContextPaths...)...), " "))
+	queryTerms := qaProjectionTerms(query)
+	for _, ref := range proposal.ExpectationRefs {
+		covered := false
+		for _, block := range foundation.Blocks {
+			if selected[block.ID] && containsQAString(block.ExpectationRefs, ref) {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		bestID, bestScore := "", -1
+		for _, block := range foundation.Blocks {
+			if !containsQAString(block.ExpectationRefs, ref) {
+				continue
+			}
+			score := 0
+			for term := range queryTerms {
+				if strings.Contains(strings.ToLower(block.Content), term) {
+					score++
+				}
+			}
+			if score > bestScore || score == bestScore && block.ID < bestID {
+				bestID, bestScore = block.ID, score
+			}
+		}
+		if bestID != "" {
+			selected[bestID] = true
+		}
+	}
+	ids := make([]string, 0, len(selected))
+	for id := range selected {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func qaProjectionTerms(value string) map[string]bool {
+	terms := map[string]bool{}
+	for _, term := range strings.FieldsFunc(value, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	}) {
+		if len(term) >= 4 {
+			terms[term] = true
+		}
+	}
+	return terms
 }
 
 func decodeStrictQAJSON(content string, target any) error {
