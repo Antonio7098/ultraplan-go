@@ -103,14 +103,21 @@ func applyQASemanticMap(qaMap QAMap, output qaSemanticMapperOutput) (QAMap, erro
 	paths := stringSet(qaMap.Coverage.ChangedPaths)
 	availableExpectations := map[string]bool{}
 	availableBlocks := map[string]bool{}
+	blockExpectations := map[string]map[string]bool{}
 	availablePaths := map[string]bool{}
 	for _, block := range qaMap.Foundation.Blocks {
 		availableBlocks[block.ID] = true
+		blockExpectations[block.ID] = stringSet(block.ExpectationRefs)
 		if block.Kind == "source" && block.Path != "" {
 			availablePaths[block.Path] = true
 		}
 		for _, ref := range block.ExpectationRefs {
 			availableExpectations[ref] = true
+		}
+	}
+	for _, fallback := range qaMap.Shards {
+		for _, path := range append(append([]string(nil), fallback.ChangedPaths...), fallback.ContextPaths...) {
+			availablePaths[path] = true
 		}
 	}
 	owners := map[string]string{}
@@ -134,6 +141,16 @@ func applyQASemanticMap(qaMap QAMap, output qaSemanticMapperOutput) (QAMap, erro
 		for _, ref := range proposal.ExpectationRefs {
 			if !availableExpectations[ref] {
 				return QAMap{}, fmt.Errorf("semantic shard invented expectation %q", ref)
+			}
+			cited := false
+			for _, id := range proposal.ContextBlockIDs {
+				if blockExpectations[id][ref] {
+					cited = true
+					break
+				}
+			}
+			if !cited {
+				return QAMap{}, fmt.Errorf("semantic shard did not cite an exact block for expectation %q", ref)
 			}
 		}
 		for _, id := range proposal.ContextBlockIDs {

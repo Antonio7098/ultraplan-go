@@ -19,13 +19,19 @@ func (s Service) arbitrateQA(ctx context.Context, qaMap QAMap, shards []QAShard,
 	if qaMap.Foundation == nil {
 		return fallback
 	}
-	foundation, err := canonicalQAJSON(qaMap.Foundation)
-	if err != nil {
-		return fallback
-	}
 	theories := make([]QATheory, 0)
 	for _, shard := range shards {
 		theories = append(theories, shard.Theories...)
+	}
+	blocks := qaArbiterContextBlocks(qaMap.Foundation, theories)
+	foundation, err := canonicalQAJSON(struct {
+		SchemaVersion int              `json:"schema_version"`
+		ID            string           `json:"id"`
+		Fingerprint   string           `json:"fingerprint"`
+		Blocks        []QAContextBlock `json:"blocks"`
+	}{QASchemaVersion, qaMap.Foundation.ID, qaMap.Foundation.Fingerprint, blocks})
+	if err != nil {
+		return fallback
 	}
 	packet, err := canonicalQAJSON(struct {
 		MapID    string     `json:"map_id"`
@@ -82,6 +88,26 @@ Frozen QA foundation:
 	}
 	fallback.Reason = "arbiter output failed strict validation"
 	return fallback
+}
+
+func qaArbiterContextBlocks(foundation *QAFoundation, theories []QATheory) []QAContextBlock {
+	if foundation == nil {
+		return nil
+	}
+	text := ""
+	for _, theory := range theories {
+		text += "\n" + theory.Claim + "\n" + theory.Basis + "\n" + theory.VerificationSurface + "\n" + theory.OutcomeReason
+		for _, evidence := range theory.Evidence {
+			text += "\n" + evidence.Summary + "\n" + evidence.OutputDigest
+		}
+	}
+	result := make([]QAContextBlock, 0)
+	for _, block := range foundation.Blocks {
+		if block.Kind == "authority" || block.Kind == "evidence" || strings.Contains(text, block.ID) {
+			result = append(result, block)
+		}
+	}
+	return result
 }
 
 func validateQAArbiterOutput(qaMap QAMap, theories []QATheory, output qaArbiterOutput, model string) (QAArbitration, error) {

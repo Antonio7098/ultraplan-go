@@ -22,7 +22,7 @@ func BuildQAFoundation(manifest ReviewManifest, governed, implementation, review
 	var candidates []QAContextBlock
 	for _, coverage := range manifest.Coverage {
 		if content := manifest.Contents[coverage.Path]; strings.TrimSpace(content) != "" {
-			candidates = append(candidates, newQAContextBlock("acceptance", coverage.Path, content, "review coverage "+coverage.ID, []string{coverage.ID}, nil))
+			candidates = append(candidates, qaDocumentBlocks("acceptance", coverage.Path, content, "review coverage "+coverage.ID, []string{coverage.ID})...)
 		}
 	}
 	for _, input := range manifest.Inputs {
@@ -53,7 +53,7 @@ func BuildQAFoundation(manifest ReviewManifest, governed, implementation, review
 		if strings.TrimSpace(content) == "" {
 			continue
 		}
-		block := newQAContextBlock("source", rel, content, "frozen implementation target", nil, []string{rel})
+		block := newQAContextBlockWithLimit("source", rel, content, "frozen implementation target", nil, []string{rel}, 1<<10)
 		block.Symbols, block.RelatedPaths = qaSourceRelationships(rel, content, block.RelatedPaths)
 		candidates = append(candidates, block)
 	}
@@ -73,7 +73,7 @@ func BuildQAFoundation(manifest ReviewManifest, governed, implementation, review
 	}
 	candidates = append(candidates, newQAContextBlock("authority", "", string(authority), "product QA policy", nil, manifest.ChangedPaths))
 
-	priority := map[string]int{"change": 0, "source": 1, "acceptance": 2, "requirements": 3, "prior": 4, "evidence": 5, "authority": 6}
+	priority := map[string]int{"authority": 0, "evidence": 1, "change": 2, "acceptance": 3, "requirements": 4, "prior": 5, "source": 6}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if priority[candidates[i].Kind] != priority[candidates[j].Kind] {
 			return priority[candidates[i].Kind] < priority[candidates[j].Kind]
@@ -108,12 +108,32 @@ func BuildQAFoundation(manifest ReviewManifest, governed, implementation, review
 	return foundation, ValidateQAFoundation(foundation)
 }
 
+func qaDocumentBlocks(kind, path, content, provenance string, expectations []string) []QAContextBlock {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	sections := strings.Split(content, "\n### ")
+	blocks := make([]QAContextBlock, 0, len(sections))
+	for i, section := range sections {
+		if i > 0 {
+			section = "### " + section
+		}
+		blocks = append(blocks, newQAContextBlock(kind, path, section, fmt.Sprintf("%s section %d", provenance, i+1), expectations, nil))
+	}
+	return blocks
+}
+
 func newQAContextBlock(kind, path, content, provenance string, expectations, related []string) QAContextBlock {
+	return newQAContextBlockWithLimit(kind, path, content, provenance, expectations, related, qaContextBlockMaxBytes)
+}
+
+func newQAContextBlockWithLimit(kind, path, content, provenance string, expectations, related []string, maxBytes int) QAContextBlock {
 	content = strings.TrimSpace(content)
 	omittedBytes := 0
-	if len(content) > qaContextBlockMaxBytes {
-		omittedBytes = len(content) - qaContextBlockMaxBytes
-		half := (qaContextBlockMaxBytes - len("\n\n[... bounded excerpt ...]\n\n")) / 2
+	if len(content) > maxBytes {
+		omittedBytes = len(content) - maxBytes
+		half := (maxBytes - len("\n\n[... bounded excerpt ...]\n\n")) / 2
 		content = content[:half] + "\n\n[... bounded excerpt ...]\n\n" + content[len(content)-half:]
 	}
 	digest := sha256.Sum256([]byte(content))
@@ -131,14 +151,33 @@ func qaDiffBlocks(patch string) []QAContextBlock {
 	parts := strings.Split(patch, "diff --git ")
 	blocks := make([]QAContextBlock, 0, len(parts))
 	for _, part := range parts[1:] {
-		content := "diff --git " + part
 		line := strings.SplitN(part, "\n", 2)[0]
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
 		}
 		path := strings.TrimPrefix(fields[1], "b/")
-		blocks = append(blocks, newQAContextBlock("change", path, content, "baseline-to-sprint diff hunk", nil, []string{path}))
+		lines := strings.Split("diff --git "+part, "\n")
+		firstHunk := len(lines)
+		for i, value := range lines {
+			if strings.HasPrefix(value, "@@ ") {
+				firstHunk = i
+				break
+			}
+		}
+		header := strings.Join(lines[:firstHunk], "\n")
+		if firstHunk == len(lines) {
+			blocks = append(blocks, newQAContextBlock("change", path, header, "baseline-to-sprint diff", nil, []string{path}))
+			continue
+		}
+		for start := firstHunk; start < len(lines); {
+			end := start + 1
+			for end < len(lines) && !strings.HasPrefix(lines[end], "@@ ") {
+				end++
+			}
+			blocks = append(blocks, newQAContextBlock("change", path, header+"\n"+strings.Join(lines[start:end], "\n"), "baseline-to-sprint diff hunk", nil, []string{path}))
+			start = end
+		}
 	}
 	return blocks
 }
@@ -198,13 +237,14 @@ func qaProjectFoundation(foundation *QAFoundation, shard QAShard) []QAContextBlo
 	paths := normalizeQAStrings(append(append([]string(nil), shard.ChangedPaths...), shard.ContextPaths...))
 	expectations := normalizeQAStrings(shard.ExpectationRefs)
 	citedBlocks := stringSet(shard.ContextBlockIDs)
+	hasCitedProjection := len(citedBlocks) > 0
 	selected := make([]QAContextBlock, 0)
 	for _, block := range foundation.Blocks {
 		include := citedBlocks[block.ID] || block.Kind == "authority" || block.Kind == "evidence"
 		if !include && (shareQAString(block.RelatedPaths, paths) || containsQAString(paths, block.Path)) {
 			include = true
 		}
-		if !include && shareQAString(block.ExpectationRefs, expectations) {
+		if !include && !hasCitedProjection && shareQAString(block.ExpectationRefs, expectations) {
 			include = true
 		}
 		if !include && block.Kind == "requirements" {
@@ -253,5 +293,22 @@ func qaShardPackComplete(qaMap QAMap, shard QAShard) bool {
 			return false
 		}
 	}
-	return len(qaMap.Foundation.Omissions) == 0
+	return true
+}
+
+func qaFoundationOmissionsForShard(foundation *QAFoundation, shard QAShard) []string {
+	if foundation == nil {
+		return nil
+	}
+	paths := normalizeQAStrings(append(append([]string(nil), shard.ChangedPaths...), shard.ContextPaths...))
+	var result []string
+	for _, omission := range foundation.Omissions {
+		for _, path := range paths {
+			if strings.Contains(omission, path) {
+				result = append(result, omission)
+				break
+			}
+		}
+	}
+	return normalizeQAStrings(result)
 }

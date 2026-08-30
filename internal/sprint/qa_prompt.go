@@ -160,14 +160,20 @@ func (s Service) RenderQAInvestigatorPrompt(qaMap QAMap, shard QAShard) (string,
 	if qaMap.Foundation != nil {
 		packet.FoundationID = qaMap.Foundation.ID
 		packet.FoundationFingerprint = qaMap.Foundation.Fingerprint
-		packet.FoundationOmissions = append([]string(nil), qaMap.Foundation.Omissions...)
+		packet.FoundationOmissions = qaFoundationOmissionsForShard(qaMap.Foundation, shard)
 		for _, block := range blocks {
 			if block.OmittedBytes > 0 {
 				packet.FoundationOmissions = append(packet.FoundationOmissions, fmt.Sprintf("%s omits %d bytes from %s", block.ID, block.OmittedBytes, block.Path))
 			}
 		}
 		packet.FoundationOmissions = normalizeQAStrings(packet.FoundationOmissions)
-		foundationData, err = canonicalQAJSON(qaMap.Foundation)
+		foundationData, err = canonicalQAJSON(struct {
+			SchemaVersion int              `json:"schema_version"`
+			ID            string           `json:"id"`
+			Fingerprint   string           `json:"fingerprint"`
+			Blocks        []QAContextBlock `json:"blocks"`
+			Omissions     []string         `json:"omissions,omitempty"`
+		}{QASchemaVersion, qaMap.Foundation.ID, qaMap.Foundation.Fingerprint, blocks, packet.FoundationOmissions})
 		if err != nil {
 			return "", err
 		}
@@ -217,7 +223,7 @@ func (s Service) QAInvestigatorRequest(qaMap QAMap, shard QAShard, target string
 	prefixEnd := strings.Index(prompt, "<<< END STABLE QA INVESTIGATOR PREFIX >>>") + len("<<< END STABLE QA INVESTIGATOR PREFIX >>>\n")
 	if qaMap.Foundation != nil && prefixEnd > 0 {
 		prefixDigest := hashBytes([]byte(prompt[:prefixEnd]))
-		req.Cache = pruntime.CacheDirective{Key: "qa-investigator/" + qaMap.Foundation.Fingerprint + "/" + provider + "/" + model + "/" + runtimeSettings.Variant, BreakpointBytes: prefixEnd, PrefixDigest: prefixDigest, Mode: "stable-prefix"}
+		req.Cache = pruntime.CacheDirective{Key: "qa-investigator/" + prefixDigest + "/" + provider + "/" + model + "/" + runtimeSettings.Variant, BreakpointBytes: prefixEnd, PrefixDigest: prefixDigest, Mode: "stable-prefix"}
 	}
 	req.WorkDir = filepath.Clean(target)
 	req.Timeout = settings.Budgets.ShardTimeout

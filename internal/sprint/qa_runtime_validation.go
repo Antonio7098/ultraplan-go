@@ -80,6 +80,11 @@ func qaInvestigatorValidationSpec(budgets QABudgets, capture *qaOutputCapture) *
 				check.Detail = "QA investigator output has no falsifiable theory"
 				return check
 			}
+			if err == nil && !withinQAInvestigatorBudgets(output, budgets) {
+				check.Observed = fmt.Sprintf("theories=%d/%d context_requests=%d/%d check_requests=%d/%d", len(output.Theories), budgets.TheoriesPerShard, len(output.Context), budgets.ContextExpansions, len(output.Checks), budgets.CommandsPerAttempt)
+				check.Detail = "QA investigator output exceeds an inclusive map-owned maximum"
+				return check
+			}
 			if err == nil {
 				check.Passed, check.Observed, check.Detail = true, "valid", "QA investigator output passed strict decoding"
 				return check

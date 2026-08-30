@@ -73,8 +73,9 @@ func TestPackCompleteInvestigatorUsesStableFoundationAndNoRepositoryTools(t *tes
 	if req.Cache.BreakpointBytes <= 0 || !validFingerprint(req.Cache.PrefixDigest) || !strings.Contains(req.Prompt[:req.Cache.BreakpointBytes], foundation.ID) {
 		t.Fatalf("cache directive does not cover the foundation: %+v", req.Cache)
 	}
+	projectedPath := append(append([]string(nil), shard.ChangedPaths...), shard.ContextPaths...)[0]
 	for i := range qaMap.Foundation.Blocks {
-		if containsQAString(qaMap.Foundation.Blocks[i].RelatedPaths, shard.ChangedPaths[0]) {
+		if containsQAString(qaMap.Foundation.Blocks[i].RelatedPaths, projectedPath) {
 			qaMap.Foundation.Blocks[i].OmittedBytes = 17
 			break
 		}
@@ -120,5 +121,17 @@ func TestFoundationFingerprintChangesSemanticAttemptIdentity(t *testing.T) {
 	}
 	if firstID == secondID {
 		t.Fatal("foundation changes must produce a distinct semantic attempt")
+	}
+}
+
+func TestDiffFoundationKeepsEveryHunk(t *testing.T) {
+	padding := strings.Repeat(" unchanged\n", 900)
+	patch := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old-first\n+new-first\n" + padding + "@@ -1000 +1000 @@\n-old-last\n+new-last\n"
+	blocks := qaDiffBlocks(patch)
+	if len(blocks) != 2 {
+		t.Fatalf("diff blocks = %d, want 2 exact hunks", len(blocks))
+	}
+	if !strings.Contains(blocks[0].Content, "+new-first") || !strings.Contains(blocks[1].Content, "+new-last") {
+		t.Fatalf("diff hunks were not preserved: %+v", blocks)
 	}
 }
