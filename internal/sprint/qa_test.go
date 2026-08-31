@@ -83,10 +83,14 @@ func (runtime *qaRetryRuntime) StartRun(ctx context.Context, req pruntime.Reques
 
 func (runtime *qaOutputRetryRuntime) StartRun(ctx context.Context, req pruntime.Request) (pruntime.Result, error) {
 	runtime.requests = append(runtime.requests, req)
-	if runtime.calls.Add(1) <= runtime.failures {
-		return pruntime.Result{SessionID: "qa-session", TerminalOutput: "not json", Permissions: pruntime.PermissionSummary{Mode: "restricted", Default: "deny"}}, nil
+	call := runtime.calls.Add(1)
+	if call <= runtime.failures {
+		return pruntime.Result{RunID: fmt.Sprintf("investigator-call-%d", call), SessionID: "qa-session", TerminalOutput: "not json", Permissions: pruntime.PermissionSummary{Mode: "restricted", Default: "deny"}}, nil
 	}
-	return runtime.qaInvestigatorRuntime.StartRun(ctx, req)
+	result, err := runtime.qaInvestigatorRuntime.StartRun(ctx, req)
+	result.RunID = fmt.Sprintf("investigator-call-%d", call)
+	result.SessionID = "qa-session"
+	return result, err
 }
 
 func (runtime *qaInvestigatorRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
@@ -402,6 +406,33 @@ func TestQAInvestigationRetainsAttemptWhenRuntimeReturnsNoTheories(t *testing.T)
 	attempt := blocked.Attempts[0]
 	if attempt.Usage.InputTokens != 101 || attempt.Usage.OutputTokens != 17 || attempt.Usage.CacheReadTokens != 73 || attempt.Usage.Turns != 1 || attempt.EstimatedCost == nil {
 		t.Fatalf("retained attempt = %+v", attempt)
+	}
+}
+
+func TestQAInvestigatorOutputRepairUsesExplicitLedgerCall(t *testing.T) {
+	root, sp, target, qaMap, _, _, token := qaRunFixture(t)
+	runtime := &qaOutputRetryRuntime{failures: 1}
+	service := NewService(root).
+		WithQASettings(QASettings{Runtime: StageRuntime{Model: "openai/qa"}, Budgets: qaMap.Budgets}).
+		WithRuntime(runtime).
+		WithQAMapFence(func(QAMap) error { return nil })
+
+	completed, err := service.runOneQAShard(context.Background(), qaMap, qaMap.Shards[0], target, token)
+	if err != nil || completed.Phase != QAPhaseCompleted || runtime.calls.Load() != 2 {
+		t.Fatalf("completed=%+v calls=%d err=%v", completed, runtime.calls.Load(), err)
+	}
+	if len(runtime.requests) != 2 || runtime.requests[0].Validation != nil || runtime.requests[1].Validation != nil {
+		t.Fatalf("investigator calls must use product-owned output repair: %+v", runtime.requests)
+	}
+	if runtime.requests[1].SessionAction != "continue" || runtime.requests[1].SessionID != "qa-session" || runtime.requests[1].Metadata["repair_of"] != "investigator-call-1" {
+		t.Fatalf("repair request=%+v", runtime.requests[1])
+	}
+	metrics, err := LoadRuntimeMetrics(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metrics.Runs) != 2 || metrics.Runs[0].Operation != "qa-investigate" || metrics.Runs[1].Operation != "qa-investigate-output-repair" || metrics.Runs[1].RepairOf != "investigator-call-1" || !metrics.Runs[1].Continuation {
+		t.Fatalf("runtime metrics=%+v", metrics.Runs)
 	}
 }
 

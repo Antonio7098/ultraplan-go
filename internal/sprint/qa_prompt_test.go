@@ -69,8 +69,11 @@ func TestQAChallengerRequestIsBoundedAndHasNoToolOrPathAuthority(t *testing.T) {
 
 func TestQARoleModelOverridesAreIndependent(t *testing.T) {
 	input := qaMapInputFixture()
+	input.Settings.Mapper = StageRuntime{Model: "provider/mapper", Variant: "medium"}
 	input.Settings.Investigator = StageRuntime{Model: "provider/investigator", Variant: "low"}
 	input.Settings.Challenger = StageRuntime{Model: "provider/challenger", Variant: "high"}
+	input.Settings.Arbiter = StageRuntime{Model: "provider/arbiter", Variant: "high"}
+	input.Settings.Reconciler = StageRuntime{Model: "provider/reconciler", Variant: "high"}
 	qaMap, err := BuildQAMap(input)
 	if err != nil {
 		t.Fatal(err)
@@ -89,6 +92,11 @@ func TestQARoleModelOverridesAreIndependent(t *testing.T) {
 	}
 	if challenger.Provider != "provider" || challenger.Model != "challenger" || challenger.Metadata["reasoning_effort"] != "high" {
 		t.Fatalf("challenger runtime = %+v", challenger)
+	}
+	for role, want := range map[string]string{"mapper": "mapper", "arbiter": "arbiter", "reconciler": "reconciler"} {
+		if got := input.Settings.RuntimeFor(role); got.Model != "provider/"+want {
+			t.Fatalf("%s runtime = %+v", role, got)
+		}
 	}
 }
 

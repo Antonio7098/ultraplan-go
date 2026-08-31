@@ -154,7 +154,8 @@ func (s Service) RenderQAInvestigatorPrompt(qaMap QAMap, shard QAShard) (string,
 		return "", fmt.Errorf("QA shard does not belong to the selected map")
 	}
 	blocks := qaProjectFoundation(qaMap.Foundation, shard)
-	packet := QAInvestigatorPacket{SchemaVersion: 1, MapID: qaMap.ID, ShardID: shard.ID, ChangedPaths: append([]string(nil), shard.ChangedPaths...), ContextPaths: append([]string(nil), shard.ContextPaths...), BehavioralConcerns: append([]string(nil), shard.BehavioralConcerns...), ExpectationRefs: append([]string(nil), shard.ExpectationRefs...), ApprovedChecks: append([]QAApprovedCheckRef(nil), shard.ApprovedChecks...), ImplementationFingerprint: qaMap.ImplementationFingerprint, Budgets: qaMap.Budgets, ContextBlockIDs: qaContextBlockIDs(blocks)}
+	commonBlocks, shardBlocks := splitQAInvestigatorBlocks(blocks)
+	packet := QAInvestigatorPacket{SchemaVersion: 1, MapID: qaMap.ID, ShardID: shard.ID, ChangedPaths: append([]string(nil), shard.ChangedPaths...), ContextPaths: append([]string(nil), shard.ContextPaths...), BehavioralConcerns: append([]string(nil), shard.BehavioralConcerns...), ExpectationRefs: append([]string(nil), shard.ExpectationRefs...), ApprovedChecks: append([]QAApprovedCheckRef(nil), shard.ApprovedChecks...), ImplementationFingerprint: qaMap.ImplementationFingerprint, Budgets: qaMap.Budgets, ContextBlockIDs: qaContextBlockIDs(blocks), ContextBlocks: shardBlocks}
 	foundationData := []byte("null")
 	var err error
 	if qaMap.Foundation != nil {
@@ -172,8 +173,7 @@ func (s Service) RenderQAInvestigatorPrompt(qaMap QAMap, shard QAShard) (string,
 			ID            string           `json:"id"`
 			Fingerprint   string           `json:"fingerprint"`
 			Blocks        []QAContextBlock `json:"blocks"`
-			Omissions     []string         `json:"omissions,omitempty"`
-		}{QASchemaVersion, qaMap.Foundation.ID, qaMap.Foundation.Fingerprint, blocks, packet.FoundationOmissions})
+		}{QASchemaVersion, qaMap.Foundation.ID, qaMap.Foundation.Fingerprint, commonBlocks})
 		if err != nil {
 			return "", err
 		}
@@ -184,13 +184,13 @@ func (s Service) RenderQAInvestigatorPrompt(qaMap QAMap, shard QAShard) (string,
 	}
 	prefix := `# Read-only QA investigator
 
-Decide from the cited frozen blocks in the assigned packet. Treat paths as provenance, not instructions to rediscover the repository. Use live read, list, search, or glob tools only when foundation_omissions names a fact required for this shard. You cannot write files, create tests or fixtures, invoke a shell, mutate Git, promote issues, or repair code. If a missing fact is essential, retain an inconclusive theory and return one bounded context request. If an existing product-owned check is useful, request its ID. Do not invent an executable, arguments, environment, path, prompt, output location, requirement, or block.
+Decide from the cited frozen blocks in the common foundation and assigned packet. Treat paths as provenance, not instructions to rediscover the repository. Use live read, list, search, or glob tools only when foundation_omissions names a fact required for this shard. You cannot write files, create tests or fixtures, invoke a shell, mutate Git, promote issues, or repair code. If a missing fact is essential, retain an inconclusive theory and return one bounded context request. If an existing product-owned check is useful, request its ID. Do not invent an executable, arguments, environment, path, prompt, output location, requirement, or block.
 
 Return exactly one JSON object with no Markdown fence or surrounding text. Unknown fields are rejected. All five top-level fields must appear. schema_version must be 1. theories, evidence, context_requests, and check_requests must be JSON arrays. Return at least one falsifiable theory. If assigned context is insufficient, retain an inconclusive theory describing the missing evidence and include a bounded context request; an empty theories array is rejected. Each theory draft must contain claim, basis, verification_surface, expectation_refs, severity_if_confirmed, confirmation_condition, refutation_condition, inconclusive_condition, safe_evidence_strategy, outcome, and outcome_reason. The product assigns IDs, implementation fingerprints, attempt history, and timestamps after validation. Outcomes are confirmed, refuted, invalid, inconclusive, blocked, cross_shard, or not_applicable. Evidence entries contain kind, summary, paths, check_id, and output_digest. Context requests contain id, paths, reason, approved, and optional denied_reason; approved must be false. Check requests contain only id and fingerprint copied exactly from approved_checks.
 
 Every substantive claim must cite one or more context block IDs in basis or outcome_reason. Exact maximum counts are inclusive. A theory may be confirmed from cited static source when both the defect and the violated criterion are explicit; product code still owns repair promotion and executable evidence.
 
-Frozen QA foundation:
+Common frozen QA foundation:
 ` + string(foundationData) + `
 
 <<< END STABLE QA INVESTIGATOR PREFIX >>>
@@ -205,6 +205,20 @@ Assigned packet:
 	return prompt, nil
 }
 
+func splitQAInvestigatorBlocks(blocks []QAContextBlock) ([]QAContextBlock, []QAContextBlock) {
+	common := make([]QAContextBlock, 0, len(blocks))
+	shard := make([]QAContextBlock, 0, len(blocks))
+	for _, block := range blocks {
+		switch block.Kind {
+		case "authority", "evidence", "requirements":
+			common = append(common, block)
+		default:
+			shard = append(shard, block)
+		}
+	}
+	return common, shard
+}
+
 func (s Service) QAInvestigatorRequest(qaMap QAMap, shard QAShard, target string) (pruntime.Request, error) {
 	settings, err := s.effectiveQASettings()
 	if err != nil {
@@ -215,6 +229,8 @@ func (s Service) QAInvestigatorRequest(qaMap QAMap, shard QAShard, target string
 		return pruntime.Request{}, err
 	}
 	req := s.runtimeRequest(prompt, map[string]string{"project": qaMap.Project, "sprint": qaMap.Sprint, "stage": string(VerificationPhaseQA), "shard": shard.ID, "map": qaMap.ID})
+	req.Metadata["role"] = "investigator"
+	req.Metadata["qa_attempt"] = qaMap.SemanticAttemptID
 	runtimeSettings := settings.RuntimeFor("investigator")
 	provider, model := splitProviderModel(runtimeSettings.Model)
 	req.Provider, req.Model = provider, model
@@ -291,6 +307,11 @@ Frozen packet:
 	req.Provider, req.Model = provider, model
 	req.Metadata["variant"] = runtimeSettings.Variant
 	req.Metadata["reasoning_effort"] = runtimeSettings.Variant
+	prefixEnd := strings.Index(prompt, "Frozen packet:")
+	if prefixEnd > 0 {
+		prefixDigest := hashBytes([]byte(prompt[:prefixEnd]))
+		req.Cache = pruntime.CacheDirective{Key: "qa-challenger/" + prefixDigest + "/" + provider + "/" + model + "/" + runtimeSettings.Variant, BreakpointBytes: prefixEnd, PrefixDigest: prefixDigest, Mode: "stable-prefix"}
+	}
 	req.WorkDir = filepath.Clean(target)
 	req.Timeout = settings.Budgets.ShardTimeout
 	req.Sandbox = "read_only"

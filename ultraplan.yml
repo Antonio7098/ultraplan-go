@@ -31,15 +31,27 @@ planning:
   execute_model: openai/gpt-5.6-sol
   execute_variant: high
 qa:
-  # Keep per_issue for the existing one-worker-per-issue path. Set grouped and
-  # raise issues_per_repair_agent to create fewer sequential worker queues.
+  # Semantic theories are grouped by shared code context before each arbiter
+  # call. The issue reconciliation agent runs after all arbiter groups.
+  arbiter_max_theories: 24
+  # Assignment grouping controls session reuse. Execution mode controls whether
+  # isolated proposals are generated sequentially or in parallel. Production
+  # integration and verification remain ordered and single-writer.
   repair_assignment_mode: per_issue
   issues_per_repair_agent: 1
+  repair_execution_mode: sequential
   # Empty role overrides inherit qa.model, then the review/plan/default chain.
+  mapper_model: openai/gpt-5.6-sol
+  mapper_variant: medium
   investigator_model: openai/gpt-5.6-sol
   investigator_variant: high
   challenger_model: openai/gpt-5.6-sol
   challenger_variant: high
+  # Arbitration and cross-group issue reconciliation use the strongest route.
+  arbiter_model: openai/gpt-5.6-sol
+  arbiter_variant: high
+  reconciler_model: openai/gpt-5.6-sol
+  reconciler_variant: high
   evaluator_model: openai/gpt-5.6-sol
   evaluator_variant: high
   repair_model: openai/gpt-5.6-sol

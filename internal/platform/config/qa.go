@@ -13,16 +13,24 @@ import (
 type QA struct {
 	Model                      string   `json:"model"`
 	Variant                    string   `json:"variant"`
+	MapperModel                string   `json:"mapper_model"`
+	MapperVariant              string   `json:"mapper_variant"`
 	InvestigatorModel          string   `json:"investigator_model"`
 	InvestigatorVariant        string   `json:"investigator_variant"`
 	ChallengerModel            string   `json:"challenger_model"`
 	ChallengerVariant          string   `json:"challenger_variant"`
+	ArbiterModel               string   `json:"arbiter_model"`
+	ArbiterVariant             string   `json:"arbiter_variant"`
+	ReconcilerModel            string   `json:"reconciler_model"`
+	ReconcilerVariant          string   `json:"reconciler_variant"`
 	EvaluatorModel             string   `json:"evaluator_model"`
 	EvaluatorVariant           string   `json:"evaluator_variant"`
 	RepairModel                string   `json:"repair_model"`
 	RepairVariant              string   `json:"repair_variant"`
+	ArbiterMaxTheories         int      `json:"arbiter_max_theories"`
 	RepairAssignmentMode       string   `json:"repair_assignment_mode"`
 	IssuesPerRepairAgent       int      `json:"issues_per_repair_agent"`
+	RepairExecutionMode        string   `json:"repair_execution_mode"`
 	ChangedPaths               int      `json:"changed_paths"`
 	PrimaryShards              int      `json:"primary_shards"`
 	BoundaryShards             int      `json:"boundary_shards"`
@@ -83,7 +91,7 @@ type QARepair struct {
 
 func DefaultQA() QA {
 	return QA{
-		RepairAssignmentMode: "per_issue", IssuesPerRepairAgent: 1,
+		ArbiterMaxTheories: 24, RepairAssignmentMode: "per_issue", IssuesPerRepairAgent: 1, RepairExecutionMode: "sequential",
 		ChangedPaths: 512, PrimaryShards: 32, BoundaryShards: 8,
 		FollowUpShards: 4, TotalShards: 44, PendingEntries: 44,
 		ChangedPathsPerShard: 12, ContextPathsPerShard: 64,
@@ -102,7 +110,7 @@ func DefaultQA() QA {
 
 func maxQA() QA {
 	return QA{
-		RepairAssignmentMode: "grouped", IssuesPerRepairAgent: 16,
+		ArbiterMaxTheories: 64, RepairAssignmentMode: "grouped", IssuesPerRepairAgent: 16, RepairExecutionMode: "parallel",
 		ChangedPaths: 512, PrimaryShards: 32, BoundaryShards: 8,
 		FollowUpShards: 4, TotalShards: 44, PendingEntries: 44,
 		ChangedPathsPerShard: 64, ContextPathsPerShard: 128,
@@ -120,9 +128,10 @@ func maxQA() QA {
 
 func qaConfigFields() []string {
 	return []string{
-		"qa.model", "qa.variant", "qa.investigator_model", "qa.investigator_variant",
+		"qa.model", "qa.variant", "qa.mapper_model", "qa.mapper_variant", "qa.investigator_model", "qa.investigator_variant",
 		"qa.challenger_model", "qa.challenger_variant", "qa.evaluator_model", "qa.evaluator_variant",
-		"qa.repair_model", "qa.repair_variant", "qa.repair_assignment_mode", "qa.issues_per_repair_agent",
+		"qa.arbiter_model", "qa.arbiter_variant", "qa.reconciler_model", "qa.reconciler_variant",
+		"qa.repair_model", "qa.repair_variant", "qa.arbiter_max_theories", "qa.repair_assignment_mode", "qa.issues_per_repair_agent", "qa.repair_execution_mode",
 		"qa.changed_paths", "qa.primary_shards",
 		"qa.boundary_shards", "qa.follow_up_shards", "qa.total_shards",
 		"qa.pending_entries", "qa.changed_paths_per_shard",
@@ -173,8 +182,11 @@ func setQAField(q *QA, field, value string) (bool, error) {
 		return true, nil
 	}
 	stageStrings := map[string]*string{
+		"qa.mapper_model": &q.MapperModel, "qa.mapper_variant": &q.MapperVariant,
 		"qa.investigator_model": &q.InvestigatorModel, "qa.investigator_variant": &q.InvestigatorVariant,
 		"qa.challenger_model": &q.ChallengerModel, "qa.challenger_variant": &q.ChallengerVariant,
+		"qa.arbiter_model": &q.ArbiterModel, "qa.arbiter_variant": &q.ArbiterVariant,
+		"qa.reconciler_model": &q.ReconcilerModel, "qa.reconciler_variant": &q.ReconcilerVariant,
 		"qa.evaluator_model": &q.EvaluatorModel, "qa.evaluator_variant": &q.EvaluatorVariant,
 		"qa.repair_model": &q.RepairModel, "qa.repair_variant": &q.RepairVariant,
 	}
@@ -184,6 +196,10 @@ func setQAField(q *QA, field, value string) (bool, error) {
 	}
 	if field == "qa.repair_assignment_mode" {
 		q.RepairAssignmentMode = value
+		return true, nil
+	}
+	if field == "qa.repair_execution_mode" {
+		q.RepairExecutionMode = value
 		return true, nil
 	}
 	if field == "qa.command_timeout" {
@@ -275,6 +291,8 @@ func setQAField(q *QA, field, value string) (bool, error) {
 		return setQAInteger(field, value, &q.Issues)
 	case "qa.issues_per_repair_agent":
 		return setQAInteger(field, value, &q.IssuesPerRepairAgent)
+	case "qa.arbiter_max_theories":
+		return setQAInteger(field, value, &q.ArbiterMaxTheories)
 	case "qa.repair.max_cycles":
 		return setQAInteger(field, value, &q.Repair.MaxCycles)
 	case "qa.repair.max_mutation_cycles":
@@ -330,6 +348,12 @@ func validateQA(q QA) error {
 	max := maxQA()
 	if q.RepairAssignmentMode != "per_issue" && q.RepairAssignmentMode != "grouped" {
 		return fmt.Errorf("qa.repair_assignment_mode: must be per_issue or grouped")
+	}
+	if q.RepairExecutionMode != "sequential" && q.RepairExecutionMode != "parallel" {
+		return fmt.Errorf("qa.repair_execution_mode: must be sequential or parallel")
+	}
+	if q.ArbiterMaxTheories <= 0 || q.ArbiterMaxTheories > max.ArbiterMaxTheories {
+		return fmt.Errorf("qa.arbiter_max_theories: must be between 1 and %d", max.ArbiterMaxTheories)
 	}
 	if q.IssuesPerRepairAgent <= 0 || q.IssuesPerRepairAgent > max.IssuesPerRepairAgent {
 		return fmt.Errorf("qa.issues_per_repair_agent: must be between 1 and %d", max.IssuesPerRepairAgent)

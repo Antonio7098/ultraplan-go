@@ -260,6 +260,64 @@ func TestSprintRuntimeMetricsPersistCacheUsage(t *testing.T) {
 	}
 }
 
+func TestSprintRuntimeMetricsPersistQACallIdentityAndToolAccounting(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-qa-metrics")
+	runtime := metricsRuntime{result: pruntime.Result{
+		RunID: "run-qa", SessionID: "session-qa", TurnID: "turn-qa", Status: "success",
+		Events:      []pruntime.Event{{Kind: "tool", Type: "tool.call", Payload: map[string]any{"tool_name": "read"}}},
+		EventStats:  pruntime.EventStats{Total: 1, Retained: 1},
+		Usage:       pruntime.Usage{InputTokensKnown: true, InputTokens: 120, OutputTokensKnown: true, OutputTokens: 30, CacheReadTokensKnown: true, CacheReadTokens: 90},
+		Permissions: pruntime.PermissionSummary{Mode: "restricted", Default: "deny", AuditCount: 1},
+	}}
+	service := NewService(root).WithRuntime(runtime)
+	prompt := "stable" + sharedPromptStageBoundary + "qa"
+	req := service.runtimeRequest(prompt, map[string]string{
+		"project": sp.Project, "sprint": sp.Slug, "stage": string(VerificationPhaseQA), "operation": "qa-arbitrate", "role": "arbiter",
+		"qa_attempt": "qa-v1-attempt-123456789012345678901234", "operational_attempt": "attempt-7", "map": "qa-v1-map-123456789012345678901234",
+		"arbiter_group": "arbiter-group-1", "task": "arbiter-group-1", "variant": "high",
+	})
+	if _, err := service.startSprintRuntime(context.Background(), sp, PlanningStage(VerificationPhaseQA), req); err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := LoadRuntimeMetrics(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metrics.Runs) != 1 {
+		t.Fatalf("runtime calls = %d", len(metrics.Runs))
+	}
+	call := metrics.Runs[0]
+	if call.Sequence != 1 || call.StageSequence != 1 || call.Role != "arbiter" || call.Operation != "qa-arbitrate" || call.ArbiterGroupID != "arbiter-group-1" || call.TurnID != "turn-qa" || call.Variant != "high" {
+		t.Fatalf("call identity = %+v", call)
+	}
+	if call.ToolCalls != 1 || call.ToolCallsByKind["read"] != 1 || !call.ToolCallCountExact || call.RuntimeEvents != 1 || call.RetainedEvents != 1 || call.PermissionMode != "restricted" || call.PermissionDefault != "deny" {
+		t.Fatalf("call accounting = %+v", call)
+	}
+	if !call.InputTokens.Known || call.InputTokens.Value != 120 || !call.OutputTokens.Known || call.OutputTokens.Value != 30 || !call.CacheReadTokens.Known || call.CacheReadTokens.Value != 90 {
+		t.Fatalf("call tokens = %+v", call)
+	}
+}
+
+func TestSprintRuntimeMetricsUpgradeSchemaOneWithoutDroppingCalls(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "01-old-metrics")
+	legacy := `{"schema_version":1,"project":"proj","sprint":"01-old-metrics","runs":[{"stage":"plan","run_id":"old","input_tokens":{"known":true,"value":41}}]}`
+	writeFileContent(t, sp.Path, legacy, runtimeMetricsFileName)
+	service := NewService(root).WithRuntime(metricsRuntime{result: pruntime.Result{RunID: "new", Status: "success"}})
+	req := service.runtimeRequest("prompt", map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StagePlan)})
+	if _, err := service.startSprintRuntime(context.Background(), sp, StagePlan, req); err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := LoadRuntimeMetrics(root, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.SchemaVersion != runtimeMetricsSchemaVersion || len(metrics.Runs) != 2 || metrics.Runs[0].Sequence != 1 || metrics.Runs[0].InputTokens.Value != 41 || metrics.Runs[1].Sequence != 2 {
+		t.Fatalf("upgraded metrics = %+v", metrics)
+	}
+}
+
 func TestRuntimeMetricsCanInspectSprintBeforePlanningInputsExist(t *testing.T) {
 	root := workspaceFixture(t)
 	sp := sprintFixture(t, root, "proj", "01-empty-metrics")

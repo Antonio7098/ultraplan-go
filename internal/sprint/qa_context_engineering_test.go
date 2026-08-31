@@ -1,6 +1,7 @@
 package sprint
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -72,6 +73,19 @@ func TestPackCompleteInvestigatorUsesStableFoundationAndNoRepositoryTools(t *tes
 	}
 	if req.Cache.BreakpointBytes <= 0 || !validFingerprint(req.Cache.PrefixDigest) || !strings.Contains(req.Prompt[:req.Cache.BreakpointBytes], foundation.ID) {
 		t.Fatalf("cache directive does not cover the foundation: %+v", req.Cache)
+	}
+	if len(qaMap.Shards) < 2 {
+		t.Fatal("fixture requires two semantic shards")
+	}
+	sibling, err := service.QAInvestigatorRequest(qaMap, qaMap.Shards[1], t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Cache.PrefixDigest != sibling.Cache.PrefixDigest || req.Cache.BreakpointBytes != sibling.Cache.BreakpointBytes || req.Prompt[:req.Cache.BreakpointBytes] != sibling.Prompt[:sibling.Cache.BreakpointBytes] {
+		t.Fatal("investigator siblings do not have a byte-identical shared prefix")
+	}
+	if req.Prompt == sibling.Prompt {
+		t.Fatal("investigator shard suffixes unexpectedly match")
 	}
 	projectedPath := append(append([]string(nil), shard.ChangedPaths...), shard.ContextPaths...)[0]
 	for i := range qaMap.Foundation.Blocks {
@@ -145,5 +159,17 @@ func TestSemanticProjectionAddsExactExpectationBlock(t *testing.T) {
 	ids := qaCompleteExpectationProjection(foundation, proposal)
 	if len(ids) != 1 || ids[0] != foundation.Blocks[1].ID {
 		t.Fatalf("projection ids = %v, want pagination criterion", ids)
+	}
+}
+
+func TestSemanticMapperFailsClosedOnInvalidAgentOutput(t *testing.T) {
+	qaMap := QAMap{
+		Project: "alpha", Sprint: "01-test", ID: "qa-v1-map-aaaaaaaaaaaaaaaaaaaaaaaa",
+		Foundation: &QAFoundation{ID: "qa-v1-foundation-aaaaaaaaaaaaaaaaaaaaaaaa", Fingerprint: strings.Repeat("a", 64), Blocks: []QAContextBlock{{ID: "qa-v1-block-aaaaaaaaaaaaaaaaaaaaaaaa", Kind: "authority", Content: "frozen authority", ContentSHA256: hashBytes([]byte("frozen authority")), Provenance: "test"}}},
+		Budgets:    DefaultQABudgets(),
+	}
+	service := NewService(t.TempDir()).WithRuntime(qaEmptyTheoryRuntime{}).WithQASettings(QASettings{Runtime: StageRuntime{Model: "provider/base"}, Mapper: StageRuntime{Model: "provider/mapper", Variant: "medium"}, Budgets: qaMap.Budgets})
+	if _, err := service.refineQAMapSemantically(context.Background(), qaMap, t.TempDir()); err == nil {
+		t.Fatal("invalid semantic mapper output fell back to the deterministic map")
 	}
 }

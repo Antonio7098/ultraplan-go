@@ -247,8 +247,8 @@ func suggestedRepairIssueGroups(groups []QARootCauseGroup, issues []QAIssue) []Q
 	return result
 }
 
-// PlanRepairAssignments creates sequential worker queues. It never combines
-// issues into one repair run.
+// PlanRepairAssignments creates ordered worker queues. Execution policy may
+// generate proposals concurrently, but it never combines issues into one run.
 func PlanRepairAssignments(adjudication QAAdjudication, mode string, issuesPerAgent int) ([]QARepairAssignment, error) {
 	if mode != "per_issue" && mode != "grouped" {
 		return nil, fmt.Errorf("repair assignment mode must be per_issue or grouped")

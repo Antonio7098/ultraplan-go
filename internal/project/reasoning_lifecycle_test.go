@@ -1,10 +1,13 @@
 package project
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 func TestProjectIndexParsesReasoningPolicyAndTemplates(t *testing.T) {
@@ -30,6 +33,77 @@ func TestProjectIndexParsesReasoningPolicyAndTemplates(t *testing.T) {
 	}
 	if len(index.Entries) != 1 || index.Entries[0].Section != SectionProjectReasoningTemplates {
 		t.Fatalf("entries = %+v", index.Entries)
+	}
+}
+
+type captureReasoningRuntime struct{ prompts []string }
+
+func (r *captureReasoningRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
+	r.prompts = append(r.prompts, req.Prompt)
+	return pruntime.Result{Status: "success"}, nil
+}
+
+func TestAreaFlowDirectlyInjectsAssignedStudyReport(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "projects", "p")
+	for _, dir := range []string{"templates", "evidence", "project-reasoning/areas"} {
+		if err := os.MkdirAll(filepath.Join(p, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	projectIndex := `## Available Project Reasoning Templates
+
+| Template | Path | Use When |
+| --- | --- | --- |
+| Lifecycle | projects/p/templates/lifecycle.md | lifecycle decisions |
+
+## Available Evidence Reports
+
+| Report | Path | Covers |
+| --- | --- | --- |
+| Study | projects/p/evidence/study.md | lifecycle evidence |
+`
+	manifest := `## Reasoning Areas
+
+| Area | Template | Output | Required | Depends On | Why |
+| --- | --- | --- | --- | --- | --- |
+| Lifecycle | projects/p/templates/lifecycle.md | projects/p/project-reasoning/areas/lifecycle.md | yes | none | Own lifecycle decisions |
+
+## Evidence Assignments
+
+| Area | Evidence | Relevant Questions | Why Assigned |
+| --- | --- | --- | --- |
+| Lifecycle | projects/p/evidence/study.md | Which owner commits state? | Direct lifecycle evidence |
+
+## Source Document Assignments
+
+| Area | Source | Authority | Why Assigned |
+| --- | --- | --- | --- |
+
+## Excluded Evidence
+
+| Source | Reason Excluded | Revisit Trigger |
+| --- | --- | --- |
+`
+	area := "## Project conclusions\n\nConclusion.\n\n## Trade-Offs\n\nTrade.\n\n## Evidence\n\nEvidence.\n\n## Risks\n\nRisk.\n\n## Self-critique\n\nCritique.\n"
+	for path, content := range map[string]string{"project-index.md": projectIndex, "templates/lifecycle.md": "# Lifecycle template\n", "evidence/study.md": "# Unique study report body\n\nState ownership evidence.\n", "project-reasoning/index.md": manifest, "project-reasoning/areas/lifecycle.md": area} {
+		if err := os.WriteFile(filepath.Join(p, filepath.FromSlash(path)), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rt := &captureReasoningRuntime{}
+	result, err := NewService(root).WithRuntime(rt).ReasoningFlow(context.Background(), "p", ProjectAreaReasoning)
+	if err != nil {
+		t.Fatalf("flow: %v result=%+v", err, result)
+	}
+	if len(rt.prompts) != 2 {
+		t.Fatalf("runtime prompts=%d", len(rt.prompts))
+	}
+	prompt := rt.prompts[1]
+	for _, want := range []string{"Kind: assigned-evidence", "Unique study report body", "Relevant questions: Which owner commits state?", "Why assigned: Direct lifecycle evidence"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("area prompt missing %q:\n%s", want, prompt)
+		}
 	}
 }
 

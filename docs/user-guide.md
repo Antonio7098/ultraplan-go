@@ -99,6 +99,13 @@ Read-only QA has a lower-only workspace policy. This example selects its model a
 qa:
   model: openai/gpt-5.6
   variant: medium
+  mapper_model: openai/gpt-5.6
+  mapper_variant: medium
+  arbiter_model: openai/gpt-5.6
+  arbiter_variant: high
+  reconciler_model: openai/gpt-5.6
+  reconciler_variant: high
+  arbiter_max_theories: 16
   concurrent_investigators: 2
   output_repair_attempts: 1
   run_timeout: 45m
@@ -383,7 +390,7 @@ To process all current promoted issues with the configured assignment policy, st
 ultraplan sprint <project> <sprint> repair campaign --confirmer "$USER" --yes --json
 ```
 
-With `qa.repair_assignment_mode: grouped`, UltraPlan partitions similar issues into queues of at most `qa.issues_per_repair_agent` items and reuses one repair model session for each queue. Repairs remain issue-scoped and mutations run serially. Each item gets a fresh adjudication match, immutable packet, isolated copy, independent repair run, scoped verification, result, and cleanup. The campaign does not give a worker one combined multi-issue packet.
+With `qa.repair_assignment_mode: grouped`, UltraPlan partitions similar issues into queues of at most `qa.issues_per_repair_agent` items and reuses one repair model session for each queue. `qa.repair_execution_mode: sequential` keeps proposal work ordered. `parallel` generates queue proposals concurrently in private copied workspaces, then integrates and verifies them one at a time. Each issue is refreshed at integration; stale overlapping proposals are regenerated against the current target. This is not a Git merge, and the campaign never gives a worker one combined multi-issue packet.
 
 An intermediate issue in a multi-issue queue can finish as `verified_pending_campaign`. Its scoped gates, production apply, and cleanup passed, while containing smoke remains deferred. The final issue must pass the full ladder, including containing smoke, before the campaign completes. The pending outcome is not standalone success. A campaign requires the same qualifying manual proof as automatic repair and stops at the first failed item.
 

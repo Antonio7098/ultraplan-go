@@ -741,6 +741,156 @@ func newSprintStageUsageView(slug string, metrics app.SprintMetricsSummary) spri
 	return view
 }
 
+type sprintRuntimeToolKindView struct {
+	Name  string
+	Count int
+}
+
+type sprintRuntimeCallView struct {
+	app.SprintMetricRow
+	StageLabel     string
+	RoleLabel      string
+	TotalLabel     string
+	CacheReadLabel string
+	CostLabel      string
+	StartedLabel   string
+	StartedISO     string
+	FinishedLabel  string
+	FinishedISO    string
+	DurationLabel  string
+	ToolKinds      []sprintRuntimeToolKindView
+}
+
+type sprintRuntimeLedgerView struct {
+	runUsageView
+	SchemaVersion      int
+	UpdatedAt          time.Time
+	UpdatedLabel       string
+	UpdatedISO         string
+	Calls              int
+	CompleteTokenCalls int
+	UnknownTokenValues int
+	ExactToolCalls     int
+	ToolCalls          int
+	RuntimeEvents      int64
+	DroppedEvents      int64
+	StageRows          []sprintStageUsageRow
+	Rows               []sprintRuntimeCallView
+	HasMetrics         bool
+}
+
+func newSprintRuntimeLedgerView(slug string, metrics app.SprintMetricsSummary) sprintRuntimeLedgerView {
+	runs := metrics.AllRuns
+	if len(runs) == 0 {
+		runs = metrics.RecentRuns
+	}
+	stageView := newSprintStageUsageView(slug, app.SprintMetricsSummary{RecentRuns: runs, UpdatedAt: metrics.UpdatedAt})
+	view := sprintRuntimeLedgerView{
+		runUsageView:  stageView.runUsageView,
+		SchemaVersion: metrics.SchemaVersion,
+		UpdatedAt:     metrics.UpdatedAt,
+		Calls:         len(runs),
+		StageRows:     stageView.Rows,
+		HasMetrics:    len(runs) > 0,
+	}
+	if !metrics.UpdatedAt.IsZero() {
+		view.UpdatedLabel = metrics.UpdatedAt.UTC().Format("2006-01-02 15:04:05Z")
+		view.UpdatedISO = metrics.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	for _, run := range runs {
+		known := []bool{run.InputKnown, run.OutputKnown, run.ReasoningKnown, run.CacheReadKnown, run.CacheWriteKnown, run.TotalKnown}
+		complete := true
+		for _, value := range known {
+			if !value {
+				view.UnknownTokenValues++
+				complete = false
+			}
+		}
+		if complete {
+			view.CompleteTokenCalls++
+		}
+		if run.ToolCallCountExact {
+			view.ExactToolCalls++
+		}
+		view.ToolCalls += run.ToolCalls
+		view.RuntimeEvents += run.RuntimeEvents
+		view.DroppedEvents += run.DroppedEvents
+		row := sprintRuntimeCallView{
+			SprintMetricRow: run,
+			StageLabel:      humanSprintStage(run.Stage),
+			RoleLabel:       strings.TrimSpace(run.Role),
+			TotalLabel:      formatKnownMetric(run.TotalKnown, run.Total),
+			CacheReadLabel:  formatKnownMetric(run.CacheReadKnown, run.CacheRead),
+			DurationLabel:   formatMetricDuration(run.DurationMS),
+		}
+		if row.RoleLabel == "" {
+			row.RoleLabel = "stage agent"
+		}
+		if run.CostKnown {
+			row.CostLabel = formatRunUSD(run.CostAmount)
+			if run.CostEstimated || run.CostSource == "model_priced" {
+				row.CostLabel += "*"
+			}
+		} else {
+			row.CostLabel = "not reported"
+		}
+		if !run.StartedAt.IsZero() {
+			row.StartedLabel = run.StartedAt.UTC().Format("2006-01-02 15:04:05.000Z")
+			row.StartedISO = run.StartedAt.UTC().Format(time.RFC3339Nano)
+		}
+		if !run.FinishedAt.IsZero() {
+			row.FinishedLabel = run.FinishedAt.UTC().Format("2006-01-02 15:04:05.000Z")
+			row.FinishedISO = run.FinishedAt.UTC().Format(time.RFC3339Nano)
+		}
+		for name, count := range run.ToolCallsByKind {
+			row.ToolKinds = append(row.ToolKinds, sprintRuntimeToolKindView{Name: name, Count: count})
+		}
+		sort.Slice(row.ToolKinds, func(i, j int) bool { return row.ToolKinds[i].Name < row.ToolKinds[j].Name })
+		view.Rows = append(view.Rows, row)
+	}
+	return view
+}
+
+func humanSprintStage(stage string) string {
+	switch stage {
+	case "review":
+		return "Conformance Review"
+	case "area-reasoning":
+		return "Area reasoning"
+	case "sprint-index":
+		return "Sprint index"
+	case "technical-handbook":
+		return "Technical handbook"
+	case "code-context":
+		return "Code context"
+	case "reasoning":
+		return "Final reasoning"
+	case "qa":
+		return "QA"
+	case "repair":
+		return "Repair"
+	default:
+		if stage == "" {
+			return "Unclassified"
+		}
+		return strings.ToUpper(stage[:1]) + stage[1:]
+	}
+}
+
+func formatKnownMetric(known bool, value int64) string {
+	if !known {
+		return "not reported"
+	}
+	return strconv.FormatInt(value, 10)
+}
+
+func formatMetricDuration(milliseconds int64) string {
+	if milliseconds <= 0 {
+		return "0 ms"
+	}
+	return (time.Duration(milliseconds) * time.Millisecond).String()
+}
+
 // newStudyUsageView aggregates token and cost facts across the tasks of a
 // study loop. It mirrors the runUsageView shown on the durable run page so
 // the same cost figure appears across surfaces.

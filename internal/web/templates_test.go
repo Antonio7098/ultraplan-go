@@ -448,6 +448,33 @@ func TestSprintFlowUsagePanelRendersPerStageBreakdown(t *testing.T) {
 	}
 }
 
+func TestSprintRuntimeMetricsPageRendersCompleteCallLedger(t *testing.T) {
+	queries := sampleQueries()
+	queries.sprintUsage = app.SprintMetricsSummary{
+		SchemaVersion: 2,
+		AllRuns: []app.SprintMetricRow{{
+			Sequence: 17, StageSequence: 3, Stage: "qa", Operation: "qa-arbitrate", Role: "arbiter", Status: "completed",
+			CallID: "call-17", RunID: "run-17", SessionID: "session-17", QAAttemptID: "qa-attempt", ArbiterGroupID: "group-2", Coverage: "changed-paths", Cycle: "2", Call: "1",
+			Provider: "openrouter", Model: "minimax/minimax-m3:free", Variant: "high", Sandbox: "read_only", FinalTargetIndex: 0,
+			PromptBytes: 4096, PrefixBytes: 3072, SuffixBytes: 1024, PrefixDigest: strings.Repeat("a", 64), CacheKey: "qa-arbiter/cohort", CacheMode: "stable-prefix", CacheTransport: "agentwrap-metadata-only",
+			InputKnown: true, Input: 84, OutputKnown: true, Output: 21, ReasoningKnown: true, Reasoning: 5,
+			CacheReadKnown: true, CacheRead: 27763, CacheWriteKnown: true, CacheWrite: 0, TotalKnown: true, Total: 27873, TurnsKnown: true, Turns: 1,
+			ToolCalls: 0, ToolCallCountExact: true, RuntimeEvents: 8, RetainedEvents: 8, PermissionMode: "restricted", PermissionDefault: "deny",
+			DurationMS: 27121, CostKnown: true, CostAmount: 0, CostCurrency: "USD", CostEstimated: true, CostSource: "provider_reported",
+		}},
+	}
+	body := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints/30-web/metrics", nil).Body.String()
+	for _, want := range []string{
+		`id="runtime-ledger-heading"`, "Runtime call ledger", "Complete token rows", "Calls", "qa-arbitrate", "arbiter",
+		"openrouter/minimax/minimax-m3:free", "27763", "agentwrap-metadata-only", strings.Repeat("a", 64), "call-17", "session-17",
+		"Tool calls", "exact", "restricted", "provider_reported", "changed-paths", "Cycle / call", "final target 0", "estimated",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("runtime metrics page missing %q", want)
+		}
+	}
+}
+
 func TestStudyLoopUsagePanelRendersPerTaskBreakdown(t *testing.T) {
 	queries := sampleQueries()
 	queries.study.Tasks = []app.RunTaskSummary{

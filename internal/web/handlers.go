@@ -367,6 +367,7 @@ type pageModel struct {
 	StudyInsights     *runStudyInsightsView
 	SprintUsage       *runSprintUsageView
 	SprintFlowUsage   *sprintStageUsageView
+	SprintMetrics     *sprintRuntimeLedgerView
 	StudyLoopUsage    *runUsageView
 	RunEvents         []runEventView
 	NextRunsURL       string
@@ -506,7 +507,11 @@ func (h *handler) dispatch(w http.ResponseWriter, r *http.Request, match routeMa
 		if page == "run" || page == "plan" || page == "delivery" || page == "operations" || page == "validation" {
 			page = "workflow"
 		}
-		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: sprintPageTitle(page) + " · " + result.Slug, Heading: result.Slug, Sprint: &result, Page: page})
+		var runtimeLedger *sprintRuntimeLedgerView
+		if page == "metrics" {
+			runtimeLedger = h.loadSprintRuntimeLedger(r.Context(), result.Project, result.Slug)
+		}
+		h.render(w, r, http.StatusOK, "sprint", pageModel{Title: sprintPageTitle(page) + " · " + result.Slug, Heading: result.Slug, Sprint: &result, SprintMetrics: runtimeLedger, Page: page})
 	case "sprint_qa":
 		h.handleSprintQAPage(w, r, match.params[0], match.params[1], "", "")
 	case "sprint_repair":
@@ -836,6 +841,8 @@ func sprintPageTitle(page string) string {
 		return "Workflow"
 	case "repair":
 		return "Repair"
+	case "metrics":
+		return "Runtime metrics"
 	default:
 		return "Artifact Navigator"
 	}
@@ -1015,6 +1022,22 @@ func (h *handler) loadSprintFlowUsage(ctx context.Context, project, slug string)
 	if !view.HasMetrics {
 		return nil
 	}
+	return &view
+}
+
+func (h *handler) loadSprintRuntimeLedger(ctx context.Context, project, slug string) *sprintRuntimeLedgerView {
+	if project == "" || slug == "" || h.queries == nil {
+		return nil
+	}
+	usageQueries, ok := h.queries.(app.WebSprintUsageQueries)
+	if !ok {
+		return nil
+	}
+	metrics, err := usageQueries.SprintRuntimeUsage(ctx, project, slug)
+	if err != nil {
+		return nil
+	}
+	view := newSprintRuntimeLedgerView(slug, metrics)
 	return &view
 }
 

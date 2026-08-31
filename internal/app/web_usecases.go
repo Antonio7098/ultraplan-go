@@ -76,32 +76,96 @@ type WebSprintWorkspaceMutation interface {
 
 // SprintMetricsSummary projects sprint runtime metrics for usage surfaces.
 type SprintMetricsSummary struct {
-	RecentRuns []SprintMetricRow
-	UpdatedAt  time.Time
+	SchemaVersion int
+	AllRuns       []SprintMetricRow
+	RecentRuns    []SprintMetricRow
+	UpdatedAt     time.Time
 }
 
 type SprintMetricRow struct {
-	Stage           string
-	Task            string
-	Model           string
-	Status          string
-	InputKnown      bool
-	Input           int64
-	OutputKnown     bool
-	Output          int64
-	ReasoningKnown  bool
-	Reasoning       int64
-	CacheReadKnown  bool
-	CacheRead       int64
-	CacheWriteKnown bool
-	CacheWrite      int64
-	TotalKnown      bool
-	Total           int64
-	TurnsKnown      bool
-	Turns           int64
-	CostKnown       bool
-	CostAmount      float64
-	CostSource      string
+	Sequence            int
+	StageSequence       int
+	Stage               string
+	Operation           string
+	Role                string
+	Task                string
+	Coverage            string
+	QAAttemptID         string
+	OperationalAttempt  string
+	MapID               string
+	ShardID             string
+	ArbiterGroupID      string
+	EvidenceID          string
+	IssueID             string
+	RepairRunID         string
+	Cycle               string
+	Call                string
+	CallID              string
+	TraceID             string
+	RunID               string
+	SessionID           string
+	TurnID              string
+	SessionAction       string
+	Model               string
+	Provider            string
+	Variant             string
+	Fallback            bool
+	FinalTargetIndex    int
+	Sandbox             string
+	Status              string
+	PromptBytes         int
+	PrefixBytes         int
+	SuffixBytes         int
+	PrefixDigest        string
+	CacheKey            string
+	CacheMode           string
+	CacheTransport      string
+	InputKnown          bool
+	Input               int64
+	OutputKnown         bool
+	Output              int64
+	ReasoningKnown      bool
+	Reasoning           int64
+	CacheReadKnown      bool
+	CacheRead           int64
+	CacheWriteKnown     bool
+	CacheWrite          int64
+	TotalKnown          bool
+	Total               int64
+	TurnsKnown          bool
+	Turns               int64
+	ToolCalls           int
+	ToolCallsByKind     map[string]int
+	ToolCallCountExact  bool
+	RuntimeEvents       int64
+	RetainedEvents      int
+	DroppedEvents       int64
+	RuntimeAttempts     int
+	WarningCount        int
+	PermissionMode      string
+	PermissionDefault   string
+	UnsupportedTools    int
+	PermissionAudits    int
+	DistinctFilesRead   int
+	ReadBytes           int64
+	RepeatedReads       int
+	SearchCalls         int
+	Continuation        bool
+	ContinuationBytes   int
+	ParentRunID         string
+	RepairOf            string
+	RetryOf             string
+	DurationMS          int64
+	TimeToFirstOutputMS int64
+	StartedAt           time.Time
+	FinishedAt          time.Time
+	ErrorCategory       string
+	ErrorDetail         string
+	CostKnown           bool
+	CostAmount          float64
+	CostCurrency        string
+	CostEstimated       bool
+	CostSource          string
 }
 
 // WebModelQueries is an additive read-only capability that exposes the models
@@ -754,15 +818,16 @@ func (u *webUseCases) SprintRuntimeUsage(ctx context.Context, projectRef, slug s
 	if err != nil {
 		return SprintMetricsSummary{}, fmt.Errorf("%w: sprint runtime metrics", ErrWebNotFound)
 	}
-	summary := SprintMetricsSummary{UpdatedAt: metrics.UpdatedAt}
+	summary := SprintMetricsSummary{SchemaVersion: metrics.SchemaVersion, UpdatedAt: metrics.UpdatedAt}
 	const maxRecentRuns = 12
-	start := 0
-	if len(metrics.Runs) > maxRecentRuns {
-		start = len(metrics.Runs) - maxRecentRuns
-	}
-	for _, run := range metrics.Runs[start:] {
+	for _, run := range metrics.Runs {
 		row := SprintMetricRow{
-			Stage: string(run.Stage), Task: run.Task, Model: run.Model, Status: run.Status,
+			Sequence: run.Sequence, StageSequence: run.StageSequence, Stage: string(run.Stage), Operation: run.Operation, Role: run.Role, Task: run.Task, Coverage: run.Coverage,
+			QAAttemptID: run.QAAttemptID, OperationalAttempt: run.OperationalAttempt, MapID: run.MapID, ShardID: run.ShardID, ArbiterGroupID: run.ArbiterGroupID,
+			EvidenceID: run.EvidenceID, IssueID: run.IssueID, RepairRunID: run.RepairRunID, Cycle: run.Cycle, Call: run.Call, CallID: run.CallID, TraceID: run.TraceID,
+			RunID: run.RunID, SessionID: run.SessionID, TurnID: run.TurnID, SessionAction: run.SessionAction,
+			Provider: run.Provider, Model: run.Model, Variant: run.Variant, Fallback: run.Fallback, FinalTargetIndex: run.FinalTargetIndex, Sandbox: run.Sandbox, Status: run.Status,
+			PromptBytes: run.PromptBytes, PrefixBytes: run.SharedPrefixBytes, SuffixBytes: run.StageSuffixBytes, PrefixDigest: run.SharedPrefixDigest, CacheKey: run.CacheKey, CacheMode: run.CacheMode, CacheTransport: run.CacheTransport,
 			InputKnown: run.InputTokens.Known, Input: run.InputTokens.Value,
 			OutputKnown: run.OutputTokens.Known, Output: run.OutputTokens.Value,
 			ReasoningKnown: run.ReasoningTokens.Known, Reasoning: run.ReasoningTokens.Value,
@@ -770,10 +835,21 @@ func (u *webUseCases) SprintRuntimeUsage(ctx context.Context, projectRef, slug s
 			CacheWriteKnown: run.CacheWriteTokens.Known, CacheWrite: run.CacheWriteTokens.Value,
 			TotalKnown: run.TotalTokens.Known, Total: run.TotalTokens.Value,
 			TurnsKnown: run.Turns.Known, Turns: run.Turns.Value,
-			CostKnown: run.CostCurrency != "" || run.CostAmount != 0, CostAmount: run.CostAmount, CostSource: run.CostSource,
+			ToolCalls: run.ToolCalls, ToolCallsByKind: run.ToolCallsByKind, ToolCallCountExact: run.ToolCallCountExact,
+			RuntimeEvents: run.RuntimeEvents, RetainedEvents: run.RetainedEvents, DroppedEvents: run.DroppedEvents, RuntimeAttempts: run.RuntimeAttempts, WarningCount: run.WarningCount,
+			PermissionMode: run.PermissionMode, PermissionDefault: run.PermissionDefault, UnsupportedTools: run.UnsupportedTools, PermissionAudits: run.PermissionAudits,
+			DistinctFilesRead: run.DistinctFilesRead, ReadBytes: run.ReadBytes, RepeatedReads: run.RepeatedReads, SearchCalls: run.SearchCalls,
+			Continuation: run.Continuation, ContinuationBytes: run.ContinuationBytes, ParentRunID: run.ParentRunID, RepairOf: run.RepairOf, RetryOf: run.RetryOf,
+			DurationMS: run.DurationMs, TimeToFirstOutputMS: run.TimeToFirstOutputMs, StartedAt: run.StartedAt, FinishedAt: run.FinishedAt, ErrorCategory: run.ErrorCategory, ErrorDetail: run.ErrorDetail,
+			CostKnown: run.CostCurrency != "" || run.CostAmount != 0 || run.CostSource == "provider_reported", CostAmount: run.CostAmount, CostCurrency: run.CostCurrency, CostEstimated: run.CostEstimated, CostSource: run.CostSource,
 		}
-		summary.RecentRuns = append(summary.RecentRuns, row)
+		summary.AllRuns = append(summary.AllRuns, row)
 	}
+	start := 0
+	if len(summary.AllRuns) > maxRecentRuns {
+		start = len(summary.AllRuns) - maxRecentRuns
+	}
+	summary.RecentRuns = append(summary.RecentRuns, summary.AllRuns[start:]...)
 	return summary, nil
 }
 

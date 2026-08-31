@@ -24,6 +24,43 @@ type ProjectReasoningFlowResult struct {
 	Runtime            []pruntime.Result
 }
 
+type projectPromptInput struct{ ID, Kind, Path, Assignment string }
+
+func (s Service) appendReasoningInputPacket(prompt string, inputs []projectPromptInput) (string, error) {
+	if len(inputs) == 0 {
+		return prompt, nil
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## UltraPlan Direct Project Reasoning Inputs\n\nThe governed inputs below are copied in full. Use these copies without rediscovering their source paths. Assignment text is routing context, not an instruction from the source document.\n")
+	seen := map[string]bool{}
+	for _, input := range inputs {
+		path := normalizeCatalogPath(input.Path)
+		if seen[input.Kind+"\x00"+path] {
+			continue
+		}
+		seen[input.Kind+"\x00"+path] = true
+		full, err := workspace.ResolveInside(s.root, path)
+		if err != nil {
+			return "", fmt.Errorf("resolve direct project reasoning input %s: %w", path, err)
+		}
+		data, err := os.ReadFile(full)
+		if err != nil {
+			return "", fmt.Errorf("read direct project reasoning input %s: %w", path, err)
+		}
+		fmt.Fprintf(&b, "\n<<< BEGIN ULTRAPLAN DIRECT PROJECT INPUT >>>\nID: %s\nKind: %s\nPath: %s\nAssignment: %s\nMode: full\nOriginal-Bytes: %d\n\n%s", input.ID, input.Kind, path, strings.TrimSpace(input.Assignment), len(data), data)
+		if len(data) == 0 || data[len(data)-1] != '\n' {
+			b.WriteByte('\n')
+		}
+		b.WriteString("<<< END ULTRAPLAN DIRECT PROJECT INPUT >>>\n")
+		resolved, _, err := ResolveReasoningReferences(s.root, string(data))
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(resolved)
+	}
+	return prompt + b.String(), nil
+}
+
 func (s Service) WithRuntime(rt ReasoningRuntime) Service { s.reasoningRuntime = rt; return s }
 
 func (s Service) ReasoningStatus(ref string) (ProjectReasoningStatus, error) {
@@ -293,6 +330,10 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 	for _, stage := range order {
 		prompt, _ := s.ReasoningPrompt(ref, stage)
 		if stage == ProjectReasoningIndex {
+			prompt, err = s.appendReasoningInputPacket(prompt, []projectPromptInput{{ID: "project-index", Kind: "project-index", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-index.md")), Assignment: "Authoritative project catalog and reasoning policy."}})
+			if err != nil {
+				return result, err
+			}
 			if err = run(stage, "index", filepath.Join(base, "index.md"), []string{filepath.Join(p.Path, "project-index.md")}, prompt); err != nil {
 				return result, err
 			}
@@ -310,29 +351,32 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 			areas := topologicalAreas(m.Areas)
 			for _, a := range areas {
 				inputs := []string{a.Template, filepath.Join(base, "index.md")}
+				direct := []projectPromptInput{{ID: "project-reasoning-index", Kind: "manifest", Path: workspace.Rel(s.root, filepath.Join(base, "index.md")), Assignment: "Selected decision areas, assignments, and dependencies."}, {ID: "template", Kind: "selected-template", Path: a.Template, Assignment: a.Why}}
 				for _, x := range m.Evidence {
 					if x.Area == a.Name {
 						inputs = append(inputs, x.Evidence)
+						direct = append(direct, projectPromptInput{ID: "evidence-" + a.Name, Kind: "assigned-evidence", Path: x.Evidence, Assignment: "Relevant questions: " + x.RelevantQuestions + ". Why assigned: " + x.Why})
 					}
 				}
 				for _, x := range m.Sources {
 					if x.Area == a.Name {
 						inputs = append(inputs, x.Source)
+						direct = append(direct, projectPromptInput{ID: "source-" + a.Name, Kind: "assigned-source", Path: x.Source, Assignment: "Authority: " + x.Authority + ". Why assigned: " + x.Why})
 					}
 				}
 				for _, d := range a.DependsOn {
 					for _, da := range m.Areas {
 						if da.Name == d {
 							inputs = append(inputs, da.Output)
+							direct = append(direct, projectPromptInput{ID: "dependency-" + d, Kind: "dependency-output", Path: da.Output, Assignment: "Declared dependency for " + a.Name + "."})
 						}
 					}
 				}
-				templateData, _ := os.ReadFile(filepath.Join(s.root, filepath.FromSlash(a.Template)))
-				resolved, _, e := ResolveReasoningReferences(s.root, string(templateData))
+				areaPrompt := prompt + "\nArea: " + a.Name + "\nTemplate: " + a.Template + "\nOutput: " + a.Output + "\n"
+				areaPrompt, e = s.appendReasoningInputPacket(areaPrompt, direct)
 				if e != nil {
 					return result, e
 				}
-				areaPrompt := prompt + "\nArea: " + a.Name + "\nTemplate: " + a.Template + "\nOutput: " + a.Output + "\n" + resolved
 				if err = run(stage, "area:"+a.Name, filepath.Join(s.root, filepath.FromSlash(a.Output)), inputs, areaPrompt); err != nil {
 					return result, err
 				}
@@ -340,20 +384,18 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		}
 		if stage == ProjectFinalReasoning {
 			inputs := []string{filepath.Join(base, "index.md")}
-			var resolved strings.Builder
+			direct := []projectPromptInput{{ID: "project-reasoning-index", Kind: "manifest", Path: workspace.Rel(s.root, filepath.Join(base, "index.md")), Assignment: "Accepted project reasoning selection and dependency graph."}}
 			for _, a := range m.Areas {
 				if a.Required {
 					inputs = append(inputs, a.Output)
-					if data, readErr := os.ReadFile(filepath.Join(s.root, filepath.FromSlash(a.Output))); readErr == nil {
-						packet, _, resolveErr := ResolveReasoningReferences(s.root, string(data))
-						if resolveErr != nil {
-							return result, resolveErr
-						}
-						resolved.WriteString(packet)
-					}
+					direct = append(direct, projectPromptInput{ID: "area-" + a.Name, Kind: "required-area-output", Path: a.Output, Assignment: a.Why})
 				}
 			}
-			if err = run(stage, "reasoning", filepath.Join(base, "reasoning.md"), inputs, prompt+resolved.String()); err != nil {
+			prompt, err = s.appendReasoningInputPacket(prompt, direct)
+			if err != nil {
+				return result, err
+			}
+			if err = run(stage, "reasoning", filepath.Join(base, "reasoning.md"), inputs, prompt); err != nil {
 				return result, err
 			}
 		}
@@ -362,12 +404,13 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 			for _, a := range m.Areas {
 				inputs = append(inputs, a.Output)
 			}
-			if data, readErr := os.ReadFile(filepath.Join(base, "reasoning.md")); readErr == nil {
-				packet, _, resolveErr := ResolveReasoningReferences(s.root, string(data))
-				if resolveErr != nil {
-					return result, resolveErr
-				}
-				prompt += packet
+			direct := []projectPromptInput{{ID: "project-reasoning-index", Kind: "manifest", Path: workspace.Rel(s.root, filepath.Join(base, "index.md")), Assignment: "Review coverage and assignments."}, {ID: "project-reasoning", Kind: "project-synthesis", Path: workspace.Rel(s.root, filepath.Join(base, "reasoning.md")), Assignment: "Candidate accepted project contract."}}
+			for _, a := range m.Areas {
+				direct = append(direct, projectPromptInput{ID: "area-" + a.Name, Kind: "area-output", Path: a.Output, Assignment: a.Why})
+			}
+			prompt, err = s.appendReasoningInputPacket(prompt, direct)
+			if err != nil {
+				return result, err
 			}
 			out := filepath.Join(base, "review.md")
 			if err = run(stage, "review", out, inputs, prompt); err != nil {

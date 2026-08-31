@@ -369,6 +369,24 @@ QA configuration uses normal precedence: product default, `ultraplan.yml`, then 
 | --- | --- | ---: | ---: |
 | `model` | `ULTRAPLAN_QA_MODEL` | review, plan, then default-model fallback | not numeric |
 | `variant` | `ULTRAPLAN_QA_VARIANT` | `execution.default_variant` | not numeric |
+| `mapper_model` | `ULTRAPLAN_QA_MAPPER_MODEL` | inherits `qa.model` | not numeric |
+| `mapper_variant` | `ULTRAPLAN_QA_MAPPER_VARIANT` | inherits `qa.variant` | not numeric |
+| `investigator_model` | `ULTRAPLAN_QA_INVESTIGATOR_MODEL` | inherits `qa.model` | not numeric |
+| `investigator_variant` | `ULTRAPLAN_QA_INVESTIGATOR_VARIANT` | inherits `qa.variant` | not numeric |
+| `challenger_model` | `ULTRAPLAN_QA_CHALLENGER_MODEL` | inherits `qa.model` | not numeric |
+| `challenger_variant` | `ULTRAPLAN_QA_CHALLENGER_VARIANT` | inherits `qa.variant` | not numeric |
+| `arbiter_model` | `ULTRAPLAN_QA_ARBITER_MODEL` | inherits `qa.model` | not numeric |
+| `arbiter_variant` | `ULTRAPLAN_QA_ARBITER_VARIANT` | inherits `qa.variant` | not numeric |
+| `reconciler_model` | `ULTRAPLAN_QA_RECONCILER_MODEL` | inherits `qa.model` | not numeric |
+| `reconciler_variant` | `ULTRAPLAN_QA_RECONCILER_VARIANT` | inherits `qa.variant` | not numeric |
+| `evaluator_model` | `ULTRAPLAN_QA_EVALUATOR_MODEL` | inherits `qa.model` | not numeric |
+| `evaluator_variant` | `ULTRAPLAN_QA_EVALUATOR_VARIANT` | inherits `qa.variant` | not numeric |
+| `repair_model` | `ULTRAPLAN_QA_REPAIR_MODEL` | inherits `qa.model` | not numeric |
+| `repair_variant` | `ULTRAPLAN_QA_REPAIR_VARIANT` | inherits `qa.variant` | not numeric |
+| `arbiter_max_theories` | `ULTRAPLAN_QA_ARBITER_MAX_THEORIES` | 24 | 64 |
+| `repair_assignment_mode` | `ULTRAPLAN_QA_REPAIR_ASSIGNMENT_MODE` | `per_issue` | `per_issue` or `grouped` |
+| `issues_per_repair_agent` | `ULTRAPLAN_QA_ISSUES_PER_REPAIR_AGENT` | 1 | 16 |
+| `repair_execution_mode` | `ULTRAPLAN_QA_REPAIR_EXECUTION_MODE` | `sequential` | `sequential` or `parallel` |
 | `changed_paths` | `ULTRAPLAN_QA_CHANGED_PATHS` | 512 | 512 |
 | `primary_shards` | `ULTRAPLAN_QA_PRIMARY_SHARDS` | 32 | 32 |
 | `boundary_shards` | `ULTRAPLAN_QA_BOUNDARY_SHARDS` | 8 | 8 |
@@ -422,7 +440,7 @@ ultraplan sprint <project> <sprint> repair recover [--run <repair-run-id>] [--js
 
 `prepare` accepts only one current repair-eligible adjudicated issue and writes an immutable packet without constructing a runtime or changing the target. `start` requires explicit single-use confirmation after durable acceptance. The confirmer is retained as bounded audit identity; it is not authentication. Progress is written to stderr. JSON stdout is one schema-v1 envelope with operation, status, bounded result, and optional stable error.
 
-An assignment is an adjudication-time ordered queue of issue IDs. A repair run handles one issue. A campaign is the durable coordinator that executes all current assignments. `campaign` uses the configured `qa.repair_assignment_mode` and `qa.issues_per_repair_agent` policy. In grouped mode it creates bounded worker queues and reuses one model session per queue. Target mutations remain serial. Every queued issue is refreshed against current adjudication, frozen into its own packet, repaired in its own isolated run, verified within its issue scope, recorded, and cleaned up. No worker receives a combined multi-issue packet.
+An assignment is an adjudication-time ordered queue of issue IDs. A repair run handles one issue. A campaign is the durable coordinator that executes all current assignments. `campaign` uses `qa.repair_assignment_mode`, `qa.issues_per_repair_agent`, and `qa.repair_execution_mode`. In grouped mode it creates bounded worker queues and reuses one model session per queue. Sequential execution retains the compatibility order. Parallel execution generates issue-scoped proposals concurrently in private copied workspaces, then integrates and verifies them in deterministic single-writer order. Every queued issue is refreshed before integration. If an earlier repair changes a later proposal's file preimage, UltraPlan regenerates that proposal against the current target. No Git merge or combined multi-issue packet is used.
 
 An intermediate issue in a multi-issue queue may record `verified_pending_campaign` after its scoped gates, production apply, and cleanup pass. Its containing-smoke gate is `deferred`. The final issue must complete the full ladder, including repaired-target containing smoke, before the campaign can complete. `verified_pending_campaign` is not standalone success and cannot complete a campaign. The campaign stops on the first failed item and records durable worker, queue, session, and outcome state. Automatic campaign admission requires a current qualifying manual repair proof plus the explicit campaign confirmation.
 

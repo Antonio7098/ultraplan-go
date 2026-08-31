@@ -100,6 +100,7 @@ type QABudgets struct {
 	PathsPerExpansion          int           `json:"paths_per_expansion"`
 	BehavioralConcernsPerShard int           `json:"behavioral_concerns_per_shard"`
 	TheoriesPerShard           int           `json:"theories_per_shard"`
+	ArbiterMaxTheories         int           `json:"arbiter_max_theories"`
 	IterationsPerAttempt       int           `json:"iterations_per_attempt"`
 	CommandsPerAttempt         int           `json:"commands_per_attempt"`
 	OutputRepairAttempts       int           `json:"output_repair_attempts"`
@@ -131,6 +132,7 @@ func DefaultQABudgets() QABudgets {
 		TotalShards: 44, PendingEntries: 44, ChangedPathsPerShard: 12,
 		ContextPathsPerShard: 64, ContextExpansions: 2, PathsPerExpansion: 16,
 		BehavioralConcernsPerShard: 12, TheoriesPerShard: 12,
+		ArbiterMaxTheories:   24,
 		IterationsPerAttempt: 4, CommandsPerAttempt: 8, OutputRepairAttempts: 1,
 		ConcurrentInvestigators: 3, CommandTimeout: 5 * time.Minute,
 		ShardTimeout: 20 * time.Minute, RunTimeout: 60 * time.Minute,
@@ -149,6 +151,7 @@ func MaximumQABudgets() QABudgets {
 		TotalShards: 44, PendingEntries: 44, ChangedPathsPerShard: 64,
 		ContextPathsPerShard: 128, ContextExpansions: 4, PathsPerExpansion: 32,
 		BehavioralConcernsPerShard: 24, TheoriesPerShard: 24,
+		ArbiterMaxTheories:   64,
 		IterationsPerAttempt: 8, CommandsPerAttempt: 16, OutputRepairAttempts: 2,
 		ConcurrentInvestigators: 8, CommandTimeout: 10 * time.Minute,
 		ShardTimeout: 30 * time.Minute, RunTimeout: 90 * time.Minute,
@@ -168,12 +171,16 @@ type QAEffectiveSource struct {
 
 type QASettings struct {
 	Runtime              StageRuntime        `json:"runtime"`
+	Mapper               StageRuntime        `json:"mapper,omitempty"`
 	Investigator         StageRuntime        `json:"investigator,omitempty"`
 	Challenger           StageRuntime        `json:"challenger,omitempty"`
+	Arbiter              StageRuntime        `json:"arbiter,omitempty"`
+	Reconciler           StageRuntime        `json:"reconciler,omitempty"`
 	Evaluator            StageRuntime        `json:"evaluator,omitempty"`
 	Repair               StageRuntime        `json:"repair,omitempty"`
 	RepairAssignmentMode string              `json:"repair_assignment_mode"`
 	IssuesPerRepairAgent int                 `json:"issues_per_repair_agent"`
+	RepairExecutionMode  string              `json:"repair_execution_mode"`
 	Budgets              QABudgets           `json:"budgets"`
 	Sources              []QAEffectiveSource `json:"sources"`
 }
@@ -181,10 +188,16 @@ type QASettings struct {
 func (s QASettings) RuntimeFor(role string) StageRuntime {
 	selected := StageRuntime{}
 	switch role {
+	case "mapper":
+		selected = s.Mapper
 	case "investigator":
 		selected = s.Investigator
 	case "challenger":
 		selected = s.Challenger
+	case "arbiter":
+		selected = s.Arbiter
+	case "reconciler":
+		selected = s.Reconciler
 	case "evaluator":
 		selected = s.Evaluator
 	case "repair":
@@ -556,19 +569,21 @@ type RepairState struct {
 }
 
 type RepairRuntimeObservation struct {
-	Provider          string         `json:"provider"`
-	Model             string         `json:"model"`
-	Variant           string         `json:"variant,omitempty"`
-	SessionID         string         `json:"session_id,omitempty"`
-	Usage             QAUsageSummary `json:"usage"`
-	EstimatedCost     *QACostSummary `json:"estimated_cost,omitempty"`
-	StartedAt         time.Time      `json:"started_at"`
-	CompletedAt       time.Time      `json:"completed_at"`
-	Duration          time.Duration  `json:"duration"`
-	DurationMS        int64          `json:"duration_ms"`
-	RuntimeEvents     int64          `json:"runtime_events"`
-	RetainedEvents    int            `json:"retained_events"`
-	ObservedToolCalls int            `json:"observed_tool_calls"`
+	Provider          string             `json:"provider"`
+	Model             string             `json:"model"`
+	Variant           string             `json:"variant,omitempty"`
+	SessionID         string             `json:"session_id,omitempty"`
+	Usage             QAUsageSummary     `json:"usage"`
+	EstimatedCost     *QACostSummary     `json:"estimated_cost,omitempty"`
+	StartedAt         time.Time          `json:"started_at"`
+	CompletedAt       time.Time          `json:"completed_at"`
+	Duration          time.Duration      `json:"duration"`
+	DurationMS        int64              `json:"duration_ms"`
+	RuntimeEvents     int64              `json:"runtime_events"`
+	RetainedEvents    int                `json:"retained_events"`
+	ObservedToolCalls int                `json:"observed_tool_calls"`
+	ProvisionalChecks []RepairGateResult `json:"provisional_checks,omitempty"`
+	ProvisionalPassed bool               `json:"provisional_passed"`
 }
 
 type RepairScopeRecord struct {
@@ -971,11 +986,13 @@ type QAChallenge struct {
 type QAArbiterAction string
 
 const (
-	QAArbiterConfirm QAArbiterAction = "confirm"
-	QAArbiterRefute  QAArbiterAction = "refute"
-	QAArbiterReplace QAArbiterAction = "replace"
-	QAArbiterMerge   QAArbiterAction = "merge"
-	QAArbiterSplit   QAArbiterAction = "split"
+	QAArbiterConfirm          QAArbiterAction = "confirm"
+	QAArbiterRefute           QAArbiterAction = "refute"
+	QAArbiterReplace          QAArbiterAction = "replace"
+	QAArbiterMerge            QAArbiterAction = "merge"
+	QAArbiterSplit            QAArbiterAction = "split"
+	QAArbiterInvalidate       QAArbiterAction = "invalidate"
+	QAArbiterKeepInconclusive QAArbiterAction = "keep_inconclusive"
 )
 
 // QAArbiterOverride records a semantic supersession without mutating the
@@ -991,13 +1008,48 @@ type QAArbiterOverride struct {
 	Confidence       float64         `json:"confidence"`
 }
 
+// QAArbiterIssue is the semantic issue shape produced by an arbiter group and
+// reconciled across groups. It references retained theories and evidence; it
+// does not itself promote an issue without deterministic failing evidence.
+type QAArbiterIssue struct {
+	ID           string   `json:"id"`
+	TheoryIDs    []string `json:"theory_ids"`
+	Claim        string   `json:"claim"`
+	Title        string   `json:"title"`
+	IssueClass   string   `json:"issue_class"`
+	Severity     string   `json:"severity"`
+	Location     string   `json:"location"`
+	Reason       string   `json:"reason"`
+	EvidenceRefs []string `json:"evidence_refs"`
+}
+
+type QAArbiterGroup struct {
+	ID              string              `json:"id"`
+	TheoryIDs       []string            `json:"theory_ids"`
+	ContextBlockIDs []string            `json:"context_block_ids"`
+	Model           string              `json:"model,omitempty"`
+	Overrides       []QAArbiterOverride `json:"overrides,omitempty"`
+	Issues          []QAArbiterIssue    `json:"issues,omitempty"`
+	Fallback        bool                `json:"fallback"`
+	Reason          string              `json:"reason,omitempty"`
+}
+
+type QAIssueReconciliation struct {
+	Model    string `json:"model,omitempty"`
+	Fallback bool   `json:"fallback"`
+	Reason   string `json:"reason,omitempty"`
+}
+
 type QAArbitration struct {
-	SchemaVersion int                 `json:"schema_version"`
-	MapID         string              `json:"map_id"`
-	Model         string              `json:"model,omitempty"`
-	Overrides     []QAArbiterOverride `json:"overrides,omitempty"`
-	Fallback      bool                `json:"fallback"`
-	Reason        string              `json:"reason,omitempty"`
+	SchemaVersion  int                    `json:"schema_version"`
+	MapID          string                 `json:"map_id"`
+	Model          string                 `json:"model,omitempty"`
+	Overrides      []QAArbiterOverride    `json:"overrides,omitempty"`
+	Groups         []QAArbiterGroup       `json:"groups,omitempty"`
+	Issues         []QAArbiterIssue       `json:"issues,omitempty"`
+	Reconciliation *QAIssueReconciliation `json:"reconciliation,omitempty"`
+	Fallback       bool                   `json:"fallback"`
+	Reason         string                 `json:"reason,omitempty"`
 }
 
 type QASynthesis struct {
@@ -1105,8 +1157,11 @@ func canonicalQAJSON(value any) ([]byte, error) {
 }
 
 var qaIDPattern = regexp.MustCompile(`^qa-v1-(attempt|map|shard|theory|challenge|synthesis)-[0-9a-f]{24}$`)
+var qaArbiterIssueIDPattern = regexp.MustCompile(`^qa-v1-arbiter-issue-[0-9a-f]{24}$`)
 
 func validQAID(value string) bool { return qaIDPattern.MatchString(value) }
+
+func validQAArbiterIssueID(value string) bool { return qaArbiterIssueIDPattern.MatchString(value) }
 
 func safeQAName(value string) bool {
 	if value == "" || len(value) > 128 || strings.Contains(value, "..") {
@@ -1135,6 +1190,9 @@ func ValidateQASettings(settings QASettings) error {
 	if err := validateQABudgets(settings.Budgets); err != nil {
 		return err
 	}
+	if settings.RepairExecutionMode != "" && settings.RepairExecutionMode != "sequential" && settings.RepairExecutionMode != "parallel" {
+		return fmt.Errorf("qa repair execution mode must be sequential or parallel")
+	}
 	seen := map[string]struct{}{}
 	for _, source := range settings.Sources {
 		if strings.TrimSpace(source.Field) == "" || strings.TrimSpace(source.Source) == "" {
@@ -1159,6 +1217,7 @@ func validateQABudgets(got QABudgets) error {
 		{"changed_paths_per_shard", got.ChangedPathsPerShard, max.ChangedPathsPerShard}, {"context_paths_per_shard", got.ContextPathsPerShard, max.ContextPathsPerShard},
 		{"context_expansions", got.ContextExpansions, max.ContextExpansions}, {"paths_per_expansion", got.PathsPerExpansion, max.PathsPerExpansion},
 		{"behavioral_concerns_per_shard", got.BehavioralConcernsPerShard, max.BehavioralConcernsPerShard}, {"theories_per_shard", got.TheoriesPerShard, max.TheoriesPerShard},
+		{"arbiter_max_theories", got.ArbiterMaxTheories, max.ArbiterMaxTheories},
 		{"iterations_per_attempt", got.IterationsPerAttempt, max.IterationsPerAttempt}, {"commands_per_attempt", got.CommandsPerAttempt, max.CommandsPerAttempt},
 		{"output_repair_attempts", got.OutputRepairAttempts, max.OutputRepairAttempts}, {"concurrent_investigators", got.ConcurrentInvestigators, max.ConcurrentInvestigators},
 		{"command_output_bytes", got.CommandOutputBytes, max.CommandOutputBytes}, {"shard_output_bytes", got.ShardOutputBytes, max.ShardOutputBytes},
@@ -1343,6 +1402,18 @@ func ValidateQASynthesis(synthesis QASynthesis, budgets QABudgets) error {
 				if _, ok := theoryIDs[theoryID]; !ok {
 					return fmt.Errorf("QA arbiter override references an unknown theory")
 				}
+			}
+		}
+		seenIssueTheory := map[string]bool{}
+		for _, issue := range synthesis.Arbitration.Issues {
+			if !validQAArbiterIssueID(issue.ID) || len(issue.TheoryIDs) == 0 || strings.TrimSpace(issue.Claim) == "" || strings.TrimSpace(issue.Title) == "" || strings.TrimSpace(issue.IssueClass) == "" || strings.TrimSpace(issue.Location) == "" || strings.TrimSpace(issue.Reason) == "" || len(issue.EvidenceRefs) == 0 {
+				return fmt.Errorf("invalid reconciled QA arbiter issue")
+			}
+			for _, theoryID := range issue.TheoryIDs {
+				if _, ok := theoryIDs[theoryID]; !ok || seenIssueTheory[theoryID] {
+					return fmt.Errorf("QA arbiter issue references an unknown or repeated theory")
+				}
+				seenIssueTheory[theoryID] = true
 			}
 		}
 	}

@@ -1,11 +1,53 @@
 package sprint
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func testDigest(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
+
+func TestPlanningPromptsDirectlyInjectAcceptedProjectReasoning(t *testing.T) {
+	root := workspaceFixture(t)
+	sp := sprintFixture(t, root, "proj", "03-current")
+	writeFixtureProjectIndex(t, root, "proj")
+	base := filepath.Join(root, "projects", "proj", "project-reasoning")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	index := "## Reasoning Areas\n\n| Area | Template | Output | Required | Depends On | Why |\n| --- | --- | --- | --- | --- | --- |\n\n## Evidence Assignments\n\n| Area | Evidence | Relevant Questions | Why Assigned |\n| --- | --- | --- | --- |\n\n## Source Document Assignments\n\n| Area | Source | Authority | Why Assigned |\n| --- | --- | --- | --- |\n\n## Excluded Evidence\n\n| Source | Reason Excluded | Revisit Trigger |\n| --- | --- | --- |\n"
+	synthesis := "# Accepted project synthesis\n\nUnique governing project constraint.\n"
+	review := "# Review\n\nVerdict: pass\n"
+	writeFileContent(t, base, index, "index.md")
+	writeFileContent(t, base, synthesis, "reasoning.md")
+	writeFileContent(t, base, review, "review.md")
+	state := fmt.Sprintf(`{"schema_version":1,"artifacts":{"reasoning":{"stage":"reasoning","output":"projects/proj/project-reasoning/reasoning.md","inputs":[],"output_sha256":"%s","completed_at":"2026-01-01T00:00:00Z"},"review":{"stage":"review","output":"projects/proj/project-reasoning/review.md","inputs":[],"output_sha256":"%s","completed_at":"2026-01-01T00:00:00Z"}},"verdict":"pass"}`, testDigest(synthesis), testDigest(review))
+	writeFileContent(t, base, state, "flow-state.json")
+	preview, err := NewService(root).PromptRequirements("proj", sp.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ID: project-reasoning-synthesis", "Kind: accepted-project-reasoning", "Unique governing project constraint."} {
+		if !strings.Contains(preview.Prompt, want) {
+			t.Fatalf("requirements prompt missing %q:\n%s", want, preview.Prompt)
+		}
+	}
+	inputs := directAcceptedProjectReasoningInputs(root, sp, true)
+	packet := appendDirectInputPacket("stage\n", inputs)
+	for _, want := range []string{"ID: project-reasoning-index", "ID: project-reasoning-synthesis", "Mode: full"} {
+		if !strings.Contains(packet, want) {
+			t.Fatalf("planning packet missing %q:\n%s", want, packet)
+		}
+	}
+}
 
 func TestDirectInputPacketPreservesCanonicalOrderAndExplanation(t *testing.T) {
 	prompt := "stage instructions\n"

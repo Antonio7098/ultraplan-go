@@ -339,7 +339,7 @@ func BuildQAMap(input QAMapInput) (QAMap, error) {
 	for i := range shards {
 		shards[i].ContextBlockIDs = qaContextBlockIDs(qaProjectFoundation(input.Foundation, shards[i]))
 	}
-	result := QAMap{SchemaVersion: 1, ID: mapID, Project: input.Project, Sprint: input.Sprint, SemanticAttemptID: attemptID, GovernedInputFingerprint: input.GovernedInputFingerprint, ImplementationFingerprint: input.ImplementationFingerprint, ReviewFingerprint: input.ReviewFingerprint, PolicyFingerprint: input.PolicyFingerprint, CheckCatalogFingerprint: input.CheckCatalogFingerprint, Budgets: input.Settings.Budgets, EffectiveSources: sources, Target: input.Target, Coverage: coverage, Shards: shards, InputRefs: inputRefs, Foundation: input.Foundation, Mapper: &QAMapperRecord{Executor: "deterministic", Fallback: true, Reason: "semantic mapper has not run"}}
+	result := QAMap{SchemaVersion: 1, ID: mapID, Project: input.Project, Sprint: input.Sprint, SemanticAttemptID: attemptID, GovernedInputFingerprint: input.GovernedInputFingerprint, ImplementationFingerprint: input.ImplementationFingerprint, ReviewFingerprint: input.ReviewFingerprint, PolicyFingerprint: input.PolicyFingerprint, CheckCatalogFingerprint: input.CheckCatalogFingerprint, Budgets: input.Settings.Budgets, EffectiveSources: sources, Target: input.Target, Coverage: coverage, Shards: shards, InputRefs: inputRefs, Foundation: input.Foundation, Mapper: &QAMapperRecord{Executor: "pending_agent", Reason: "semantic mapper runs when QA starts"}}
 	if err := ValidateQAMap(result); err != nil {
 		return QAMap{}, NewQAError(QAErrorInvalidState, "map", err.Error(), err)
 	}

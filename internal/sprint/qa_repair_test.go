@@ -372,12 +372,15 @@ func TestRepairCampaignCreatesConfiguredWorkersAndMatchesFreshIssues(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := newRepairCampaignState(Sprint{Project: "alpha", Slug: "38-repair"}, adjudication, assignments, QASettings{RepairAssignmentMode: "grouped", IssuesPerRepairAgent: 2}, time.Unix(1, 0).UTC())
+	state, err := newRepairCampaignState(Sprint{Project: "alpha", Slug: "38-repair"}, adjudication, assignments, QASettings{RepairAssignmentMode: "grouped", IssuesPerRepairAgent: 2, RepairExecutionMode: "parallel"}, time.Unix(1, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(state.Workers) != 2 || state.Total != 3 || len(state.Workers[0].Issues) != 2 {
 		t.Fatalf("campaign state = %+v", state)
+	}
+	if state.ExecutionMode != "parallel" {
+		t.Fatalf("campaign execution mode = %q", state.ExecutionMode)
 	}
 	if err := ValidateRepairCampaignState(state); err != nil {
 		t.Fatalf("new campaign state is not publishable: %v; state=%+v", err, state)
@@ -417,6 +420,39 @@ func TestRepairCampaignStateIsDurablyReplaceable(t *testing.T) {
 	}
 }
 
+func TestParallelCampaignProposalRequiresCurrentAllowedPreimages(t *testing.T) {
+	target := t.TempDir()
+	path := filepath.Join(target, "internal", "repair.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := []byte("package internal\n")
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	packet := RepairIssuePacket{AllowedPaths: []string{"internal/repair.go"}, Budgets: DefaultRepairBudgets()}
+	prepared := &campaignPreparedProposal{
+		Proposal:     []byte("patch"),
+		Replacements: map[string][]byte{"internal/repair.go": []byte("package internal\n// fixed\n")},
+		Preimages:    map[string]string{"internal/repair.go": hashBytes(before)},
+		ChangedPaths: []string{"internal/repair.go"},
+		ChangedBytes: int64(len(before) + len("package internal\n// fixed\n")),
+	}
+	if !campaignPreparedProposalCurrent(target, packet, prepared) {
+		t.Fatal("current allowed parallel proposal was rejected")
+	}
+	if err := os.WriteFile(path, []byte("package internal\n// earlier repair\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if campaignPreparedProposalCurrent(target, packet, prepared) {
+		t.Fatal("stale parallel proposal preimage was accepted")
+	}
+	prepared.ChangedPaths = []string{"internal/other.go"}
+	if campaignPreparedProposalCurrent(target, packet, prepared) {
+		t.Fatal("out-of-scope parallel proposal was accepted")
+	}
+}
+
 func TestRepairEvidenceUsesGitAndTreeIdentitiesForTheirOwnPurposes(t *testing.T) {
 	qaMap := QAMap{ImplementationFingerprint: strings.Repeat("a", 64)}
 	record := QAEvidenceRecord{
@@ -444,6 +480,31 @@ type repairFailingRunner struct{}
 
 func (repairFailingRunner) Run(context.Context, pprocess.Request) (pprocess.Result, error) {
 	return pprocess.Result{ExitCode: -1, CleanupComplete: true}, os.ErrDeadlineExceeded
+}
+
+type repairProvisionalRunner struct {
+	exitCode int
+	calls    int
+}
+
+func (runner *repairProvisionalRunner) Run(context.Context, pprocess.Request) (pprocess.Result, error) {
+	runner.calls++
+	return pprocess.Result{ExitCode: runner.exitCode, CleanupComplete: true}, nil
+}
+
+func TestRepairProvisionalChecksRunFrozenCommandsOnceAndFailClosed(t *testing.T) {
+	packet := repairPacketFixture(t)
+	target := t.TempDir()
+	passing := &repairProvisionalRunner{}
+	results, ok := NewService(t.TempDir()).WithProcessRunner(passing).runRepairProvisionalChecks(context.Background(), packet, target)
+	if !ok || len(results) != 1 || passing.calls != 1 || results[0].Status != RepairGatePassed {
+		t.Fatalf("passing provisional checks = %+v ok=%v calls=%d", results, ok, passing.calls)
+	}
+	failing := &repairProvisionalRunner{exitCode: 1}
+	results, ok = NewService(t.TempDir()).WithProcessRunner(failing).runRepairProvisionalChecks(context.Background(), packet, target)
+	if ok || len(results) != 1 || failing.calls != 1 || results[0].Status != RepairGateFailed {
+		t.Fatalf("failing provisional checks = %+v ok=%v calls=%d", results, ok, failing.calls)
+	}
 }
 
 func TestRepairReverificationRetainsBoundedRunnerDiagnostic(t *testing.T) {

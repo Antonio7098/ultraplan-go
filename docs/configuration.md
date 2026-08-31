@@ -61,16 +61,24 @@ execution:
 qa:
   model: provider/model
   variant: high
+  mapper_model: provider/model
+  mapper_variant: medium
   investigator_model: provider/model
   investigator_variant: high
   challenger_model: provider/model
   challenger_variant: high
+  arbiter_model: provider/model
+  arbiter_variant: high
+  reconciler_model: provider/model
+  reconciler_variant: high
   evaluator_model: provider/model
   evaluator_variant: high
   repair_model: provider/model
   repair_variant: high
+  arbiter_max_theories: 24
   repair_assignment_mode: per_issue
   issues_per_repair_agent: 1
+  repair_execution_mode: sequential
 smoke:
   discovery_timeout: 30s
   run_timeout: 30m
@@ -118,22 +126,46 @@ agentwrap:
 
 Unsupported fields are rejected with `unknown config field`.
 
-QA role models are independent. An empty role model or variant inherits
+QA role models are independent. The role keys are `mapper`, `investigator`,
+`challenger`, `arbiter`, `reconciler`, `evaluator`, and `repair`, each with a
+`_model` and `_variant` field. An empty role model or variant inherits
 `qa.model` or `qa.variant`; those fields retain their existing fallback chain.
-Only investigator, challenger, failed-evidence evaluator, and repair proposal
-are model-backed. QA mapping, synthesis, adjudication, approved checks, and the
-repair verification gates remain product-owned deterministic work.
+The semantic mapper, investigators, per-group arbiters, issue reconciler,
+failed-evidence evaluator, and repair proposal workers are model-backed.
+Theory grouping before arbitration, synthesis, adjudication, approved checks,
+and repair integration and verification remain product-owned deterministic
+work.
+
+The semantic mapper is required for an evidence-producing QA run. Runtime
+failure or invalid mapper output stops the run. UltraPlan does not silently use
+the deterministic dry-run partition as the investigation map.
+
+`qa.arbiter_max_theories` bounds each arbiter call from 1 through 64. UltraPlan
+groups theories deterministically by shared frozen context blocks, code paths,
+expectation references, risk tags, and shard ownership. It sends the union of a
+group's code context once, then runs an issue reconciliation agent over the
+compact arbiter results. Reconciliation cannot promote an issue without
+deterministically admitted failing evidence.
 
 `qa.repair_assignment_mode` selects the repair scheduler path. `per_issue` is
 the compatibility default and requires `issues_per_repair_agent: 1`. `grouped`
 accepts 1 through 16. Adjudication records root-cause grouping suggestions and
-creates `ceil(repair-eligible issues / issues_per_repair_agent)` sequential
-worker queues. These queues are repair assignments. A repair run handles one
-issue. A repair campaign is the durable coordinator that executes all current
-assignments. It creates one reusable model session per non-empty queue and
-processes production mutations serially. Every queue item receives a fresh
-adjudication match, frozen issue packet, isolated repair run, scoped gates,
-result, and cleanup. A worker never receives a multi-issue patch packet.
+creates `ceil(repair-eligible issues / issues_per_repair_agent)` worker queues.
+These queues are repair assignments. A repair run handles one issue. A repair
+campaign is the durable coordinator that executes all current assignments. It
+creates one reusable model session per non-empty queue. With
+`qa.repair_execution_mode: sequential`, proposal and integration work retain
+the compatibility order. With `parallel`, queue agents generate issue-scoped
+proposals concurrently in private copied workspaces, bounded by the QA
+concurrency limit. Production integration and verification remain ordered and
+single-writer. Each issue is refreshed before integration; a proposal with a
+stale file preimage is discarded and regenerated against the current target.
+No Git merge is required, and a worker never receives a multi-issue patch
+packet.
+Before integration, UltraPlan runs each distinct frozen external check in the
+private proposal workspace. A non-pass rejects the proposal without modifying
+the canonical target. Product-owned checks and containing smoke still run only
+after ordered integration.
 Intermediate items may record `verified_pending_campaign` and defer containing
 smoke. The final item must pass the full ladder before the campaign completes.
 Campaign admission requires a qualifying manual repair proof and explicit

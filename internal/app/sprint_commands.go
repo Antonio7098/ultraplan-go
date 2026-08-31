@@ -140,10 +140,10 @@ func runSprint(deps dependencies, args []string) error {
 		}
 		fmt.Fprintf(deps.stdout, "Sprint runtime metrics: %s/%s\nRuns: %d\n", metrics.Project, metrics.Sprint, len(metrics.Runs))
 		for _, run := range metrics.Runs {
-			fmt.Fprintf(deps.stdout, "- stage=%s operation=%s task=%s coverage=%s provider=%s model=%s prompt=%d prefix=%d suffix=%d input=%s output=%s reasoning=%s cache_read=%s cache_write=%s cost=%s\n",
-				run.Stage, run.Operation, run.Task, run.Coverage, run.Provider, run.Model, run.PromptBytes, run.SharedPrefixBytes, run.StageSuffixBytes,
+			fmt.Fprintf(deps.stdout, "- call=%d stage_call=%d stage=%s role=%s operation=%s task=%s coverage=%s provider=%s model=%s variant=%s prompt=%d prefix=%d suffix=%d input=%s output=%s reasoning=%s cache_read=%s cache_write=%s total=%s tools=%d tool_count_exact=%t events=%d dropped=%d cost=%s\n",
+				run.Sequence, run.StageSequence, run.Stage, run.Role, run.Operation, run.Task, run.Coverage, run.Provider, run.Model, run.Variant, run.PromptBytes, run.SharedPrefixBytes, run.StageSuffixBytes,
 				formatRuntimeTokenMetric(run.InputTokens), formatRuntimeTokenMetric(run.OutputTokens), formatRuntimeTokenMetric(run.ReasoningTokens),
-				formatRuntimeTokenMetric(run.CacheReadTokens), formatRuntimeTokenMetric(run.CacheWriteTokens), formatSprintMetricCost(run))
+				formatRuntimeTokenMetric(run.CacheReadTokens), formatRuntimeTokenMetric(run.CacheWriteTokens), formatRuntimeTokenMetric(run.TotalTokens), run.ToolCalls, run.ToolCallCountExact, run.RuntimeEvents, run.DroppedEvents, formatSprintMetricCost(run))
 		}
 		return nil
 	case "validate":
@@ -1369,6 +1369,7 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 		ChangedPathsPerShard: c.ChangedPathsPerShard, ContextPathsPerShard: c.ContextPathsPerShard,
 		ContextExpansions: c.ContextExpansions, PathsPerExpansion: c.PathsPerExpansion,
 		BehavioralConcernsPerShard: c.BehavioralConcernsPerShard, TheoriesPerShard: c.TheoriesPerShard,
+		ArbiterMaxTheories:   c.ArbiterMaxTheories,
 		IterationsPerAttempt: c.IterationsPerAttempt, CommandsPerAttempt: c.CommandsPerAttempt,
 		OutputRepairAttempts: c.OutputRepairAttempts, ConcurrentInvestigators: c.ConcurrentInvestigators,
 		CommandTimeout: commandTimeout, ShardTimeout: shardTimeout, RunTimeout: runTimeout,
@@ -1381,6 +1382,7 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 	budgets.ChangedPathsPerShard, budgets.ContextPathsPerShard = configured.ChangedPathsPerShard, configured.ContextPathsPerShard
 	budgets.ContextExpansions, budgets.PathsPerExpansion = configured.ContextExpansions, configured.PathsPerExpansion
 	budgets.BehavioralConcernsPerShard, budgets.TheoriesPerShard = configured.BehavioralConcernsPerShard, configured.TheoriesPerShard
+	budgets.ArbiterMaxTheories = configured.ArbiterMaxTheories
 	budgets.IterationsPerAttempt, budgets.CommandsPerAttempt, budgets.OutputRepairAttempts = configured.IterationsPerAttempt, configured.CommandsPerAttempt, configured.OutputRepairAttempts
 	budgets.ConcurrentInvestigators = configured.ConcurrentInvestigators
 	budgets.CommandTimeout, budgets.ShardTimeout, budgets.RunTimeout, budgets.CleanupTimeout = configured.CommandTimeout, configured.ShardTimeout, configured.RunTimeout, configured.CleanupTimeout
@@ -1394,12 +1396,16 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 	}
 	settings := sprint.QASettings{
 		Runtime:              sprint.StageRuntime{Model: model, Variant: variant},
+		Mapper:               stageRuntime(c.MapperModel, c.MapperVariant),
 		Investigator:         stageRuntime(c.InvestigatorModel, c.InvestigatorVariant),
 		Challenger:           stageRuntime(c.ChallengerModel, c.ChallengerVariant),
+		Arbiter:              stageRuntime(c.ArbiterModel, c.ArbiterVariant),
+		Reconciler:           stageRuntime(c.ReconcilerModel, c.ReconcilerVariant),
 		Evaluator:            stageRuntime(c.EvaluatorModel, c.EvaluatorVariant),
 		Repair:               stageRuntime(c.RepairModel, c.RepairVariant),
 		RepairAssignmentMode: c.RepairAssignmentMode,
 		IssuesPerRepairAgent: c.IssuesPerRepairAgent,
+		RepairExecutionMode:  c.RepairExecutionMode,
 		Sources:              sources, Budgets: budgets,
 	}
 	if err := sprint.ValidateQASettings(settings); err != nil {
@@ -2445,7 +2451,7 @@ func sprintMetricsHelp() string {
 Usage:
   ultraplan sprint <project> <sprint> metrics [--json]
 
-Prints bounded, content-free measurements persisted for sprint runtime calls: prompt and stable-prefix bytes, provider-reported tokens, cache reads/writes, model identity, and run status. Unknown provider metrics are printed as n/a. It does not invoke the runtime or read raw runtime payloads.
+Prints content-free measurements persisted for every sprint runtime call: call and stage sequence, role, prompt and stable-prefix bytes, provider-reported input/output/reasoning/cache/total tokens, tool and event counts, model identity, permissions, timing, and run status. Unknown provider metrics are printed as n/a. It does not invoke the runtime or read raw runtime payloads.
 `
 }
 

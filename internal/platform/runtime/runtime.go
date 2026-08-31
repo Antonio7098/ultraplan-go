@@ -593,6 +593,7 @@ func toAgentwrapRequest(req Request) (agentwrap.RunRequest, error) {
 		return agentwrap.RunRequest{}, err
 	}
 	metadata := cloneStringMap(req.Metadata)
+	promptCache := agentwrap.PromptCacheDirective{}
 	if req.RuntimeStorePath != "" {
 		if metadata == nil {
 			metadata = map[string]string{}
@@ -602,6 +603,9 @@ func toAgentwrapRequest(req Request) (agentwrap.RunRequest, error) {
 		metadata["runtime_store_owner"] = req.RuntimeStoreOwner
 	}
 	if req.Cache.Key != "" {
+		if err := validateCacheDirective(req.Prompt, req.Cache); err != nil {
+			return agentwrap.RunRequest{}, err
+		}
 		if metadata == nil {
 			metadata = map[string]string{}
 		}
@@ -610,11 +614,13 @@ func toAgentwrapRequest(req Request) (agentwrap.RunRequest, error) {
 			Policy                                                     PermissionPolicy
 		}{req.Cache.Key, req.Provider, req.Model, req.WorkDir, req.Sandbox, req.Permissions, req.Policy})
 		sum := sha256.Sum256(cohort)
+		cacheKey := "ultraplan-cohort-v1-" + hex.EncodeToString(sum[:16])
 		metadata["prompt_cache_foundation_key"] = req.Cache.Key
-		metadata["prompt_cache_key"] = "ultraplan-cohort-v1-" + hex.EncodeToString(sum[:16])
+		metadata["prompt_cache_key"] = cacheKey
 		metadata["prompt_cache_breakpoint_bytes"] = fmt.Sprintf("%d", req.Cache.BreakpointBytes)
 		metadata["prompt_cache_prefix_sha256"] = req.Cache.PrefixDigest
 		metadata["prompt_cache_mode"] = req.Cache.Mode
+		promptCache = agentwrap.PromptCacheDirective{Key: cacheKey, BreakpointBytes: req.Cache.BreakpointBytes, PrefixSHA256: req.Cache.PrefixDigest, Mode: req.Cache.Mode}
 	}
 	return agentwrap.RunRequest{
 		Prompt:           req.Prompt,
@@ -631,7 +637,23 @@ func toAgentwrapRequest(req Request) (agentwrap.RunRequest, error) {
 		Permissions:      agentwrap.PermissionMode(req.Permissions),
 		PermissionPolicy: policy,
 		Validation:       req.Validation,
+		PromptCache:      promptCache,
 	}, nil
+}
+
+func validateCacheDirective(prompt string, directive CacheDirective) error {
+	if strings.TrimSpace(directive.Key) == "" || strings.TrimSpace(directive.Mode) == "" {
+		return errors.New("prompt cache directive requires key and mode")
+	}
+	if directive.BreakpointBytes <= 0 || directive.BreakpointBytes > len(prompt) {
+		return fmt.Errorf("prompt cache breakpoint %d is outside prompt length %d", directive.BreakpointBytes, len(prompt))
+	}
+	digest := sha256.Sum256([]byte(prompt[:directive.BreakpointBytes]))
+	want := hex.EncodeToString(digest[:])
+	if !strings.EqualFold(strings.TrimSpace(directive.PrefixDigest), want) {
+		return errors.New("prompt cache prefix digest does not match prompt bytes")
+	}
+	return nil
 }
 
 func mapResult(result agentwrap.RunResult) Result {

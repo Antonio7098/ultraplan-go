@@ -33,6 +33,7 @@ func TestRouteInventoryHTMLAndAPI(t *testing.T) {
 		{"/projects/alpha/artifacts", "text/html"},
 		{"/projects/alpha/sprints/30-web", "text/html"},
 		{"/projects/alpha/sprints/30-web/workflow", "text/html"},
+		{"/projects/alpha/sprints/30-web/metrics", "text/html"},
 		{"/projects/alpha/sprints/30-web/plan", "text/html"},
 		{"/projects/alpha/sprints/30-web/delivery", "text/html"},
 		{"/projects/alpha/sprints/30-web/operations", "text/html"},

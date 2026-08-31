@@ -53,6 +53,7 @@ func RenderRequirementsPrompt(root string, sp Sprint, catalog project.ProjectInd
 	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, source repositories, config, Git state, or any artifact other than requirements.md.")
 	prompt := renderPromptFromDefault(root, "prompts/create-requirements.md", sp.Project, sp.Slug, b.String())
 	inputs := directProjectDefinitionInputs(root, sp, docs)
+	inputs = append(inputs, directAcceptedProjectReasoningInputs(root, sp, false)...)
 	inputs = append(inputs, directPriorSprintReviewInputs(root, sp)...)
 	prompt = appendDirectInputPacket(prompt, inputs)
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
@@ -76,6 +77,7 @@ func RenderCodeContextPrompt(root string, sp Sprint, requirements string, target
 	prompt = appendDirectInputPacket(prompt, []directPromptInput{
 		directContentInput("requirements", "artifact", ArtifactRelPath(sp, StageRequirements), requirements),
 	})
+	prompt = appendDirectInputPacket(prompt, directAcceptedProjectReasoningInputs(root, sp, false))
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
@@ -98,7 +100,9 @@ func RenderSprintIndexPrompt(root string, sp Sprint, catalog project.ProjectInde
 	fmt.Fprintln(&b, "- Use workspace-relative paths.")
 	fmt.Fprintln(&b, "- Do not mutate project-index.md, roadmap.md, docs, source repositories, config, Git state, or any artifact other than sprint-index.md.")
 	prompt := renderPromptFromDefault(root, "prompts/create-sprint-index.md", sp.Project, sp.Slug, b.String())
-	prompt = appendDirectInputPacket(prompt, directProjectDefinitionInputs(root, sp, docs))
+	inputs := directProjectDefinitionInputs(root, sp, docs)
+	inputs = append(inputs, directAcceptedProjectReasoningInputs(root, sp, true)...)
+	prompt = appendDirectInputPacket(prompt, inputs)
 	return PromptPreview{Project: sp.Project, Sprint: sp.Slug, Prompt: prompt}
 }
 
@@ -116,6 +120,7 @@ func RenderTechnicalHandbookPrompt(root string, manifest HandbookManifest) Promp
 	prompt := renderPromptFromDefault(root, "prompts/create-technical-handbook.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
 	sp := Sprint{Project: manifest.ProjectSlug, Slug: manifest.SprintSlug, Path: filepath.Join(root, filepath.FromSlash(manifest.SprintRoot))}
 	inputs := []directPromptInput{directSprintArtifactInput(root, sp, StageSprintIndex)}
+	inputs = append(inputs, directAcceptedProjectReasoningInputs(root, sp, false)...)
 	inputs = append(inputs, directSelectedEvidenceInputs(root, manifest.Evidence)...)
 	if data, err := os.ReadFile(filepath.Join(sp.Path, "sprint-index.md")); err == nil {
 		if index, findings := ParseSprintIndex(string(data)); len(findings) == 0 {
@@ -177,6 +182,7 @@ func RenderFinalReasoningPrompt(root string, manifest ReasoningManifest) (Prompt
 	prompt := renderPromptFromDefault(root, "prompts/create-sprint-reasoning.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
 	sp := Sprint{Project: manifest.ProjectSlug, Slug: manifest.SprintSlug, Path: filepath.Join(root, filepath.FromSlash(manifest.SprintRoot))}
 	inputs := directProjectDefinitionInputsFromWorkspace(root, sp)
+	inputs = append(inputs, directAcceptedProjectReasoningInputs(root, sp, false)...)
 	inputs = append(inputs, directSelectedReasoningContext(root, sp, manifest)...)
 	inputs = append(inputs, directReasoningOutputs(root, manifest.ReasoningTemplates)...)
 	prompt = appendDirectInputPacket(prompt, inputs)
@@ -214,6 +220,7 @@ func RenderPlanPrompt(root string, manifest PlanManifest) PromptPreview {
 	prompt := renderPromptFromDefault(root, "prompts/plan-sprint.md", manifest.ProjectSlug, manifest.SprintSlug, b.String())
 	sp := Sprint{Project: manifest.ProjectSlug, Slug: manifest.SprintSlug, Path: filepath.Join(root, filepath.FromSlash(manifest.SprintRoot))}
 	inputs := directProjectDefinitionInputsFromWorkspace(root, sp)
+	inputs = append(inputs, directAcceptedProjectReasoningInputs(root, sp, false)...)
 	inputs = append(inputs,
 		directSprintArtifactInput(root, sp, StageSprintIndex),
 		directSprintArtifactInput(root, sp, StageTechnicalHandbook),

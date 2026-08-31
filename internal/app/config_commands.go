@@ -73,8 +73,11 @@ func runConfig(deps dependencies, args []string) error {
 	fmt.Fprintf(deps.stdout, "qa.model: %s (source: %s)\n", redacted.QA.Model, redacted.Sources["qa.model"])
 	fmt.Fprintf(deps.stdout, "qa.variant: %s (source: %s)\n", redacted.QA.Variant, redacted.Sources["qa.variant"])
 	for _, item := range []struct{ field, value string }{
+		{"qa.mapper_model", redacted.QA.MapperModel}, {"qa.mapper_variant", redacted.QA.MapperVariant},
 		{"qa.investigator_model", redacted.QA.InvestigatorModel}, {"qa.investigator_variant", redacted.QA.InvestigatorVariant},
 		{"qa.challenger_model", redacted.QA.ChallengerModel}, {"qa.challenger_variant", redacted.QA.ChallengerVariant},
+		{"qa.arbiter_model", redacted.QA.ArbiterModel}, {"qa.arbiter_variant", redacted.QA.ArbiterVariant},
+		{"qa.reconciler_model", redacted.QA.ReconcilerModel}, {"qa.reconciler_variant", redacted.QA.ReconcilerVariant},
 		{"qa.evaluator_model", redacted.QA.EvaluatorModel}, {"qa.evaluator_variant", redacted.QA.EvaluatorVariant},
 		{"qa.repair_model", redacted.QA.RepairModel}, {"qa.repair_variant", redacted.QA.RepairVariant},
 	} {
@@ -82,6 +85,8 @@ func runConfig(deps dependencies, args []string) error {
 	}
 	fmt.Fprintf(deps.stdout, "qa.repair_assignment_mode: %s (source: %s)\n", redacted.QA.RepairAssignmentMode, redacted.Sources["qa.repair_assignment_mode"])
 	fmt.Fprintf(deps.stdout, "qa.issues_per_repair_agent: %d (source: %s)\n", redacted.QA.IssuesPerRepairAgent, redacted.Sources["qa.issues_per_repair_agent"])
+	fmt.Fprintf(deps.stdout, "qa.arbiter_max_theories: %d (source: %s)\n", redacted.QA.ArbiterMaxTheories, redacted.Sources["qa.arbiter_max_theories"])
+	fmt.Fprintf(deps.stdout, "qa.repair_execution_mode: %s (source: %s)\n", redacted.QA.RepairExecutionMode, redacted.Sources["qa.repair_execution_mode"])
 	fmt.Fprintf(deps.stdout, "qa.changed_paths: %d\n", redacted.QA.ChangedPaths)
 	fmt.Fprintf(deps.stdout, "qa.primary_shards: %d\n", redacted.QA.PrimaryShards)
 	fmt.Fprintf(deps.stdout, "qa.boundary_shards: %d\n", redacted.QA.BoundaryShards)

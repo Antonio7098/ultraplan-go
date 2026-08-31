@@ -309,6 +309,37 @@ func TestWebSprintSurfacesStageModels(t *testing.T) {
 	}
 }
 
+func TestWebSprintRuntimeUsageReturnsCompleteLedgerAndRecentWindow(t *testing.T) {
+	root := initializedWorkspace(t)
+	writeCommandSprintProject(t, root, "proj", "01-alpha")
+	base := filepath.Join(root, "projects", "proj", "sprints", "01-alpha")
+	metrics := sprint.SprintRuntimeMetrics{SchemaVersion: 2, Project: "proj", Sprint: "01-alpha"}
+	for index := 1; index <= 14; index++ {
+		metrics.Runs = append(metrics.Runs, sprint.SprintRuntimeMetric{
+			Sequence: index, StageSequence: index, Stage: sprint.PlanningStage(sprint.VerificationPhaseQA), Role: "arbiter", CallID: fmt.Sprintf("call-%d", index),
+			Provider: "openrouter", Model: "minimax/minimax-m3:free", Variant: "high", ToolCalls: index, ToolCallCountExact: true,
+			InputTokens: sprint.RuntimeTokenMetric{Known: true, Value: int64(index)}, CacheReadTokens: sprint.RuntimeTokenMetric{Known: true, Value: int64(index * 10)},
+		})
+	}
+	data, err := json.Marshal(metrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixtureFileContent(t, base, string(data), ".runtime-metrics.json")
+
+	summary, err := NewWebUseCases(root, WebUseCaseOptions{}).SprintRuntimeUsage(context.Background(), "proj", "01-alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.SchemaVersion != 2 || len(summary.AllRuns) != 14 || len(summary.RecentRuns) != 12 {
+		t.Fatalf("summary = %+v", summary)
+	}
+	last := summary.AllRuns[len(summary.AllRuns)-1]
+	if last.CallID != "call-14" || last.Role != "arbiter" || last.Provider != "openrouter" || last.Variant != "high" || last.ToolCalls != 14 || !last.ToolCallCountExact || last.CacheRead != 140 {
+		t.Fatalf("last call = %+v", last)
+	}
+}
+
 func TestWebProjectRoadmapJoinsLiveSprintState(t *testing.T) {
 	root := initializedWorkspace(t)
 	base := filepath.Join(root, "projects", "alpha")

@@ -266,7 +266,7 @@ func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(QAConfigFields()) != 62 {
+	if len(QAConfigFields()) != 70 {
 		t.Fatalf("QA field count = %d", len(QAConfigFields()))
 	}
 	for _, field := range QAConfigFields() {
@@ -405,7 +405,7 @@ func TestQAConfigWorkspaceAndEnvironmentPrecedence(t *testing.T) {
 
 func TestQAGroupedRepairAssignmentConfig(t *testing.T) {
 	root := t.TempDir()
-	content := "version: 1\nqa:\n  repair_assignment_mode: grouped\n  issues_per_repair_agent: 4\n  evaluator_model: provider/evaluator\n  repair_model: provider/repair\n"
+	content := "version: 1\nqa:\n  arbiter_max_theories: 18\n  repair_assignment_mode: grouped\n  issues_per_repair_agent: 4\n  repair_execution_mode: parallel\n  mapper_model: provider/mapper\n  arbiter_model: provider/arbiter\n  reconciler_model: provider/reconciler\n  evaluator_model: provider/evaluator\n  repair_model: provider/repair\n"
 	if err := os.WriteFile(filepath.Join(root, "ultraplan.yml"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -413,12 +413,22 @@ func TestQAGroupedRepairAssignmentConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if effective.Config.QA.RepairAssignmentMode != "grouped" || effective.Config.QA.IssuesPerRepairAgent != 4 || effective.Config.QA.EvaluatorModel != "provider/evaluator" || effective.Config.QA.RepairModel != "provider/repair" {
+	if effective.Config.QA.ArbiterMaxTheories != 18 || effective.Config.QA.RepairAssignmentMode != "grouped" || effective.Config.QA.IssuesPerRepairAgent != 4 || effective.Config.QA.RepairExecutionMode != "parallel" || effective.Config.QA.MapperModel != "provider/mapper" || effective.Config.QA.ArbiterModel != "provider/arbiter" || effective.Config.QA.ReconcilerModel != "provider/reconciler" || effective.Config.QA.EvaluatorModel != "provider/evaluator" || effective.Config.QA.RepairModel != "provider/repair" {
 		t.Fatalf("QA grouped config = %+v", effective.Config.QA)
 	}
 	invalid := Defaults()
 	invalid.QA.RepairAssignmentMode, invalid.QA.IssuesPerRepairAgent = "per_issue", 2
 	if err := Validate(invalid); err == nil {
 		t.Fatal("per-issue mode accepted more than one issue per worker")
+	}
+	invalid = Defaults()
+	invalid.QA.ArbiterMaxTheories = 65
+	if err := Validate(invalid); err == nil {
+		t.Fatal("arbiter theory group accepted a value over the hard maximum")
+	}
+	invalid = Defaults()
+	invalid.QA.RepairExecutionMode = "speculative"
+	if err := Validate(invalid); err == nil {
+		t.Fatal("repair execution accepted an unknown mode")
 	}
 }

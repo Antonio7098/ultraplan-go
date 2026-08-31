@@ -3,6 +3,7 @@ package sprint
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -29,13 +30,13 @@ type qaSemanticMapperOutput struct {
 	Shards        []qaSemanticShardProposal `json:"shards"`
 }
 
-func (s Service) refineQAMapSemantically(ctx context.Context, qaMap QAMap, target string) QAMap {
+func (s Service) refineQAMapSemantically(ctx context.Context, qaMap QAMap, target string) (QAMap, error) {
 	if qaMap.Foundation == nil || len(qaMap.Foundation.Blocks) == 0 {
-		return qaMap
+		return QAMap{}, NewQAError(QAErrorInvalidState, "semantic map", "frozen QA foundation is unavailable", nil)
 	}
 	foundation, err := canonicalQAJSON(qaMap.Foundation)
 	if err != nil {
-		return qaMap
+		return QAMap{}, NewQAError(QAErrorInvalidState, "semantic map", "cannot encode frozen QA foundation", err)
 	}
 	candidate, err := canonicalQAJSON(struct {
 		ChangedPaths []string  `json:"changed_paths"`
@@ -43,7 +44,7 @@ func (s Service) refineQAMapSemantically(ctx context.Context, qaMap QAMap, targe
 		Budgets      QABudgets `json:"budgets"`
 	}{qaMap.Coverage.ChangedPaths, qaMap.Shards, qaMap.Budgets})
 	if err != nil {
-		return qaMap
+		return QAMap{}, NewQAError(QAErrorInvalidState, "semantic map", "cannot encode semantic mapper input", err)
 	}
 	prefix := `# QA semantic mapper
 
@@ -53,16 +54,18 @@ Frozen QA foundation:
 ` + string(foundation) + "\n\n<<< END STABLE QA MAPPER PREFIX >>>\n"
 	prompt := prefix + "\nMap input:\n" + string(candidate) + "\n"
 	if len(prompt) > qaMap.Budgets.PromptBytes {
-		qaMap.Mapper = &QAMapperRecord{Executor: "deterministic", Fallback: true, Reason: "semantic mapper prompt exceeded the frozen prompt budget", PromptBytes: len(prompt), PrefixBytes: len(prefix), PrefixDigest: hashBytes([]byte(prefix))}
-		return qaMap
+		return QAMap{}, NewQAError(QAErrorBudgetExhausted, "semantic map", "semantic mapper prompt exceeded the frozen prompt budget", nil)
 	}
 	settings, err := s.effectiveQASettings()
 	if err != nil {
-		return qaMap
+		return QAMap{}, err
 	}
-	runtimeSettings := settings.RuntimeFor("challenger")
+	runtimeSettings := settings.RuntimeFor("mapper")
 	provider, model := splitProviderModel(runtimeSettings.Model)
 	req := s.runtimeRequest(prompt, map[string]string{"project": qaMap.Project, "sprint": qaMap.Sprint, "stage": string(VerificationPhaseQA), "map": qaMap.ID, "role": "semantic-mapper"})
+	req.Metadata["operation"] = "qa-map"
+	req.Metadata["task"] = qaMap.ID
+	req.Metadata["qa_attempt"] = qaMap.SemanticAttemptID
 	req.Provider, req.Model = provider, model
 	req.Metadata["variant"], req.Metadata["reasoning_effort"] = runtimeSettings.Variant, runtimeSettings.Variant
 	req.WorkDir, req.Timeout, req.Sandbox, req.Permissions = filepath.Clean(target), settings.Budgets.ShardTimeout, "read_only", "restricted"
@@ -75,7 +78,7 @@ Frozen QA foundation:
 	if runErr == nil && decodeErr == nil {
 		if mapped, mapErr := applyQASemanticMap(qaMap, output); mapErr == nil {
 			mapped.Mapper = &QAMapperRecord{Executor: "model", Model: provider + "/" + model, PromptBytes: len(prompt), PrefixBytes: len(prefix), PrefixDigest: hashBytes([]byte(prefix))}
-			return mapped
+			return mapped, nil
 		} else {
 			decodeErr = mapErr
 		}
@@ -84,16 +87,20 @@ Frozen QA foundation:
 		repair := req
 		repair.Prompt = "Your semantic map was rejected: " + safeError(decodeErr) + ". Return only a corrected schema_version 1 JSON object. Reuse the frozen foundation and do not repeat analysis.\n"
 		repair.SessionID, repair.SessionAction, repair.Cache = result.SessionID, "continue", pruntime.CacheDirective{}
+		repair.Metadata["repair_of"] = result.RunID
 		repaired, repairErr := s.startQARuntime(ctx, qaMap, repair)
 		if repairErr == nil && decodeStrictQAJSON(repaired.TerminalOutput, &output) == nil {
 			if mapped, mapErr := applyQASemanticMap(qaMap, output); mapErr == nil {
 				mapped.Mapper = &QAMapperRecord{Executor: "model", Model: provider + "/" + model, PromptBytes: len(prompt) + len(repair.Prompt), PrefixBytes: len(prefix), PrefixDigest: hashBytes([]byte(prefix))}
-				return mapped
+				return mapped, nil
 			}
 		}
 	}
-	qaMap.Mapper = &QAMapperRecord{Executor: "deterministic", Model: provider + "/" + model, Fallback: true, Reason: "semantic mapper output failed strict validation", PromptBytes: len(prompt), PrefixBytes: len(prefix), PrefixDigest: hashBytes([]byte(prefix))}
-	return qaMap
+	failure := errors.Join(runErr, decodeErr)
+	if failure == nil {
+		failure = errors.New("semantic mapper output failed strict validation")
+	}
+	return QAMap{}, NewQAError(QAErrorInvalidState, "semantic map", "semantic mapper did not produce a valid complete map", failure)
 }
 
 func applyQASemanticMap(qaMap QAMap, output qaSemanticMapperOutput) (QAMap, error) {
@@ -283,7 +290,7 @@ func stringSet(values []string) map[string]bool {
 func (s Service) startQARuntime(ctx context.Context, qaMap QAMap, req pruntime.Request) (pruntime.Result, error) {
 	sp, err := s.resolveMutationSprint(qaMap.Project, qaMap.Sprint)
 	if err != nil {
-		return s.runtime.StartRun(ctx, req)
+		return pruntime.Result{}, NewQAError(QAErrorInvalidState, "start QA runtime", "cannot resolve the sprint telemetry ledger before dispatch", err)
 	}
 	return s.startSprintRuntime(ctx, sp, PlanningStage(VerificationPhaseQA), req)
 }

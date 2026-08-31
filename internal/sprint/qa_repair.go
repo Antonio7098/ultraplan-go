@@ -97,6 +97,7 @@ type RepairRunRequest struct {
 	WorkerRoot           string
 	campaignAuthorized   bool
 	campaignIntermediate bool
+	preparedProposal     *campaignPreparedProposal
 }
 
 type RepairRecoverRequest struct {
@@ -562,70 +563,90 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	if err != nil {
 		return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopPrerequisite, "cannot create a protected isolated repair workspace", err)
 	}
-	request, err := s.repairProposalRequest(packet, workspace.Path)
-	if err != nil {
-		return RepairResult{}, errors.Join(err, cleanupError(workspace.Cleanup()))
-	}
-	if strings.TrimSpace(req.SessionID) != "" {
-		request.SessionID = strings.TrimSpace(req.SessionID)
-		request.SessionAction = "continue"
-		request.Metadata["repair_worker_session"] = "continue"
-	} else {
-		request.Metadata["repair_worker_session"] = "fresh"
-	}
-	if req.WorkerNumber > 0 {
-		request.Metadata["repair_worker"] = fmt.Sprint(req.WorkerNumber)
-		request.Metadata["repair_worker_queue_size"] = fmt.Sprint(req.WorkerQueueSize)
-	}
 	start := s.now().UTC()
-	runtimeResult, runErr := runtime.StartRun(lockedCtx, request)
-	runtimeCompleted := s.now().UTC()
-	runtimeDuration := runtimeCompleted.Sub(start)
-	state.Consumed.RuntimeAttempts++
-	state.Consumed.ModelTurns += int(runtimeResult.Usage.Turns)
-	runtimeEvents := runtimeResult.EventStats.Total
-	if runtimeEvents == 0 {
-		runtimeEvents = int64(len(runtimeResult.Events))
-	}
-	state.Runtime = &RepairRuntimeObservation{
-		Provider:          request.Provider,
-		Model:             request.Model,
-		Variant:           request.Metadata["variant"],
-		SessionID:         runtimeResult.SessionID,
-		Usage:             qaUsageSummary(runtimeResult.Usage),
-		StartedAt:         start,
-		CompletedAt:       runtimeCompleted,
-		Duration:          runtimeDuration,
-		DurationMS:        runtimeDuration.Milliseconds(),
-		RuntimeEvents:     runtimeEvents,
-		RetainedEvents:    len(runtimeResult.Events),
-		ObservedToolCalls: qaObservedToolCalls(runtimeResult.Events),
-	}
-	if runtimeResult.EstimatedCost != nil && runtimeResult.EstimatedCost.Source != "unpriced" && (runtimeResult.EstimatedCost.Source != "" || runtimeResult.EstimatedCost.Amount != 0) {
-		state.Runtime.EstimatedCost = &QACostSummary{Amount: runtimeResult.EstimatedCost.Amount, Currency: runtimeResult.EstimatedCost.Currency, Estimate: runtimeResult.EstimatedCost.Estimate, Source: runtimeResult.EstimatedCost.Source}
-	}
-	if runErr != nil || lockedCtx.Err() != nil {
-		cleanup := workspace.Cleanup()
-		parentErr := error(nil)
-		if ownedParent {
-			parentErr = os.Remove(parent)
-			parentRemoved = parentErr == nil || errors.Is(parentErr, fs.ErrNotExist)
+	var proposal []byte
+	var replacements map[string][]byte
+	var preimages map[string]string
+	var changedPaths []string
+	var changedBytes int64
+	prepared := req.preparedProposal
+	if prepared != nil && campaignPreparedProposalCurrent(manifest.Target, packet, prepared) {
+		proposal = append([]byte(nil), prepared.Proposal...)
+		replacements = cloneRepairReplacements(prepared.Replacements)
+		preimages = cloneRepairPreimages(prepared.Preimages)
+		changedPaths = append([]string(nil), prepared.ChangedPaths...)
+		changedBytes = prepared.ChangedBytes
+		observation := prepared.Runtime
+		state.Runtime = &observation
+		state.Consumed.RuntimeAttempts++
+		state.Consumed.ModelTurns += int(observation.Usage.Turns)
+	} else {
+		request, requestErr := s.repairProposalRequest(packet, workspace.Path)
+		if requestErr != nil {
+			return RepairResult{}, errors.Join(requestErr, cleanupError(workspace.Cleanup()))
 		}
-		stop := RepairStopPrerequisite
-		if lockedCtx.Err() != nil {
-			stop = RepairStopCancellation
+		if strings.TrimSpace(req.SessionID) != "" {
+			request.SessionID = strings.TrimSpace(req.SessionID)
+			request.SessionAction = "continue"
+			request.Metadata["repair_worker_session"] = "continue"
+		} else {
+			request.Metadata["repair_worker_session"] = "fresh"
 		}
-		return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, stop, "repair runtime did not produce a usable proposal", errors.Join(runErr, lockedCtx.Err(), cleanupError(cleanup), parentErr))
+		if req.WorkerNumber > 0 {
+			request.Metadata["repair_worker"] = fmt.Sprint(req.WorkerNumber)
+			request.Metadata["repair_worker_queue_size"] = fmt.Sprint(req.WorkerQueueSize)
+		}
+		runtimeResult, runErr := runtime.StartRun(lockedCtx, request)
+		if metricErr := s.recordRuntimeMetric(sp, PlanningStage(VerificationPhaseRepair), request, runtimeResult); metricErr != nil {
+			runtimeResult.Warnings = append(runtimeResult.Warnings, "runtime metrics were not persisted: "+safeError(metricErr))
+			runErr = errors.Join(runErr, fmt.Errorf("persist required repair runtime metrics: %w", metricErr))
+		}
+		runtimeCompleted := s.now().UTC()
+		runtimeDuration := runtimeCompleted.Sub(start)
+		state.Consumed.RuntimeAttempts++
+		state.Consumed.ModelTurns += int(runtimeResult.Usage.Turns)
+		runtimeEvents := runtimeResult.EventStats.Total
+		if runtimeEvents == 0 {
+			runtimeEvents = int64(len(runtimeResult.Events))
+		}
+		state.Runtime = &RepairRuntimeObservation{Provider: request.Provider, Model: request.Model, Variant: request.Metadata["variant"], SessionID: runtimeResult.SessionID, Usage: qaUsageSummary(runtimeResult.Usage), StartedAt: start, CompletedAt: runtimeCompleted, Duration: runtimeDuration, DurationMS: runtimeDuration.Milliseconds(), RuntimeEvents: runtimeEvents, RetainedEvents: len(runtimeResult.Events), ObservedToolCalls: qaObservedToolCalls(runtimeResult.Events)}
+		if runtimeResult.EstimatedCost != nil && runtimeResult.EstimatedCost.Source != "unpriced" && (runtimeResult.EstimatedCost.Source != "" || runtimeResult.EstimatedCost.Amount != 0) {
+			state.Runtime.EstimatedCost = &QACostSummary{Amount: runtimeResult.EstimatedCost.Amount, Currency: runtimeResult.EstimatedCost.Currency, Estimate: runtimeResult.EstimatedCost.Estimate, Source: runtimeResult.EstimatedCost.Source}
+		}
+		if runErr != nil || lockedCtx.Err() != nil {
+			cleanup := workspace.Cleanup()
+			parentErr := error(nil)
+			if ownedParent {
+				parentErr = os.Remove(parent)
+				parentRemoved = parentErr == nil || errors.Is(parentErr, fs.ErrNotExist)
+			}
+			stop := RepairStopPrerequisite
+			if lockedCtx.Err() != nil {
+				stop = RepairStopCancellation
+			}
+			return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, stop, "repair runtime did not produce a usable proposal", errors.Join(runErr, lockedCtx.Err(), cleanupError(cleanup), parentErr))
+		}
+		changedPaths, err = pprocess.CompareTrees(context.WithoutCancel(lockedCtx), manifest.Target, workspace.Path, limits)
+		if err != nil || len(changedPaths) == 0 {
+			cleanup := workspace.Cleanup()
+			return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUncertainEvidence, "isolated proposal has no complete bounded diff", errors.Join(err, cleanupError(cleanup)))
+		}
+		proposal, replacements, preimages, changedBytes, err = deriveRepairProposal(manifest.Target, workspace.Path, changedPaths, packet)
+		if err != nil {
+			cleanup := workspace.Cleanup()
+			return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUnsupportedChange, "isolated proposal violated confirmed scope", errors.Join(err, cleanupError(cleanup)))
+		}
+		state.Runtime.ProvisionalChecks, state.Runtime.ProvisionalPassed = s.runRepairProvisionalChecks(lockedCtx, packet, workspace.Path)
+		if !state.Runtime.ProvisionalPassed {
+			cleanup := workspace.Cleanup()
+			return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopRequiredCheckFailed, "isolated proposal did not pass its frozen provisional checks", cleanupError(cleanup))
+		}
 	}
-	changedPaths, err := pprocess.CompareTrees(context.WithoutCancel(lockedCtx), manifest.Target, workspace.Path, limits)
-	if err != nil || len(changedPaths) == 0 {
-		cleanup := workspace.Cleanup()
-		return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUncertainEvidence, "isolated proposal has no complete bounded diff", errors.Join(err, cleanupError(cleanup)))
-	}
-	proposal, replacements, preimages, changedBytes, err := deriveRepairProposal(manifest.Target, workspace.Path, changedPaths, packet)
-	if err != nil {
-		cleanup := workspace.Cleanup()
-		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUnsupportedChange, "isolated proposal violated confirmed scope", errors.Join(err, cleanupError(cleanup)))
+	if state.Runtime != nil {
+		for _, check := range state.Runtime.ProvisionalChecks {
+			state.Consumed.Commands++
+			state.Consumed.OutputBytes += check.OutputBytes
+		}
 	}
 	if err := store.PublishRepairProposal(state, flow, cycleNumber, proposal, req.WriterToken); err != nil {
 		return RepairResult{}, errors.Join(err, cleanupError(workspace.Cleanup()))
@@ -788,7 +809,7 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 			Provider string
 			Model    string
 			Variant  string
-		}{request.Provider, request.Model, request.Metadata["variant"]})
+		}{state.Runtime.Provider, state.Runtime.Model, state.Runtime.Variant})
 		if protocolErr != nil || runtimeErr != nil {
 			return RepairResult{}, errors.Join(protocolErr, runtimeErr)
 		}
@@ -1617,6 +1638,12 @@ func (s Service) repairProposalRequest(packet RepairIssuePacket, workspace strin
 	}
 	prompt := repairProposalPromptBody + string(data) + "\n"
 	request := s.runtimeRequest(prompt, map[string]string{"project": packet.Project, "sprint": packet.Sprint, "stage": string(VerificationPhaseRepair), "repair_run": packet.RepairRunID, "cycle": "1"})
+	request.Metadata["operation"] = "qa-repair-proposal"
+	request.Metadata["role"] = "issue-repair"
+	request.Metadata["task"] = packet.Issue.ID
+	request.Metadata["issue"] = packet.Issue.ID
+	request.Metadata["qa_attempt"] = packet.QAAttemptID
+	request.Metadata["map"] = packet.MapID
 	request.Metadata["prompt_id"] = repairProposalPromptID
 	request.Metadata["prompt_version"] = repairProposalPromptVersion
 	request.Metadata["prompt_owner_kind"] = "sprint"
@@ -1887,6 +1914,72 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 	}
 	issueChecksPassed := !stopped
 	return RepairReverification{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: cycle, Gates: results, IssueIDsBefore: []string{packet.Issue.ID}, IssueIDsAfter: unresolvedRepairIssues(packet, exactRemoved), HighestSeverityBefore: packet.Issue.Severity, HighestSeverityAfter: chooseSeverity(exactRemoved, "", packet.Issue.Severity), CompletedAt: s.now().UTC()}, exactRemoved, issueChecksPassed, issueChecksPassed && completeLadder
+}
+
+// runRepairProvisionalChecks executes only frozen external checks in the
+// isolated workspace. Product-owned checks, including containing smoke, remain
+// authoritative post-integration gates because they depend on durable sprint
+// state and the canonical target.
+func (s Service) runRepairProvisionalChecks(ctx context.Context, packet RepairIssuePacket, target string) ([]RepairGateResult, bool) {
+	results := make([]RepairGateResult, 0, len(packet.Checks))
+	executed := make(map[string]bool)
+	for _, check := range packet.Checks {
+		if check.Executable == "@product" {
+			continue
+		}
+		key := repairCheckExecutionKey(check)
+		if executed[key] {
+			continue
+		}
+		executed[key] = true
+		started := s.now().UTC()
+		result := RepairGateResult{Gate: check.Gate, Status: RepairGatePassed, Reason: "frozen check passed in the isolated proposal workspace"}
+		identityBefore, identityErr := targetIdentity(target)
+		if identityErr != nil {
+			result.Status, result.Reason = RepairGateBlocked, "isolated workspace identity is unavailable"
+			results = append(results, result)
+			return results, false
+		}
+		workdir := target
+		if check.Workdir != "" {
+			workdir = filepath.Join(target, filepath.FromSlash(check.Workdir))
+			if !inside(target, workdir) {
+				result.Status, result.Reason = RepairGateBlocked, "frozen check working directory escapes the isolated workspace"
+				results = append(results, result)
+				return results, false
+			}
+		}
+		environment := make(map[string]string)
+		for _, name := range check.EnvironmentNames {
+			if value, exists := os.LookupEnv(name); exists {
+				environment[name] = value
+			}
+		}
+		processResult, runErr := s.processRunner.Run(ctx, pprocess.Request{Executable: check.Executable, Args: append([]string(nil), check.Args...), Dir: workdir, Env: pprocess.SortedEnvironment(environment), Timeout: check.Timeout, StdoutLimit: check.OutputLimit, StderrLimit: check.OutputLimit, CleanupGrace: packet.Budgets.CleanupTimeout})
+		result.ExitCode = processResult.ExitCode
+		result.OutputBytes = len(processResult.Stdout) + len(processResult.Stderr)
+		result.OutputHash = hashBytes([]byte(processResult.Stdout + "\x00" + processResult.Stderr))
+		if runErr != nil || processResult.ExitCode != 0 {
+			result.Status, result.Reason = RepairGateFailed, "frozen check did not pass in the isolated proposal workspace"
+			if runErr != nil {
+				result.Diagnostic = boundRepairText(runErr.Error(), 512)
+			}
+		}
+		if processResult.Cancelled || processResult.TimedOut || processResult.StdoutTruncated || processResult.StderrTruncated || !processResult.CleanupComplete {
+			result.Status, result.Reason = RepairGateBlocked, "isolated check execution or cleanup is incomplete"
+		}
+		identityAfter, afterErr := targetIdentity(target)
+		if afterErr != nil || identityAfter != identityBefore {
+			result.Status, result.Reason = RepairGateBlocked, "frozen check changed the isolated workspace"
+		}
+		result.Duration = s.now().UTC().Sub(started)
+		result.DurationMS = result.Duration.Milliseconds()
+		results = append(results, result)
+		if result.Status != RepairGatePassed {
+			return results, false
+		}
+	}
+	return results, len(results) > 0
 }
 
 func repairCheckExecutionKey(check RepairCheckDescriptor) string {
