@@ -49,7 +49,7 @@ func TestServePreflightAndRunnerOptions(t *testing.T) {
 }
 
 func TestServeListenValidationRunsBeforeWorkspaceAndRunner(t *testing.T) {
-	for _, value := range []string{"localhost:8080", "0.0.0.0:8080", "192.0.2.1:8080", "127.0.0.1", "127.0.0.1:0", "[::1]", "[fe80::1]:8080", " 127.0.0.1:8080"} {
+	for _, value := range []string{"localhost:8080", "0.0.0.0:8080", "192.0.2.1:8080", "127.0.0.1", "[::1]", "[fe80::1]:8080", " 127.0.0.1:8080"} {
 		t.Run(value, func(t *testing.T) {
 			called := false
 			var stderr bytes.Buffer
@@ -63,7 +63,7 @@ func TestServeListenValidationRunsBeforeWorkspaceAndRunner(t *testing.T) {
 			assertContains(t, stderr.String(), "serve.listen")
 		})
 	}
-	for _, value := range []string{"127.0.0.1:1", "127.42.0.8:65535", "[::1]:8080"} {
+	for _, value := range []string{"127.0.0.1:0", "127.0.0.1:1", "127.42.0.8:65535", "[::1]:0", "[::1]:8080"} {
 		if err := ValidateLoopbackListen(value); err != nil {
 			t.Errorf("%q rejected: %v", value, err)
 		}

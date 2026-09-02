@@ -3,6 +3,7 @@ package sprint
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -258,6 +259,54 @@ func TestQAStorePublishesPrivateRecordsPointerLastAndLoadsStrictly(t *testing.T)
 	verification := filepath.Join(sp.Path, "verification")
 	if info, err := os.Stat(verification); err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("verification mode = %v, err=%v", info.Mode().Perm(), err)
+	}
+}
+
+func TestQAStoreUpgradesMapFromBeforeArbiterTheoryBudget(t *testing.T) {
+	root, sp, publication := qaPublicationFixture(t)
+	token := QAWriterToken{RunID: "run-1", OperationalAttemptID: "op-1", FencingGeneration: 3}
+	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error { return nil })
+	if err := store.Publish(publication, token); err != nil {
+		t.Fatal(err)
+	}
+	legacy := *publication.Map
+	legacy.Budgets.ArbiterMaxTheories = 0
+	data, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := store.mapPath(legacy.SemanticAttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.LoadMap(legacy.SemanticAttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Budgets.ArbiterMaxTheories != DefaultQABudgets().ArbiterMaxTheories {
+		t.Fatalf("arbiter max theories = %d", loaded.Budgets.ArbiterMaxTheories)
+	}
+}
+
+func TestQAMapForRunRejectsConflictAndReusesRetainedMapOnResume(t *testing.T) {
+	root, sp, publication := qaPublicationFixture(t)
+	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error { return nil })
+	token := QAWriterToken{RunID: "run-1", OperationalAttemptID: "op-1", FencingGeneration: 1}
+	if err := store.Publish(publication, token); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := qaMapForRun(store, *publication.Map, false); err == nil {
+		t.Fatal("existing attempt did not fail before semantic mapping")
+	}
+	got, needsMapping, err := qaMapForRun(store, *publication.Map, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if needsMapping || got.ID != publication.Map.ID {
+		t.Fatalf("resume map = %s, needs mapping = %t", got.ID, needsMapping)
 	}
 }
 

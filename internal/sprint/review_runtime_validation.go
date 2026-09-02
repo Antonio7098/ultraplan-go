@@ -97,7 +97,7 @@ func reviewValidationCheck(coverageID string, problems []string) agentwrap.Valid
 		Kind:          agentwrap.ExpectationCustom,
 		Severity:      agentwrap.ExpectationRequired,
 		Expected:      "one schemaVersion 1 review result for coverageId " + coverageID,
-		RepairHint:    "Return only the canonical JSON object; do not perform more tool calls.",
+		RepairHint:    "Return only the canonical JSON object.",
 	}
 	if len(problems) == 0 {
 		check.Passed = true
@@ -136,7 +136,7 @@ func validationFailureDetails(failures []agentwrap.ValidationFailure) []string {
 
 func buildReviewRepairPrompt(manifest ReviewManifest, coverage ReviewInput, problems []string, priorOutput string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Return only one corrected JSON object for coverageId %q. Do not perform more tool calls. Preserve the prior review's substantive conclusions while correcting its structure and citations.\n", coverage.ID)
+	fmt.Fprintf(&b, "Return only one corrected JSON object for coverageId %q. Preserve the prior review's substantive conclusions while correcting its structure and citations.\n", coverage.ID)
 	fmt.Fprintln(&b, `Canonical schema: {"schemaVersion":1,"coverageId":string,"applicability":"direct|partial|not_triggered|explicitly_deferred","summary":string,"findings":[{"id":string,"severity":"info|low|medium|high|blocker","applicability":"direct|partial|not_triggered|explicitly_deferred","title":string,"detail":string,"action":string,"citations":[{"path":string,"startLine":number,"endLine":number}]}]}`)
 	if len(problems) > 0 {
 		fmt.Fprintln(&b, "Validation failures:")

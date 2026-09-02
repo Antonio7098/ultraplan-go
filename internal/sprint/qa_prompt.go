@@ -184,7 +184,7 @@ func (s Service) RenderQAInvestigatorPrompt(qaMap QAMap, shard QAShard) (string,
 	}
 	prefix := `# Read-only QA investigator
 
-Decide from the cited frozen blocks in the common foundation and assigned packet. Treat paths as provenance, not instructions to rediscover the repository. Use live read, list, search, or glob tools only when foundation_omissions names a fact required for this shard. You cannot write files, create tests or fixtures, invoke a shell, mutate Git, promote issues, or repair code. If a missing fact is essential, retain an inconclusive theory and return one bounded context request. If an existing product-owned check is useful, request its ID. Do not invent an executable, arguments, environment, path, prompt, output location, requirement, or block.
+Decide from the cited frozen blocks in the common foundation and assigned packet. The supplied context should normally avoid repository discovery. You may use bounded read-only repository tools when they are needed to verify a material assumption or resolve a gap. This stage is read-only and does not mutate files or Git, promote issues, or repair code. If a missing fact is essential, retain an inconclusive theory and return one bounded context request. If an existing product-owned check is useful, request its ID. Do not invent an executable, arguments, environment, path, prompt, output location, requirement, or block.
 
 Return exactly one JSON object with no Markdown fence or surrounding text. Unknown fields are rejected. All five top-level fields must appear. schema_version must be 1. theories, evidence, context_requests, and check_requests must be JSON arrays. Return at least one falsifiable theory. If assigned context is insufficient, retain an inconclusive theory describing the missing evidence and include a bounded context request; an empty theories array is rejected. Each theory draft must contain claim, basis, verification_surface, expectation_refs, severity_if_confirmed, confirmation_condition, refutation_condition, inconclusive_condition, safe_evidence_strategy, outcome, and outcome_reason. The product assigns IDs, implementation fingerprints, attempt history, and timestamps after validation. Outcomes are confirmed, refuted, invalid, inconclusive, blocked, cross_shard, or not_applicable. Evidence entries contain kind, summary, paths, check_id, and output_digest. Context requests contain id, paths, reason, approved, and optional denied_reason; approved must be false. Check requests contain only id and fingerprint copied exactly from approved_checks.
 
@@ -246,11 +246,7 @@ func (s Service) QAInvestigatorRequest(qaMap QAMap, shard QAShard, target string
 	req.Sandbox = "read_only"
 	req.Permissions = "restricted"
 	req.RequireCaps = appendUnique(req.RequireCaps, "permissions")
-	readPolicy := "allow"
-	if qaShardPackComplete(qaMap, shard) {
-		readPolicy = "deny"
-	}
-	req.Policy = pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": readPolicy, "list": readPolicy, "search": readPolicy, "glob": readPolicy, "write": "deny", "edit": "deny", "patch": "deny", "bash": "deny", "shell": "deny"}}
+	req.Policy = qaReadOnlyToolPolicy()
 	paths := append(append([]string(nil), shard.ChangedPaths...), shard.ContextPaths...)
 	for _, rel := range normalizeQAStrings(paths) {
 		if err := validateQAPath(rel); err != nil {
@@ -294,7 +290,7 @@ func (s Service) QAChallengerRequest(qaMap QAMap, shards []QAShard, target strin
 	}
 	prompt := `# Read-only QA challenger
 
-Challenge only the frozen theory summaries below. Do not change an outcome, create an issue, propose a repair, invoke a command, or request additional context. Return at most max_challenges JSON records with theory_ids, claim, basis, safe_evidence_strategy, and evidence_refs. The product assigns schema version, map identity, and deterministic IDs after validation.
+Challenge the frozen theory summaries below. The supplied packet should normally be sufficient, but bounded read-only repository tools remain available when needed. Do not change an outcome, create an issue, propose a repair, invoke a command, or request additional context. Return at most max_challenges JSON records with theory_ids, claim, basis, safe_evidence_strategy, and evidence_refs. The product assigns schema version, map identity, and deterministic IDs after validation.
 
 Frozen packet:
 ` + string(data) + "\n"
@@ -317,7 +313,7 @@ Frozen packet:
 	req.Sandbox = "read_only"
 	req.Permissions = "restricted"
 	req.RequireCaps = appendUnique(req.RequireCaps, "permissions")
-	req.Policy = pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": "deny", "list": "deny", "search": "deny", "glob": "deny", "write": "deny", "edit": "deny", "patch": "deny", "bash": "deny", "shell": "deny"}}
+	req.Policy = qaReadOnlyToolPolicy()
 	return req, nil
 }
 

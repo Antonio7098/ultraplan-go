@@ -52,6 +52,7 @@ func TestSprintHelpIsRegistered(t *testing.T) {
 		if len(args) > 3 && args[2] == "01" && args[3] == "repair" {
 			assertContains(t, stdout, "repair start")
 			assertContains(t, stdout, "Automatic mode requires")
+			assertContains(t, strings.ToLower(stdout), "conformance review")
 		}
 	}
 	reviewHelp, _, _ := runForTest([]string{"sprint", "proj", "01", "review", "--help"})
@@ -314,7 +315,12 @@ func TestStableRepairErrorIncludesCategoryCorrelationAndTimestamp(t *testing.T) 
 }
 
 func TestRepairBudgetsForUsesTypedConfigAndReportsSources(t *testing.T) {
-	effective, err := config.Load(config.LoadOptions{})
+	effective, err := config.Load(config.LoadOptions{Env: func(key string) string {
+		if key == "ULTRAPLAN_QA_REPAIR_MAX_FILES_PER_CYCLE" {
+			return "1"
+		}
+		return ""
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +335,7 @@ func TestRepairBudgetsForUsesTypedConfigAndReportsSources(t *testing.T) {
 	for _, source := range sources {
 		seen[source.Field] = source.Source
 	}
-	if seen["qa.repair.max_cycles"] != "manual_policy" || seen["qa.repair.max_files_per_run"] != "default" {
+	if seen["qa.repair.max_cycles"] != "manual_policy" || seen["qa.repair.max_files_per_run"] != "default" || seen["qa.repair.max_files_per_cycle"] != "environment" {
 		t.Fatalf("sources=%+v", seen)
 	}
 }

@@ -51,7 +51,7 @@ func TestServerLifecycleCanonicalURLLauncherWarningAndShutdown(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- Run(ctx, Options{
-			Listen: "127.0.0.1:8080", Queries: sampleQueries(), Stdout: &stdout, Diagnostics: &diagnostics,
+			Listen: "127.0.0.1:0", Queries: sampleQueries(), Stdout: &stdout, Diagnostics: &diagnostics,
 			ListenFunc: listen, OpenBrowser: true,
 			LaunchBrowser: func(context.Context, string) error { return context.DeadlineExceeded },
 		})

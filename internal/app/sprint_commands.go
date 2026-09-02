@@ -1107,6 +1107,9 @@ func repairBudgetsFor(effective config.Effective, mode sprint.RepairMode) (sprin
 	for _, field := range config.QAConfigFields() {
 		if strings.HasPrefix(field, "qa.repair.") {
 			source := effective.Sources[field]
+			if source == "env" {
+				source = "environment"
+			}
 			if mode == sprint.RepairModeManual && (field == "qa.repair.max_cycles" || field == "qa.repair.max_mutation_cycles") {
 				source = "manual_policy"
 			}
@@ -2372,7 +2375,7 @@ Usage:
   ultraplan sprint <project> <sprint> repair cancel --run <durable-operation-run-id> [--json]
   ultraplan sprint <project> <sprint> repair recover [--run <repair-run-id>] [--json]
 
-Prepare freezes one current repair-eligible QA issue without runtime work or target mutation. Start requires a separate explicit --yes and publishes single-use confirmation after durable acceptance but before dispatch. Campaign uses qa.repair_assignment_mode and qa.issues_per_repair_agent, requires qualifying manual proof, and refreshes review, smoke, and evidence-producing QA between issue-scoped runs. Manual mode permits one proposal and one bounded production apply. Automatic mode requires a current qualifying manual proof, explicit --automatic on prepare and start, and frozen lower-only limits. Reverification ends with repaired-target containing smoke. Progress is written to stderr; --json writes one versioned document to stdout.
+Prepare freezes one current repair-eligible QA issue without runtime work or target mutation. Start requires a separate explicit --yes and publishes single-use confirmation after durable acceptance but before dispatch. A current acceptable conformance review and passing containing smoke are required. Campaign uses qa.repair_assignment_mode and qa.issues_per_repair_agent, requires qualifying manual proof, and refreshes review, smoke, and evidence-producing QA between issue-scoped runs. Manual mode permits one proposal and one bounded production apply. Automatic mode requires a current qualifying manual proof, explicit --automatic on prepare and start, and frozen lower-only limits. Reverification ends with repaired-target containing smoke. Progress is written to stderr; --json writes one versioned document to stdout.
 `
 }
 

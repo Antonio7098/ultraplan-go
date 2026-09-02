@@ -114,6 +114,29 @@ func TestIsolationRejectsEscapeSymlinkSpecialHardlinkAndBudgets(t *testing.T) {
 	}
 }
 
+func TestIsolationCopiesContainedSymlinkAndIncludesItInIdentity(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "target"), []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	limits := IsolationLimits{MaxFiles: 3, MaxBytes: 32, MaxFileSize: 16, Timeout: time.Second}
+	workspace, err := CreateIsolation(context.Background(), IsolationRequest{SourceRoot: root, ParentDir: t.TempDir(), Limits: limits})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.Readlink(filepath.Join(workspace.Path, "link"))
+	if err != nil || got != "target" {
+		t.Fatalf("copied link = %q, %v", got, err)
+	}
+	identity, err := IdentifyTree(context.Background(), workspace.Path, limits)
+	if err != nil || identity != workspace.Source {
+		t.Fatalf("identity = %+v, source = %+v, err = %v", identity, workspace.Source, err)
+	}
+}
+
 func TestIsolationRejectsOverlappingParentAndCancellation(t *testing.T) {
 	source := t.TempDir()
 	if err := os.WriteFile(filepath.Join(source, "a"), []byte("x"), 0o600); err != nil {

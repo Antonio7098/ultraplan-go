@@ -48,7 +48,7 @@ func (s Service) refineQAMapSemantically(ctx context.Context, qaMap QAMap, targe
 	}
 	prefix := `# QA semantic mapper
 
-Propose behavioral QA shards from the frozen foundation. Use no tools and return exactly one JSON object. The object has schema_version 1 and shards. Each shard has kind, title, changed_paths, context_paths, overlap_paths, boundary_reason, behavioral_concerns, expectation_refs, and context_block_ids. Primary shards must assign every changed path exactly once. Boundary shards may overlap paths but cannot own them. Cite only foundation block IDs and exact expectation IDs. Counts equal to a maximum are valid. Do not invent paths or requirements.
+Propose behavioral QA shards from the frozen foundation and return exactly one JSON object. The supplied foundation should normally be sufficient. You may use bounded read-only repository tools when they are needed to resolve a material gap. The object has schema_version 1 and shards. Each shard has kind, title, changed_paths, context_paths, overlap_paths, boundary_reason, behavioral_concerns, expectation_refs, and context_block_ids. Primary shards must assign every changed path exactly once. Boundary shards may overlap paths but cannot own them. Cite only foundation block IDs and exact expectation IDs. Counts equal to a maximum are valid. Do not invent paths or requirements.
 
 Frozen QA foundation:
 ` + string(foundation) + "\n\n<<< END STABLE QA MAPPER PREFIX >>>\n"
@@ -70,7 +70,7 @@ Frozen QA foundation:
 	req.Metadata["variant"], req.Metadata["reasoning_effort"] = runtimeSettings.Variant, runtimeSettings.Variant
 	req.WorkDir, req.Timeout, req.Sandbox, req.Permissions = filepath.Clean(target), settings.Budgets.ShardTimeout, "read_only", "restricted"
 	req.RequireCaps = appendUnique(req.RequireCaps, "permissions")
-	req.Policy = qaNoToolPolicy()
+	req.Policy = qaReadOnlyToolPolicy()
 	req.Cache = pruntime.CacheDirective{Key: "qa-mapper/" + qaMap.Foundation.Fingerprint + "/" + provider + "/" + model + "/" + runtimeSettings.Variant, BreakpointBytes: len(prefix), PrefixDigest: hashBytes([]byte(prefix)), Mode: "stable-prefix"}
 	result, runErr := s.startQARuntime(ctx, qaMap, req)
 	var output qaSemanticMapperOutput
@@ -275,8 +275,8 @@ func decodeStrictQAJSON(content string, target any) error {
 	return nil
 }
 
-func qaNoToolPolicy() pruntime.PermissionPolicy {
-	return pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": "deny", "list": "deny", "search": "deny", "glob": "deny", "write": "deny", "edit": "deny", "patch": "deny", "bash": "deny", "shell": "deny"}}
+func qaReadOnlyToolPolicy() pruntime.PermissionPolicy {
+	return pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": "allow", "list": "allow", "search": "allow", "glob": "allow", "write": "deny", "edit": "deny", "patch": "deny", "bash": "deny", "shell": "deny"}}
 }
 
 func stringSet(values []string) map[string]bool {

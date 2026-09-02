@@ -115,7 +115,9 @@ func configOverridesForServe() config.CLIOverrides {
 }
 
 // ValidateLoopbackListen accepts numeric IPv4 loopback literals or bracketed
-// IPv6 loopback literals with an explicit non-zero port.
+// IPv6 loopback literals with an explicit port. Port zero requests an
+// OS-assigned ephemeral port; the web server validates the resolved listener
+// address again after binding.
 func ValidateLoopbackListen(value string) error {
 	if strings.TrimSpace(value) != value || value == "" {
 		return errors.New("listen address is required")
@@ -132,8 +134,8 @@ func ValidateLoopbackListen(value string) error {
 		return errors.New("listen address must use a numeric loopback IP such as 127.0.0.1 or [::1]")
 	}
 	n, err := strconv.Atoi(port)
-	if err != nil || n < 1 || n > 65535 {
-		return errors.New("listen port must be between 1 and 65535")
+	if err != nil || n < 0 || n > 65535 {
+		return errors.New("listen port must be between 0 and 65535")
 	}
 	return nil
 }
@@ -150,7 +152,8 @@ confirmation and bounded SSE progress, and shuts down owned operations
 gracefully on interrupt or process cancellation.
 
 Options:
-  --listen <address>   Loopback IP and port (default 127.0.0.1:8080).
+  --listen <address>   Loopback IP and port; 0 selects an ephemeral port
+                       (default 127.0.0.1:8080).
   --open-browser       Open the canonical dashboard URL after listening.
   --workspace <path>   Select the workspace (global flag).
   -h, --help           Show help without starting a listener.

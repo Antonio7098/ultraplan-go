@@ -75,8 +75,8 @@ type CleanupResult struct {
 // false.
 func IsolationCapabilityFacts() IsolationCapabilities { return isolationCapabilities() }
 
-// CreateIsolation copies a regular local tree into a new private directory.
-// It does not depend on Git and rejects links, special files, hard links, path
+// CreateIsolation copies a local tree into a new private directory. It does not
+// depend on Git and rejects escaping links, special files, hard links, path
 // escapes, and trees outside the caller's declared limits.
 func CreateIsolation(ctx context.Context, req IsolationRequest) (IsolationWorkspace, error) {
 	if ctx == nil {
@@ -347,7 +347,7 @@ func copyBoundedTree(ctx context.Context, source, target string, limits Isolatio
 		if err != nil {
 			return err
 		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() && !info.IsDir() {
+		if info.Mode()&os.ModeSymlink == 0 && !info.Mode().IsRegular() && !info.IsDir() {
 			return fmt.Errorf("unsupported isolation entry %q", filepath.ToSlash(rel))
 		}
 		if info.Mode().IsRegular() && info.Sys() != nil && linkCount(info) > 1 {
@@ -356,6 +356,25 @@ func copyBoundedTree(ctx context.Context, source, target string, limits Isolatio
 		destination := filepath.Join(target, rel)
 		if info.IsDir() {
 			return os.Mkdir(destination, info.Mode().Perm()&0o700)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := containedSymlink(source, path)
+			if err != nil {
+				return err
+			}
+			identity.Files++
+			identity.Bytes += int64(len(link))
+			if identity.Files > limits.MaxFiles || identity.Bytes > limits.MaxBytes || int64(len(link)) > limits.MaxFileSize {
+				return fmt.Errorf("isolation tree exceeds declared limits")
+			}
+			if err := os.Symlink(link, destination); err != nil {
+				return err
+			}
+			_, _ = io.WriteString(hash, filepath.ToSlash(rel))
+			_, _ = hash.Write([]byte{0})
+			_, _ = io.WriteString(hash, "symlink\x00"+link)
+			_, _ = hash.Write([]byte{0})
+			return nil
 		}
 		identity.Files++
 		identity.Bytes += info.Size()
@@ -411,10 +430,29 @@ func collectTreeIdentity(ctx context.Context, root string, limits IsolationLimit
 		if err != nil {
 			return err
 		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() && !info.IsDir() {
+		if info.Mode()&os.ModeSymlink == 0 && !info.Mode().IsRegular() && !info.IsDir() {
 			return fmt.Errorf("unsupported identity entry %q", filepath.ToSlash(rel))
 		}
 		if info.IsDir() {
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := containedSymlink(root, path)
+			if err != nil {
+				return err
+			}
+			identity.Files++
+			identity.Bytes += int64(len(link))
+			if identity.Files > limits.MaxFiles || identity.Bytes > limits.MaxBytes || int64(len(link)) > limits.MaxFileSize {
+				return fmt.Errorf("identity tree exceeds declared limits")
+			}
+			rel = filepath.ToSlash(rel)
+			fileHash := sha256.Sum256([]byte("symlink\x00" + link))
+			entries[rel] = treeEntryIdentity{digest: hex.EncodeToString(fileHash[:]), mode: info.Mode()}
+			_, _ = io.WriteString(hash, rel)
+			_, _ = hash.Write([]byte{0})
+			_, _ = io.WriteString(hash, "symlink\x00"+link)
+			_, _ = hash.Write([]byte{0})
 			return nil
 		}
 		if info.Sys() != nil && linkCount(info) > 1 {
@@ -443,6 +481,23 @@ func collectTreeIdentity(ctx context.Context, root string, limits IsolationLimit
 	}
 	identity.Digest = hex.EncodeToString(hash.Sum(nil))
 	return identity, entries, nil
+}
+
+func containedSymlink(root, path string) (string, error) {
+	link, err := os.Readlink(path)
+	if err != nil {
+		return "", err
+	}
+	resolved := link
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(filepath.Dir(path), resolved)
+	}
+	resolved = filepath.Clean(resolved)
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("symlink %q escapes isolation tree", filepath.ToSlash(path))
+	}
+	return link, nil
 }
 
 func readRegularFile(path string, expected, max int64) ([]byte, error) {

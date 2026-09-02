@@ -26,6 +26,11 @@ func TestQAInvestigatorRequestIsReadOnlyDefaultDenyAndPathBounded(t *testing.T) 
 	if req.Sandbox != "read_only" || req.Permissions != "restricted" || req.Policy.Default != "deny" {
 		t.Fatalf("permission request = sandbox=%q permissions=%q policy=%+v", req.Sandbox, req.Permissions, req.Policy)
 	}
+	for _, tool := range []string{"read", "list", "search", "glob"} {
+		if req.Policy.Tools[tool] != "allow" {
+			t.Fatalf("tool %s = %q", tool, req.Policy.Tools[tool])
+		}
+	}
 	for _, tool := range []string{"write", "edit", "patch", "bash", "shell"} {
 		if req.Policy.Tools[tool] != "deny" {
 			t.Fatalf("tool %s = %q", tool, req.Policy.Tools[tool])
@@ -36,7 +41,7 @@ func TestQAInvestigatorRequestIsReadOnlyDefaultDenyAndPathBounded(t *testing.T) 
 			t.Fatalf("path rule = %+v", rule)
 		}
 	}
-	if !strings.Contains(req.Prompt, "cannot write files") || strings.Contains(req.Prompt, "repair code now") {
+	if !strings.Contains(req.Prompt, "read-only repository tools") || strings.Contains(req.Prompt, "repair code now") {
 		t.Fatalf("investigator prompt = %s", req.Prompt)
 	}
 	if req.PromptRef.ID != "sprint.qa.investigator" || req.PromptRef.Purpose != "qa.investigator" || req.Metadata["prompt_id"] != req.PromptRef.ID {
@@ -54,9 +59,9 @@ func TestQAChallengerRequestIsBoundedAndHasNoToolOrPathAuthority(t *testing.T) {
 	if req.Sandbox != "read_only" || req.Permissions != "restricted" || req.Policy.Default != "deny" || len(req.Policy.PathRules) != 0 {
 		t.Fatalf("challenger permissions = %+v", req)
 	}
-	for tool, action := range req.Policy.Tools {
-		if action != "deny" {
-			t.Fatalf("challenger tool %s = %q", tool, action)
+	for _, tool := range []string{"read", "list", "search", "glob"} {
+		if req.Policy.Tools[tool] != "allow" {
+			t.Fatalf("challenger tool %s = %q", tool, req.Policy.Tools[tool])
 		}
 	}
 	if len(req.Prompt) > qaMap.Budgets.PromptBytes || !strings.Contains(req.Prompt, "Do not change an outcome") {

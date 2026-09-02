@@ -65,6 +65,43 @@ func TestIssueReconcilerRejectsRepeatedTheoryMembership(t *testing.T) {
 	}
 }
 
+func TestIssueReconcilerFailsClosedForReferenceAndCoverageViolations(t *testing.T) {
+	provisional := []QAArbiterIssue{
+		{TheoryIDs: []string{"theory-a"}, EvidenceRefs: []string{"evidence-a"}},
+		{TheoryIDs: []string{"theory-b"}, EvidenceRefs: []string{"evidence-b"}},
+	}
+	validIssue := func(theories, evidence []string) QAArbiterIssue {
+		return QAArbiterIssue{TheoryIDs: theories, Claim: "claim", Title: "title", IssueClass: "logic", Severity: "high", Location: "a.go", Reason: "reason", EvidenceRefs: evidence}
+	}
+	cases := map[string]qaIssueReconcilerOutput{
+		"unknown theory":    {SchemaVersion: QASchemaVersion, Issues: []QAArbiterIssue{validIssue([]string{"theory-a", "theory-unknown"}, []string{"evidence-a"})}},
+		"omitted theory":    {SchemaVersion: QASchemaVersion, Issues: []QAArbiterIssue{validIssue([]string{"theory-a"}, []string{"evidence-a"})}},
+		"invented evidence": {SchemaVersion: QASchemaVersion, Issues: []QAArbiterIssue{validIssue([]string{"theory-a", "theory-b"}, []string{"evidence-invented"})}},
+	}
+	for name, output := range cases {
+		t.Run(name, func(t *testing.T) {
+			if issues, err := validateQAReconcilerOutput(QAMap{ID: "map"}, provisional, output); err == nil || len(issues) != 0 {
+				t.Fatalf("invalid reconciler output produced issues: %+v err=%v", issues, err)
+			}
+		})
+	}
+}
+
+func TestIssueReconcilerStrictJSONRejectsMalformedUnknownAndMultipleValues(t *testing.T) {
+	for name, content := range map[string]string{
+		"malformed":       `{"schema_version":1`,
+		"unknown field":   `{"schema_version":1,"issues":[],"invented":true}`,
+		"multiple values": `{"schema_version":1,"issues":[]} {"schema_version":1,"issues":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var output qaIssueReconcilerOutput
+			if err := decodeStrictQAJSON(content, &output); err == nil {
+				t.Fatalf("strict decoder accepted %s output", name)
+			}
+		})
+	}
+}
+
 func TestIssueReconciliationAgentFailsClosed(t *testing.T) {
 	qaMap := QAMap{ID: "map", Foundation: &QAFoundation{Fingerprint: strings.Repeat("a", 64)}, Budgets: DefaultQABudgets()}
 	settings := QASettings{Runtime: StageRuntime{Model: "provider/base"}, Reconciler: StageRuntime{Model: "provider/reconciler", Variant: "high"}, Budgets: qaMap.Budgets}
@@ -72,5 +109,24 @@ func TestIssueReconciliationAgentFailsClosed(t *testing.T) {
 	service := NewService(t.TempDir()).WithRuntime(qaEmptyTheoryRuntime{}).WithQASettings(settings)
 	if got, _, err := service.reconcileQAArbiterIssues(context.Background(), qaMap, issues, t.TempDir(), settings); err == nil || len(got) != 0 {
 		t.Fatalf("invalid reconciler output produced deterministic semantic issues: %+v err=%v", got, err)
+	}
+}
+
+func TestQAArbiterOutputContractNamesEveryAcceptedAction(t *testing.T) {
+	for _, action := range []QAArbiterAction{QAArbiterConfirm, QAArbiterRefute, QAArbiterReplace, QAArbiterMerge, QAArbiterSplit, QAArbiterInvalidate, QAArbiterKeepInconclusive} {
+		if !strings.Contains(qaArbiterOutputContract, `"`+string(action)+`"`) {
+			t.Fatalf("arbiter output contract omits accepted action %q", action)
+		}
+	}
+	if strings.Contains(qaArbiterOutputContract, `"retain"`) {
+		t.Fatal("arbiter output contract advertises unsupported retain action")
+	}
+	if !strings.Contains(qaArbiterOutputContract, "at most one override") || !strings.Contains(qaArbiterOutputContract, "do not also emit separate overrides") {
+		t.Fatal("arbiter output contract does not forbid duplicate supersession")
+	}
+	for _, required := range []string{`first output byte must be "{"`, `last output byte must be "}"`, "Do not emit Markdown fences"} {
+		if !strings.Contains(qaArbiterOutputContract, required) {
+			t.Fatalf("arbiter output contract omits framing rule %q", required)
+		}
 	}
 }

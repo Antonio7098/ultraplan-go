@@ -351,16 +351,23 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	if err != nil {
 		return QARunResult{}, err
 	}
+	var needsSemanticMapping bool
+	mapResult.Map, needsSemanticMapping, err = qaMapForRun(store, mapResult.Map, req.Resume)
+	if err != nil {
+		return QARunResult{}, err
+	}
 	manifest, findings, err := s.PrepareReview(projectRef, sprintRef, ReviewRequest{})
 	if err != nil || len(findings) > 0 {
 		return QARunResult{}, NewQAError(QAErrorStaleInput, "run", "cannot resolve the current governed target", err)
 	}
-	mapResult.Map, err = s.refineQAMapSemantically(lockedCtx, mapResult.Map, manifest.Target)
-	if err != nil {
-		return QARunResult{}, err
-	}
-	if err := s.prepareQAShardPacks(&mapResult.Map); err != nil {
-		return QARunResult{}, err
+	if needsSemanticMapping {
+		mapResult.Map, err = s.refineQAMapSemantically(lockedCtx, mapResult.Map, manifest.Target)
+		if err != nil {
+			return QARunResult{}, err
+		}
+		if err := s.prepareQAShardPacks(&mapResult.Map); err != nil {
+			return QARunResult{}, err
+		}
 	}
 	flow, err := LoadFlowState(s.root, sp)
 	if err != nil {
@@ -483,6 +490,24 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	}
 	emitQA(req.Progress, QAProgress{Phase: loaded.Phase, Event: "investigation_complete", Completed: loaded.CompletedShards, Total: loaded.TotalShards, Message: "QA investigation complete"})
 	return QARunResult{Project: sp.Project, Sprint: sp.Slug, State: loaded, Map: mapResult.Map, Shards: shards, Synthesis: synthesis}, nil
+}
+
+func qaMapForRun(store QAStore, candidate QAMap, resume bool) (QAMap, bool, error) {
+	prior, err := store.LoadState()
+	if err != nil || prior.CurrentAttemptID != candidate.SemanticAttemptID || prior.Map == nil {
+		return candidate, true, nil
+	}
+	if !resume {
+		return QAMap{}, false, NewQAError(QAErrorConflict, "run", "the current semantic attempt already exists; use qa resume", nil)
+	}
+	retained, err := store.LoadMap(prior.CurrentAttemptID)
+	if err != nil {
+		return QAMap{}, false, err
+	}
+	if retained.ID != candidate.ID {
+		return QAMap{}, false, NewQAError(QAErrorStaleInput, "run", "the retained semantic map no longer matches current governed inputs", nil)
+	}
+	return retained, false, nil
 }
 
 func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMap QAMap, target string, shards []QAShard, reconciledIssues []QAArbiterIssue, progress func(QAProgress)) (QAEvidencePublication, QAAssessmentRecord, error) {
@@ -1181,7 +1206,7 @@ func (s Service) continueQAInvestigator(ctx context.Context, qaMap QAMap, shard 
 	req := initial
 	req.Prompt, req.SessionID, req.SessionAction, req.Cache = prompt, sessionID, "continue", pruntime.CacheDirective{}
 	req.Metadata["operation"] = "qa-investigate-context-continuation"
-	req.Policy = qaNoToolPolicy()
+	req.Policy = qaReadOnlyToolPolicy()
 	result, output, _, runErr, decodeErr := s.runQAInvestigatorRuntime(ctx, qaMap, req)
 	if runErr != nil {
 		return result, qaInvestigatorOutput{}, len(prompt), NewQAError(QAErrorRuntimeUnavailable, "continue investigator", "same-session context continuation failed", runErr)
@@ -1232,7 +1257,7 @@ func (s Service) runQAInvestigatorRuntime(ctx context.Context, qaMap QAMap, requ
 		})
 		repairRequest.Prompt = qaInvestigatorOutputRepairPrompt(diagnostic, lastErr)
 		repairRequest.Cache = pruntime.CacheDirective{}
-		repairRequest.Policy = qaNoToolPolicy()
+		repairRequest.Policy = qaReadOnlyToolPolicy()
 		if attempt == 1 && lastResult.SessionID != "" {
 			repairRequest.SessionID = lastResult.SessionID
 			repairRequest.SessionAction = "continue"
@@ -1282,7 +1307,7 @@ func qaRuntimePermissionsRestricted(result pruntime.Result) bool {
 }
 
 func qaInvestigatorOutputRepairPrompt(diagnostic QAOutputDiagnostic, err error) string {
-	return "Return only one corrected strict QA JSON object. Do not perform more tool calls. Unknown fields and text outside the object are rejected. Required top-level fields are schema_version, theories, evidence, context_requests, and check_requests. schema_version must be 1 and the other fields must be arrays. theories must contain at least one falsifiable theory. If context is insufficient, return an inconclusive theory plus a bounded context request; an empty theories array is rejected. Rejection: " + qaValidationDiagnostic(diagnostic, err)
+	return "Return only one corrected strict QA JSON object. Unknown fields and text outside the object are rejected. Required top-level fields are schema_version, theories, evidence, context_requests, and check_requests. schema_version must be 1 and the other fields must be arrays. theories must contain at least one falsifiable theory. If context is insufficient, return an inconclusive theory plus a bounded context request; an empty theories array is rejected. Rejection: " + qaValidationDiagnostic(diagnostic, err)
 }
 
 func mergeQAInvestigatorRuntimeResult(first, next pruntime.Result) pruntime.Result {

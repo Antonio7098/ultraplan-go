@@ -301,6 +301,7 @@ func (store QAStore) LoadMap(attemptID string) (QAMap, error) {
 	if err := store.readStrict(path, "map", &value); err != nil {
 		return QAMap{}, err
 	}
+	upgradeLegacyQAMap(&value)
 	if err := ValidateQAMap(value); err != nil {
 		return QAMap{}, NewQAError(QAErrorInvalidState, "load map", err.Error(), err)
 	}
@@ -308,6 +309,12 @@ func (store QAStore) LoadMap(attemptID string) (QAMap, error) {
 		return QAMap{}, NewQAError(QAErrorInvalidState, "load map", "QA map scope does not match its path", nil)
 	}
 	return value, nil
+}
+
+func upgradeLegacyQAMap(value *QAMap) {
+	if value != nil && value.SchemaVersion == QASchemaVersion && value.Budgets.ArbiterMaxTheories == 0 {
+		value.Budgets.ArbiterMaxTheories = DefaultQABudgets().ArbiterMaxTheories
+	}
 }
 
 func (store QAStore) LoadShard(attemptID, shardID string) (QAShard, error) {

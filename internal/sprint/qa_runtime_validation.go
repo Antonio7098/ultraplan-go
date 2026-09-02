@@ -64,7 +64,7 @@ func qaInvestigatorValidationSpec(budgets QABudgets, capture *qaOutputCapture) *
 				Kind:          agentwrap.ExpectationCustom,
 				Severity:      agentwrap.ExpectationRequired,
 				Expected:      "one strict schema_version 1 QA investigator JSON object",
-				RepairHint:    "Return only the corrected canonical JSON object and do not perform more tool calls.",
+				RepairHint:    "Return only the corrected canonical JSON object.",
 			}
 			if err := ctx.Err(); err != nil {
 				check.Observed, check.Detail = err.Error(), "QA investigator validation cancelled"
@@ -132,5 +132,5 @@ func qaValidationRepairPrompt(failures []agentwrap.ValidationFailure) string {
 	if len(details) == 0 {
 		details = append(details, "the previous output failed strict QA validation")
 	}
-	return "Return only one corrected strict QA JSON object. Do not perform more tool calls. Unknown fields and text outside the object are rejected. Required top-level fields are schema_version, theories, evidence, context_requests, and check_requests. schema_version must be 1 and the other fields must be arrays. theories must contain at least one falsifiable theory. If context is insufficient, return an inconclusive theory plus a bounded context request; an empty theories array is rejected. Rejection: " + strings.Join(details, "; ")
+	return "Return only one corrected strict QA JSON object. Unknown fields and text outside the object are rejected. Required top-level fields are schema_version, theories, evidence, context_requests, and check_requests. schema_version must be 1 and the other fields must be arrays. theories must contain at least one falsifiable theory. If context is insufficient, return an inconclusive theory plus a bounded context request; an empty theories array is rejected. Rejection: " + strings.Join(details, "; ")
 }

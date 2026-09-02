@@ -67,7 +67,7 @@ func TestPackCompleteInvestigatorUsesStableFoundationAndNoRepositoryTools(t *tes
 		t.Fatal(err)
 	}
 	for _, tool := range []string{"read", "list", "search", "glob"} {
-		if req.Policy.Tools[tool] != "deny" {
+		if req.Policy.Tools[tool] != "allow" {
 			t.Fatalf("pack-complete tool %s = %q", tool, req.Policy.Tools[tool])
 		}
 	}
