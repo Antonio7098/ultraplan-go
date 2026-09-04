@@ -171,6 +171,15 @@ func TestIsolationNativeProtectedRootDeny(t *testing.T) {
 	if !workspace.Capabilities.NativeProtectedRootDeny {
 		t.Skip("native protected-root isolation is unavailable")
 	}
+	devNull, devNullErr := workspace.Run(context.Background(), DirectRunner{}, ".", Request{
+		Executable: "sh",
+		Args:       []string{"-c", "printf isolated >/dev/null"},
+		Env:        SortedEnvironment(map[string]string{"PATH": os.Getenv("PATH")}),
+		Timeout:    time.Second,
+	})
+	if devNullErr != nil || devNull.ExitCode != 0 {
+		t.Fatalf("isolated /dev/null write failed: result=%+v err=%v", devNull, devNullErr)
+	}
 	result, runErr := workspace.Run(context.Background(), DirectRunner{}, ".", Request{
 		Executable: "sh",
 		Args:       []string{"-c", "printf changed > \"$1\"", "sh", protected},
@@ -183,5 +192,24 @@ func TestIsolationNativeProtectedRootDeny(t *testing.T) {
 	data, readErr := os.ReadFile(protected)
 	if readErr != nil || string(data) != "original" {
 		t.Fatalf("protected source changed: %q, %v", data, readErr)
+	}
+}
+
+func TestIsolationCleanupRemovesReadOnlyDirectories(t *testing.T) {
+	root := t.TempDir()
+	workspacePath := filepath.Join(root, "workspace")
+	cachePath := filepath.Join(workspacePath, "cache", "module")
+	if err := os.MkdirAll(cachePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cachePath, "source.go"), []byte("package module\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(cachePath, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	cleanup := (IsolationWorkspace{Path: workspacePath}).Cleanup()
+	if !cleanup.Complete {
+		t.Fatalf("cleanup = %+v", cleanup)
 	}
 }

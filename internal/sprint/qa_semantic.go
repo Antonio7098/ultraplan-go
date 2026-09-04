@@ -30,6 +30,8 @@ type qaSemanticMapperOutput struct {
 	Shards        []qaSemanticShardProposal `json:"shards"`
 }
 
+const qaSemanticMapperOutputContract = `Return only schema_version and shards. Each shard may contain only kind, title, changed_paths, context_paths, overlap_paths, boundary_reason, behavioral_concerns, expectation_refs, and context_block_ids. Omit id, fingerprint, status, attempts, checks, timestamps, and every other product-owned or fallback field; UltraPlan assigns identity and operational state.`
+
 func (s Service) refineQAMapSemantically(ctx context.Context, qaMap QAMap, target string) (QAMap, error) {
 	if qaMap.Foundation == nil || len(qaMap.Foundation.Blocks) == 0 {
 		return QAMap{}, NewQAError(QAErrorInvalidState, "semantic map", "frozen QA foundation is unavailable", nil)
@@ -48,7 +50,7 @@ func (s Service) refineQAMapSemantically(ctx context.Context, qaMap QAMap, targe
 	}
 	prefix := `# QA semantic mapper
 
-Propose behavioral QA shards from the frozen foundation and return exactly one JSON object. The supplied foundation should normally be sufficient. You may use bounded read-only repository tools when they are needed to resolve a material gap. The object has schema_version 1 and shards. Each shard has kind, title, changed_paths, context_paths, overlap_paths, boundary_reason, behavioral_concerns, expectation_refs, and context_block_ids. Primary shards must assign every changed path exactly once. Boundary shards may overlap paths but cannot own them. Cite only foundation block IDs and exact expectation IDs. Counts equal to a maximum are valid. Do not invent paths or requirements.
+Propose behavioral QA shards from the frozen foundation and return exactly one JSON object. The supplied foundation should normally be sufficient. You may use bounded read-only repository tools when they are needed to resolve a material gap. ` + qaSemanticMapperOutputContract + ` Primary shards must assign every changed path exactly once. Boundary shards may overlap paths but cannot own them. Cite only foundation block IDs and exact expectation IDs. Counts equal to a maximum are valid. Do not invent paths or requirements.
 
 Frozen QA foundation:
 ` + string(foundation) + "\n\n<<< END STABLE QA MAPPER PREFIX >>>\n"
@@ -85,22 +87,30 @@ Frozen QA foundation:
 	}
 	if result.SessionID != "" && ctx.Err() == nil {
 		repair := req
-		repair.Prompt = "Your semantic map was rejected: " + safeError(decodeErr) + ". Return only a corrected schema_version 1 JSON object. Reuse the frozen foundation and do not repeat analysis.\n"
+		repair.Prompt = "Your semantic map was rejected: " + safeError(decodeErr) + ". Return only a corrected schema_version 1 JSON object. " + qaSemanticMapperOutputContract + " Reuse the frozen foundation and do not repeat analysis.\n"
 		repair.SessionID, repair.SessionAction, repair.Cache = result.SessionID, "continue", pruntime.CacheDirective{}
 		repair.Metadata["repair_of"] = result.RunID
 		repaired, repairErr := s.startQARuntime(ctx, qaMap, repair)
-		if repairErr == nil && decodeStrictQAJSON(repaired.TerminalOutput, &output) == nil {
+		repairDecodeErr := decodeStrictQAJSON(repaired.TerminalOutput, &output)
+		if repairErr == nil && repairDecodeErr == nil {
 			if mapped, mapErr := applyQASemanticMap(qaMap, output); mapErr == nil {
 				mapped.Mapper = &QAMapperRecord{Executor: "model", Model: provider + "/" + model, PromptBytes: len(prompt) + len(repair.Prompt), PrefixBytes: len(prefix), PrefixDigest: hashBytes([]byte(prefix))}
 				return mapped, nil
+			} else {
+				repairDecodeErr = mapErr
 			}
 		}
+		decodeErr = errors.Join(decodeErr, repairErr, repairDecodeErr)
 	}
 	failure := errors.Join(runErr, decodeErr)
 	if failure == nil {
 		failure = errors.New("semantic mapper output failed strict validation")
 	}
-	return QAMap{}, NewQAError(QAErrorInvalidState, "semantic map", "semantic mapper did not produce a valid complete map", failure)
+	summary := "semantic mapper did not produce a valid complete map"
+	if reason := safeError(failure); reason != "" {
+		summary += ": " + reason
+	}
+	return QAMap{}, NewQAError(QAErrorInvalidState, "semantic map", summary, failure)
 }
 
 func applyQASemanticMap(qaMap QAMap, output qaSemanticMapperOutput) (QAMap, error) {
@@ -130,17 +140,20 @@ func applyQASemanticMap(qaMap QAMap, output qaSemanticMapperOutput) (QAMap, erro
 	primaryCount, boundaryCount := 0, 0
 	for _, proposal := range output.Shards {
 		proposal.ChangedPaths = normalizeQAStrings(proposal.ChangedPaths)
-		proposal.ContextPaths = normalizeQAStrings(proposal.ContextPaths)
-		proposal.OverlapPaths = normalizeQAStrings(proposal.OverlapPaths)
+		proposal.ContextPaths = retainQASemanticReferences(proposal.ContextPaths, availablePaths)
+		proposal.OverlapPaths = retainQASemanticReferences(proposal.OverlapPaths, availablePaths)
 		proposal.BehavioralConcerns = normalizeQAStrings(proposal.BehavioralConcerns)
-		proposal.ExpectationRefs = normalizeQAStrings(proposal.ExpectationRefs)
-		proposal.ContextBlockIDs = normalizeQAStrings(proposal.ContextBlockIDs)
+		proposal.ExpectationRefs = retainQASemanticReferences(proposal.ExpectationRefs, availableExpectations)
+		if len(proposal.ExpectationRefs) == 0 {
+			proposal.ExpectationRefs = fallbackQASemanticExpectations(qaMap.Shards, proposal)
+		}
+		proposal.ContextBlockIDs = retainQASemanticReferences(proposal.ContextBlockIDs, availableBlocks)
 		if strings.TrimSpace(proposal.Title) == "" || len(proposal.BehavioralConcerns) == 0 || len(proposal.BehavioralConcerns) > qaMap.Budgets.BehavioralConcernsPerShard || len(proposal.ExpectationRefs) == 0 || len(proposal.ContextPaths) > qaMap.Budgets.ContextPathsPerShard {
 			return QAMap{}, fmt.Errorf("semantic shard is incomplete or over budget")
 		}
 		for _, path := range append(append([]string(nil), proposal.ContextPaths...), proposal.OverlapPaths...) {
-			if validateQAPath(path) != nil || !availablePaths[path] {
-				return QAMap{}, fmt.Errorf("semantic shard invented context path %q", path)
+			if validateQAPath(path) != nil {
+				return QAMap{}, fmt.Errorf("semantic shard context path is unsafe %q", path)
 			}
 		}
 		for _, ref := range proposal.ExpectationRefs {
@@ -203,6 +216,34 @@ func applyQASemanticMap(qaMap QAMap, output qaSemanticMapperOutput) (QAMap, erro
 		qaMap.Coverage.BoundaryOverlaps = nil
 	}
 	return qaMap, ValidateQAMap(qaMap)
+}
+
+func retainQASemanticReferences(values []string, allowed map[string]bool) []string {
+	retained := make([]string, 0, len(values))
+	for _, value := range values {
+		if allowed[value] {
+			retained = append(retained, value)
+		}
+	}
+	return normalizeQAStrings(retained)
+}
+
+func fallbackQASemanticExpectations(fallback []QAShard, proposal qaSemanticShardProposal) []string {
+	paths := stringSet(append(append(append([]string(nil), proposal.ChangedPaths...), proposal.ContextPaths...), proposal.OverlapPaths...))
+	var refs []string
+	for _, shard := range fallback {
+		overlaps := false
+		for _, path := range append(append([]string(nil), shard.ChangedPaths...), shard.ContextPaths...) {
+			if paths[path] {
+				overlaps = true
+				break
+			}
+		}
+		if overlaps {
+			refs = append(refs, shard.ExpectationRefs...)
+		}
+	}
+	return normalizeQAStrings(refs)
 }
 
 func qaCompleteExpectationProjection(foundation *QAFoundation, proposal qaSemanticShardProposal) []string {

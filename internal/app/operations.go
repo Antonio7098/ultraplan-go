@@ -80,38 +80,41 @@ type OperationReconciler interface {
 type OperationKind string
 
 const (
-	OperationValidate            OperationKind = "validate"
-	OperationSprintStatus        OperationKind = "sprint-status"
-	OperationPrompt              OperationKind = "sprint-prompt"
-	OperationFlowDryRun          OperationKind = "sprint-flow-dry-run"
-	OperationFlow                OperationKind = "sprint-flow"
-	OperationStageDryRun         OperationKind = "sprint-stage-dry-run"
-	OperationStage               OperationKind = "sprint-stage"
-	OperationExecuteStatus       OperationKind = "execute-status"
-	OperationExecuteDryRun       OperationKind = "execute-dry-run"
-	OperationExecuteStart        OperationKind = "execute-start"
-	OperationExecuteResume       OperationKind = "execute-resume"
-	OperationReviewStatus        OperationKind = "review-status"
-	OperationReviewDryRun        OperationKind = "review-dry-run"
-	OperationReviewStart         OperationKind = "review-start"
-	OperationSmokeStatus         OperationKind = "smoke-status"
-	OperationSmokeDryRun         OperationKind = "smoke-dry-run"
-	OperationSmokeStart          OperationKind = "smoke-start"
-	OperationVerifyDryRun        OperationKind = "verify-dry-run"
-	OperationVerifyStart         OperationKind = "verify-start"
-	OperationQAStatus            OperationKind = "qa-status"
-	OperationQADryRun            OperationKind = "qa-dry-run"
-	OperationQAStart             OperationKind = "qa-start"
-	OperationQAResume            OperationKind = "qa-resume"
-	OperationQARecover           OperationKind = "qa-recover"
-	OperationRepairPrepare       OperationKind = "repair-prepare"
-	OperationRepairStart         OperationKind = "repair-start"
-	OperationRepairResume        OperationKind = "repair-resume"
-	OperationRepairRecover       OperationKind = "repair-recover"
-	OperationRepairCampaignStart OperationKind = "repair-campaign-start"
-	OperationStudyStart          OperationKind = "study-start"
-	OperationStudyResume         OperationKind = "study-resume"
-	OperationStudyCancel         OperationKind = "study-cancel"
+	OperationValidate                 OperationKind = "validate"
+	OperationProjectReasoningValidate OperationKind = "project-reasoning-validate"
+	OperationProjectReasoningPrompt   OperationKind = "project-reasoning-prompt"
+	OperationProjectReasoningFlow     OperationKind = "project-reasoning-flow"
+	OperationSprintStatus             OperationKind = "sprint-status"
+	OperationPrompt                   OperationKind = "sprint-prompt"
+	OperationFlowDryRun               OperationKind = "sprint-flow-dry-run"
+	OperationFlow                     OperationKind = "sprint-flow"
+	OperationStageDryRun              OperationKind = "sprint-stage-dry-run"
+	OperationStage                    OperationKind = "sprint-stage"
+	OperationExecuteStatus            OperationKind = "execute-status"
+	OperationExecuteDryRun            OperationKind = "execute-dry-run"
+	OperationExecuteStart             OperationKind = "execute-start"
+	OperationExecuteResume            OperationKind = "execute-resume"
+	OperationReviewStatus             OperationKind = "review-status"
+	OperationReviewDryRun             OperationKind = "review-dry-run"
+	OperationReviewStart              OperationKind = "review-start"
+	OperationSmokeStatus              OperationKind = "smoke-status"
+	OperationSmokeDryRun              OperationKind = "smoke-dry-run"
+	OperationSmokeStart               OperationKind = "smoke-start"
+	OperationVerifyDryRun             OperationKind = "verify-dry-run"
+	OperationVerifyStart              OperationKind = "verify-start"
+	OperationQAStatus                 OperationKind = "qa-status"
+	OperationQADryRun                 OperationKind = "qa-dry-run"
+	OperationQAStart                  OperationKind = "qa-start"
+	OperationQAResume                 OperationKind = "qa-resume"
+	OperationQARecover                OperationKind = "qa-recover"
+	OperationRepairPrepare            OperationKind = "repair-prepare"
+	OperationRepairStart              OperationKind = "repair-start"
+	OperationRepairResume             OperationKind = "repair-resume"
+	OperationRepairRecover            OperationKind = "repair-recover"
+	OperationRepairCampaignStart      OperationKind = "repair-campaign-start"
+	OperationStudyStart               OperationKind = "study-start"
+	OperationStudyResume              OperationKind = "study-resume"
+	OperationStudyCancel              OperationKind = "study-cancel"
 )
 
 type OperationState string
@@ -252,7 +255,7 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	}
 	c := Confirmation{Request: req, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study), Permission: "workspace policy enforced"}
 	switch req.Kind {
-	case OperationValidate, OperationPrompt, OperationFlowDryRun, OperationStageDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus, OperationSmokeStatus, OperationQAStatus:
+	case OperationValidate, OperationProjectReasoningValidate, OperationProjectReasoningPrompt, OperationPrompt, OperationFlowDryRun, OperationStageDryRun, OperationExecuteDryRun, OperationExecuteStatus, OperationReviewDryRun, OperationReviewStatus, OperationSmokeStatus, OperationQAStatus:
 		c.Scope = []string{req.Stage}
 		c.Warning = "runtime-free; no runtime-backed writes"
 	case OperationQADryRun:
@@ -347,6 +350,11 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Mutates = true
 		c.Scope = []string{"all sprint stages", "execute and Conformance Review state"}
 		c.Warning = "RUNTIME-FREE; MAY REFRESH FLOW-STATE.JSON"
+	case OperationProjectReasoningFlow:
+		c.Runtime = true
+		c.Mutates = true
+		c.Scope = []string{"project reasoning stages through " + req.Stage, "fresh stages resume without rerunning"}
+		c.Warning = "RUNTIME + PROJECT REASONING ARTIFACT WRITE"
 	case OperationFlow:
 		c.Runtime = true
 		c.Mutates = true
@@ -420,7 +428,11 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 	}
 	if c.Mutates {
 		if req.Project != "" {
-			c.MutationClass = "sprint_mutation"
+			if req.Sprint == "" {
+				c.MutationClass = "project_mutation"
+			} else {
+				c.MutationClass = "sprint_mutation"
+			}
 		} else {
 			c.MutationClass = "study_mutation"
 		}
@@ -544,6 +556,22 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 	result := OperationResult{State: OperationComplete, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study)}
 	stage := sprint.PlanningStage(req.Stage)
 	switch req.Kind {
+	case OperationProjectReasoningValidate:
+		status, findings, err := project.NewService(u.root).ValidateReasoning(req.Project)
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Message = fmt.Sprintf("accepted=%t fresh=%t verdict=%s", status.Accepted, status.Fresh, status.Verdict)
+		for _, finding := range findings {
+			result.Findings = append(result.Findings, DisplayFinding{Severity: string(finding.Severity), Section: string(finding.Section), Problem: finding.Problem, Cause: finding.Cause, Suggestion: finding.Suggestion})
+		}
+	case OperationProjectReasoningPrompt:
+		prompt, err := project.NewService(u.root).ReasoningPrompt(req.Project, project.ProjectReasoningStage(req.Stage))
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Content, result.Truncated = boundContent(prompt)
+		result.Message = "project reasoning prompt for " + req.Stage
 	case OperationValidate:
 		validationReq := ValidationRequest{Project: req.Project, Sprint: req.Sprint, Study: req.Study, Stage: req.Stage}
 		switch {
@@ -800,6 +828,15 @@ func operationRuntimeIdentity(req OperationRequest, stages map[sprint.PlanningSt
 func governedOperationInputs(req OperationRequest) []string {
 	if req.Project != "" {
 		base := filepath.ToSlash(filepath.Join("projects", req.Project))
+		if req.Kind == OperationProjectReasoningValidate || req.Kind == OperationProjectReasoningPrompt || req.Kind == OperationProjectReasoningFlow {
+			return []string{
+				"ultraplan.yml",
+				filepath.ToSlash(filepath.Join(base, "project-index.md")),
+				filepath.ToSlash(filepath.Join(base, "roadmap.md")),
+				filepath.ToSlash(filepath.Join(base, "docs")),
+				filepath.ToSlash(filepath.Join(base, "project-reasoning")),
+			}
+		}
 		inputs := []string{
 			filepath.ToSlash(filepath.Join(base, "project-index.md")),
 			filepath.ToSlash(filepath.Join(base, "roadmap.md")),

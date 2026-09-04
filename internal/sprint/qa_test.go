@@ -486,6 +486,22 @@ func TestQAInvestigationOutputIsStrictAndBounded(t *testing.T) {
 	}
 }
 
+func TestQAInvestigatorDraftValidationTriggersOutputRepair(t *testing.T) {
+	output := qaInvestigatorOutput{SchemaVersion: QASchemaVersion, Theories: []qaInvestigatorTheory{{
+		Claim: "claim", Basis: "basis", VerificationSurface: "a.go", ExpectationRefs: []string{"REQ-1"},
+		SeverityIfConfirmed: "high", ConfirmationCondition: "fails", RefutationCondition: "passes",
+		SafeEvidenceStrategy: "run a focused test", Outcome: QATheoryInconclusive, OutcomeReason: "missing evidence",
+	}}, Evidence: []QAEvidenceSummary{}, Context: []QAContextRequest{}, Checks: []QAApprovedCheckRef{}}
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = validateQAInvestigatorRuntimeOutput(pruntime.Result{TerminalOutput: string(data)}, DefaultQABudgets())
+	if err == nil || !strings.Contains(err.Error(), "inconclusive_condition is required") {
+		t.Fatalf("draft validation error = %v", err)
+	}
+}
+
 func TestApproveQAContextPathsRequiresContainedRegularFiles(t *testing.T) {
 	target := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(target, "internal", "web"), 0o755); err != nil {

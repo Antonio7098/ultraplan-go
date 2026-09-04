@@ -79,7 +79,7 @@ func AdjudicateQA(req QAAdjudicationRequest) (QAAdjudication, error) {
 			rejected = append(rejected, rejectEvidence(record.ID, "evidence_invalid", err.Error()))
 			continue
 		}
-		if record.Outcome == QAEvidenceBlocked {
+		if record.Outcome == QAEvidenceBlocked || record.Outcome == QAEvidenceInconclusive {
 			rejected = append(rejected, rejectEvidence(record.ID, "evidence_blocked", "the evidence attempt did not complete"))
 			continue
 		}

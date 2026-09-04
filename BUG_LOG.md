@@ -8,6 +8,114 @@ No open product bugs were identified by the two campaigns covered here.
 
 ## Fixed bugs
 
+### BUG-030: Merge descriptions could contradict the non-fast-forward policy
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Governed sprint merge
+- Symptom: A successful `ultraplan sprint ... merge --yes` created the correct two-parent merge commit, but the model-authored verification text called the relationship a "clean fast-forward."
+- Resolution: The merge-description contract now states that UltraPlan always creates a non-fast-forward two-parent commit. Validation rejects claims that the target is fast-forwarded while accepting accurate `non-fast-forward` wording.
+- Verification: `TestValidateMergeDescriptionRejectsFastForwardClaim`; the original contradictory description remains in the live command evidence.
+
+### BUG-029: Pre-apply repair results always reported cleanup as incomplete
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Repair terminal publication
+- Symptom: A rejected isolated proposal could remove its workspace successfully but still publish `cleanup_complete: false`.
+- Resolution: Every pre-apply terminal path now passes the observed workspace and parent cleanup result into terminal publication.
+- Verification: Focused repair tests pass, and the successful live promotion records complete cycle cleanup.
+
+### BUG-028: Repair-check cleanup could not remove Go's read-only module cache
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Repair verification isolation
+- Symptom: The exact reproducer passed, but cleanup failed with `permission denied` on a read-only module-cache directory, so the repair correctly stopped before apply.
+- Resolution: Repair runtime cleanup makes cache directories owner-writable before removal, matching the main isolation cleanup contract.
+- Verification: `TestRepairCheckEnvironmentProvidesPrivateGoRuntimeAndCleansIt` covers a read-only module tree. The next live repair passed cleanup.
+
+### BUG-027: Repair checks omitted the private Go runtime environment
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Repair verification
+- Symptom: A valid proposed fix failed with `module cache not found: neither GOMODCACHE nor GOPATH is set` because frozen checks passed only `PATH`.
+- Resolution: Provisional checks, post-apply checks, and immutable reproducer reruns now receive private `HOME`, `GOCACHE`, `GOPATH`, `GOTMPDIR`, and `TMPDIR` directories outside the checked target.
+- Verification: The live promotion's provisional and post-apply Go checks passed without changing target identity.
+
+### BUG-026: Repair packets dropped the investigator test working directory
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Evidence and repair checks
+- Symptom: The immutable spec required `internal/sprint`, but the repair packet ran `go test .` at the repository root.
+- Resolution: Evidence plans now retain `working_directory`, repair checks copy it, and legacy authored bundles recover it from the approved test path.
+- Verification: `TestFreezeRepairChecksPreservesAndRecoversWorkingDirectory`; live packet `repair-v1-run-d04767998970569ffa6c0af0` retained `workdir: internal/sprint`.
+
+### BUG-025: Reconciled issue identity could sever authored-test coverage
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: QA promotion and repair packets
+- Symptom: Title or location reconciliation prevented an authored bundle from reaching the promoted issue, and missing regression coverage could be silently omitted from a repair packet.
+- Resolution: Coverage follows immutable evidence identity. Repair preparation can recover bundle and spec ownership from persisted evidence, and packet validation rejects a regression candidate without signed coverage.
+- Verification: Multi-theory coverage and regression-packet validation tests; the live packet contains the theory, evidence, bundle, spec, and primary reproducer.
+
+### BUG-024: Failed durable operations blocked a corrected retry
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Durable operation admission
+- Symptom: Repeating the same repair preparation after fixing a mechanism defect deduplicated to the terminal failed operation instead of creating a retry.
+- Resolution: Failed and cancelled aliases now receive bounded deterministic retry aliases. Active and successful operations still deduplicate.
+- Verification: `TestDurableOperationDeduplicatesAcrossManagersAndFailsClosed`; repeated live repair preparations produced new run identities.
+
+### BUG-023: Authored-test issues lacked production repair authority
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Repair admission
+- Symptom: The issue location named the private `_test.go` file, so the packet omitted the production file needed to repair the reproduced defect.
+- Resolution: For investigator-authored test issues, production authority comes from the immutable originating shard's changed paths.
+- Verification: `TestRepairAllowedPathsUsesImmutableShardForAuthoredTestIssue`; the live packet allowed both the test and `internal/sprint/qa_repair_state.go`.
+
+### BUG-022: Exact-session evidence continuation and blocked QA repair admission failed
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: QA continuation and repair admission
+- Symptom: Arbiter continuation validated against the wrong current runtime store, and a current blocked assessment prevented an individually eligible promoted issue from reaching repair.
+- Resolution: Arbiter continuation restores the retained store before identity validation. Repair admission now evaluates eligible issues from a current blocked assessment while still rejecting stale and incomplete QA.
+- Verification: `TestEvidenceReturnRestoresRetainedArbiterStoreBeforeIdentityValidation`, `TestRepairAdmissionAllowsEligibleIssueFromBlockedCurrentQA`, and the completed live promotion.
+
+### BUG-021: Nested and parallel smoke processes collided on the tsx IPC socket
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Repair reverification and external smoke harness
+- Symptom: A repaired target passed every scoped gate, but containing smoke failed with `EADDRINUSE` during discovery or exited before producing run evidence. Concurrent or nested `tsx` processes inherited one `TMPDIR` and selected the same IPC socket.
+- Resolution: UltraPlan now gives each smoke invocation a private temporary directory and cleans it after discovery and execution. The harness protocol now launches its nested TypeScript CLI through `node --import tsx`, which does not start a second competing tsx IPC server.
+- Verification: The retained final repair run passed `containing_smoke` in 10,460 ms and ended `verified` with complete cleanup.
+
+### BUG-020: Dogfood fixture promoted already-fixed defects
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: QA dogfood fixture
+- Symptom: Rebuilding the repair fixture after one successful repair recreated an issue for the healthy file, so the repair model correctly produced no diff and the campaign failed.
+- Resolution: The persistent external fixture generator reads each target file and creates evidence and candidates only for defects that still reproduce. The fixture tool lives outside the target so it cannot change the target fingerprint.
+- Verification: The filtered fixture created exactly one beta issue after alpha was healthy; the resulting one-issue campaign completed.
+
+### BUG-019: Authored-test and evidence continuation state could not reliably reach promotion
+
+- Found: 2026-09-02 through 2026-09-04
+- Status: Fixed
+- Area: Evidence-producing QA
+- Symptom: Live runs exposed unstable plan timestamps, incomplete resume hydration, invented mapper references, weak investigator draft validation, stale evidence-request projections, over-broad re-arbitration, and a failure classifier that matched prose instead of the test marker.
+- Resolution: Stabilized frozen plans; validated authored-test drafts; persisted and reloaded bundles, attempts, runs, requests, and arbiter rounds; constrained semantic references; refreshed only affected arbiter groups; and classified failures using the test name plus deterministic output marker. Recovery now tolerates and clears broken optional artifact references.
+- Verification: The retained authored test reproduced invalid UTF-8 acceptance as `predicted_failure_reproduced`, promoted issue `qa-v2-issue-6461fb6e2f79834be178c8a5`, and the production regression passes after the UTF-8 guard was added.
+
 ### BUG-018: Ignored fixture binary blocked evidence admission
 
 - Found: 2026-09-02

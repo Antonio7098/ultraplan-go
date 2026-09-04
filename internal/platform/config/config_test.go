@@ -266,7 +266,7 @@ func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(QAConfigFields()) != 70 {
+	if len(QAConfigFields()) != 78 {
 		t.Fatalf("QA field count = %d", len(QAConfigFields()))
 	}
 	for _, field := range QAConfigFields() {
@@ -309,6 +309,14 @@ func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
 		"progress":                func(q *QA) { q.RecentProgress = 201 },
 		"retention":               func(q *QA) { q.RetainedAttempts = 9 },
 		"state":                   func(q *QA) { q.StateBytes = (128 << 20) + 1 },
+		"evidence rounds":         func(q *QA) { q.EvidenceRoundsPerShard = 5 },
+		"tests per theory":        func(q *QA) { q.TestsPerTheory = 5 },
+		"tests per issue":         func(q *QA) { q.TestsPerIssue = 17 },
+		"authored test files":     func(q *QA) { q.AuthoredTestFiles = 17 },
+		"authored test bytes":     func(q *QA) { q.AuthoredTestBytes = (1 << 20) + 1 },
+		"test commands":           func(q *QA) { q.TestCommandsPerRound = 9 },
+		"authoring turns":         func(q *QA) { q.AuthoringRuntimeTurns = 9 },
+		"authoring wall time":     func(q *QA) { q.AuthoringWallTime = "21m" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			config := Defaults()

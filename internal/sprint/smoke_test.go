@@ -33,10 +33,12 @@ type smokeRecordingRunner struct {
 	run       smokeRunResponse
 	malformed bool
 	calls     [][]string
+	envs      [][]string
 }
 
 func (r *smokeRecordingRunner) Run(_ context.Context, req pprocess.Request) (pprocess.Result, error) {
 	r.calls = append(r.calls, append([]string{req.Executable}, req.Args...))
+	r.envs = append(r.envs, append([]string(nil), req.Env...))
 	result := pprocess.Result{ExitCode: 0, CleanupComplete: true, StartedAt: time.Now(), FinishedAt: time.Now()}
 	if r.malformed {
 		result.Stdout = "not-json"
@@ -364,6 +366,21 @@ Complete alpha.
 	if err != nil || result.Verdict != SmokePass || len(runner.calls) != 2 {
 		t.Fatalf("result=%+v calls=%v err=%v", result, runner.calls, err)
 	}
+	var smokeTemp string
+	for _, item := range runner.envs[0] {
+		if strings.HasPrefix(item, "TMPDIR=") {
+			smokeTemp = strings.TrimPrefix(item, "TMPDIR=")
+		}
+	}
+	if smokeTemp == "" || smokeTemp == os.Getenv("TMPDIR") {
+		t.Fatalf("smoke subprocess did not receive an isolated TMPDIR: %q", smokeTemp)
+	}
+	if runnerTemp := envValue(runner.envs[1], "TMPDIR"); runnerTemp != smokeTemp {
+		t.Fatalf("discovery and run used different TMPDIR values: %q != %q", smokeTemp, runnerTemp)
+	}
+	if _, statErr := os.Stat(smokeTemp); !os.IsNotExist(statErr) {
+		t.Fatalf("isolated smoke TMPDIR was not cleaned up: %v", statErr)
+	}
 	qaResult, err := service.RunQA(context.Background(), "proj", "01", QARunRequest{Suite: "smoke", WriterToken: QAWriterToken{RunID: "run-qa", OperationalAttemptID: "attempt-qa", FencingGeneration: 1}})
 	if err != nil || qaResult.Smoke == nil {
 		t.Fatalf("QA smoke result=%+v err=%v", qaResult, err)
@@ -501,6 +518,16 @@ Complete alpha.
 	if stateErr != nil || state.Smoke.LastComplete == nil || state.Smoke.LastComplete.Verdict != SmokePass || state.Smoke.LastAttempt == nil || state.Smoke.LastAttempt.Status != AttemptFailed {
 		t.Fatalf("failed attempt did not preserve last complete smoke: state=%+v err=%v", state.Smoke, stateErr)
 	}
+}
+
+func envValue(env []string, name string) string {
+	prefix := name + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	return ""
 }
 
 func TestSmokeManifestRejectsUnsupportedAndUnsafeValues(t *testing.T) {

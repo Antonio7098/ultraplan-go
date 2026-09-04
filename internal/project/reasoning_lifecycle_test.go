@@ -99,6 +99,9 @@ func TestAreaFlowDirectlyInjectsAssignedStudyReport(t *testing.T) {
 	if len(rt.prompts) != 2 {
 		t.Fatalf("runtime prompts=%d", len(rt.prompts))
 	}
+	if result.Status.CurrentStage != ProjectFinalReasoning {
+		t.Fatalf("current stage = %q, want %q", result.Status.CurrentStage, ProjectFinalReasoning)
+	}
 	prompt := rt.prompts[1]
 	for _, want := range []string{"Kind: assigned-evidence", "Unique study report body", "Relevant questions: Which owner commits state?", "Why assigned: Direct lifecycle evidence"} {
 		if !strings.Contains(prompt, want) {

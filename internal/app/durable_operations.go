@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -110,15 +112,27 @@ func (m *durableOperationManager) AcceptOperation(ctx context.Context, confirmat
 		Kind: "operation", Operation: string(req.Kind), Project: req.Project, Sprint: req.Sprint,
 		Study: req.Study, Stage: req.Stage, Task: req.Task,
 	}
-	snapshot, err := m.repository.Accept(ctx, runcontrol.Acceptance{
-		Target: target, ProductStatus: "prepared", OperationAlias: digest, ConfirmationDigest: digest,
-	})
-	if err != nil && digest != "" && errors.Is(err, runcontrol.ErrConflict) {
-		existing, resolveErr := m.repository.ResolveOperationAlias(ctx, digest)
+	alias := digest
+	var snapshot runcontrol.Snapshot
+	var err error
+	for retries := 0; ; retries++ {
+		snapshot, err = m.repository.Accept(ctx, runcontrol.Acceptance{
+			Target: target, ProductStatus: "prepared", OperationAlias: alias, ConfirmationDigest: digest,
+		})
+		if err == nil || digest == "" || !errors.Is(err, runcontrol.ErrConflict) {
+			break
+		}
+		existing, resolveErr := m.repository.ResolveOperationAlias(ctx, alias)
 		if resolveErr != nil {
 			return AcceptedOperation{}, errors.Join(err, resolveErr)
 		}
-		return AcceptedOperation{RunID: string(existing.RunID), Context: ctx, Existing: true, Lifecycle: string(existing.Lifecycle)}, nil
+		if existing.Lifecycle.IsActive() || existing.Lifecycle == runcontrol.LifecycleSucceeded {
+			return AcceptedOperation{RunID: string(existing.RunID), Context: ctx, Existing: true, Lifecycle: string(existing.Lifecycle)}, nil
+		}
+		if retries >= 31 {
+			return AcceptedOperation{}, fmt.Errorf("operation retry chain exceeded its bound")
+		}
+		alias = durableOperationRetryAlias(alias, existing.RunID)
 	}
 	if err != nil {
 		return AcceptedOperation{}, fmt.Errorf("persist confirmed operation acceptance: %w", err)
@@ -135,6 +149,11 @@ func (m *durableOperationManager) AcceptOperation(ctx context.Context, confirmat
 	m.owned[string(snapshot.RunID)] = owned
 	m.mu.Unlock()
 	return AcceptedOperation{RunID: string(snapshot.RunID), Context: operationCtx, Lifecycle: "claimed"}, nil
+}
+
+func durableOperationRetryAlias(previous string, runID runcontrol.RunID) string {
+	sum := sha256.Sum256([]byte(previous + "\x00" + string(runID)))
+	return "retry-" + hex.EncodeToString(sum[:])
 }
 
 // DispatchOperation is the explicit hand-off from immutable confirmation to

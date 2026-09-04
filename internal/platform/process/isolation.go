@@ -257,6 +257,10 @@ func (w IsolationWorkspace) Cleanup() CleanupResult {
 		result.Error = "workspace path is empty"
 		return result
 	}
+	if err := makeIsolationDirectoriesWritable(w.Path); err != nil {
+		result.Error = err.Error()
+		return result
+	}
 	if err := os.RemoveAll(w.Path); err != nil {
 		result.Error = err.Error()
 		return result
@@ -271,6 +275,20 @@ func (w IsolationWorkspace) Cleanup() CleanupResult {
 	}
 	result.Complete = true
 	return result
+}
+
+func makeIsolationDirectoriesWritable(root string) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if err := os.Chmod(path, 0o700); err != nil {
+				return fmt.Errorf("make isolation directory removable: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 func validateIsolationRequest(req IsolationRequest) error {

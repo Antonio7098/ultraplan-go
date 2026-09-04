@@ -121,6 +121,28 @@ func TestWebOperationCodeContextUsesGenericStageAndGovernedFingerprint(t *testin
 	}
 }
 
+func TestProjectReasoningOperationPreparationUsesProjectScope(t *testing.T) {
+	root := t.TempDir()
+	projectRoot := filepath.Join(root, "projects", "alpha")
+	if err := os.MkdirAll(filepath.Join(projectRoot, "project-reasoning"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "project-index.md"), []byte("# Project index\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u := dashboardUseCases{root: root}
+	prepared, err := u.PrepareOperation(context.Background(), OperationRequest{Kind: OperationProjectReasoningFlow, Project: "alpha", Stage: "review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prepared.Runtime || !prepared.Mutates || prepared.MutationClass != "project_mutation" || prepared.DurableRefreshPath != "/api/v1/projects/alpha" {
+		t.Fatalf("project reasoning preparation = %+v", prepared)
+	}
+	if !reflect.DeepEqual(prepared.Paths, []string{"projects/alpha"}) || prepared.Request.Sprint != "" {
+		t.Fatalf("project reasoning scope = %+v", prepared)
+	}
+}
+
 func TestWebCleanupUncertaintyDelegatesToStudyOwner(t *testing.T) {
 	root := t.TempDir()
 	studyRoot := filepath.Join(root, "studies", "demo")

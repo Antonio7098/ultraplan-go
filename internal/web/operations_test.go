@@ -595,6 +595,26 @@ func TestSingleStageOperationMapping(t *testing.T) {
 	}
 }
 
+func TestProjectReasoningOperationMapping(t *testing.T) {
+	for _, tc := range []struct {
+		kind  string
+		stage string
+		want  app.OperationKind
+	}{
+		{kind: "project-reasoning-validate", want: app.OperationProjectReasoningValidate},
+		{kind: "project-reasoning-prompt", stage: "area-reasoning", want: app.OperationProjectReasoningPrompt},
+		{kind: "project-reasoning-flow", stage: "review", want: app.OperationProjectReasoningFlow},
+	} {
+		req, err := mapOperationRequest(operationSpecRequest{Kind: tc.kind, Scope: operationScopeRequest{Project: "alpha"}, Options: operationOptionsRequest{ToStage: tc.stage}})
+		if err != nil || req.Kind != tc.want || req.Stage != tc.stage || req.Sprint != "" {
+			t.Fatalf("kind=%s req=%+v err=%v", tc.kind, req, err)
+		}
+	}
+	if _, err := mapOperationRequest(operationSpecRequest{Kind: "project-reasoning-flow", Scope: operationScopeRequest{Project: "alpha"}, Options: operationOptionsRequest{ToStage: "merge"}}); err == nil {
+		t.Fatal("invalid project reasoning stage was accepted")
+	}
+}
+
 func operationTestHandler(t *testing.T, operations app.WebOperations) http.Handler {
 	t.Helper()
 	h, err := NewHandler(HandlerOptions{

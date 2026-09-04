@@ -633,6 +633,12 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 	switch kind {
 	case "validation", "validate":
 		req.Kind = app.OperationValidate
+	case "project-reasoning-validate":
+		req.Kind = app.OperationProjectReasoningValidate
+	case "project-reasoning-prompt":
+		req.Kind = app.OperationProjectReasoningPrompt
+	case "project-reasoning-flow":
+		req.Kind = app.OperationProjectReasoningFlow
 	case "sprint-status":
 		req.Kind = app.OperationSprintStatus
 	case "prompt-preview", "sprint-prompt":
@@ -749,6 +755,13 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 		}
 	} else if req.Project == "" {
 		return app.OperationRequest{}, fmt.Errorf("project operations require scope.project")
+	} else if req.Kind == app.OperationProjectReasoningValidate || req.Kind == app.OperationProjectReasoningPrompt || req.Kind == app.OperationProjectReasoningFlow {
+		if req.Sprint != "" || req.Study != "" {
+			return app.OperationRequest{}, fmt.Errorf("project reasoning operations require only scope.project")
+		}
+		if req.Kind != app.OperationProjectReasoningValidate && req.Stage != "index" && req.Stage != "area-reasoning" && req.Stage != "reasoning" && req.Stage != "review" {
+			return app.OperationRequest{}, fmt.Errorf("project reasoning stage is invalid")
+		}
 	} else if req.Sprint == "" {
 		return app.OperationRequest{}, fmt.Errorf("sprint operations require scope.sprint")
 	}

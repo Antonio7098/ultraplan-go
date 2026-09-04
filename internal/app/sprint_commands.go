@@ -456,6 +456,9 @@ func runSprint(deps dependencies, args []string) error {
 		if parseErr != nil {
 			return classified(ExitUsage, "sprint.qa: %w", parseErr)
 		}
+		if strings.HasPrefix(qaCommand.Action, "evidence-") {
+			return runSprintQAEvidenceCommand(deps, root, qaService, qa, args[0], args[1], qaCommand)
+		}
 		operationStatus := "ok"
 		var qaResult QAResult
 		var runErr error
@@ -695,13 +698,27 @@ type sprintQACommand struct {
 	Shard  string
 	RunID  string
 	Suite  string
+	TestID string
+	Target string
 	Yes    bool
 	JSON   bool
 }
 
 func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 	command := sprintQACommand{Action: "run"}
-	if len(args) > 0 {
+	if len(args) > 0 && args[0] == "evidence" {
+		if len(args) < 2 {
+			return command, errors.New("qa evidence requires tests, inspect, or rerun")
+		}
+		switch args[1] {
+		case "tests", "inspect", "rerun":
+			command.Action = "evidence-" + args[1]
+			args = args[2:]
+		default:
+			return command, fmt.Errorf("unknown QA evidence action %q", args[1])
+		}
+	}
+	if command.Action == "run" && len(args) > 0 {
 		switch args[0] {
 		case "status", "resume", "cancel", "recover":
 			command.Action = args[0]
@@ -736,6 +753,18 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 				return command, errors.New("--suite requires smoke")
 			}
 			command.Suite = args[i+1]
+			i++
+		case "--test":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return command, errors.New("--test requires an immutable test bundle ID")
+			}
+			command.TestID = args[i+1]
+			i++
+		case "--target":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return command, errors.New("--target requires current")
+			}
+			command.Target = args[i+1]
 			i++
 		default:
 			return command, fmt.Errorf("unknown QA argument %q", args[i])
@@ -776,8 +805,70 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 		if command.Shard != "" || command.RunID != "" || command.Suite != "" || command.Yes {
 			return command, fmt.Errorf("qa %s does not accept --shard, --run, --suite, or --yes", command.Action)
 		}
+	case "evidence-tests":
+		if command.TestID != "" || command.Target != "" || command.Shard != "" || command.RunID != "" || command.Suite != "" || command.Yes {
+			return command, errors.New("qa evidence tests accepts only --json")
+		}
+	case "evidence-inspect":
+		if command.TestID == "" || command.Target != "" || command.Shard != "" || command.RunID != "" || command.Suite != "" || command.Yes {
+			return command, errors.New("qa evidence inspect requires only --test")
+		}
+	case "evidence-rerun":
+		if command.TestID == "" || command.Target != "current" || command.Shard != "" || command.RunID != "" || command.Suite != "" || command.Yes {
+			return command, errors.New("qa evidence rerun requires --test and --target current")
+		}
 	}
 	return command, nil
+}
+
+func runSprintQAEvidenceCommand(deps dependencies, root workspace.Root, service sprint.Service, settings sprint.QASettings, project, sprintSlug string, command sprintQACommand) error {
+	var result any
+	var err error
+	switch command.Action {
+	case "evidence-tests":
+		result, err = service.QATests(project, sprintSlug)
+	case "evidence-inspect":
+		result, err = service.QAInspectTest(project, sprintSlug, command.TestID)
+	case "evidence-rerun":
+		durable, beginErr := beginDurableCLICommand(deps, OperationRequest{Kind: OperationQAStart, Project: project, Sprint: sprintSlug, Stage: "qa", Task: command.TestID})
+		if beginErr != nil {
+			err = beginErr
+			break
+		}
+		token, fence, tokenErr := durable.QAWriterToken()
+		if tokenErr != nil {
+			err = finishDurableCLICommand(durable, tokenErr)
+			break
+		}
+		runtimeService, serviceErr := sprintRuntimeService(deps, root)
+		if serviceErr != nil {
+			err = finishDurableCLICommand(durable, serviceErr)
+			break
+		}
+		runtimeService = runtimeService.WithQASettings(settings).WithQAWriterFence(fence)
+		var run sprint.QAReproductionRun
+		run, err = runtimeService.RerunQATest(durable.Context(), project, sprintSlug, command.TestID, token)
+		err = finishDurableCLICommand(durable, err)
+		result = run
+	}
+	status := "ok"
+	if err != nil {
+		status = "failed"
+	}
+	if command.JSON {
+		payload := map[string]any{"schema_version": 1, "operation": "sprint.qa.evidence", "status": status, "result": result}
+		if err != nil {
+			payload["error"] = stableQACommandError(mapQACommandError(err), err, QAResult{Project: project, Sprint: sprintSlug})
+		}
+		_ = json.NewEncoder(deps.stdout).Encode(payload)
+	} else if err == nil {
+		data, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Fprintln(deps.stdout, string(data))
+	}
+	if err != nil {
+		return mapQACommandError(err)
+	}
+	return nil
 }
 
 type sprintRepairCommand struct {
@@ -1353,6 +1444,10 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 	if err != nil {
 		return sprint.QASettings{}, err
 	}
+	authoringWallTime, err := parseDuration("qa.authoring_wall_time", c.AuthoringWallTime)
+	if err != nil {
+		return sprint.QASettings{}, err
+	}
 	sources := make([]sprint.QAEffectiveSource, 0, len(config.QAConfigFields()))
 	for _, field := range config.QAConfigFields() {
 		source := effective.Sources[field]
@@ -1379,6 +1474,9 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 		CleanupTimeout: cleanupTimeout, CommandOutputBytes: c.CommandOutputBytes,
 		ShardOutputBytes: c.ShardOutputBytes, PromptBytes: c.PromptBytes,
 		RecentProgress: c.RecentProgress, RetainedAttempts: c.RetainedAttempts, StateBytes: c.StateBytes,
+		EvidenceRoundsPerShard: c.EvidenceRoundsPerShard, TestsPerTheory: c.TestsPerTheory, TestsPerIssue: c.TestsPerIssue,
+		AuthoredTestFiles: c.AuthoredTestFiles, AuthoredTestBytes: c.AuthoredTestBytes, TestCommandsPerRound: c.TestCommandsPerRound,
+		AuthoringRuntimeTurns: c.AuthoringRuntimeTurns, AuthoringWallTime: authoringWallTime,
 	}
 	budgets.ChangedPaths, budgets.PrimaryShards, budgets.BoundaryShards = configured.ChangedPaths, configured.PrimaryShards, configured.BoundaryShards
 	budgets.FollowUpShards, budgets.TotalShards, budgets.PendingEntries = configured.FollowUpShards, configured.TotalShards, configured.PendingEntries
@@ -1391,6 +1489,9 @@ func qaSettings(effective config.Effective) (sprint.QASettings, error) {
 	budgets.CommandTimeout, budgets.ShardTimeout, budgets.RunTimeout, budgets.CleanupTimeout = configured.CommandTimeout, configured.ShardTimeout, configured.RunTimeout, configured.CleanupTimeout
 	budgets.CommandOutputBytes, budgets.ShardOutputBytes, budgets.PromptBytes = configured.CommandOutputBytes, configured.ShardOutputBytes, configured.PromptBytes
 	budgets.RecentProgress, budgets.RetainedAttempts, budgets.StateBytes = configured.RecentProgress, configured.RetainedAttempts, configured.StateBytes
+	budgets.EvidenceRoundsPerShard, budgets.TestsPerTheory, budgets.TestsPerIssue = configured.EvidenceRoundsPerShard, configured.TestsPerTheory, configured.TestsPerIssue
+	budgets.AuthoredTestFiles, budgets.AuthoredTestBytes, budgets.TestCommandsPerRound = configured.AuthoredTestFiles, configured.AuthoredTestBytes, configured.TestCommandsPerRound
+	budgets.AuthoringRuntimeTurns, budgets.AuthoringWallTime = configured.AuthoringRuntimeTurns, configured.AuthoringWallTime
 	budgets.TreeFiles, budgets.TreeBytes, budgets.FileBytes = c.TreeFiles, int64(c.TreeBytes), int64(c.FileBytes)
 	budgets.GeneratedChecks, budgets.GeneratedPatchBytes = c.GeneratedChecks, c.GeneratedPatchBytes
 	budgets.EvidenceRecords, budgets.Issues = c.EvidenceRecords, c.Issues
@@ -2278,6 +2379,9 @@ Usage:
   ultraplan sprint <project> <sprint> qa [--dry-run] [--shard <map-owned-id>|--suite smoke] [--json]
   ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
   ultraplan sprint <project> <sprint> qa status [--json]
+  ultraplan sprint <project> <sprint> qa evidence tests [--json]
+  ultraplan sprint <project> <sprint> qa evidence inspect --test <test-id> [--json]
+  ultraplan sprint <project> <sprint> qa evidence rerun --test <test-id> --target current [--json]
   ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
   ultraplan sprint <project> <sprint> qa recover [--json]
   ultraplan sprint <project> <sprint> repair prepare --issue <current-issue-id> [--automatic] [--max-cycles <n>] [--json]
@@ -2355,6 +2459,9 @@ Usage:
   ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>|--suite smoke --yes] [--json]
   ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
   ultraplan sprint <project> <sprint> qa status [--json]
+  ultraplan sprint <project> <sprint> qa evidence tests [--json]
+  ultraplan sprint <project> <sprint> qa evidence inspect --test <test-id> [--json]
+  ultraplan sprint <project> <sprint> qa evidence rerun --test <test-id> --target current [--json]
   ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
   ultraplan sprint <project> <sprint> qa recover [--json]
 

@@ -103,19 +103,25 @@ func (s Service) ReasoningStatus(ref string) (ProjectReasoningStatus, error) {
 		st.Blockers = append(st.Blockers, "project-reasoning/flow-state.json is invalid")
 		return st, nil
 	}
-	check := func(key, out string, inputs []string) {
+	check := func(stage ProjectReasoningStage, key, out string, inputs []string) {
 		rel := filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning", out))
 		st.Outputs = append(st.Outputs, rel)
+		markStale := func() {
+			st.Fresh = false
+			if st.CurrentStage == "" {
+				st.CurrentStage = stage
+			}
+		}
 		rec, ok := state.Artifacts[key]
 		if !ok {
-			st.Fresh = false
+			markStale()
 			st.Blockers = append(st.Blockers, rel+" has no completed state")
 			return
 		}
 		full := filepath.Join(base, out)
 		fp, e := digestFile(full)
 		if e != nil || fp.SHA256 != rec.OutputSHA256 {
-			st.Fresh = false
+			markStale()
 			st.Blockers = append(st.Blockers, rel+" is missing or changed")
 			return
 		}
@@ -126,22 +132,24 @@ func (s Service) ReasoningStatus(ref string) (ProjectReasoningStatus, error) {
 			}
 			cur, e := digestFile(resolved)
 			if e != nil || cur.SHA256 != in.SHA256 {
-				st.Fresh = false
+				markStale()
 				st.Blockers = append(st.Blockers, rel+" is stale because "+in.Path+" changed")
 			}
 		}
 	}
 	for _, a := range m.Areas {
-		check("area:"+a.Name, strings.TrimPrefix(normalizeCatalogPath(a.Output), filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning"))+"/"), nil)
+		check(ProjectAreaReasoning, "area:"+a.Name, strings.TrimPrefix(normalizeCatalogPath(a.Output), filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning"))+"/"), nil)
 	}
-	check("reasoning", "reasoning.md", nil)
-	check("review", "review.md", nil)
+	check(ProjectFinalReasoning, "reasoning", "reasoning.md", nil)
+	check(ProjectReasoningReview, "review", "review.md", nil)
 	st.Verdict = state.Verdict
 	acceptedVerdict := st.Verdict == st.RequiredVerdict || (st.Verdict == "pass_with_findings" && st.RequiredVerdict == "pass_with_findings")
 	st.Accepted = st.Fresh && acceptedVerdict
 	if !acceptedVerdict {
 		st.Blockers = append(st.Blockers, filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning/review.md"))+" has no accepted current verdict.")
-		st.CurrentStage = ProjectReasoningReview
+		if st.CurrentStage == "" {
+			st.CurrentStage = ProjectReasoningReview
+		}
 	} else if st.Fresh {
 		st.CurrentStage = ProjectReasoningReview
 	}

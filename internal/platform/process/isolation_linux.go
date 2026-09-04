@@ -50,7 +50,7 @@ func nativeIsolationRequest(workspace, dir string, req Request) (Request, error)
 	if !ok {
 		return Request{}, fmt.Errorf("native protected-root isolation is unavailable")
 	}
-	args := []string{"--ro-bind", "/", "/", "--bind", workspace, workspace, "--unshare-pid", "--die-with-parent", "--chdir", dir, "--", req.Executable}
+	args := []string{"--ro-bind", "/", "/", "--dev", "/dev", "--bind", workspace, workspace, "--unshare-pid", "--die-with-parent", "--chdir", dir, "--", req.Executable}
 	args = append(args, req.Args...)
 	req.Executable = path
 	req.Args = args

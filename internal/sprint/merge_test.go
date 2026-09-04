@@ -233,3 +233,13 @@ func TestValidateMergeDescriptionRejectsUnsafeTitle(t *testing.T) {
 		t.Fatal("expected invalid title")
 	}
 }
+
+func TestValidateMergeDescriptionRejectsFastForwardClaim(t *testing.T) {
+	err := validateMergeDescription(MergeDescription{Title: "Merge sprint work", Summary: []string{"Apply a clean fast-forward to the target."}})
+	if err == nil || !strings.Contains(err.Error(), "non-fast-forward") {
+		t.Fatalf("fast-forward claim was accepted: %v", err)
+	}
+	if err := validateMergeDescription(MergeDescription{Title: "Merge sprint work", Summary: []string{"Create a non-fast-forward merge commit."}}); err != nil {
+		t.Fatalf("accurate non-fast-forward description was rejected: %v", err)
+	}
+}

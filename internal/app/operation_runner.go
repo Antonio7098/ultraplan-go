@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
 	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 	"github.com/Antonio7098/ultraplan-go/internal/study"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
@@ -19,6 +20,16 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 	return func(ctx context.Context, req OperationRequest, emit func(OperationEvent)) (OperationResult, error) {
 		result := OperationResult{State: OperationComplete, Subject: operationFirstNonEmpty(req.Project+"/"+req.Sprint, req.Study)}
 		switch req.Kind {
+		case OperationProjectReasoningFlow:
+			rt, e := deps.sprintRuntimeFactory(effective.Config)
+			if e != nil {
+				return failedOperation(result, e)
+			}
+			r, e := project.NewService(root.Path).WithRuntime(rt).ReasoningFlow(ctx, req.Project, project.ProjectReasoningStage(req.Stage))
+			result.Message = fmt.Sprintf("project reasoning to=%s accepted=%t fresh=%t verdict=%s", r.To, r.Status.Accepted, r.Status.Fresh, r.Status.Verdict)
+			if e != nil {
+				return failedOperation(result, e)
+			}
 		case OperationStage:
 			service, e := sprintRuntimeService(deps, root, tuiSprintRuntimeProgress(emit))
 			if e != nil {

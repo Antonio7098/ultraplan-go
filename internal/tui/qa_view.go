@@ -34,6 +34,18 @@ func renderSprintQAView(b *strings.Builder, m Model, route Route) {
 	if qa.Blocker != nil {
 		fmt.Fprintf(b, "Blocker: %s [%s]\n", qa.Blocker.Summary, qa.Blocker.Category)
 	}
+	if len(qa.EvidenceRequests) > 0 {
+		fmt.Fprintf(b, "Arbiter evidence requests: %d\n", len(qa.EvidenceRequests))
+		for _, request := range qa.EvidenceRequests {
+			fmt.Fprintf(b, "  %s: %s shard=%s session=%s round=%d test=%s run=%s\n", request.Status, request.RequestedEvidence, request.OriginShardID, request.SessionID, request.EvidenceRound, request.TestBundleID, request.LatestRunID)
+		}
+	}
+	if len(qa.InvestigatorTests) > 0 {
+		fmt.Fprintf(b, "Investigator-authored tests: %d\n", len(qa.InvestigatorTests))
+		for _, test := range qa.InvestigatorTests {
+			fmt.Fprintf(b, "  %s digest=%s paths=%s\n", test.ID, test.ContentDigest, strings.Join(test.Paths, ","))
+		}
+	}
 	if route.Shard != "" {
 		for _, shard := range qa.Shards {
 			if shard.ID != route.Shard {

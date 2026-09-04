@@ -16,12 +16,15 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
 
 var repairIDPattern = regexp.MustCompile(`^repair-v1-(run|check)-[0-9a-f]{24}$`)
+
+const repairMissingPreimageDigest = "missing"
 
 const (
 	repairProposalPromptID      = "ultraplan.bounded-repair.proposal"
@@ -278,8 +281,8 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 	if err != nil {
 		return RepairPrepareResult{}, NewQAError(QAErrorAdmissionBlocked, "prepare repair", "current evidence-producing QA state is required", err)
 	}
-	if (!qaState.Freshness.Current && !req.campaignAuthorized) || qaState.Phase != QAPhaseCompleted || qaState.CurrentAttemptID == "" || qaState.CanonicalAssessment != AssessmentPassWithFindings && qaState.CanonicalAssessment != AssessmentPass {
-		return RepairPrepareResult{}, NewQAError(QAErrorAdmissionBlocked, "prepare repair", "QA must be current, complete, and acceptable", nil)
+	if (!qaState.Freshness.Current && !req.campaignAuthorized) || !repairableQAState(qaState) {
+		return RepairPrepareResult{}, NewQAError(QAErrorAdmissionBlocked, "prepare repair", "QA must be current and contain a repairable adjudicated issue", nil)
 	}
 	if priorRepairErr == nil && priorRepair.Phase == RepairPhasePrepared && priorRepair.Freshness.Current && priorRepair.Mode == req.Mode && priorRepair.QAAttemptID == qaState.CurrentAttemptID {
 		packet, loadErr := store.LoadRepairPacket(priorRepair.QAAttemptID, priorRepair.RepairRunID)
@@ -304,6 +307,10 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 		return RepairPrepareResult{}, err
 	}
 	evidence, plans, err := loadRepairEvidence(store, qaMap, adjudication, issue)
+	if err != nil {
+		return RepairPrepareResult{}, err
+	}
+	issueCoverage, reproductionSpecs, regressionTests, regressionTestPaths, err := loadRepairRegressionTests(store, qaMap, issue)
 	if err != nil {
 		return RepairPrepareResult{}, err
 	}
@@ -345,10 +352,11 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 	if err != nil {
 		return RepairPrepareResult{}, err
 	}
-	allowed, err := repairAllowedPaths(issue, evidence)
+	allowed, err := repairAllowedPaths(issue, evidence, plans, qaMap)
 	if err != nil {
 		return RepairPrepareResult{}, err
 	}
+	allowed = normalizeQAStrings(append(allowed, regressionTestPaths...))
 	repairTheories, err := loadRepairTheories(store, qaMap, plans)
 	if err != nil {
 		return RepairPrepareResult{}, err
@@ -376,7 +384,7 @@ func (s Service) PrepareRepair(ctx context.Context, projectRef, sprintRef string
 		Project: sp.Project, Sprint: sp.Slug, QAAttemptID: qaState.CurrentAttemptID, RepairRunID: runID,
 		Issue: issue, RootCauseGroup: group, AdjudicationID: adjudication.ID, EvidenceIDs: issue.EvidenceIDs,
 		PlanIDs: planIDs, MapID: qaMap.ID, ShardIDs: repairShardIDs(plans), TheoryIDs: repairTheoryIDs(plans),
-		ExpectationRefs: repairExpectationRefs(plans), Theories: repairTheories, Evidence: append([]QAEvidenceRecord(nil), evidence...), EvidencePlans: append([]QAEvidencePlan(nil), plans...), ContextBlocks: contextBlocks, ArbiterOverrides: arbiterOverrides, TargetDelta: targetDelta, ExactReproducer: exact, Checks: checks, AllowedPaths: allowed,
+		ExpectationRefs: repairExpectationRefs(plans), Theories: repairTheories, Evidence: append([]QAEvidenceRecord(nil), evidence...), EvidencePlans: append([]QAEvidencePlan(nil), plans...), IssueCoverage: issueCoverage, ReproductionSpecs: reproductionSpecs, RegressionTests: regressionTests, RegressionTestPaths: regressionTestPaths, ContextBlocks: contextBlocks, ArbiterOverrides: arbiterOverrides, TargetDelta: targetDelta, ExactReproducer: exact, Checks: checks, AllowedPaths: allowed,
 		ForbiddenPaths: repairForbiddenPaths(), AcceptanceCriteria: repairAcceptanceCriteria(plans), Mode: req.Mode, Budgets: req.Budgets, BudgetSources: append([]QAEffectiveSource(nil), req.BudgetSources...),
 		Target: packetTarget, GovernedInputFingerprint: qaMap.GovernedInputFingerprint, ImplementationFingerprint: implementationFingerprint,
 		ReviewFingerprint: flow.Review.Fingerprint, SmokeFingerprint: repairSmokeFingerprint(flow.Smoke), PolicyFingerprint: policyFingerprint,
@@ -561,7 +569,11 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	}
 	workspace, err := pprocess.CreateIsolation(lockedCtx, pprocess.IsolationRequest{SourceRoot: manifest.Target, ParentDir: parent, Prefix: packet.RepairRunID, Destination: destination, ProtectedRoots: []string{s.root, manifest.Target}, Limits: limits})
 	if err != nil {
-		return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopPrerequisite, "cannot create a protected isolated repair workspace", err)
+		return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopPrerequisite, "cannot create a protected isolated repair workspace", true, err)
+	}
+	if err := materializeRepairRegressionTests(packet, workspace.Path); err != nil {
+		cleanup := workspace.Cleanup()
+		return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopPrerequisite, "cannot materialize the frozen regression test patch", cleanup.Complete, errors.Join(err, cleanupError(cleanup)))
 	}
 	start := s.now().UTC()
 	var proposal []byte
@@ -624,23 +636,28 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 			if lockedCtx.Err() != nil {
 				stop = RepairStopCancellation
 			}
-			return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, stop, "repair runtime did not produce a usable proposal", errors.Join(runErr, lockedCtx.Err(), cleanupError(cleanup), parentErr))
+			return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, stop, "repair runtime did not produce a usable proposal", cleanup.Complete && parentErr == nil, errors.Join(runErr, lockedCtx.Err(), cleanupError(cleanup), parentErr))
 		}
 		changedPaths, err = pprocess.CompareTrees(context.WithoutCancel(lockedCtx), manifest.Target, workspace.Path, limits)
 		if err != nil || len(changedPaths) == 0 {
 			cleanup := workspace.Cleanup()
-			return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUncertainEvidence, "isolated proposal has no complete bounded diff", errors.Join(err, cleanupError(cleanup)))
+			return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUncertainEvidence, "isolated proposal has no complete bounded diff", cleanup.Complete, errors.Join(err, cleanupError(cleanup)))
 		}
 		proposal, replacements, preimages, changedBytes, err = deriveRepairProposal(manifest.Target, workspace.Path, changedPaths, packet)
 		if err != nil {
 			cleanup := workspace.Cleanup()
-			return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUnsupportedChange, "isolated proposal violated confirmed scope", errors.Join(err, cleanupError(cleanup)))
+			return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUnsupportedChange, "isolated proposal violated confirmed scope", cleanup.Complete, errors.Join(err, cleanupError(cleanup)))
 		}
 		state.Runtime.ProvisionalChecks, state.Runtime.ProvisionalPassed = s.runRepairProvisionalChecks(lockedCtx, packet, workspace.Path)
 		if !state.Runtime.ProvisionalPassed {
 			cleanup := workspace.Cleanup()
-			return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopRequiredCheckFailed, "isolated proposal did not pass its frozen provisional checks", cleanupError(cleanup))
+			return s.finishBlockedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopRequiredCheckFailed, "isolated proposal did not pass its frozen provisional checks", cleanup.Complete, cleanupError(cleanup))
 		}
+	}
+	proposal, replacements, preimages, changedPaths, changedBytes, err = mergeRepairRegressionPatch(manifest.Target, packet, proposal, replacements, preimages, changedPaths, changedBytes)
+	if err != nil {
+		cleanup := workspace.Cleanup()
+		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUnsupportedChange, "frozen regression tests could not be paired with the implementation proposal", cleanup.Complete, errors.Join(err, cleanupError(cleanup)))
 	}
 	if state.Runtime != nil {
 		for _, check := range state.Runtime.ProvisionalChecks {
@@ -664,11 +681,13 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	emitRepair(req.Progress, RepairProgress{Phase: RepairPhaseApplying, Cycle: cycleNumber, Message: "Applying confirmed production scope"})
 	currentBefore, err := repairTargetIdentity(manifest.Target)
 	if err != nil || currentBefore.Fingerprint != beforeIdentity.Fingerprint {
-		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopTargetDrift, "target changed before apply", errors.Join(err, cleanupError(workspace.Cleanup())))
+		cleanup := workspace.Cleanup()
+		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopTargetDrift, "target changed before apply", cleanup.Complete, errors.Join(err, cleanupError(cleanup)))
 	}
 	journal, err := store.StageRepairApplyJournal(state, flow, cycleNumber, manifest.Target, replacements, preimages, req.WriterToken)
 	if err != nil {
-		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUnsupportedChange, "cannot durably stage production preimages", errors.Join(err, cleanupError(workspace.Cleanup())))
+		cleanup := workspace.Cleanup()
+		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUnsupportedChange, "cannot durably stage production preimages", cleanup.Complete, errors.Join(err, cleanupError(cleanup)))
 	}
 	operations, appliedBytes, err := applyRepairFilesJournaled(manifest.Target, replacements, preimages, packet.Budgets.MaxFilesPerCycle, packet.Budgets.MaxBytesPerCycle, func(current []RepairApplyOperation) error {
 		journal.State = "applying"
@@ -684,7 +703,8 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 		}
 		journal.UpdatedAt = s.now().UTC()
 		_ = store.PublishRepairApplyJournal(state, flow, journal, req.WriterToken)
-		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUnsupportedChange, "product-owned apply failed or compensation is uncertain", errors.Join(err, cleanupError(workspace.Cleanup())))
+		cleanup := workspace.Cleanup()
+		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopUnsupportedChange, "product-owned apply failed or compensation is uncertain", cleanup.Complete, errors.Join(err, cleanupError(cleanup)))
 	}
 	journal.State = "applied"
 	journal.Operations = mergeRepairApplyOperations(operations, journal.Operations)
@@ -697,11 +717,13 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	state.Consumed.ChangedBytes += appliedBytes
 	afterApply, err := repairTargetIdentity(manifest.Target)
 	if err != nil {
-		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopTargetDrift, "cannot identify target after apply", errors.Join(err, cleanupError(workspace.Cleanup())))
+		cleanup := workspace.Cleanup()
+		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopTargetDrift, "cannot identify target after apply", cleanup.Complete, errors.Join(err, cleanupError(cleanup)))
 	}
 	scope := &RepairScopeRecord{SchemaVersion: QARepairSchemaVersion, RepairRunID: packet.RepairRunID, Cycle: cycleNumber, Before: beforeIdentity, After: afterApply, IntendedPaths: append([]string(nil), changedPaths...), ActualPaths: append([]string(nil), changedPaths...), ChangedBytes: changedBytes, Enforced: sameRepairPaths(changedPaths, mapKeys(replacements)) && repairPathsAllowed(changedPaths, packet.AllowedPaths)}
 	if !scope.Enforced {
-		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopScopeGrowth, "actual production scope differs from the retained proposal", cleanupError(workspace.Cleanup()))
+		cleanup := workspace.Cleanup()
+		return s.finishEscalatedRepair(store, state, flow, req.WriterToken, release, &released, RepairStopScopeGrowth, "actual production scope differs from the retained proposal", cleanup.Complete, cleanupError(cleanup))
 	}
 	state.Phase = RepairPhaseReverifying
 	state.NextAction = "Run the fixed progressive reverification ladder."
@@ -944,6 +966,19 @@ func reconcileRepairJournal(store QAStore, target string, journal *RepairApplyJo
 	for i := range journal.Operations {
 		operation := &journal.Operations[i]
 		targetPath := filepath.Join(target, filepath.FromSlash(operation.Path))
+		if operation.Created {
+			current, readErr := os.ReadFile(targetPath)
+			if errors.Is(readErr, fs.ErrNotExist) {
+				continue
+			}
+			if readErr != nil || hashBytes(current) != operation.PostimageDigest || os.Remove(targetPath) != nil {
+				complete = false
+				journal.State = "uncertain"
+				continue
+			}
+			productionApplied, operation.Restored = true, true
+			continue
+		}
 		if err := ensureRepairRegularPath(target, targetPath); err != nil {
 			complete = false
 			journal.State = "uncertain"
@@ -1049,9 +1084,12 @@ func FinalizeRepairPacket(packet RepairIssuePacket) (RepairIssuePacket, error) {
 	packet.TheoryIDs = normalizeQAStrings(packet.TheoryIDs)
 	packet.ExpectationRefs = normalizeQAStrings(packet.ExpectationRefs)
 	packet.AcceptanceCriteria = normalizeQAStrings(packet.AcceptanceCriteria)
+	packet.RegressionTestPaths = normalizeQAStrings(packet.RegressionTestPaths)
 	sort.Slice(packet.Theories, func(i, j int) bool { return packet.Theories[i].ID < packet.Theories[j].ID })
 	sort.Slice(packet.Evidence, func(i, j int) bool { return packet.Evidence[i].ID < packet.Evidence[j].ID })
 	sort.Slice(packet.EvidencePlans, func(i, j int) bool { return packet.EvidencePlans[i].ID < packet.EvidencePlans[j].ID })
+	sort.Slice(packet.ReproductionSpecs, func(i, j int) bool { return packet.ReproductionSpecs[i].ID < packet.ReproductionSpecs[j].ID })
+	sort.Slice(packet.RegressionTests, func(i, j int) bool { return packet.RegressionTests[i].ID < packet.RegressionTests[j].ID })
 	sort.Slice(packet.ContextBlocks, func(i, j int) bool { return packet.ContextBlocks[i].ID < packet.ContextBlocks[j].ID })
 	sort.Slice(packet.ArbiterOverrides, func(i, j int) bool { return packet.ArbiterOverrides[i].ID < packet.ArbiterOverrides[j].ID })
 	var err error
@@ -1102,9 +1140,25 @@ func ValidateRepairPacket(packet RepairIssuePacket) error {
 		}
 	}
 	for _, path := range packet.AllowedPaths {
-		if ClassifyRepairPath(path) != RepairPathProduction {
+		if ClassifyRepairPath(path) != RepairPathProduction && !(ClassifyRepairPath(path) == RepairPathTestAsset && repairPathSetContains(packet.RegressionTestPaths, path)) {
 			return fmt.Errorf("repair path %q is not mutable production", path)
 		}
+	}
+	if packet.IssueCoverage != nil {
+		if err := ValidateQAIssueEvidenceCoverage(*packet.IssueCoverage); err != nil || packet.IssueCoverage.IssueID != packet.Issue.ID {
+			return fmt.Errorf("repair packet contains invalid issue evidence coverage")
+		}
+		if len(packet.RegressionTests) == 0 || len(packet.ReproductionSpecs) == 0 {
+			return fmt.Errorf("covered repair packet is missing frozen regression tests")
+		}
+		for _, path := range packet.RegressionTestPaths {
+			if ClassifyRepairPath(path) != RepairPathTestAsset || !repairPathSetContains(packet.AllowedPaths, path) {
+				return fmt.Errorf("repair regression path %q is not coverage-approved", path)
+			}
+		}
+	}
+	if packet.Issue.RegressionCandidate && packet.IssueCoverage == nil {
+		return fmt.Errorf("regression-candidate repair packet is missing issue evidence coverage")
 	}
 	for _, path := range packet.ForbiddenPaths {
 		if repairPathSetContains(packet.AllowedPaths, path) {
@@ -1387,10 +1441,25 @@ func validateRepairFlowAdmission(flow FlowState) error {
 	if flow.Smoke == nil || flow.Smoke.Stale || flow.Smoke.Status != SmokeCompleted || flow.Smoke.Verdict != SmokePass && flow.Smoke.Verdict != SmokePassWithOpenIssues || !validFingerprint(repairSmokeFingerprint(flow.Smoke)) {
 		return NewQAError(QAErrorAdmissionBlocked, "prepare repair", "a current passing containing smoke result is required", nil)
 	}
-	if flow.QA == nil || !flow.QA.Fresh || flow.QA.Assessment != AssessmentPassWithFindings && flow.QA.Assessment != AssessmentPass {
+	if flow.QA == nil || !flow.QA.Fresh || !repairableQAAssessment(flow.QA.Assessment) {
 		return NewQAError(QAErrorAdmissionBlocked, "prepare repair", "a current acceptable evidence-producing QA attempt is required", nil)
 	}
 	return nil
+}
+
+func repairableQAState(state QAState) bool {
+	if state.CurrentAttemptID == "" || !repairableQAAssessment(state.CanonicalAssessment) {
+		return false
+	}
+	return state.Phase == QAPhaseCompleted || state.Phase == QAPhaseBlocked
+}
+
+func repairableQAAssessment(assessment OverallAssessment) bool {
+	// A blocked attempt may still contain independently adjudicated,
+	// repair-eligible issues. Preparation validates the selected issue's exact
+	// failing evidence and complete reproduction coverage before granting any
+	// mutation authority, so unrelated rejected evidence must not strand it.
+	return assessment == AssessmentPass || assessment == AssessmentPassWithFindings || assessment == AssessmentBlocked
 }
 
 func selectRepairIssue(adjudication QAAdjudication, issueID string) (QAIssue, QARootCauseGroup, error) {
@@ -1454,6 +1523,107 @@ func loadRepairEvidence(store QAStore, qaMap QAMap, adjudication QAAdjudication,
 	return records, plans, nil
 }
 
+func loadRepairRegressionTests(store QAStore, qaMap QAMap, issue QAIssue) (*QAIssueEvidenceCoverage, []QAReproductionSpec, []QATestBundle, []string, error) {
+	coverageRecords, err := store.LoadIssueEvidenceCoverage(qaMap.SemanticAttemptID)
+	if err != nil {
+		if !issue.RegressionCandidate {
+			return nil, nil, nil, nil, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, nil, nil, NewQAError(QAErrorAdmissionBlocked, "prepare repair", "regression-candidate coverage is unavailable", err)
+		}
+		derived, deriveErr := deriveRepairIssueCoverage(store, qaMap, issue)
+		if deriveErr != nil {
+			return nil, nil, nil, nil, deriveErr
+		}
+		coverageRecords = []QAIssueEvidenceCoverage{derived}
+	}
+	var selected *QAIssueEvidenceCoverage
+	for i := range coverageRecords {
+		if coverageRecords[i].IssueID == issue.ID {
+			copyValue := coverageRecords[i]
+			selected = &copyValue
+			break
+		}
+	}
+	if selected == nil {
+		if issue.RegressionCandidate {
+			return nil, nil, nil, nil, NewQAError(QAErrorAdmissionBlocked, "prepare repair", "regression candidate has no explicit issue coverage", nil)
+		}
+		return nil, nil, nil, nil, nil
+	}
+	var specs []QAReproductionSpec
+	var bundles []QATestBundle
+	var paths []string
+	for _, testID := range selected.PrimaryReproducers {
+		spec, bundle, loadErr := store.LoadTestBundle(qaMap.SemanticAttemptID, testID, qaMap.Budgets)
+		if loadErr != nil {
+			return nil, nil, nil, nil, loadErr
+		}
+		runs, runErr := store.ListReproductionRuns(qaMap.SemanticAttemptID, testID, spec, bundle)
+		if runErr != nil {
+			return nil, nil, nil, nil, runErr
+		}
+		provedFailure := false
+		for _, run := range runs {
+			if run.Outcome == QAEvidenceFail && run.TargetIdentity == qaMap.ImplementationFingerprint && run.Cleanup.Complete {
+				provedFailure = true
+				break
+			}
+		}
+		if !provedFailure {
+			return nil, nil, nil, nil, NewQAError(QAErrorAdmissionBlocked, "prepare repair", "primary reproducer lacks an exact fail-before proof", nil)
+		}
+		for _, theoryID := range selected.TheoryIDs {
+			if !stringSet(spec.TheoryIDs)[theoryID] {
+				continue
+			}
+			if len(selected.Coverage[theoryID]) == 0 {
+				return nil, nil, nil, nil, NewQAError(QAErrorInvalidState, "prepare repair", "primary reproducer does not preserve complete theory coverage", nil)
+			}
+		}
+		specs = append(specs, spec)
+		bundles = append(bundles, bundle)
+		paths = append(paths, testBundlePaths(bundle)...)
+	}
+	return selected, specs, bundles, normalizeQAStrings(paths), nil
+}
+
+func deriveRepairIssueCoverage(store QAStore, qaMap QAMap, issue QAIssue) (QAIssueEvidenceCoverage, error) {
+	coverage := QAIssueEvidenceCoverage{SchemaVersion: QAEvidenceSchemaVersion, IssueID: issue.ID, Coverage: map[string][]string{}}
+	for _, evidenceID := range normalizeQAStrings(issue.EvidenceIDs) {
+		record, err := store.LoadEvidence(qaMap.SemanticAttemptID, evidenceID)
+		if err != nil {
+			return QAIssueEvidenceCoverage{}, err
+		}
+		if !validQAV2ID(record.WorkspaceID, "test") {
+			continue
+		}
+		spec, bundle, err := store.LoadTestBundle(qaMap.SemanticAttemptID, record.WorkspaceID, qaMap.Budgets)
+		if err != nil {
+			return QAIssueEvidenceCoverage{}, err
+		}
+		coverage.TheoryIDs = append(coverage.TheoryIDs, spec.TheoryIDs...)
+		coverage.TestBundleIDs = append(coverage.TestBundleIDs, bundle.ID)
+		coverage.EvidenceIDs = append(coverage.EvidenceIDs, evidenceID)
+		coverage.PrimaryReproducers = append(coverage.PrimaryReproducers, bundle.ID)
+		for _, theoryID := range spec.TheoryIDs {
+			coverage.Coverage[theoryID] = append(coverage.Coverage[theoryID], bundle.ID, evidenceID)
+		}
+	}
+	coverage.TheoryIDs = normalizeQAStrings(coverage.TheoryIDs)
+	coverage.TestBundleIDs = normalizeQAStrings(coverage.TestBundleIDs)
+	coverage.EvidenceIDs = normalizeQAStrings(coverage.EvidenceIDs)
+	coverage.PrimaryReproducers = normalizeQAStrings(coverage.PrimaryReproducers)
+	for theoryID := range coverage.Coverage {
+		coverage.Coverage[theoryID] = normalizeQAStrings(coverage.Coverage[theoryID])
+	}
+	if err := ValidateQAIssueEvidenceCoverage(coverage); err != nil {
+		return QAIssueEvidenceCoverage{}, NewQAError(QAErrorAdmissionBlocked, "prepare repair", "regression candidate has no complete immutable test coverage", err)
+	}
+	return coverage, nil
+}
+
 func repairEvidenceMatchesMap(record QAEvidenceRecord, qaMap QAMap) bool {
 	return record.Outcome == QAEvidenceFail && record.Contained && record.Cleanup.Complete &&
 		record.ImplementationFingerprint == qaMap.ImplementationFingerprint &&
@@ -1492,7 +1662,17 @@ func freezeRepairChecks(runID string, plans []QAEvidencePlan, evidence []QAEvide
 		if limit > budgets.OutputBytes {
 			limit = budgets.OutputBytes
 		}
-		return RepairCheckDescriptor{ID: id, Gate: gate, Executable: plan.Executable, Args: append([]string(nil), plan.Args...), EnvironmentNames: normalizeQAStrings(plan.EnvironmentNames), Timeout: timeout, OutputLimit: limit, Expected: expected, SourcePlanID: plan.ID}, nil
+		workdir := plan.WorkingDirectory
+		// Evidence plans created before working_directory became part of the
+		// frozen schema still retain the authored test path. Recover the package
+		// directory so existing immutable campaign evidence remains rerunnable.
+		if workdir == "" && strings.HasPrefix(plan.CheckID, "qa-v2-test-") && len(plan.ApprovedPaths) > 0 {
+			workdir = filepath.ToSlash(filepath.Dir(plan.ApprovedPaths[0]))
+			if workdir == "." {
+				workdir = ""
+			}
+		}
+		return RepairCheckDescriptor{ID: id, Gate: gate, Executable: plan.Executable, Args: append([]string(nil), plan.Args...), Workdir: workdir, EnvironmentNames: normalizeQAStrings(plan.EnvironmentNames), Timeout: timeout, OutputLimit: limit, Expected: expected, SourcePlanID: plan.ID}, nil
 	}
 	exact, err := makePlanCheck(RepairGateExactReproducer, exactPlan.ID, exactPlan, exactPlan.RefutationCondition)
 	if err != nil {
@@ -1526,10 +1706,30 @@ func freezeRepairChecks(runID string, plans []QAEvidencePlan, evidence []QAEvide
 	return checks, exact, nil
 }
 
-func repairAllowedPaths(issue QAIssue, evidence []QAEvidenceRecord) ([]string, error) {
-	values := []string{repairIssuePath(issue.Location)}
+func repairAllowedPaths(issue QAIssue, evidence []QAEvidenceRecord, plans []QAEvidencePlan, qaMap QAMap) ([]string, error) {
+	var values []string
+	if path := repairIssuePath(issue.Location); ClassifyRepairPath(path) == RepairPathProduction {
+		values = append(values, path)
+	}
 	for _, record := range evidence {
 		for _, path := range record.ChangedPaths {
+			if ClassifyRepairPath(path) == RepairPathProduction {
+				values = append(values, path)
+			}
+		}
+	}
+	// Investigator-authored evidence normally changes only a private _test.go
+	// file. The corresponding production authority comes from the immutable QA
+	// shard that produced the evidence plan, never from model-supplied prose.
+	shards := make(map[string]bool, len(plans))
+	for _, plan := range plans {
+		shards[plan.ShardID] = true
+	}
+	for _, shard := range qaMap.Shards {
+		if !shards[shard.ID] {
+			continue
+		}
+		for _, path := range shard.ChangedPaths {
 			if ClassifyRepairPath(path) == RepairPathProduction {
 				values = append(values, path)
 			}
@@ -1669,6 +1869,9 @@ func (s Service) repairProposalRequest(packet RepairIssuePacket, workspace strin
 	request.RequireCaps = appendUnique(request.RequireCaps, "permissions")
 	request.Policy = pruntime.PermissionPolicy{Default: "deny", Tools: map[string]string{"read": "allow", "list": "allow", "search": "allow", "glob": "allow", "write": "allow", "edit": "allow", "patch": "allow", "bash": "deny", "shell": "deny"}}
 	for _, rel := range packet.AllowedPaths {
+		if repairPathSetContains(packet.RegressionTestPaths, rel) {
+			continue
+		}
 		path := filepath.Join(workspace, filepath.FromSlash(rel))
 		if !inside(workspace, path) {
 			return pruntime.Request{}, NewQAError(QAErrorPermissionDenied, "prepare repair runtime", "allowed path escapes isolated workspace", nil)
@@ -1736,18 +1939,24 @@ func deriveRepairProposal(target, isolated string, changedPaths []string, packet
 	preimages := make(map[string]string, len(paths))
 	var changedBytes int64
 	for _, rel := range paths {
-		if ClassifyRepairPath(rel) != RepairPathProduction {
+		class := ClassifyRepairPath(rel)
+		if class != RepairPathProduction && !(class == RepairPathTestAsset && repairPathSetContains(packet.RegressionTestPaths, rel)) {
 			return nil, nil, nil, 0, fmt.Errorf("proposal changed protected path %q", rel)
 		}
 		beforePath := filepath.Join(target, filepath.FromSlash(rel))
 		afterPath := filepath.Join(isolated, filepath.FromSlash(rel))
-		if err := ensureRepairRegularPath(target, beforePath); err != nil {
-			return nil, nil, nil, 0, err
-		}
 		if err := ensureRepairRegularPath(isolated, afterPath); err != nil {
 			return nil, nil, nil, 0, err
 		}
 		before, beforeErr := os.ReadFile(beforePath)
+		missingBefore := errors.Is(beforeErr, fs.ErrNotExist) && class == RepairPathTestAsset
+		if missingBefore {
+			before, beforeErr = nil, nil
+		} else if beforeErr == nil {
+			if err := ensureRepairRegularPath(target, beforePath); err != nil {
+				return nil, nil, nil, 0, err
+			}
+		}
 		after, afterErr := os.ReadFile(afterPath)
 		if beforeErr != nil || afterErr != nil {
 			return nil, nil, nil, 0, errors.Join(beforeErr, afterErr)
@@ -1760,6 +1969,9 @@ func deriveRepairProposal(target, isolated string, changedPaths []string, packet
 			return nil, nil, nil, 0, fmt.Errorf("proposal changed bytes exceed confirmed limit")
 		}
 		preimages[rel] = hashBytes(before)
+		if missingBefore {
+			preimages[rel] = repairMissingPreimageDigest
+		}
 		replacements[rel] = append([]byte(nil), after...)
 		writeWholeFilePatch(&patch, rel, before, after)
 	}
@@ -1784,6 +1996,107 @@ func writeWholeFilePatch(out *strings.Builder, path string, before, after []byte
 		out.WriteString(line)
 		out.WriteByte('\n')
 	}
+}
+
+func repairRegressionFileMap(packet RepairIssuePacket) (map[string][]byte, error) {
+	files := make(map[string][]byte)
+	for _, bundle := range packet.RegressionTests {
+		for _, file := range bundle.Files {
+			path, err := normalizeRepairPath(file.Path)
+			if err != nil || ClassifyRepairPath(path) != RepairPathTestAsset || !repairPathSetContains(packet.RegressionTestPaths, path) {
+				return nil, fmt.Errorf("regression test path %q is outside frozen issue coverage", file.Path)
+			}
+			content := []byte(file.Content)
+			if prior, exists := files[path]; exists && !bytes.Equal(prior, content) {
+				return nil, fmt.Errorf("regression bundles disagree on %q", path)
+			}
+			files[path] = append([]byte(nil), content...)
+		}
+	}
+	return files, nil
+}
+
+func materializeRepairRegressionTests(packet RepairIssuePacket, workspace string) error {
+	files, err := repairRegressionFileMap(packet)
+	if err != nil {
+		return err
+	}
+	for rel, content := range files {
+		path := filepath.Join(workspace, filepath.FromSlash(rel))
+		if !inside(workspace, path) {
+			return fmt.Errorf("regression test path escapes repair workspace")
+		}
+		if info, statErr := os.Lstat(path); statErr == nil {
+			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("regression test target is not a regular file: %s", rel)
+			}
+			existing, readErr := os.ReadFile(path)
+			if readErr != nil || !bytes.Equal(existing, content) {
+				return fmt.Errorf("existing regression test differs from immutable bundle: %s", rel)
+			}
+			continue
+		} else if !errors.Is(statErr, fs.ErrNotExist) {
+			return statErr
+		}
+		if err := privateAtomicWrite(path, content, "repair-regression-test", QAStateHooks{}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mergeRepairRegressionPatch(target string, packet RepairIssuePacket, proposal []byte, replacements map[string][]byte, preimages map[string]string, changedPaths []string, changedBytes int64) ([]byte, map[string][]byte, map[string]string, []string, int64, error) {
+	files, err := repairRegressionFileMap(packet)
+	if err != nil || len(files) == 0 {
+		return proposal, replacements, preimages, changedPaths, changedBytes, err
+	}
+	if replacements == nil {
+		replacements = map[string][]byte{}
+	}
+	if preimages == nil {
+		preimages = map[string]string{}
+	}
+	var additions strings.Builder
+	for rel, content := range files {
+		if existing, ok := replacements[rel]; ok {
+			if !bytes.Equal(existing, content) {
+				return nil, nil, nil, nil, 0, fmt.Errorf("proposal changed immutable regression test %q", rel)
+			}
+			continue
+		}
+		path := filepath.Join(target, filepath.FromSlash(rel))
+		before, readErr := os.ReadFile(path)
+		if errors.Is(readErr, fs.ErrNotExist) {
+			before, readErr = nil, nil
+		} else if readErr == nil {
+			if err := ensureRepairRegularPath(target, path); err != nil {
+				return nil, nil, nil, nil, 0, err
+			}
+		}
+		if readErr != nil {
+			return nil, nil, nil, nil, 0, readErr
+		}
+		if bytes.Equal(before, content) {
+			continue
+		}
+		replacements[rel] = append([]byte(nil), content...)
+		preimages[rel] = hashBytes(before)
+		if before == nil {
+			preimages[rel] = repairMissingPreimageDigest
+		}
+		changedPaths = append(changedPaths, rel)
+		changedBytes += int64(len(before) + len(content))
+		writeWholeFilePatch(&additions, rel, before, content)
+	}
+	changedPaths = normalizeQAStrings(changedPaths)
+	if len(replacements) > packet.Budgets.MaxFilesPerCycle || changedBytes > packet.Budgets.MaxBytesPerCycle {
+		return nil, nil, nil, nil, 0, fmt.Errorf("paired repair exceeds confirmed file or byte budget")
+	}
+	proposal = append(append([]byte(nil), proposal...), []byte(additions.String())...)
+	if len(proposal) > packet.Budgets.MaxPatchBytes {
+		return nil, nil, nil, nil, 0, fmt.Errorf("paired repair patch exceeds confirmed patch budget")
+	}
+	return proposal, replacements, preimages, changedPaths, changedBytes, nil
 }
 
 func splitRepairLines(data []byte) []string {
@@ -1816,6 +2129,15 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 		if !ok {
 			results = append(results, RepairGateResult{Gate: gate, Status: RepairGateBlocked, Reason: "frozen gate descriptor is unavailable", NextAction: "Produce a current QA packet with the complete ladder."})
 			stopped = true
+			continue
+		}
+		if gate == RepairGateLinkedTheories && len(packet.RegressionTests) > 0 {
+			emitRepair(progress, RepairProgress{Phase: RepairPhaseReverifying, Cycle: cycle, Gate: gate, Message: "Running all immutable primary reproducers"})
+			result := s.runRepairRegressionReproducers(ctx, packet, target, gate)
+			results = append(results, result)
+			if result.Status != RepairGatePassed {
+				stopped = true
+			}
 			continue
 		}
 		executionKey := repairCheckExecutionKey(check)
@@ -1875,13 +2197,15 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 				if check.Workdir != "" {
 					workdir = filepath.Join(target, filepath.FromSlash(check.Workdir))
 				}
-				environment := make(map[string]string)
-				for _, name := range check.EnvironmentNames {
-					if value, exists := os.LookupEnv(name); exists {
-						environment[name] = value
-					}
+				environment, cleanupRuntime, environmentErr := repairCheckEnvironment(target, check.EnvironmentNames)
+				if environmentErr != nil {
+					result.Status, result.Reason, result.NextAction = RepairGateBlocked, "isolated check runtime is unavailable", "Restore writable private runtime storage and retry."
+					results = append(results, result)
+					stopped = true
+					continue
 				}
 				processResult, runErr := s.processRunner.Run(ctx, pprocess.Request{Executable: check.Executable, Args: append([]string(nil), check.Args...), Dir: workdir, Env: pprocess.SortedEnvironment(environment), Timeout: check.Timeout, StdoutLimit: check.OutputLimit, StderrLimit: check.OutputLimit, CleanupGrace: packet.Budgets.CleanupTimeout})
+				cleanupErr := cleanupRuntime()
 				result.ExitCode = processResult.ExitCode
 				result.OutputBytes = len(processResult.Stdout) + len(processResult.Stderr)
 				result.OutputHash = hashBytes([]byte(processResult.Stdout + "\x00" + processResult.Stderr))
@@ -1890,6 +2214,10 @@ func (s Service) runRepairReverification(ctx context.Context, packet RepairIssue
 					if runErr != nil {
 						result.Diagnostic = boundRepairText(runErr.Error(), 512)
 					}
+				}
+				if cleanupErr != nil {
+					result.Status, result.Reason, result.NextAction = RepairGateBlocked, "isolated check runtime cleanup is incomplete", "Remove the retained runtime directory and recover the repair."
+					result.Diagnostic = boundRepairText(cleanupErr.Error(), 512)
 				}
 				if processResult.Cancelled || processResult.TimedOut || processResult.StdoutTruncated || processResult.StderrTruncated || !processResult.CleanupComplete {
 					result.Status, result.Reason, result.NextAction = RepairGateBlocked, "check execution or cleanup is incomplete", "Recover cleanup and rerun from a proven boundary."
@@ -1949,13 +2277,14 @@ func (s Service) runRepairProvisionalChecks(ctx context.Context, packet RepairIs
 				return results, false
 			}
 		}
-		environment := make(map[string]string)
-		for _, name := range check.EnvironmentNames {
-			if value, exists := os.LookupEnv(name); exists {
-				environment[name] = value
-			}
+		environment, cleanupRuntime, environmentErr := repairCheckEnvironment(target, check.EnvironmentNames)
+		if environmentErr != nil {
+			result.Status, result.Reason = RepairGateBlocked, "isolated check runtime is unavailable"
+			results = append(results, result)
+			return results, false
 		}
 		processResult, runErr := s.processRunner.Run(ctx, pprocess.Request{Executable: check.Executable, Args: append([]string(nil), check.Args...), Dir: workdir, Env: pprocess.SortedEnvironment(environment), Timeout: check.Timeout, StdoutLimit: check.OutputLimit, StderrLimit: check.OutputLimit, CleanupGrace: packet.Budgets.CleanupTimeout})
+		cleanupErr := cleanupRuntime()
 		result.ExitCode = processResult.ExitCode
 		result.OutputBytes = len(processResult.Stdout) + len(processResult.Stderr)
 		result.OutputHash = hashBytes([]byte(processResult.Stdout + "\x00" + processResult.Stderr))
@@ -1968,6 +2297,10 @@ func (s Service) runRepairProvisionalChecks(ctx context.Context, packet RepairIs
 		if processResult.Cancelled || processResult.TimedOut || processResult.StdoutTruncated || processResult.StderrTruncated || !processResult.CleanupComplete {
 			result.Status, result.Reason = RepairGateBlocked, "isolated check execution or cleanup is incomplete"
 		}
+		if cleanupErr != nil {
+			result.Status, result.Reason = RepairGateBlocked, "isolated check runtime cleanup is incomplete"
+			result.Diagnostic = boundRepairText(cleanupErr.Error(), 512)
+		}
 		identityAfter, afterErr := targetIdentity(target)
 		if afterErr != nil || identityAfter != identityBefore {
 			result.Status, result.Reason = RepairGateBlocked, "frozen check changed the isolated workspace"
@@ -1979,7 +2312,119 @@ func (s Service) runRepairProvisionalChecks(ctx context.Context, packet RepairIs
 			return results, false
 		}
 	}
+	if len(packet.RegressionTests) > 0 {
+		result := s.runRepairRegressionReproducers(ctx, packet, target, RepairGateLinkedTheories)
+		results = append(results, result)
+		if result.Status != RepairGatePassed {
+			return results, false
+		}
+	}
 	return results, len(results) > 0
+}
+
+func (s Service) runRepairRegressionReproducers(ctx context.Context, packet RepairIssuePacket, target string, gate RepairGateKind) RepairGateResult {
+	started := s.now().UTC()
+	result := RepairGateResult{Gate: gate, Status: RepairGatePassed, Reason: "every immutable primary reproducer passed unchanged"}
+	files, err := repairRegressionFileMap(packet)
+	if err != nil {
+		result.Status, result.Reason, result.Diagnostic = RepairGateBlocked, "frozen regression bundle is invalid", boundRepairText(err.Error(), 512)
+		return result
+	}
+	for rel, expected := range files {
+		current, readErr := os.ReadFile(filepath.Join(target, filepath.FromSlash(rel)))
+		if readErr != nil || !bytes.Equal(current, expected) {
+			result.Status, result.Reason = RepairGateBlocked, "immutable regression test digest changed"
+			result.Diagnostic = rel
+			return result
+		}
+	}
+	identityBefore, err := targetIdentity(target)
+	if err != nil {
+		result.Status, result.Reason = RepairGateBlocked, "target identity is unavailable before regression checks"
+		return result
+	}
+	for _, spec := range packet.ReproductionSpecs {
+		workdir := target
+		if spec.Command.WorkingDirectory != "" {
+			workdir = filepath.Join(target, filepath.FromSlash(spec.Command.WorkingDirectory))
+		}
+		environment, cleanupRuntime, environmentErr := repairCheckEnvironment(target, spec.Command.Environment)
+		if environmentErr != nil {
+			result.Status, result.Reason, result.Diagnostic = RepairGateBlocked, "isolated reproducer runtime is unavailable", boundRepairText(environmentErr.Error(), 512)
+			break
+		}
+		timeout := spec.Command.Timeout
+		if timeout > packet.Budgets.CommandTimeout {
+			timeout = packet.Budgets.CommandTimeout
+		}
+		outputLimit := spec.Command.OutputLimit
+		if outputLimit > packet.Budgets.OutputBytes {
+			outputLimit = packet.Budgets.OutputBytes
+		}
+		processResult, runErr := s.processRunner.Run(ctx, pprocess.Request{Executable: spec.Command.Executable, Args: append([]string(nil), spec.Command.Args...), Dir: workdir, Env: pprocess.SortedEnvironment(environment), Timeout: timeout, StdoutLimit: outputLimit, StderrLimit: outputLimit, CleanupGrace: packet.Budgets.CleanupTimeout})
+		cleanupErr := cleanupRuntime()
+		result.ExitCode = processResult.ExitCode
+		result.OutputBytes += len(processResult.Stdout) + len(processResult.Stderr)
+		result.OutputHash = hashBytes([]byte(result.OutputHash + "\x00" + processResult.Stdout + "\x00" + processResult.Stderr))
+		if runErr != nil || processResult.ExitCode != 0 || processResult.Cancelled || processResult.TimedOut || processResult.StdoutTruncated || processResult.StderrTruncated || !processResult.CleanupComplete {
+			result.Status, result.Reason, result.NextAction = RepairGateFailed, "an immutable primary reproducer did not pass", "Inspect the retained reproducer and prepare a new bounded repair."
+			result.Diagnostic = boundRepairText(errorString(runErr), 512)
+			break
+		}
+		if cleanupErr != nil {
+			result.Status, result.Reason, result.Diagnostic = RepairGateBlocked, "isolated reproducer runtime cleanup is incomplete", boundRepairText(cleanupErr.Error(), 512)
+			break
+		}
+	}
+	identityAfter, identityErr := targetIdentity(target)
+	if identityErr != nil || identityAfter != identityBefore {
+		result.Status, result.Reason = RepairGateBlocked, "target changed while running immutable primary reproducers"
+	}
+	result.Duration = s.now().UTC().Sub(started)
+	result.DurationMS = result.Duration.Milliseconds()
+	return result
+}
+
+func repairCheckEnvironment(target string, names []string) (map[string]string, func() error, error) {
+	environment := make(map[string]string, len(names)+5)
+	for _, name := range names {
+		if strings.ContainsAny(name, "=\x00\r\n") {
+			return nil, nil, fmt.Errorf("invalid frozen environment name")
+		}
+		if value, ok := os.LookupEnv(name); ok {
+			environment[name] = value
+		}
+	}
+	runtimeRoot, err := os.MkdirTemp(filepath.Dir(target), ".ultraplan-repair-check-")
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() error {
+		if err := filepath.WalkDir(runtimeRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() {
+				return os.Chmod(path, 0o700)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		return os.RemoveAll(runtimeRoot)
+	}
+	for _, path := range []string{"cache", "tmp", "home", "gopath"} {
+		if err := os.MkdirAll(filepath.Join(runtimeRoot, path), 0o700); err != nil {
+			_ = cleanup()
+			return nil, nil, err
+		}
+	}
+	environment["HOME"] = filepath.Join(runtimeRoot, "home")
+	environment["GOCACHE"] = filepath.Join(runtimeRoot, "cache")
+	environment["GOPATH"] = filepath.Join(runtimeRoot, "gopath")
+	environment["GOTMPDIR"] = filepath.Join(runtimeRoot, "tmp")
+	environment["TMPDIR"] = filepath.Join(runtimeRoot, "tmp")
+	return environment, cleanup, nil
 }
 
 func repairCheckExecutionKey(check RepairCheckDescriptor) string {
@@ -2010,15 +2455,15 @@ func repairSmokeResultFingerprint(result SmokeResult) string {
 	return digest
 }
 
-func (s Service) finishBlockedRepair(store QAStore, state RepairState, flow FlowState, token QAWriterToken, release func(), released *bool, stop RepairStopReason, reason string, cause error) (RepairResult, error) {
-	return s.finishRepairWithoutApply(store, state, flow, token, release, released, RepairOutcomeBlocked, stop, reason, cause)
+func (s Service) finishBlockedRepair(store QAStore, state RepairState, flow FlowState, token QAWriterToken, release func(), released *bool, stop RepairStopReason, reason string, cleanupComplete bool, cause error) (RepairResult, error) {
+	return s.finishRepairWithoutApply(store, state, flow, token, release, released, RepairOutcomeBlocked, stop, reason, cleanupComplete, cause)
 }
 
-func (s Service) finishEscalatedRepair(store QAStore, state RepairState, flow FlowState, token QAWriterToken, release func(), released *bool, stop RepairStopReason, reason string, cause error) (RepairResult, error) {
-	return s.finishRepairWithoutApply(store, state, flow, token, release, released, RepairOutcomeEscalated, stop, reason, cause)
+func (s Service) finishEscalatedRepair(store QAStore, state RepairState, flow FlowState, token QAWriterToken, release func(), released *bool, stop RepairStopReason, reason string, cleanupComplete bool, cause error) (RepairResult, error) {
+	return s.finishRepairWithoutApply(store, state, flow, token, release, released, RepairOutcomeEscalated, stop, reason, cleanupComplete, cause)
 }
 
-func (s Service) finishRepairWithoutApply(store QAStore, state RepairState, flow FlowState, token QAWriterToken, release func(), released *bool, outcome RepairOutcome, stop RepairStopReason, reason string, cause error) (RepairResult, error) {
+func (s Service) finishRepairWithoutApply(store QAStore, state RepairState, flow FlowState, token QAWriterToken, release func(), released *bool, outcome RepairOutcome, stop RepairStopReason, reason string, cleanupComplete bool, cause error) (RepairResult, error) {
 	state.Phase = RepairPhaseTerminalizing
 	state.StopReason = stop
 	state.NextAction = "Release the owned mutation lease before terminal publication."
@@ -2040,7 +2485,7 @@ func (s Service) finishRepairWithoutApply(store QAStore, state RepairState, flow
 	if evidenceErr != nil {
 		return RepairResult{}, errors.Join(cause, evidenceErr)
 	}
-	result := RepairResult{SchemaVersion: QARepairSchemaVersion, Project: state.Project, Sprint: state.Sprint, QAAttemptID: state.QAAttemptID, RepairRunID: state.RepairRunID, Mode: state.Mode, Outcome: outcome, Reason: detail, StopReason: stop, Consumed: state.Consumed, Runtime: state.Runtime, Target: packet.Target, CleanupComplete: false, UnresolvedIssues: []string{packet.Issue.ID}, Evidence: evidenceRefs, NextAction: repairOutcomeNextAction(outcome), CompletedAt: s.now().UTC()}
+	result := RepairResult{SchemaVersion: QARepairSchemaVersion, Project: state.Project, Sprint: state.Sprint, QAAttemptID: state.QAAttemptID, RepairRunID: state.RepairRunID, Mode: state.Mode, Outcome: outcome, Reason: detail, StopReason: stop, Consumed: state.Consumed, Runtime: state.Runtime, Target: packet.Target, CleanupComplete: cleanupComplete, UnresolvedIssues: []string{packet.Issue.ID}, Evidence: evidenceRefs, NextAction: repairOutcomeNextAction(outcome), CompletedAt: s.now().UTC()}
 	state.UpdatedAt = result.CompletedAt
 	if err := store.PublishRepairResult(result, state, flow, token); err != nil {
 		return RepairResult{}, errors.Join(cause, err)
@@ -2098,7 +2543,8 @@ func repairPathsAllowed(paths, allowed []string) bool {
 		return false
 	}
 	for _, path := range normalized {
-		if !repairPathSetContains(allowedSet, path) || ClassifyRepairPath(path) != RepairPathProduction {
+		class := ClassifyRepairPath(path)
+		if !repairPathSetContains(allowedSet, path) || class != RepairPathProduction && class != RepairPathTestAsset {
 			return false
 		}
 	}
@@ -2378,7 +2824,8 @@ func applyRepairFilesJournaled(root string, replacements map[string][]byte, expe
 	paths := make([]string, 0, len(replacements))
 	for path := range replacements {
 		normalized, pathErr := normalizeRepairPath(path)
-		if pathErr != nil || ClassifyRepairPath(normalized) != RepairPathProduction {
+		class := ClassifyRepairPath(normalized)
+		if pathErr != nil || class != RepairPathProduction && !(class == RepairPathTestAsset && expected[normalized] == repairMissingPreimageDigest) {
 			return nil, 0, fmt.Errorf("repair replacement path is not mutable production: %q", path)
 		}
 		paths = append(paths, normalized)
@@ -2389,19 +2836,27 @@ func applyRepairFilesJournaled(root string, replacements map[string][]byte, expe
 	var changedBytes int64
 	for _, rel := range paths {
 		path := filepath.Join(root, filepath.FromSlash(rel))
-		if err := ensureRepairRegularPath(root, path); err != nil {
-			return nil, 0, err
-		}
 		before, readErr := os.ReadFile(path)
+		created := errors.Is(readErr, fs.ErrNotExist) && expected[rel] == repairMissingPreimageDigest && ClassifyRepairPath(rel) == RepairPathTestAsset
+		if created {
+			before, readErr = nil, nil
+			if err := ensureRepairCreatablePath(root, path); err != nil {
+				return nil, 0, err
+			}
+		} else if readErr == nil {
+			if err := ensureRepairRegularPath(root, path); err != nil {
+				return nil, 0, err
+			}
+		}
 		if readErr != nil {
 			return nil, 0, fmt.Errorf("read repair preimage %s: %w", rel, readErr)
 		}
 		preDigest := hashBytes(before)
-		if wanted := expected[rel]; !validFingerprint(wanted) || wanted != preDigest {
+		if wanted := expected[rel]; created && wanted != repairMissingPreimageDigest || !created && (!validFingerprint(wanted) || wanted != preDigest) {
 			return nil, 0, fmt.Errorf("repair preimage changed for %s", rel)
 		}
 		post := replacements[rel]
-		if bytes.IndexByte(post, 0) >= 0 {
+		if bytes.IndexByte(post, 0) >= 0 || !utf8.Valid(post) {
 			return nil, 0, fmt.Errorf("binary repair content is prohibited")
 		}
 		changedBytes += int64(len(before) + len(post))
@@ -2409,7 +2864,10 @@ func applyRepairFilesJournaled(root string, replacements map[string][]byte, expe
 			return nil, 0, fmt.Errorf("repair changed bytes exceed the confirmed limit")
 		}
 		preimages[rel] = before
-		operations = append(operations, RepairApplyOperation{Path: rel, PreimageDigest: preDigest, PostimageDigest: hashBytes(post)})
+		if created {
+			preDigest = repairMissingPreimageDigest
+		}
+		operations = append(operations, RepairApplyOperation{Path: rel, PreimageDigest: preDigest, PostimageDigest: hashBytes(post), Created: created})
 	}
 	for i := range operations {
 		op := &operations[i]
@@ -2417,7 +2875,8 @@ func applyRepairFilesJournaled(root string, replacements map[string][]byte, expe
 		if err := privateAtomicWrite(path, replacements[op.Path], "repair-apply", QAStateHooks{}); err != nil {
 			for j := i - 1; j >= 0; j-- {
 				prior := &operations[j]
-				if restoreErr := privateAtomicWrite(filepath.Join(root, filepath.FromSlash(prior.Path)), preimages[prior.Path], "repair-compensate", QAStateHooks{}); restoreErr == nil {
+				restoreErr := compensateRepairOperation(root, *prior, preimages[prior.Path])
+				if restoreErr == nil {
 					prior.Restored = true
 				} else {
 					err = errors.Join(err, fmt.Errorf("restore %s: %w", prior.Path, restoreErr))
@@ -2433,7 +2892,8 @@ func applyRepairFilesJournaled(root string, replacements map[string][]byte, expe
 					if !prior.Applied {
 						continue
 					}
-					if restoreErr := privateAtomicWrite(filepath.Join(root, filepath.FromSlash(prior.Path)), preimages[prior.Path], "repair-compensate", QAStateHooks{}); restoreErr == nil {
+					restoreErr := compensateRepairOperation(root, *prior, preimages[prior.Path])
+					if restoreErr == nil {
 						prior.Restored = true
 					} else {
 						progressErr = errors.Join(progressErr, fmt.Errorf("restore %s: %w", prior.Path, restoreErr))
@@ -2444,6 +2904,36 @@ func applyRepairFilesJournaled(root string, replacements map[string][]byte, expe
 		}
 	}
 	return operations, changedBytes, nil
+}
+
+func compensateRepairOperation(root string, operation RepairApplyOperation, preimage []byte) error {
+	path := filepath.Join(root, filepath.FromSlash(operation.Path))
+	if operation.Created {
+		err := os.Remove(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return privateAtomicWrite(path, preimage, "repair-compensate", QAStateHooks{})
+}
+
+func ensureRepairCreatablePath(root, path string) error {
+	root, rootErr := filepath.Abs(root)
+	path, pathErr := filepath.Abs(path)
+	if rootErr != nil || pathErr != nil || !inside(root, path) {
+		return fmt.Errorf("repair creation path escapes target")
+	}
+	for current := filepath.Dir(path); inside(root, current) && current != root; current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("repair creation parent is unsafe: %s", current)
+		}
+	}
+	return nil
 }
 
 func mergeRepairApplyOperations(current, staged []RepairApplyOperation) []RepairApplyOperation {

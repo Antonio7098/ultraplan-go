@@ -7,6 +7,7 @@ import (
 	"testing/fstest"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
+	"github.com/Antonio7098/ultraplan-go/internal/project"
 )
 
 func TestTemplateHierarchyIsNamespacedAndDownwardOnly(t *testing.T) {
@@ -137,6 +138,38 @@ func TestOperationTemplatesAndEnhancementStayBoundedAndAccessible(t *testing.T) 
 		if !strings.Contains(operationsJS, want) {
 			t.Fatalf("operation JavaScript missing safe error detail %q", want)
 		}
+	}
+}
+
+func TestProjectReasoningLifecycleAndAdmissionAreRendered(t *testing.T) {
+	queries := sampleQueries()
+	queries.project.ProjectReasoning = project.ProjectReasoningStatus{
+		Mode: project.ProjectReasoningRequired, RequiredVerdict: "pass_with_findings", CurrentStage: project.ProjectAreaReasoning,
+		Fresh: false, Outputs: []string{"projects/alpha/project-reasoning/areas/api.md"}, Blockers: []string{"area reasoning is stale"},
+	}
+	h := testHandler(t, queries, nil)
+	overview := request(h, http.MethodGet, "/projects/alpha", nil).Body.String()
+	for _, want := range []string{"Sprint admission", "Current stage", "area-reasoning", "Required verdict", "pass_with_findings", "reasoning-stage-track", "Area reasoning", "tracked outputs", "project-reasoning-flow", "project-reasoning-validate", "project-reasoning-prompt", "Prepare reasoning run"} {
+		if !strings.Contains(overview, want) {
+			t.Errorf("project reasoning overview missing %q in %s", want, overview)
+		}
+	}
+	roadmap := request(h, http.MethodGet, "/projects/alpha/roadmap", nil).Body.String()
+	for _, want := range []string{"Sprint admission is blocked", "Complete project reasoning", "Reasoning required"} {
+		if !strings.Contains(roadmap, want) {
+			t.Errorf("blocked roadmap missing %q in %s", want, roadmap)
+		}
+	}
+	if strings.Contains(roadmap, ">Add sprint</button>") || strings.Contains(roadmap, ">Create folder</button>") {
+		t.Fatalf("blocked roadmap exposes sprint admission controls: %s", roadmap)
+	}
+
+	queries.project.ProjectReasoning.Accepted = true
+	queries.project.ProjectReasoning.Fresh = true
+	queries.project.ProjectReasoning.Blockers = nil
+	roadmap = request(h, http.MethodGet, "/projects/alpha/roadmap", nil).Body.String()
+	if !strings.Contains(roadmap, ">Add sprint</button>") || !strings.Contains(roadmap, ">Create folder</button>") || strings.Contains(roadmap, "Sprint admission is blocked") {
+		t.Fatalf("accepted roadmap does not expose sprint controls: %s", roadmap)
 	}
 }
 

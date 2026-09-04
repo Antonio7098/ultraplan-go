@@ -643,7 +643,7 @@ func (s Service) generateMergeDescription(ctx context.Context, sp Sprint, inspec
 		return MergeDescription{}, "", fmt.Errorf("merge description runtime is not configured")
 	}
 	payload, _ := json.MarshalIndent(inspection, "", "  ")
-	prompt := "Write the merge description for this sprint. Return one JSON object with title, summary, verification, and risk_notes. The title must be imperative and at most 72 characters. summary, verification, and risk_notes must be JSON arrays of strings. Each string must be at most 300 characters, and summary must contain 1 to 8 entries. Do not edit files or run Git.\n\n" + string(payload)
+	prompt := "Write the merge description for this sprint. Return one JSON object with title, summary, verification, and risk_notes. The title must be imperative and at most 72 characters. summary, verification, and risk_notes must be JSON arrays of strings. Each string must be at most 300 characters, and summary must contain 1 to 8 entries. UltraPlan always creates a non-fast-forward two-parent merge commit, even when the source is directly ahead of the target. Never call this a fast-forward or claim that Git fast-forwards the target. Do not edit files or run Git.\n\n" + string(payload)
 	req := s.runtimeRequest(prompt, map[string]string{"project": sp.Project, "sprint": sp.Slug, "stage": string(StageMerge), "operation": "describe"})
 	req.WorkDir = inspection.SourceWorktree
 	if strings.TrimSpace(model) != "" {
@@ -798,6 +798,12 @@ func validateMergeDescription(value MergeDescription) error {
 		for _, item := range list {
 			if strings.TrimSpace(item) == "" || len(item) > 300 || strings.ContainsAny(item, "\r\x00") {
 				return fmt.Errorf("merge description contains an invalid entry")
+			}
+			lower := strings.ToLower(item)
+			claimsFastForward := strings.Contains(lower, "fast-forward") || strings.Contains(lower, "fast forward")
+			namesNonFastForward := strings.Contains(lower, "non-fast-forward") || strings.Contains(lower, "non fast forward") || strings.Contains(lower, "no fast-forward") || strings.Contains(lower, "no fast forward")
+			if claimsFastForward && !namesNonFastForward {
+				return fmt.Errorf("merge description contradicts the non-fast-forward merge policy")
 			}
 		}
 	}

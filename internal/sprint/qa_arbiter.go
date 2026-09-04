@@ -12,9 +12,10 @@ import (
 )
 
 type qaArbiterOutput struct {
-	SchemaVersion int                 `json:"schema_version"`
-	Overrides     []QAArbiterOverride `json:"overrides"`
-	Issues        []QAArbiterIssue    `json:"issues"`
+	SchemaVersion    int                        `json:"schema_version"`
+	Overrides        []QAArbiterOverride        `json:"overrides"`
+	Issues           []QAArbiterIssue           `json:"issues"`
+	EvidenceRequests []QAArbiterEvidenceRequest `json:"evidence_requests"`
 }
 
 type qaIssueReconcilerOutput struct {
@@ -28,9 +29,17 @@ type qaTheoryGroupPlan struct {
 	ContextBlockIDs []string
 }
 
-const qaArbiterOutputContract = `Return exactly one JSON object with schema_version 1, overrides, and issues. The first output byte must be "{" and the last output byte must be "}". Do not emit Markdown fences, backticks, prose, or leading or trailing commentary. Every override contains theory_ids, action, outcome, replacement_claim, reason, reason_refs, and numeric confidence from 0 to 1. The only valid action strings are "confirm", "refute", "replace", "merge", "split", "invalidate", and "keep_inconclusive". The only valid outcome strings are "confirmed", "refuted", "invalid", "inconclusive", and "cross_shard". Use action "confirm" for an unchanged confirmed theory and "keep_inconclusive" for an unchanged inconclusive theory. A supplied theory may occur in at most one override. When merging theories, emit one merge override that contains all merged theory_ids; do not also emit separate overrides for those theories. Every issue contains theory_ids, claim, title, issue_class, severity, location, reason, and evidence_refs. Omit id or return it as an empty string; the product assigns it. Every effectively confirmed theory must occur in exactly one issue. Refuted, invalid, inconclusive, and cross_shard theories must occur in none. Use only IDs in the frozen pack's allowed_refs array for theory_ids, reason_refs, and evidence_refs. An ID mentioned inside theory prose or nested evidence is not allowed unless allowed_refs also contains it.`
+const qaArbiterOutputContract = `Return exactly one JSON object with schema_version 1, overrides, issues, and evidence_requests. The first output byte must be "{" and the last output byte must be "}". Do not emit Markdown fences, backticks, prose, or leading or trailing commentary. Every override contains theory_ids, action, outcome, replacement_claim, reason, reason_refs, and numeric confidence from 0 to 1. The only valid action strings are "confirm", "refute", "replace", "merge", "split", "invalidate", and "keep_inconclusive". The only valid outcome strings are "confirmed", "refuted", "invalid", "inconclusive", and "cross_shard". Use action "confirm" for an unchanged confirmed theory and "keep_inconclusive" for an unchanged inconclusive theory. A supplied theory may occur in at most one override. When merging theories, emit one merge override that contains all merged theory_ids; do not also emit separate overrides for those theories. Every issue contains theory_ids, claim, title, issue_class, severity, location, reason, and evidence_refs. Omit id or return it as an empty string; the product assigns it. Every effectively confirmed theory must occur in exactly one issue. Refuted, invalid, inconclusive, and cross_shard theories must occur in none. Every evidence request contains theory_ids, origin_shard_id, gap, requested_evidence, required_observation, control_requirement, and priority. Priority must be a JSON string with exactly one of these values: "high", "medium", or "low". Omit id and arbiter_group_id or return them empty; the product assigns both. A request may contain theories from exactly one origin shard and only when their current evidence is insufficient. Split requests by origin shard. Use only IDs in the frozen pack's allowed_refs array for theory_ids, reason_refs, and evidence_refs. An ID mentioned inside theory prose or nested evidence is not allowed unless allowed_refs also contains it.`
+
+func qaArbiterEvidenceRequestInstructions(qaMap QAMap) string {
+	return "Evidence-request limits: at most " + fmt.Sprintf("%d", qaMap.Budgets.EvidenceRoundsPerShard) + ` requests per origin shard. Every request must ask the original investigator to create or strengthen an executable Go _test.go reproducer in its approved private workspace. Do not request another source excerpt, listing, search, review, or prose explanation. Combine related evidence gaps into one focused test request when necessary to remain within the limit. Put only supplied theory IDs in reason_refs and evidence_refs. Do not put block IDs in those arrays; discuss block evidence in reason text instead.`
+}
 
 func (s Service) arbitrateQA(ctx context.Context, qaMap QAMap, shards []QAShard, target string) (QAArbitration, error) {
+	return s.arbitrateQAAffected(ctx, qaMap, shards, target, nil, nil)
+}
+
+func (s Service) arbitrateQAAffected(ctx context.Context, qaMap QAMap, shards []QAShard, target string, previous *QAArbitration, affectedTheories map[string]bool) (QAArbitration, error) {
 	if qaMap.Foundation == nil {
 		return QAArbitration{}, NewQAError(QAErrorInvalidState, "arbitrate QA", "frozen QA foundation is unavailable", nil)
 	}
@@ -50,13 +59,28 @@ func (s Service) arbitrateQA(ctx context.Context, qaMap QAMap, shards []QAShard,
 		return QAArbitration{SchemaVersion: QASchemaVersion, MapID: qaMap.ID}, nil
 	}
 	arbitration := QAArbitration{SchemaVersion: QASchemaVersion, MapID: qaMap.ID}
+	previousGroups := map[string]QAArbiterGroup{}
+	if previous != nil {
+		for _, group := range previous.Groups {
+			previousGroups[group.ID] = group
+		}
+	}
 	for _, group := range groups {
-		record, groupErr := s.runQAArbiterGroup(ctx, qaMap, group, target, settings)
-		if groupErr != nil {
-			return QAArbitration{}, groupErr
+		record, retained := previousGroups[group.ID]
+		if !retained || qaTheoryGroupAffected(group, affectedTheories) {
+			var groupErr error
+			var prior *QAArbiterGroup
+			if retained {
+				prior = &record
+			}
+			record, groupErr = s.runQAArbiterGroup(ctx, qaMap, group, target, settings, prior)
+			if groupErr != nil {
+				return QAArbitration{}, groupErr
+			}
 		}
 		arbitration.Groups = append(arbitration.Groups, record)
 		arbitration.Overrides = append(arbitration.Overrides, record.Overrides...)
+		arbitration.EvidenceRequests = append(arbitration.EvidenceRequests, record.EvidenceRequests...)
 		if arbitration.Model == "" {
 			arbitration.Model = record.Model
 		}
@@ -65,11 +89,28 @@ func (s Service) arbitrateQA(ctx context.Context, qaMap QAMap, shards []QAShard,
 	for _, group := range arbitration.Groups {
 		provisional = append(provisional, group.Issues...)
 	}
+	if len(arbitration.EvidenceRequests) > 0 {
+		// Cross-group reconciliation is final-only. Provisional issues remain on
+		// their group records while original investigators strengthen evidence.
+		return arbitration, nil
+	}
 	arbitration.Issues, arbitration.Reconciliation, err = s.reconcileQAArbiterIssues(ctx, qaMap, provisional, target, settings)
 	if err != nil {
 		return QAArbitration{}, err
 	}
 	return arbitration, nil
+}
+
+func qaTheoryGroupAffected(group qaTheoryGroupPlan, affected map[string]bool) bool {
+	if len(affected) == 0 {
+		return false
+	}
+	for _, theory := range group.Theories {
+		if affected[theory.ID] {
+			return true
+		}
+	}
+	return false
 }
 
 func groupQATheories(qaMap QAMap, shards []QAShard, maxTheories int) ([]qaTheoryGroupPlan, error) {
@@ -180,10 +221,10 @@ func qaTheoryCitesBlock(theory QATheory, blockID string) bool {
 	return strings.Contains(text, blockID)
 }
 
-func (s Service) runQAArbiterGroup(ctx context.Context, qaMap QAMap, group qaTheoryGroupPlan, target string, settings QASettings) (QAArbiterGroup, error) {
+func (s Service) runQAArbiterGroup(ctx context.Context, qaMap QAMap, group qaTheoryGroupPlan, target string, settings QASettings, previous *QAArbiterGroup) (QAArbiterGroup, error) {
 	runtimeSettings := settings.RuntimeFor("arbiter")
 	provider, model := splitProviderModel(runtimeSettings.Model)
-	record := QAArbiterGroup{ID: group.ID, TheoryIDs: qaTheoryIDs(group.Theories), ContextBlockIDs: append([]string(nil), group.ContextBlockIDs...), Model: provider + "/" + model}
+	record := QAArbiterGroup{ID: group.ID, TheoryIDs: qaTheoryIDs(group.Theories), ContextBlockIDs: append([]string(nil), group.ContextBlockIDs...), Provider: provider, Model: provider + "/" + model, Variant: runtimeSettings.Variant, Round: 1}
 	commonBlocks, groupBlocks := splitQAArbiterBlocks(qaMap.Foundation, group.ContextBlockIDs)
 	common, err := canonicalQAJSON(struct {
 		SchemaVersion int              `json:"schema_version"`
@@ -213,7 +254,7 @@ func (s Service) runQAArbiterGroup(ctx context.Context, qaMap QAMap, group qaThe
 
 Assess one bounded theory group. Confirm, refute, replace, merge, split, invalidate, or retain inconclusive theories. Group confirmed theories that describe one defect into one issue. Do not invent evidence, requirements, blocks, paths, or checks. Do not authorize a patch or weaken a criterion.
 
-` + qaArbiterOutputContract + `
+` + qaArbiterOutputContract + "\n\n" + qaArbiterEvidenceRequestInstructions(qaMap) + `
 
 Common frozen QA foundation:
 ` + string(common) + "\n\n<<< END STABLE QA ARBITER PREFIX >>>\n"
@@ -231,7 +272,32 @@ Common frozen QA foundation:
 	req.RequireCaps = appendUnique(req.RequireCaps, "permissions")
 	req.Policy = qaReadOnlyToolPolicy()
 	req.Cache = pruntime.CacheDirective{Key: "qa-arbiter/" + qaMap.Foundation.Fingerprint + "/" + provider + "/" + model + "/" + runtimeSettings.Variant, BreakpointBytes: len(prefix), PrefixDigest: hashBytes([]byte(prefix)), Mode: "stable-prefix"}
+	if previous != nil {
+		// The retained store is part of the arbiter's identity. Restore it before
+		// validating the continuation request because runtimeRequest may derive a
+		// different default after an upgrade or configuration change.
+		req.RuntimeStorePath = previous.RuntimeStoreRef
+		if err := validateRetainedQAArbiterIdentity(*previous, group, req); err != nil {
+			return QAArbiterGroup{}, NewQAError(QAErrorRuntimeUnavailable, "re-arbitrate QA group", "original_arbiter_session_unavailable", err)
+		}
+		record.Round = previous.Round + 1
+		req.SessionID, req.SessionAction = previous.SessionID, "continue"
+		req.Cache = pruntime.CacheDirective{}
+		req.Metadata["arbiter_round"] = fmt.Sprintf("%d", record.Round)
+		req.Metadata["evidence_return"] = "true"
+		req.Prompt = "New evidence requested by this arbiter group is now available. Reassess the same theory group using the updated frozen pack. Preserve prior decisions unless the new evidence changes them.\n\n" + prompt
+	} else {
+		req.Metadata["arbiter_round"] = "1"
+	}
+	if len(req.Prompt) > qaMap.Budgets.PromptBytes {
+		return QAArbiterGroup{}, NewQAError(QAErrorBudgetExhausted, "arbiter group", "arbiter continuation exceeded the frozen prompt budget", nil)
+	}
 	result, runErr := s.startQARuntime(ctx, qaMap, req)
+	boundRecord, identityErr := retainQAArbiterRuntimeIdentity(record, req, result, previous)
+	if identityErr != nil {
+		return QAArbiterGroup{}, NewQAError(QAErrorRuntimeUnavailable, "arbitrate QA group", "original_arbiter_session_unavailable", identityErr)
+	}
+	record = boundRecord
 	var output qaArbiterOutput
 	decodeErr := decodeStrictQAJSON(result.TerminalOutput, &output)
 	if runErr == nil && decodeErr == nil {
@@ -243,21 +309,60 @@ Common frozen QA foundation:
 	}
 	if result.SessionID != "" && ctx.Err() == nil {
 		repair := req
-		repair.Prompt = "Your arbiter output was rejected: " + safeError(decodeErr) + ". Correct that rejection without dropping any other valid issue coverage or violating another contract rule. " + qaArbiterOutputContract + "\n"
+		repair.Prompt = "Your arbiter output was rejected: " + safeError(decodeErr) + ". Correct that rejection without dropping any other valid issue coverage or violating another contract rule. " + qaArbiterOutputContract + "\n\n" + qaArbiterEvidenceRequestInstructions(qaMap) + "\n"
 		repair.SessionID, repair.SessionAction, repair.Cache = result.SessionID, "continue", pruntime.CacheDirective{}
 		repair.Metadata["repair_of"] = result.RunID
 		repaired, repairErr := s.startQARuntime(ctx, qaMap, repair)
+		repairedRecord, repairIdentityErr := retainQAArbiterRuntimeIdentity(record, repair, repaired, &record)
 		repairDecodeErr := decodeStrictQAJSON(repaired.TerminalOutput, &output)
-		if repairErr == nil && repairDecodeErr == nil {
-			if validated, validationErr := validateQAArbiterGroupOutput(qaMap, group, commonBlocks, groupBlocks, output, record); validationErr == nil {
+		if repairErr == nil && repairIdentityErr == nil && repairDecodeErr == nil {
+			if validated, validationErr := validateQAArbiterGroupOutput(qaMap, group, commonBlocks, groupBlocks, output, repairedRecord); validationErr == nil {
 				return validated, nil
 			} else {
 				repairDecodeErr = validationErr
 			}
 		}
-		decodeErr = errors.Join(decodeErr, repairErr, repairDecodeErr)
+		decodeErr = errors.Join(decodeErr, repairErr, repairIdentityErr, repairDecodeErr)
 	}
-	return QAArbiterGroup{}, NewQAError(QAErrorInvalidState, "arbiter group", "arbiter agent did not produce valid output", errors.Join(runErr, decodeErr))
+	summary := "arbiter agent did not produce valid output"
+	if reason := safeError(decodeErr); reason != "" {
+		summary += ": " + reason
+	}
+	return QAArbiterGroup{}, NewQAError(QAErrorInvalidState, "arbiter group", summary, errors.Join(runErr, decodeErr))
+}
+
+func validateRetainedQAArbiterIdentity(previous QAArbiterGroup, group qaTheoryGroupPlan, req pruntime.Request) error {
+	theoryIDs := qaTheoryIDs(group.Theories)
+	if previous.ID != group.ID || len(previous.TheoryIDs) != len(theoryIDs) || sharedQAStrings(previous.TheoryIDs, theoryIDs) != len(theoryIDs) {
+		return fmt.Errorf("retained arbiter group identity changed")
+	}
+	if previous.SessionID == "" || previous.Provider != req.Provider || previous.Model != req.Provider+"/"+req.Model || previous.Variant != req.Metadata["variant"] || previous.RuntimeStoreRef != req.RuntimeStorePath || previous.WorkspaceID != hashOpaque(filepath.Clean(req.WorkDir)) || previous.Round < 1 {
+		return fmt.Errorf("retained arbiter runtime identity changed")
+	}
+	return nil
+}
+
+func retainQAArbiterRuntimeIdentity(record QAArbiterGroup, req pruntime.Request, result pruntime.Result, previous *QAArbiterGroup) (QAArbiterGroup, error) {
+	if result.SessionID == "" {
+		return QAArbiterGroup{}, fmt.Errorf("arbiter runtime returned no resumable session")
+	}
+	if previous != nil && result.SessionID != previous.SessionID {
+		return QAArbiterGroup{}, fmt.Errorf("arbiter runtime replaced the retained session")
+	}
+	runtimeStoreRef := result.RuntimeStorePath
+	if runtimeStoreRef == "" {
+		runtimeStoreRef = req.RuntimeStorePath
+	}
+	if previous != nil && runtimeStoreRef != previous.RuntimeStoreRef {
+		return QAArbiterGroup{}, fmt.Errorf("arbiter runtime store changed")
+	}
+	record.SessionID = result.SessionID
+	record.Provider = req.Provider
+	record.Model = req.Provider + "/" + req.Model
+	record.Variant = req.Metadata["variant"]
+	record.RuntimeStoreRef = runtimeStoreRef
+	record.WorkspaceID = hashOpaque(filepath.Clean(req.WorkDir))
+	return record, nil
 }
 
 func splitQAArbiterBlocks(foundation *QAFoundation, selected []string) (common, specific []QAContextBlock) {
@@ -276,7 +381,7 @@ func splitQAArbiterBlocks(foundation *QAFoundation, selected []string) (common, 
 }
 
 func validateQAArbiterGroupOutput(qaMap QAMap, group qaTheoryGroupPlan, common, specific []QAContextBlock, output qaArbiterOutput, base QAArbiterGroup) (QAArbiterGroup, error) {
-	if output.SchemaVersion != QASchemaVersion || len(output.Overrides) > len(group.Theories) || len(output.Issues) > len(group.Theories) {
+	if output.SchemaVersion != QASchemaVersion || len(output.Overrides) > len(group.Theories) || len(output.Issues) > len(group.Theories) || len(output.EvidenceRequests) > len(group.Theories) {
 		return QAArbiterGroup{}, fmt.Errorf("arbiter group schema or output count is invalid")
 	}
 	refs, outcomes := map[string]bool{}, map[string]QATheoryOutcome{}
@@ -286,6 +391,7 @@ func validateQAArbiterGroupOutput(qaMap QAMap, group qaTheoryGroupPlan, common, 
 	for _, block := range append(append([]QAContextBlock(nil), common...), specific...) {
 		refs[block.ID] = true
 	}
+	normalizeQAArbiterReferences(&output, refs)
 	seenOverride := map[string]bool{}
 	for i := range output.Overrides {
 		override := &output.Overrides[i]
@@ -325,12 +431,146 @@ func validateQAArbiterGroupOutput(qaMap QAMap, group qaTheoryGroupPlan, common, 
 		}
 		override.ID = QAIDScope + "-override-" + identity[:24]
 	}
+	output.Issues = retainConfirmedQAArbiterIssueTheories(output.Issues, outcomes)
 	issues, err := validateQAArbiterIssues(qaMap, group.ID, output.Issues, refs, outcomes, true)
 	if err != nil {
 		return QAArbiterGroup{}, err
 	}
-	base.Overrides, base.Issues = output.Overrides, issues
+	output.EvidenceRequests = discardResolvedQAArbiterEvidenceRequests(output.EvidenceRequests, outcomes)
+	requests, err := validateQAArbiterEvidenceRequests(qaMap, group, output.EvidenceRequests, outcomes)
+	if err != nil {
+		return QAArbiterGroup{}, err
+	}
+	base.Overrides, base.Issues, base.EvidenceRequests = output.Overrides, issues, requests
 	return base, nil
+}
+
+// retainConfirmedQAArbiterIssueTheories canonicalizes the model output to the
+// issue contract. Non-confirmed theories may be discussed by the arbiter, but
+// cannot become repair-eligible issues. Confirmed coverage and uniqueness are
+// still enforced by validateQAArbiterIssues after this normalization.
+func retainConfirmedQAArbiterIssueTheories(issues []QAArbiterIssue, outcomes map[string]QATheoryOutcome) []QAArbiterIssue {
+	retained := make([]QAArbiterIssue, 0, len(issues))
+	for _, issue := range issues {
+		confirmed := make([]string, 0, len(issue.TheoryIDs))
+		for _, theoryID := range issue.TheoryIDs {
+			if outcomes[theoryID] == QATheoryConfirmed {
+				confirmed = append(confirmed, theoryID)
+			}
+		}
+		issue.TheoryIDs = normalizeQAStrings(confirmed)
+		if len(issue.TheoryIDs) > 0 {
+			retained = append(retained, issue)
+		}
+	}
+	return retained
+}
+
+// discardResolvedQAArbiterEvidenceRequests removes requests made redundant by
+// the arbiter's decisions in the same output. A terminal outcome and a request
+// for more evidence about that outcome are contradictory; the decision wins.
+func discardResolvedQAArbiterEvidenceRequests(requests []QAArbiterEvidenceRequest, outcomes map[string]QATheoryOutcome) []QAArbiterEvidenceRequest {
+	retained := make([]QAArbiterEvidenceRequest, 0, len(requests))
+	for _, request := range requests {
+		resolved := false
+		for _, theoryID := range request.TheoryIDs {
+			switch outcomes[theoryID] {
+			case QATheoryConfirmed, QATheoryRefuted, QATheoryInvalid, QATheoryNotApplicable:
+				resolved = true
+			}
+		}
+		if !resolved {
+			retained = append(retained, request)
+		}
+	}
+	return retained
+}
+
+func normalizeQAArbiterReferences(output *qaArbiterOutput, allowed map[string]bool) {
+	for i := range output.Overrides {
+		output.Overrides[i].ReasonRefs = retainedQAArbiterReferences(output.Overrides[i].ReasonRefs, output.Overrides[i].TheoryIDs, allowed)
+	}
+	for i := range output.Issues {
+		output.Issues[i].EvidenceRefs = retainedQAArbiterReferences(output.Issues[i].EvidenceRefs, output.Issues[i].TheoryIDs, allowed)
+	}
+}
+
+func retainedQAArbiterReferences(current, theoryIDs []string, allowed map[string]bool) []string {
+	retained := make([]string, 0, len(current)+len(theoryIDs))
+	for _, id := range current {
+		if allowed[id] {
+			retained = append(retained, id)
+		}
+	}
+	for _, id := range theoryIDs {
+		if allowed[id] {
+			retained = append(retained, id)
+		}
+	}
+	return normalizeQAStrings(retained)
+}
+
+func validateQAArbiterEvidenceRequests(qaMap QAMap, group qaTheoryGroupPlan, requests []QAArbiterEvidenceRequest, outcomes map[string]QATheoryOutcome) ([]QAArbiterEvidenceRequest, error) {
+	theories := make(map[string]QATheory, len(group.Theories))
+	for _, theory := range group.Theories {
+		theories[theory.ID] = theory
+	}
+	perShard := map[string]int{}
+	seen := map[string]bool{}
+	for i := range requests {
+		request := &requests[i]
+		if request.ArbiterGroupID != "" && request.ArbiterGroupID != group.ID {
+			return nil, fmt.Errorf("arbiter evidence request claims another arbiter group")
+		}
+		request.ArbiterGroupID = group.ID
+		request.TheoryIDs = normalizeQAStrings(request.TheoryIDs)
+		request.OriginShardID = strings.TrimSpace(request.OriginShardID)
+		request.Gap = strings.TrimSpace(request.Gap)
+		request.RequestedEvidence = strings.TrimSpace(request.RequestedEvidence)
+		request.RequiredObservation = strings.TrimSpace(request.RequiredObservation)
+		request.ControlRequirement = strings.TrimSpace(request.ControlRequirement)
+		request.Priority = strings.TrimSpace(request.Priority)
+		if len(request.TheoryIDs) == 0 || !validQAIDKind(request.OriginShardID, "shard") || request.Gap == "" || request.RequestedEvidence == "" || request.RequiredObservation == "" || request.ControlRequirement == "" || request.Priority == "" {
+			return nil, fmt.Errorf("arbiter evidence request is incomplete")
+		}
+		if request.Priority != "high" && request.Priority != "medium" && request.Priority != "low" {
+			return nil, fmt.Errorf("arbiter evidence request priority %q is invalid", request.Priority)
+		}
+		for _, theoryID := range request.TheoryIDs {
+			theory, ok := theories[theoryID]
+			if !ok {
+				return nil, fmt.Errorf("arbiter evidence request references unknown theory %q", theoryID)
+			}
+			if theory.ShardID != request.OriginShardID {
+				return nil, fmt.Errorf("arbiter evidence request mixes or mismatches origin shards")
+			}
+			switch outcomes[theoryID] {
+			case QATheoryConfirmed, QATheoryRefuted, QATheoryInvalid, QATheoryNotApplicable:
+				return nil, fmt.Errorf("arbiter evidence request targets already sufficient evidence")
+			}
+		}
+		identity, err := fingerprintQAValue(struct {
+			Shard, Gap, Evidence, Observation, Control string
+			Theories                                   []string
+		}{request.OriginShardID, request.Gap, request.RequestedEvidence, request.RequiredObservation, request.ControlRequirement, request.TheoryIDs})
+		if err != nil {
+			return nil, err
+		}
+		if seen[identity] {
+			return nil, fmt.Errorf("duplicate arbiter evidence request")
+		}
+		seen[identity] = true
+		perShard[request.OriginShardID]++
+		if perShard[request.OriginShardID] > qaMap.Budgets.EvidenceRoundsPerShard {
+			return nil, fmt.Errorf("arbiter evidence requests exceed the shard round budget")
+		}
+		request.ID, err = NewQAV2ID("request", qaMap.Project, qaMap.Sprint, group.ID, identity)
+		if err != nil {
+			return nil, err
+		}
+	}
+	sort.Slice(requests, func(i, j int) bool { return requests[i].ID < requests[j].ID })
+	return requests, nil
 }
 
 func validateQAArbiterIssues(qaMap QAMap, scope string, issues []QAArbiterIssue, refs map[string]bool, outcomes map[string]QATheoryOutcome, requireConfirmedCoverage bool) ([]QAArbiterIssue, error) {
@@ -426,13 +666,21 @@ Return exactly one JSON object with schema_version 1 and issues. Every issue con
 		repair.SessionID, repair.SessionAction, repair.Cache = result.SessionID, "continue", pruntime.CacheDirective{}
 		repair.Metadata["repair_of"] = result.RunID
 		repaired, repairErr := s.startQARuntime(ctx, qaMap, repair)
-		if repairErr == nil && decodeStrictQAJSON(repaired.TerminalOutput, &output) == nil {
+		repairDecodeErr := decodeStrictQAJSON(repaired.TerminalOutput, &output)
+		if repairErr == nil && repairDecodeErr == nil {
 			if issues, validationErr := validateQAReconcilerOutput(qaMap, provisional, output); validationErr == nil {
 				return issues, record, nil
+			} else {
+				repairDecodeErr = validationErr
 			}
 		}
+		decodeErr = errors.Join(decodeErr, repairErr, repairDecodeErr)
 	}
-	return nil, record, NewQAError(QAErrorInvalidState, "reconcile QA issues", "issue reconciliation agent did not produce valid output", errors.Join(runErr, decodeErr))
+	summary := "issue reconciliation agent did not produce valid output"
+	if reason := safeError(decodeErr); reason != "" {
+		summary += ": " + reason
+	}
+	return nil, record, NewQAError(QAErrorInvalidState, "reconcile QA issues", summary, errors.Join(runErr, decodeErr))
 }
 
 func validateQAReconcilerOutput(qaMap QAMap, provisional []QAArbiterIssue, output qaIssueReconcilerOutput) ([]QAArbiterIssue, error) {

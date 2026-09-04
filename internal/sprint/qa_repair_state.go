@@ -133,7 +133,7 @@ func (store QAStore) LoadRepairCycle(attemptID, runID string, cycle int) (Repair
 	if err := ValidateRepairCycle(value); err != nil || value.RepairRunID != runID || value.Number != cycle {
 		return RepairCycle{}, NewQAError(QAErrorInvalidState, "load repair cycle", "repair cycle is stored under the wrong identity", nil)
 	}
-	for _, ref := range []*QAArtifactRef{value.Proposal, value.Scope, value.Reverification, value.Cleanup} {
+	for _, ref := range []*QAArtifactRef{value.Proposal, value.TestPatch, value.ImplementationPatch, value.Scope, value.Reverification, value.Cleanup} {
 		if ref != nil {
 			if err := store.verifyReference(*ref); err != nil {
 				return RepairCycle{}, err
@@ -245,12 +245,26 @@ func (store QAStore) PublishRepairProposal(state RepairState, flow FlowState, cy
 		return NewQAError(QAErrorBudgetExhausted, "publish repair proposal", "proposal patch exceeds the frozen limit or contains binary bytes", nil)
 	}
 	base := QARepairCycleRelPath(store.sprint, state.QAAttemptID, state.RepairRunID, cycle)
+	normalized := normalizePatch(proposal)
+	testPatch, implementationPatch := splitRepairProposalPatches(normalized, packet.RegressionTestPaths)
 	path, err := store.resolve(filepath.ToSlash(filepath.Join(base, "proposal.patch")))
 	if err != nil {
 		return err
 	}
-	if _, err := store.writeRepairBytes(token, "repair-proposal", path, normalizePatch(proposal), true); err != nil {
+	if _, err := store.writeRepairBytes(token, "repair-proposal", path, normalized, true); err != nil {
 		return err
+	}
+	for name, content := range map[string][]byte{"test.patch": testPatch, "implementation.patch": implementationPatch} {
+		if len(content) == 0 && name == "test.patch" {
+			continue
+		}
+		componentPath, resolveErr := store.resolve(filepath.ToSlash(filepath.Join(base, name)))
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if _, writeErr := store.writeRepairBytes(token, "repair-"+strings.TrimSuffix(name, ".patch"), componentPath, content, true); writeErr != nil {
+			return writeErr
+		}
 	}
 	state.NextAction = "Apply the retained proposal through the product-owned boundary."
 	return store.publishRepairState(state, flow, token)
@@ -265,14 +279,22 @@ func (store QAStore) StageRepairApplyJournal(state RepairState, flow FlowState, 
 	base := QARepairCycleRelPath(store.sprint, state.QAAttemptID, state.RepairRunID, cycle)
 	for _, rel := range paths {
 		path := filepath.Join(target, filepath.FromSlash(rel))
-		if err := ensureRepairRegularPath(target, path); err != nil {
-			return RepairApplyJournal{}, err
-		}
 		before, err := os.ReadFile(path)
+		created := errors.Is(err, fs.ErrNotExist) && expected[rel] == repairMissingPreimageDigest && ClassifyRepairPath(rel) == RepairPathTestAsset
+		if created {
+			before, err = nil, nil
+			if err := ensureRepairCreatablePath(target, path); err != nil {
+				return RepairApplyJournal{}, err
+			}
+		} else if err == nil {
+			if err := ensureRepairRegularPath(target, path); err != nil {
+				return RepairApplyJournal{}, err
+			}
+		}
 		if err != nil {
 			return RepairApplyJournal{}, err
 		}
-		if digest := hashBytes(before); !validFingerprint(expected[rel]) || digest != expected[rel] {
+		if digest := hashBytes(before); created && expected[rel] != repairMissingPreimageDigest || !created && (!validFingerprint(expected[rel]) || digest != expected[rel]) {
 			return RepairApplyJournal{}, NewQAError(QAErrorConflict, "stage repair apply", "production preimage changed before journal publication", nil)
 		}
 		preimageRel := filepath.ToSlash(filepath.Join(base, "preimages", rel))
@@ -283,7 +305,7 @@ func (store QAStore) StageRepairApplyJournal(state RepairState, flow FlowState, 
 		if _, err := store.writeRepairBytes(token, "repair-preimage", preimagePath, before, true); err != nil {
 			return RepairApplyJournal{}, err
 		}
-		journal.Operations = append(journal.Operations, RepairApplyOperation{Path: rel, PreimageDigest: expected[rel], PreimagePath: preimageRel, PostimageDigest: hashBytes(replacements[rel])})
+		journal.Operations = append(journal.Operations, RepairApplyOperation{Path: rel, PreimageDigest: expected[rel], PreimagePath: preimageRel, PostimageDigest: hashBytes(replacements[rel]), Created: created})
 	}
 	if err := store.PublishRepairApplyJournal(state, flow, journal, token); err != nil {
 		return RepairApplyJournal{}, err
@@ -319,15 +341,36 @@ func (store QAStore) PublishRepairCycle(publication RepairCyclePublication, stat
 		if len(publication.Proposal) > packet.Budgets.MaxPatchBytes || bytes.IndexByte(publication.Proposal, 0) >= 0 {
 			return NewQAError(QAErrorBudgetExhausted, "publish repair proposal", "proposal patch exceeds the frozen limit or contains binary bytes", nil)
 		}
+		normalized := normalizePatch(publication.Proposal)
+		testPatch, implementationPatch := splitRepairProposalPatches(normalized, packet.RegressionTestPaths)
 		path, err := store.resolve(filepath.ToSlash(filepath.Join(base, "proposal.patch")))
 		if err != nil {
 			return err
 		}
-		digest, err := store.writeRepairBytes(token, "repair-proposal", path, normalizePatch(publication.Proposal), true)
+		digest, err := store.writeRepairBytes(token, "repair-proposal", path, normalized, true)
 		if err != nil {
 			return err
 		}
 		cycle.Proposal = &QAArtifactRef{Path: filepath.ToSlash(filepath.Join(base, "proposal.patch")), Digest: digest}
+		for name, content := range map[string][]byte{"test.patch": testPatch, "implementation.patch": implementationPatch} {
+			if len(content) == 0 && name == "test.patch" {
+				continue
+			}
+			componentPath, resolveErr := store.resolve(filepath.ToSlash(filepath.Join(base, name)))
+			if resolveErr != nil {
+				return resolveErr
+			}
+			componentDigest, writeErr := store.writeRepairBytes(token, "repair-"+strings.TrimSuffix(name, ".patch"), componentPath, content, true)
+			if writeErr != nil {
+				return writeErr
+			}
+			ref := &QAArtifactRef{Path: filepath.ToSlash(filepath.Join(base, name)), Digest: componentDigest}
+			if name == "test.patch" {
+				cycle.TestPatch = ref
+			} else {
+				cycle.ImplementationPatch = ref
+			}
+		}
 	}
 	if publication.Scope != nil {
 		if err := ValidateRepairScope(*publication.Scope); err != nil || publication.Scope.RepairRunID != state.RepairRunID || publication.Scope.Cycle != cycle.Number {
@@ -389,6 +432,26 @@ func (store QAStore) PublishRepairCycle(publication RepairCyclePublication, stat
 	}
 	state.Consumed.Cycles = maxInt(state.Consumed.Cycles, cycle.Number)
 	return store.publishRepairState(state, flow, token)
+}
+
+func splitRepairProposalPatches(proposal []byte, regressionPaths []string) (testPatch, implementationPatch []byte) {
+	regression := stringSet(regressionPaths)
+	lines := strings.SplitAfter(string(proposal), "\n")
+	var test, implementation strings.Builder
+	var destination *strings.Builder
+	for _, line := range lines {
+		if strings.HasPrefix(line, "--- a/") {
+			path := strings.TrimSpace(strings.TrimPrefix(line, "--- a/"))
+			destination = &implementation
+			if regression[path] {
+				destination = &test
+			}
+		}
+		if destination != nil {
+			destination.WriteString(line)
+		}
+	}
+	return []byte(test.String()), []byte(implementation.String())
 }
 
 func (store QAStore) PublishRepairResult(result RepairResult, state RepairState, flow FlowState, token QAWriterToken) error {
@@ -660,7 +723,9 @@ func ValidateRepairApplyJournal(value RepairApplyJournal) error {
 	prior := ""
 	for _, operation := range value.Operations {
 		path, err := normalizeRepairPath(operation.Path)
-		if err != nil || path != operation.Path || path <= prior || ClassifyRepairPath(path) != RepairPathProduction || !validFingerprint(operation.PreimageDigest) || !validFingerprint(operation.PostimageDigest) || strings.TrimSpace(operation.PreimagePath) == "" {
+		class := ClassifyRepairPath(path)
+		validPreimage := validFingerprint(operation.PreimageDigest) || operation.Created && operation.PreimageDigest == repairMissingPreimageDigest
+		if err != nil || path != operation.Path || path <= prior || class != RepairPathProduction && !(operation.Created && class == RepairPathTestAsset) || !validPreimage || !validFingerprint(operation.PostimageDigest) || strings.TrimSpace(operation.PreimagePath) == "" {
 			return fmt.Errorf("invalid repair apply operation")
 		}
 		prior = path

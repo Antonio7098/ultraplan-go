@@ -91,6 +91,12 @@ func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req
 		getenv = os.Getenv
 	}
 	env := smokeEnvironment(s.smokeSettings, prepared.Manifest, getenv)
+	isolatedTemp, tempErr := os.MkdirTemp("", "ultraplan-smoke-")
+	if tempErr != nil {
+		return smokeFailedResult(result, smokeError("smoke_temp_unavailable", "process", "smoke process isolation directory could not be created", "Restore a writable temporary directory and retry smoke.", tempErr))
+	}
+	defer os.RemoveAll(isolatedTemp)
+	env = replaceSmokeEnvironment(env, "TMPDIR", isolatedTemp)
 	discoveryArgs := append(append([]string{}, prepared.Manifest.Args...), prepared.Manifest.Commands.Discover...)
 	discoveryArgs = append(discoveryArgs, "--target", prepared.Target)
 	emit(SmokeProgress{Phase: SmokePhaseDiscovery, Message: "discovering machine-readable smoke scopes"})
@@ -186,6 +192,17 @@ func (s Service) runSmoke(ctx context.Context, projectRef, sprintRef string, req
 		emit(SmokeProgress{Phase: SmokePhaseCompleted, Message: "smoke complete"})
 	}
 	return committed, commitErr
+}
+
+func replaceSmokeEnvironment(env []string, name, value string) []string {
+	prefix := name + "="
+	result := make([]string, 0, len(env)+1)
+	for _, item := range env {
+		if !strings.HasPrefix(item, prefix) {
+			result = append(result, item)
+		}
+	}
+	return append(result, prefix+value)
 }
 
 func (s Service) saveSmokeAttempt(projectRef, sprintRef string, result SmokeResult, runErr error, terminal bool) error {

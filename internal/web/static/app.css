@@ -144,6 +144,18 @@ nav[aria-label="Breadcrumb"] a { color: var(--muted); text-decoration: none; }
 .entity-dashboard > section, .entity-dashboard > .dashboard-component, .entity-dashboard > .dashboard-component > section { min-width: 0; margin: 0; }
 .project-dashboard { grid-template-columns: minmax(0, 1.55fr) minmax(17rem, .75fr); }
 .project-command { grid-column: 1 / -1; }
+.project-reasoning-state { grid-column: 1 / -1; }
+.reasoning-stage-track { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 1rem 0 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--border); list-style: none; }
+.reasoning-stage-track li { position: relative; padding: .7rem .8rem .7rem 1.8rem; background: var(--panel); color: var(--muted); font-size: .7rem; }
+.reasoning-stage-track li::before { position: absolute; top: .78rem; left: .7rem; width: .55rem; height: .55rem; border: 1px solid var(--subtle); border-radius: 999px; content: ""; }
+.reasoning-stage-track li.is-current { color: var(--text); background: var(--accent-soft); }
+.reasoning-stage-track li.is-current::before { border-color: var(--accent-strong); background: var(--accent-strong); }
+.reasoning-outputs { margin-top: .85rem; }
+.reasoning-outputs ul { max-height: 12rem; overflow: auto; }
+.reasoning-actions { align-items: end; }
+.reasoning-actions label { display: grid; gap: .3rem; color: var(--muted); font-size: .7rem; }
+.admission-blocked { margin: 0; padding: .8rem 1rem; border: 1px solid color-mix(in oklch, var(--warning) 48%, var(--border)); border-radius: var(--radius); color: var(--warning); }
+.milestone-blocked { opacity: .72; }
 .project-roadmap { grid-row: span 2; }
 .project-attention { min-height: 11rem; }
 .study-dashboard { grid-template-columns: minmax(0, 1.35fr) minmax(16rem, .65fr); }
@@ -834,6 +846,17 @@ tbody tr:hover td { background: rgb(255 255 255 / 1.5%); }
 .qa-record-list li, .qa-evidence-list li { min-width: 0; padding: .6rem; border: 1px solid var(--border); background: var(--bg); }
 .qa-record-list li > div, .qa-evidence-list li > div { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
 .qa-record-list p, .qa-evidence-list p { margin: .4rem 0 0; }
+.qa-authored-tests { min-width: 0; }
+.qa-evidence-request-list { display: grid; gap: .55rem; }
+.qa-evidence-request { margin: 0; border: 1px solid var(--border); background: var(--bg); }
+.qa-evidence-request > summary { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; padding: .75rem .8rem; cursor: pointer; }
+.qa-evidence-request > summary > span:first-child { display: grid; min-width: 0; gap: .2rem; overflow-wrap: anywhere; }
+.qa-evidence-request > div { display: grid; gap: .7rem; padding: .8rem; border-top: 1px solid var(--border); }
+.qa-evidence-request > div > p { margin: 0; overflow-wrap: anywhere; }
+.qa-authored-test-list { display: grid; gap: .5rem; margin: .8rem 0 0; padding: 0; list-style: none; }
+.qa-authored-test-list li { min-width: 0; padding: .7rem .8rem; border: 1px solid var(--border); background: var(--bg); }
+.qa-authored-test-list li > div { display: flex; justify-content: space-between; gap: .6rem; flex-wrap: wrap; }
+.qa-authored-test-list p { margin: .4rem 0 0; overflow-wrap: anywhere; }
 .qa-theory { margin: 0; border: 1px solid var(--border); background: var(--bg); }
 .qa-theory + .qa-theory { margin-top: .5rem; }
 .qa-theory > summary > span:first-child { display: grid; gap: .2rem; min-width: 0; }
@@ -890,6 +913,7 @@ footer { min-height: 3.25rem; display: flex; align-items: center; justify-conten
   .heading-row { align-items: flex-start; }
   .artifact-groups, .run-layout, .sprint-overview-grid, .project-dashboard, .study-dashboard { grid-template-columns: 1fr; }
   .project-command, .project-roadmap, .study-command, .study-progress-preview, .study-attention, .sprint-overview-grid .sprint-overview-hero, .sprint-overview-grid .sprint-continue-panel { grid-column: auto; grid-row: auto; }
+  .reasoning-stage-track { grid-template-columns: 1fr; }
   .stage-timeline { position: static; max-height: none; }
   .stage-details { grid-row: 1; }
   .sprint-status-summary { flex-direction: column; }

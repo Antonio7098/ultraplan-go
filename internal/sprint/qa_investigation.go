@@ -99,7 +99,11 @@ func RunQAInvestigation(ctx context.Context, req QAInvestigationRequest) (QAEvid
 	}
 	if req.Plan.Executable != "" {
 		started := req.Now().UTC()
-		result, runErr := workspace.Run(ctx, req.Runner, ".", pprocess.Request{Executable: req.Plan.Executable, Args: append([]string(nil), req.Plan.Args...), Env: pprocess.SortedEnvironment(req.Environment), Timeout: req.Plan.Timeout, StdoutLimit: req.Plan.OutputLimit, StderrLimit: req.Plan.OutputLimit, CleanupGrace: req.Budgets.CleanupTimeout})
+		workdir := req.Plan.WorkingDirectory
+		if workdir == "" {
+			workdir = "."
+		}
+		result, runErr := workspace.Run(ctx, req.Runner, workdir, pprocess.Request{Executable: req.Plan.Executable, Args: append([]string(nil), req.Plan.Args...), Env: pprocess.SortedEnvironment(req.Environment), Timeout: req.Plan.Timeout, StdoutLimit: req.Plan.OutputLimit, StderrLimit: req.Plan.OutputLimit, CleanupGrace: req.Budgets.CleanupTimeout})
 		argsDigest := sha256.Sum256([]byte(strings.Join(req.Plan.Args, "\x00")))
 		stdoutDigest := sha256.Sum256([]byte(result.Stdout))
 		stderrDigest := sha256.Sum256([]byte(result.Stderr))
@@ -202,13 +206,14 @@ func FreezeQAEvidencePlan(project, sprint string, plan QAEvidencePlan, budgets Q
 		CheckID             string
 		Executable          string
 		Args                []string
+		WorkingDirectory    string
 		Environment         []string
 		Timeout             time.Duration
 		Output              int
 		RequireEmptyStdout  bool
 		Analyzers           int
 		Governed, Impl, Map string
-	}{plan.Kind, plan.TheoryIDs, plan.ExpectationRefs, []string{plan.ConfirmationCondition, plan.RefutationCondition, plan.InconclusiveCondition}, plan.ApprovedPaths, plan.CheckID, plan.Executable, plan.Args, plan.EnvironmentNames, plan.Timeout, plan.OutputLimit, plan.RequireEmptyStdout, plan.AnalyzerCalls, plan.GovernedInputFingerprint, plan.ImplementationFingerprint, plan.MapFingerprint})
+	}{plan.Kind, plan.TheoryIDs, plan.ExpectationRefs, []string{plan.ConfirmationCondition, plan.RefutationCondition, plan.InconclusiveCondition}, plan.ApprovedPaths, plan.CheckID, plan.Executable, plan.Args, plan.WorkingDirectory, plan.EnvironmentNames, plan.Timeout, plan.OutputLimit, plan.RequireEmptyStdout, plan.AnalyzerCalls, plan.GovernedInputFingerprint, plan.ImplementationFingerprint, plan.MapFingerprint})
 	if err != nil {
 		return QAEvidencePlan{}, err
 	}

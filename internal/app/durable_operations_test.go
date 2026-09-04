@@ -117,6 +117,17 @@ func TestDurableOperationDeduplicatesAcrossManagersAndFailsClosed(t *testing.T) 
 	if err := manager.FinishOperation(ctx, first.RunID, OperationCancelled, context.Canceled); err != nil {
 		t.Fatal(err)
 	}
+	retry, err := other.AcceptOperation(ctx, confirmation, "same-confirmation-digest")
+	if err != nil || retry.Existing || retry.RunID == first.RunID {
+		t.Fatalf("terminal operation was not retried: first=%+v retry=%+v err=%v", first, retry, err)
+	}
+	concurrent, err := manager.AcceptOperation(ctx, confirmation, "same-confirmation-digest")
+	if err != nil || !concurrent.Existing || concurrent.RunID != retry.RunID {
+		t.Fatalf("retry operation was not deduplicated: retry=%+v concurrent=%+v err=%v", retry, concurrent, err)
+	}
+	if err := other.FinishOperation(ctx, retry.RunID, OperationCancelled, context.Canceled); err != nil {
+		t.Fatal(err)
+	}
 	if err := repository.Close(); err != nil {
 		t.Fatal(err)
 	}

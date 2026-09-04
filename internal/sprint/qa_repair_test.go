@@ -1,7 +1,9 @@
 package sprint
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +13,114 @@ import (
 
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
 )
+
+func TestRepairAdmissionAllowsEligibleIssueFromBlockedCurrentQA(t *testing.T) {
+	state := QAState{
+		Phase:               QAPhaseBlocked,
+		Freshness:           QAFreshness{Current: true},
+		CurrentAttemptID:    "qa-v1-attempt-current",
+		CanonicalAssessment: AssessmentBlocked,
+	}
+	if !repairableQAState(state) {
+		t.Fatal("blocked current QA with adjudicated issues must reach per-issue repair validation")
+	}
+	state.CurrentAttemptID = ""
+	if repairableQAState(state) {
+		t.Fatal("blocked QA without a current attempt must remain ineligible")
+	}
+	state.CurrentAttemptID = "qa-v1-attempt-current"
+	state.CanonicalAssessment = AssessmentIncomplete
+	if repairableQAState(state) {
+		t.Fatal("incomplete QA must remain ineligible")
+	}
+}
+
+func TestRepairAllowedPathsUsesImmutableShardForAuthoredTestIssue(t *testing.T) {
+	paths, err := repairAllowedPaths(
+		QAIssue{Location: "internal/sprint/qa_investigator_example_test.go"},
+		[]QAEvidenceRecord{{ChangedPaths: []string{"internal/sprint/qa_investigator_example_test.go"}}},
+		[]QAEvidencePlan{{ShardID: "shard-a"}},
+		QAMap{Shards: []QAShard{{ID: "shard-a", ChangedPaths: []string{"internal/sprint/qa_repair_state.go"}}, {ID: "shard-b", ChangedPaths: []string{"internal/app/unrelated.go"}}}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(paths, []string{"internal/sprint/qa_repair_state.go"}) {
+		t.Fatalf("allowed paths = %v", paths)
+	}
+}
+
+func TestRegressionCandidateRepairPacketRequiresSignedCoverage(t *testing.T) {
+	packet := repairPacketFixture(t)
+	packet.Issue.RegressionCandidate = true
+	if _, err := FinalizeRepairPacket(packet); err == nil || !strings.Contains(err.Error(), "missing issue evidence coverage") {
+		t.Fatalf("regression candidate without coverage was accepted: %v", err)
+	}
+}
+
+func TestFreezeRepairChecksPreservesAndRecoversWorkingDirectory(t *testing.T) {
+	runID := "repair-v1-run-111111111111111111111111"
+	planID := "qa-v2-plan-222222222222222222222222"
+	base := QAEvidencePlan{
+		ID: planID, CheckID: "qa-v2-test-333333333333333333333333",
+		ApprovedPaths: []string{"internal/sprint/qa_investigator_example_test.go"},
+		Executable:    "go", Args: []string{"test", "."}, Timeout: time.Minute,
+		OutputLimit: 1024, RefutationCondition: "test passes",
+	}
+	evidence := []QAEvidenceRecord{{PlanID: planID, Outcome: QAEvidenceFail}}
+	flow := FlowState{Smoke: &SmokeStageState{SmokeFingerprint: strings.Repeat("4", 64)}}
+	checks, exact, err := freezeRepairChecks(runID, []QAEvidencePlan{base}, evidence, QAMap{}, flow, DefaultRepairBudgets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exact.Workdir != "internal/sprint" || checks[0].Workdir != "internal/sprint" {
+		t.Fatalf("legacy authored test workdir was not recovered: exact=%q check=%q", exact.Workdir, checks[0].Workdir)
+	}
+	base.WorkingDirectory = "internal/custom"
+	checks, exact, err = freezeRepairChecks(runID, []QAEvidencePlan{base}, evidence, QAMap{}, flow, DefaultRepairBudgets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exact.Workdir != "internal/custom" || checks[0].Workdir != "internal/custom" {
+		t.Fatalf("frozen workdir was not preserved: exact=%q check=%q", exact.Workdir, checks[0].Workdir)
+	}
+}
+
+func TestRepairCheckEnvironmentProvidesPrivateGoRuntimeAndCleansIt(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "target")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	environment, cleanup, err := repairCheckEnvironment(target, []string{"PATH"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeRoot := filepath.Dir(environment["GOCACHE"])
+	for _, name := range []string{"HOME", "GOCACHE", "GOPATH", "GOTMPDIR", "TMPDIR"} {
+		if environment[name] == "" {
+			t.Fatalf("private runtime omitted %s", name)
+		}
+	}
+	if inside(target, runtimeRoot) {
+		t.Fatalf("repair runtime %q was created inside the checked target", runtimeRoot)
+	}
+	readOnlyModule := filepath.Join(environment["GOPATH"], "pkg", "mod", "example")
+	if err := os.MkdirAll(readOnlyModule, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(readOnlyModule, "cached.go"), []byte("package example\n"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(readOnlyModule, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(runtimeRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private runtime was not removed: %v", err)
+	}
+}
 
 func TestRepairPacketDeterminismAndAuthorityValidation(t *testing.T) {
 	packet := repairPacketFixture(t)
@@ -162,6 +272,77 @@ func TestApplyRepairFilesChecksPreimageScopeAndCompensates(t *testing.T) {
 	}
 	if _, _, err := applyRepairFiles(root, map[string][]byte{"internal/a.go": []byte("again\n")}, expected, 1, 100); err == nil {
 		t.Fatal("stale preimage accepted")
+	}
+}
+
+func TestApplyRepairFilesRejectsInvalidUTF8WithoutMutation(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "internal", "a.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := []byte("before\n")
+	if err := os.WriteFile(path, before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	invalid := []byte{0xc3, 0x28, 0xa0, 0xa1}
+	operations, _, err := applyRepairFiles(root, map[string][]byte{"internal/a.go": invalid}, map[string]string{"internal/a.go": hashBytes(before)}, 1, 1024)
+	if err == nil || len(operations) != 0 {
+		t.Fatalf("invalid UTF-8 apply = %+v, %v", operations, err)
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil || !bytes.Equal(after, before) {
+		t.Fatalf("target changed: %q, %v", after, readErr)
+	}
+}
+
+func TestPairedTestAndImplementationApplyCompensatesAtomically(t *testing.T) {
+	root := t.TempDir()
+	implementation := filepath.Join(root, "internal", "a.go")
+	testPath := filepath.Join(root, "internal", "a_test.go")
+	if err := os.MkdirAll(filepath.Dir(implementation), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := []byte("package internal\nfunc value() int { return 1 }\n")
+	if err := os.WriteFile(implementation, before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	replacements := map[string][]byte{
+		"internal/a.go":      []byte("package internal\nfunc value() int { return 2 }\n"),
+		"internal/a_test.go": []byte("package internal\n// immutable regression test\n"),
+	}
+	preimages := map[string]string{"internal/a.go": hashBytes(before), "internal/a_test.go": repairMissingPreimageDigest}
+	operations, _, err := applyRepairFilesJournaled(root, replacements, preimages, 2, 4096, func(current []RepairApplyOperation) error {
+		if len(current) == 2 && current[1].Applied {
+			return errors.New("injected journal failure")
+		}
+		return nil
+	})
+	if err == nil || !repairApplyCompensated(operations) {
+		t.Fatalf("paired compensation = %+v, %v", operations, err)
+	}
+	if current, readErr := os.ReadFile(implementation); readErr != nil || !bytes.Equal(current, before) {
+		t.Fatalf("implementation was not restored: %q, %v", current, readErr)
+	}
+	if _, statErr := os.Lstat(testPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("created test survived compensation: %v", statErr)
+	}
+	operations, _, err = applyRepairFiles(root, replacements, preimages, 2, 4096)
+	if err != nil || len(operations) != 2 || !operations[0].Applied || !operations[1].Applied {
+		t.Fatalf("paired apply = %+v, %v", operations, err)
+	}
+}
+
+func TestRepairProposalSplitsFrozenTestAndImplementationPatches(t *testing.T) {
+	var proposal strings.Builder
+	writeWholeFilePatch(&proposal, "internal/a_test.go", nil, []byte("package internal\n"))
+	writeWholeFilePatch(&proposal, "internal/a.go", []byte("before\n"), []byte("after\n"))
+	testPatch, implementationPatch := splitRepairProposalPatches([]byte(proposal.String()), []string{"internal/a_test.go"})
+	if !bytes.Contains(testPatch, []byte("internal/a_test.go")) || bytes.Contains(testPatch, []byte("internal/a.go\n")) {
+		t.Fatalf("test patch = %q", testPatch)
+	}
+	if !bytes.Contains(implementationPatch, []byte("internal/a.go")) || bytes.Contains(implementationPatch, []byte("internal/a_test.go")) {
+		t.Fatalf("implementation patch = %q", implementationPatch)
 	}
 }
 

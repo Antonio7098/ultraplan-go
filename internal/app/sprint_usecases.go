@@ -199,57 +199,59 @@ type QARequest struct {
 }
 
 type QAResult struct {
-	SchemaVersion                int                        `json:"schema_version"`
-	ResultContext                string                     `json:"result_context,omitempty"`
-	Project                      string                     `json:"project"`
-	Sprint                       string                     `json:"sprint"`
-	Phase                        string                     `json:"phase"`
-	Fresh                        bool                       `json:"fresh"`
-	FreshnessReasons             []string                   `json:"freshness_reasons,omitempty"`
-	AttemptID                    string                     `json:"attempt_id,omitempty"`
-	RunID                        string                     `json:"run_id,omitempty"`
-	OperationalAttemptID         string                     `json:"operational_attempt_id,omitempty"`
-	FencingGeneration            uint64                     `json:"fencing_generation,omitempty"`
-	RunLifecycle                 string                     `json:"run_lifecycle,omitempty"`
-	TerminalResult               string                     `json:"terminal_result,omitempty"`
-	GovernedInputFingerprint     string                     `json:"governed_input_fingerprint,omitempty"`
-	ImplementationFingerprint    string                     `json:"implementation_fingerprint,omitempty"`
-	ReviewFingerprint            string                     `json:"review_fingerprint,omitempty"`
-	ConformanceReviewStatus      string                     `json:"conformance_review_status,omitempty"`
-	ConformanceReviewVerdict     string                     `json:"conformance_review_verdict,omitempty"`
-	ConformanceReviewFresh       bool                       `json:"conformance_review_fresh"`
-	ConformanceReviewUnavailable bool                       `json:"conformance_review_unavailable,omitempty"`
-	ConformanceReviewDiagnostic  string                     `json:"conformance_review_diagnostic,omitempty"`
-	MapFingerprint               string                     `json:"map_fingerprint,omitempty"`
-	PolicyFingerprint            string                     `json:"policy_fingerprint,omitempty"`
-	CheckCatalogFingerprint      string                     `json:"check_catalog_fingerprint,omitempty"`
-	UpdatedAt                    time.Time                  `json:"updated_at,omitempty"`
-	MapRecord                    *QAArtifactRefSummary      `json:"map_record,omitempty"`
-	SynthesisRecord              *QAArtifactRefSummary      `json:"synthesis_record,omitempty"`
-	EffectiveSources             []QAEffectiveSourceSummary `json:"effective_sources,omitempty"`
-	Target                       QATargetIdentitySummary    `json:"target"`
-	Coverage                     QACoverageSummary          `json:"coverage"`
-	InputRefs                    []QAArtifactRefSummary     `json:"input_refs,omitempty"`
-	Foundation                   *QAFoundationSummary       `json:"foundation,omitempty"`
-	Mapper                       *sprint.QAMapperRecord     `json:"mapper,omitempty"`
-	Limits                       QALimitsSummary            `json:"limits"`
-	ChangedPaths                 int                        `json:"changed_paths"`
-	CoveredPaths                 int                        `json:"covered_paths"`
-	CompletedShards              int                        `json:"completed_shards"`
-	TotalShards                  int                        `json:"total_shards"`
-	OutcomeTotals                map[string]int             `json:"outcome_totals,omitempty"`
-	Shards                       []QAShardSummary           `json:"shards"`
-	Blocker                      *QABlockerSummary          `json:"blocker,omitempty"`
-	Cancellation                 QACancellationSummary      `json:"cancellation"`
-	NextAction                   string                     `json:"next_action"`
-	Suite                        string                     `json:"suite,omitempty"`
-	Assessment                   string                     `json:"assessment,omitempty"`
-	EvidenceCount                int                        `json:"evidence_count,omitempty"`
-	RejectedEvidenceCount        int                        `json:"rejected_evidence_count,omitempty"`
-	IssueCount                   int                        `json:"issue_count,omitempty"`
-	RegressionCandidateCount     int                        `json:"regression_candidate_count,omitempty"`
-	CanonicalReport              *QAArtifactRefSummary      `json:"canonical_report,omitempty"`
-	CurrentFailure               *QABlockerSummary          `json:"current_failure,omitempty"`
+	SchemaVersion                int                               `json:"schema_version"`
+	ResultContext                string                            `json:"result_context,omitempty"`
+	Project                      string                            `json:"project"`
+	Sprint                       string                            `json:"sprint"`
+	Phase                        string                            `json:"phase"`
+	Fresh                        bool                              `json:"fresh"`
+	FreshnessReasons             []string                          `json:"freshness_reasons,omitempty"`
+	AttemptID                    string                            `json:"attempt_id,omitempty"`
+	RunID                        string                            `json:"run_id,omitempty"`
+	OperationalAttemptID         string                            `json:"operational_attempt_id,omitempty"`
+	FencingGeneration            uint64                            `json:"fencing_generation,omitempty"`
+	RunLifecycle                 string                            `json:"run_lifecycle,omitempty"`
+	TerminalResult               string                            `json:"terminal_result,omitempty"`
+	GovernedInputFingerprint     string                            `json:"governed_input_fingerprint,omitempty"`
+	ImplementationFingerprint    string                            `json:"implementation_fingerprint,omitempty"`
+	ReviewFingerprint            string                            `json:"review_fingerprint,omitempty"`
+	ConformanceReviewStatus      string                            `json:"conformance_review_status,omitempty"`
+	ConformanceReviewVerdict     string                            `json:"conformance_review_verdict,omitempty"`
+	ConformanceReviewFresh       bool                              `json:"conformance_review_fresh"`
+	ConformanceReviewUnavailable bool                              `json:"conformance_review_unavailable,omitempty"`
+	ConformanceReviewDiagnostic  string                            `json:"conformance_review_diagnostic,omitempty"`
+	MapFingerprint               string                            `json:"map_fingerprint,omitempty"`
+	PolicyFingerprint            string                            `json:"policy_fingerprint,omitempty"`
+	CheckCatalogFingerprint      string                            `json:"check_catalog_fingerprint,omitempty"`
+	UpdatedAt                    time.Time                         `json:"updated_at,omitempty"`
+	MapRecord                    *QAArtifactRefSummary             `json:"map_record,omitempty"`
+	SynthesisRecord              *QAArtifactRefSummary             `json:"synthesis_record,omitempty"`
+	EffectiveSources             []QAEffectiveSourceSummary        `json:"effective_sources,omitempty"`
+	Target                       QATargetIdentitySummary           `json:"target"`
+	Coverage                     QACoverageSummary                 `json:"coverage"`
+	InputRefs                    []QAArtifactRefSummary            `json:"input_refs,omitempty"`
+	Foundation                   *QAFoundationSummary              `json:"foundation,omitempty"`
+	Mapper                       *sprint.QAMapperRecord            `json:"mapper,omitempty"`
+	Limits                       QALimitsSummary                   `json:"limits"`
+	ChangedPaths                 int                               `json:"changed_paths"`
+	CoveredPaths                 int                               `json:"covered_paths"`
+	CompletedShards              int                               `json:"completed_shards"`
+	TotalShards                  int                               `json:"total_shards"`
+	OutcomeTotals                map[string]int                    `json:"outcome_totals,omitempty"`
+	Shards                       []QAShardSummary                  `json:"shards"`
+	Blocker                      *QABlockerSummary                 `json:"blocker,omitempty"`
+	Cancellation                 QACancellationSummary             `json:"cancellation"`
+	NextAction                   string                            `json:"next_action"`
+	Suite                        string                            `json:"suite,omitempty"`
+	Assessment                   string                            `json:"assessment,omitempty"`
+	EvidenceCount                int                               `json:"evidence_count,omitempty"`
+	RejectedEvidenceCount        int                               `json:"rejected_evidence_count,omitempty"`
+	IssueCount                   int                               `json:"issue_count,omitempty"`
+	RegressionCandidateCount     int                               `json:"regression_candidate_count,omitempty"`
+	CanonicalReport              *QAArtifactRefSummary             `json:"canonical_report,omitempty"`
+	CurrentFailure               *QABlockerSummary                 `json:"current_failure,omitempty"`
+	EvidenceRequests             []QAArbiterEvidenceRequestSummary `json:"evidence_requests,omitempty"`
+	InvestigatorTests            []QAInvestigatorTestSummary       `json:"investigator_tests,omitempty"`
 }
 
 type QAArtifactRefSummary struct {
@@ -313,6 +315,52 @@ type QALimitsSummary struct {
 	Issues                     int    `json:"issues,omitempty"`
 	AnalyzerCalls              int    `json:"analyzer_calls,omitempty"`
 	EvaluatorCalls             int    `json:"evaluator_calls,omitempty"`
+	EvidenceRoundsPerShard     int    `json:"evidence_rounds_per_shard,omitempty"`
+	TestsPerTheory             int    `json:"tests_per_theory,omitempty"`
+	TestsPerIssue              int    `json:"tests_per_issue,omitempty"`
+	AuthoredTestFiles          int    `json:"authored_test_files,omitempty"`
+	AuthoredTestBytes          int    `json:"authored_test_bytes,omitempty"`
+	TestCommandsPerRound       int    `json:"test_commands_per_round,omitempty"`
+	AuthoringRuntimeTurns      int    `json:"authoring_runtime_turns,omitempty"`
+	AuthoringWallTime          string `json:"authoring_wall_time,omitempty"`
+}
+
+type QAArbiterEvidenceRequestSummary struct {
+	ID                  string   `json:"id"`
+	ArbiterGroupID      string   `json:"arbiter_group_id,omitempty"`
+	ArbiterSessionID    string   `json:"arbiter_session_id,omitempty"`
+	ArbiterProvider     string   `json:"arbiter_provider,omitempty"`
+	ArbiterModel        string   `json:"arbiter_model,omitempty"`
+	ArbiterVariant      string   `json:"arbiter_variant,omitempty"`
+	ArbiterRuntimeStore string   `json:"arbiter_runtime_store_ref,omitempty"`
+	ArbiterWorkspaceID  string   `json:"arbiter_workspace_id,omitempty"`
+	ArbiterRound        int      `json:"arbiter_round,omitempty"`
+	TheoryIDs           []string `json:"theory_ids"`
+	OriginShardID       string   `json:"origin_shard_id"`
+	Gap                 string   `json:"gap"`
+	RequestedEvidence   string   `json:"requested_evidence"`
+	RequiredObservation string   `json:"required_observation"`
+	ControlRequirement  string   `json:"control_requirement"`
+	Priority            string   `json:"priority"`
+	Status              string   `json:"status"`
+	SessionID           string   `json:"session_id,omitempty"`
+	Provider            string   `json:"provider,omitempty"`
+	Model               string   `json:"model,omitempty"`
+	Variant             string   `json:"variant,omitempty"`
+	RuntimeStoreRef     string   `json:"runtime_store_ref,omitempty"`
+	WorkspaceID         string   `json:"workspace_id,omitempty"`
+	EvidenceRound       int      `json:"evidence_round,omitempty"`
+	TestBundleID        string   `json:"test_bundle_id,omitempty"`
+	LatestRunID         string   `json:"latest_run_id,omitempty"`
+	NextAction          string   `json:"next_action,omitempty"`
+}
+
+type QAInvestigatorTestSummary struct {
+	ID            string   `json:"id"`
+	SpecID        string   `json:"spec_id"`
+	Paths         []string `json:"paths"`
+	ContentDigest string   `json:"content_digest"`
+	DerivedFrom   string   `json:"derived_from,omitempty"`
 }
 
 type QAShardSummary struct {
@@ -375,6 +423,12 @@ type QACommandSummary struct {
 type QAInvestigatorAttemptSummary struct {
 	ID                   string                     `json:"id"`
 	Number               int                        `json:"number"`
+	SessionID            string                     `json:"session_id,omitempty"`
+	Provider             string                     `json:"provider,omitempty"`
+	Model                string                     `json:"model,omitempty"`
+	Variant              string                     `json:"variant,omitempty"`
+	RuntimeStoreRef      string                     `json:"runtime_store_ref,omitempty"`
+	WorkspaceID          string                     `json:"workspace_id,omitempty"`
 	StartedAt            time.Time                  `json:"started_at"`
 	CompletedAt          *time.Time                 `json:"completed_at,omitempty"`
 	Duration             string                     `json:"duration,omitempty"`
@@ -1311,7 +1365,36 @@ func qaSnapshotProjection(snapshot sprint.QASnapshot) QAResult {
 	for _, shard := range snapshot.Shards {
 		result.Shards = append(result.Shards, qaShardProjection(shard))
 	}
+	arbiterByGroup := make(map[string]sprint.QAArbiterGroup, len(snapshot.ArbiterSessions))
+	for _, group := range snapshot.ArbiterSessions {
+		arbiterByGroup[group.ID] = group
+	}
+	for _, request := range snapshot.EvidenceRequests {
+		summary := QAArbiterEvidenceRequestSummary{ID: request.ID, ArbiterGroupID: request.ArbiterGroupID, TheoryIDs: append([]string(nil), request.TheoryIDs...), OriginShardID: request.OriginShardID, Gap: displaySafe(request.Gap), RequestedEvidence: displaySafe(request.RequestedEvidence), RequiredObservation: displaySafe(request.RequiredObservation), ControlRequirement: displaySafe(request.ControlRequirement), Priority: displaySafe(request.Priority), Status: displaySafe(request.Status), EvidenceRound: request.EvidenceRound, TestBundleID: request.TestBundleID, LatestRunID: request.LatestRunID, NextAction: displaySafe(request.NextAction)}
+		if arbiter, ok := arbiterByGroup[request.ArbiterGroupID]; ok {
+			summary.ArbiterSessionID, summary.ArbiterProvider, summary.ArbiterModel, summary.ArbiterVariant, summary.ArbiterRuntimeStore, summary.ArbiterWorkspaceID, summary.ArbiterRound = arbiter.SessionID, arbiter.Provider, arbiter.Model, arbiter.Variant, arbiter.RuntimeStoreRef, arbiter.WorkspaceID, arbiter.Round
+		}
+		for _, shard := range snapshot.Shards {
+			if shard.ID == request.OriginShardID && len(shard.Attempts) > 0 {
+				attempt := shard.Attempts[0]
+				summary.SessionID, summary.Provider, summary.Model, summary.Variant, summary.RuntimeStoreRef, summary.WorkspaceID = attempt.SessionID, attempt.Provider, attempt.Model, attempt.Variant, attempt.RuntimeStoreRef, attempt.WorkspaceID
+				break
+			}
+		}
+		result.EvidenceRequests = append(result.EvidenceRequests, summary)
+	}
+	for _, bundle := range snapshot.InvestigatorTests {
+		result.InvestigatorTests = append(result.InvestigatorTests, QAInvestigatorTestSummary{ID: bundle.ID, SpecID: bundle.SpecID, Paths: qaDisplayStrings(testBundleSummaryPaths(bundle)), ContentDigest: bundle.ContentDigest, DerivedFrom: bundle.DerivedFrom})
+	}
 	return result
+}
+
+func testBundleSummaryPaths(bundle sprint.QATestBundle) []string {
+	paths := make([]string, 0, len(bundle.Files))
+	for _, file := range bundle.Files {
+		paths = append(paths, file.Path)
+	}
+	return paths
 }
 
 func qaArtifactRefProjection(ref *sprint.QAArtifactRef) *QAArtifactRefSummary {
@@ -1384,6 +1467,9 @@ func qaLimitsProjection(b sprint.QABudgets) QALimitsSummary {
 		TreeFiles: b.TreeFiles, TreeBytes: b.TreeBytes, FileBytes: b.FileBytes,
 		GeneratedChecks: b.GeneratedChecks, GeneratedPatchBytes: b.GeneratedPatchBytes,
 		EvidenceRecords: b.EvidenceRecords, Issues: b.Issues, AnalyzerCalls: b.AnalyzerCalls, EvaluatorCalls: b.EvaluatorCalls,
+		EvidenceRoundsPerShard: b.EvidenceRoundsPerShard, TestsPerTheory: b.TestsPerTheory, TestsPerIssue: b.TestsPerIssue,
+		AuthoredTestFiles: b.AuthoredTestFiles, AuthoredTestBytes: b.AuthoredTestBytes, TestCommandsPerRound: b.TestCommandsPerRound,
+		AuthoringRuntimeTurns: b.AuthoringRuntimeTurns, AuthoringWallTime: b.AuthoringWallTime.String(),
 	}
 }
 
@@ -1416,7 +1502,7 @@ func qaTheoryProjection(theory sprint.QATheory) QATheorySummary {
 }
 
 func qaAttemptProjection(attempt sprint.QAInvestigatorAttempt) QAInvestigatorAttemptSummary {
-	result := QAInvestigatorAttemptSummary{ID: attempt.ID, Number: attempt.Number, StartedAt: attempt.StartedAt, CompletedAt: attempt.CompletedAt, ImplementationBefore: attempt.ImplementationBefore, ImplementationAfter: attempt.ImplementationAfter, Usage: attempt.Usage, EstimatedCost: attempt.EstimatedCost, FailureKind: displaySafe(attempt.FailureKind), Retryable: attempt.Retryable, StopReason: displaySafe(attempt.StopReason), OutputDiagnostic: attempt.OutputDiagnostic, Repair: attempt.Repair, ContextMetrics: attempt.ContextMetrics}
+	result := QAInvestigatorAttemptSummary{ID: attempt.ID, Number: attempt.Number, SessionID: attempt.SessionID, Provider: attempt.Provider, Model: attempt.Model, Variant: attempt.Variant, RuntimeStoreRef: attempt.RuntimeStoreRef, WorkspaceID: attempt.WorkspaceID, StartedAt: attempt.StartedAt, CompletedAt: attempt.CompletedAt, ImplementationBefore: attempt.ImplementationBefore, ImplementationAfter: attempt.ImplementationAfter, Usage: attempt.Usage, EstimatedCost: attempt.EstimatedCost, FailureKind: displaySafe(attempt.FailureKind), Retryable: attempt.Retryable, StopReason: displaySafe(attempt.StopReason), OutputDiagnostic: attempt.OutputDiagnostic, Repair: attempt.Repair, ContextMetrics: attempt.ContextMetrics}
 	if attempt.CompletedAt != nil && !attempt.StartedAt.IsZero() {
 		result.Duration = attempt.CompletedAt.Sub(attempt.StartedAt).Round(time.Millisecond).String()
 	}

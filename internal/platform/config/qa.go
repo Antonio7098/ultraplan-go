@@ -64,6 +64,14 @@ type QA struct {
 	GeneratedPatchBytes        int      `json:"generated_patch_bytes"`
 	EvidenceRecords            int      `json:"evidence_records"`
 	Issues                     int      `json:"issues"`
+	EvidenceRoundsPerShard     int      `json:"evidence_rounds_per_shard"`
+	TestsPerTheory             int      `json:"tests_per_theory"`
+	TestsPerIssue              int      `json:"tests_per_issue"`
+	AuthoredTestFiles          int      `json:"authored_test_files"`
+	AuthoredTestBytes          int      `json:"authored_test_bytes"`
+	TestCommandsPerRound       int      `json:"test_commands_per_round"`
+	AuthoringRuntimeTurns      int      `json:"authoring_runtime_turns"`
+	AuthoringWallTime          string   `json:"authoring_wall_time"`
 	Repair                     QARepair `json:"repair"`
 }
 
@@ -104,6 +112,8 @@ func DefaultQA() QA {
 		RetainedAttempts: 8, StateBytes: 128 << 20,
 		TreeFiles: 200_000, TreeBytes: 2 << 30, FileBytes: 32 << 20,
 		GeneratedChecks: 88, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256, Issues: 200,
+		EvidenceRoundsPerShard: 2, TestsPerTheory: 2, TestsPerIssue: 8, AuthoredTestFiles: 8,
+		AuthoredTestBytes: 256 << 10, TestCommandsPerRound: 4, AuthoringRuntimeTurns: 4, AuthoringWallTime: "10m",
 		Repair: QARepair{MaxCycles: 3, MaxMutationCycles: 3, MaxReopenings: 1, StagnationLimit: 1, MaxFilesPerCycle: 8, MaxFilesPerRun: 16, MaxBytesPerCycle: 256 << 10, MaxBytesPerRun: 512 << 10, MaxPatchBytes: 512 << 10, WallTime: "45m", RuntimeAttempts: 3, ModelTurns: 12, CommandCount: 32, CommandTimeout: "10m", OutputBytes: 1 << 20, RetainedCycles: 8, CleanupTimeout: "30s"},
 	}
 }
@@ -123,6 +133,8 @@ func maxQA() QA {
 		RetainedAttempts: 8, StateBytes: 128 << 20,
 		TreeFiles: 400_000, TreeBytes: 4 << 30, FileBytes: 64 << 20,
 		GeneratedChecks: 128, GeneratedPatchBytes: 4 << 20, EvidenceRecords: 512, Issues: 200,
+		EvidenceRoundsPerShard: 4, TestsPerTheory: 4, TestsPerIssue: 16, AuthoredTestFiles: 16,
+		AuthoredTestBytes: 1 << 20, TestCommandsPerRound: 8, AuthoringRuntimeTurns: 8, AuthoringWallTime: "20m",
 	}
 }
 
@@ -145,6 +157,8 @@ func qaConfigFields() []string {
 		"qa.retained_attempts", "qa.state_bytes",
 		"qa.tree_files", "qa.tree_bytes", "qa.file_bytes", "qa.generated_checks",
 		"qa.generated_patch_bytes", "qa.evidence_records", "qa.issues",
+		"qa.evidence_rounds_per_shard", "qa.tests_per_theory", "qa.tests_per_issue", "qa.authored_test_files",
+		"qa.authored_test_bytes", "qa.test_commands_per_round", "qa.authoring_runtime_turns", "qa.authoring_wall_time",
 		"qa.repair.max_cycles", "qa.repair.max_mutation_cycles", "qa.repair.max_reopenings", "qa.repair.stagnation_limit",
 		"qa.repair.max_files_per_cycle", "qa.repair.max_files_per_run", "qa.repair.max_bytes_per_cycle", "qa.repair.max_bytes_per_run",
 		"qa.repair.max_patch_bytes", "qa.repair.wall_time", "qa.repair.runtime_attempts", "qa.repair.model_turns",
@@ -218,6 +232,10 @@ func setQAField(q *QA, field, value string) (bool, error) {
 		q.CleanupTimeout = value
 		return true, nil
 	}
+	if field == "qa.authoring_wall_time" {
+		q.AuthoringWallTime = value
+		return true, nil
+	}
 	if field == "qa.repair.wall_time" {
 		q.Repair.WallTime = value
 		return true, nil
@@ -289,6 +307,20 @@ func setQAField(q *QA, field, value string) (bool, error) {
 		return setQAInteger(field, value, &q.EvidenceRecords)
 	case "qa.issues":
 		return setQAInteger(field, value, &q.Issues)
+	case "qa.evidence_rounds_per_shard":
+		return setQAInteger(field, value, &q.EvidenceRoundsPerShard)
+	case "qa.tests_per_theory":
+		return setQAInteger(field, value, &q.TestsPerTheory)
+	case "qa.tests_per_issue":
+		return setQAInteger(field, value, &q.TestsPerIssue)
+	case "qa.authored_test_files":
+		return setQAInteger(field, value, &q.AuthoredTestFiles)
+	case "qa.authored_test_bytes":
+		return setQAInteger(field, value, &q.AuthoredTestBytes)
+	case "qa.test_commands_per_round":
+		return setQAInteger(field, value, &q.TestCommandsPerRound)
+	case "qa.authoring_runtime_turns":
+		return setQAInteger(field, value, &q.AuthoringRuntimeTurns)
 	case "qa.issues_per_repair_agent":
 		return setQAInteger(field, value, &q.IssuesPerRepairAgent)
 	case "qa.arbiter_max_theories":
@@ -380,6 +412,10 @@ func validateQA(q QA) error {
 		{"tree_files", q.TreeFiles, max.TreeFiles}, {"tree_bytes", q.TreeBytes, max.TreeBytes}, {"file_bytes", q.FileBytes, max.FileBytes},
 		{"generated_checks", q.GeneratedChecks, max.GeneratedChecks}, {"generated_patch_bytes", q.GeneratedPatchBytes, max.GeneratedPatchBytes},
 		{"evidence_records", q.EvidenceRecords, max.EvidenceRecords}, {"issues", q.Issues, max.Issues},
+		{"evidence_rounds_per_shard", q.EvidenceRoundsPerShard, max.EvidenceRoundsPerShard}, {"tests_per_theory", q.TestsPerTheory, max.TestsPerTheory},
+		{"tests_per_issue", q.TestsPerIssue, max.TestsPerIssue}, {"authored_test_files", q.AuthoredTestFiles, max.AuthoredTestFiles},
+		{"authored_test_bytes", q.AuthoredTestBytes, max.AuthoredTestBytes}, {"test_commands_per_round", q.TestCommandsPerRound, max.TestCommandsPerRound},
+		{"authoring_runtime_turns", q.AuthoringRuntimeTurns, max.AuthoringRuntimeTurns},
 	}
 	for _, limit := range limits {
 		if limit.got <= 0 || limit.got > limit.max {
@@ -390,7 +426,7 @@ func validateQA(q QA) error {
 		name string
 		got  string
 		max  string
-	}{{"command_timeout", q.CommandTimeout, max.CommandTimeout}, {"shard_timeout", q.ShardTimeout, max.ShardTimeout}, {"run_timeout", q.RunTimeout, max.RunTimeout}, {"cleanup_timeout", q.CleanupTimeout, max.CleanupTimeout}}
+	}{{"command_timeout", q.CommandTimeout, max.CommandTimeout}, {"shard_timeout", q.ShardTimeout, max.ShardTimeout}, {"run_timeout", q.RunTimeout, max.RunTimeout}, {"cleanup_timeout", q.CleanupTimeout, max.CleanupTimeout}, {"authoring_wall_time", q.AuthoringWallTime, max.AuthoringWallTime}}
 	for _, limit := range durations {
 		got, err := time.ParseDuration(limit.got)
 		maximum, _ := time.ParseDuration(limit.max)

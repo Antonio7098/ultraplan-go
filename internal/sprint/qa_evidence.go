@@ -26,10 +26,78 @@ const (
 type QAEvidenceOutcome string
 
 const (
-	QAEvidencePass    QAEvidenceOutcome = "pass"
-	QAEvidenceFail    QAEvidenceOutcome = "fail"
-	QAEvidenceBlocked QAEvidenceOutcome = "blocked"
+	QAEvidencePass         QAEvidenceOutcome = "pass"
+	QAEvidenceFail         QAEvidenceOutcome = "fail"
+	QAEvidenceBlocked      QAEvidenceOutcome = "blocked"
+	QAEvidenceInconclusive QAEvidenceOutcome = "inconclusive"
 )
+
+// QAFailureSignature identifies the failure that would confirm a frozen
+// claim. Matching an exit code alone is intentionally insufficient.
+type QAFailureSignature struct {
+	TestName      string `json:"test_name"`
+	Assertion     string `json:"assertion,omitempty"`
+	ErrorCode     string `json:"error_code,omitempty"`
+	ExitClass     string `json:"exit_class"`
+	OutputMatcher string `json:"output_matcher"`
+}
+
+type QAReproductionSpec struct {
+	SchemaVersion             int                `json:"schema_version"`
+	ID                        string             `json:"id"`
+	AttemptID                 string             `json:"attempt_id"`
+	ShardID                   string             `json:"shard_id"`
+	TheoryIDs                 []string           `json:"theory_ids"`
+	Claim                     string             `json:"claim"`
+	Preconditions             []string           `json:"preconditions"`
+	ExpectedBehavior          string             `json:"expected_behavior"`
+	PredictedFailure          QAFailureSignature `json:"predicted_failure"`
+	InconclusiveConditions    []string           `json:"inconclusive_conditions"`
+	ApprovedTestPaths         []string           `json:"approved_test_paths"`
+	Command                   QACheckDescriptor  `json:"command"`
+	ImplementationFingerprint string             `json:"implementation_fingerprint"`
+	FrozenAt                  time.Time          `json:"frozen_at"`
+}
+
+type QATestFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Digest  string `json:"digest"`
+	Bytes   int    `json:"bytes"`
+}
+
+type QATestBundle struct {
+	SchemaVersion int          `json:"schema_version"`
+	ID            string       `json:"id"`
+	SpecID        string       `json:"spec_id"`
+	Files         []QATestFile `json:"files"`
+	ContentDigest string       `json:"content_digest"`
+	DerivedFrom   string       `json:"derived_from,omitempty"`
+}
+
+type QAReproductionRun struct {
+	SchemaVersion  int                `json:"schema_version"`
+	ID             string             `json:"id"`
+	SpecID         string             `json:"spec_id"`
+	TestBundleID   string             `json:"test_bundle_id"`
+	TargetIdentity string             `json:"target_identity"`
+	Result         QACommandResult    `json:"result"`
+	Signature      QAFailureSignature `json:"failure_signature"`
+	Outcome        QAEvidenceOutcome  `json:"outcome"`
+	ReasonCode     string             `json:"reason_code"`
+	Cleanup        QACleanupFacts     `json:"cleanup"`
+	CompletedAt    time.Time          `json:"completed_at"`
+}
+
+type QAIssueEvidenceCoverage struct {
+	SchemaVersion      int                 `json:"schema_version"`
+	IssueID            string              `json:"issue_id"`
+	TheoryIDs          []string            `json:"theory_ids"`
+	TestBundleIDs      []string            `json:"test_bundle_ids"`
+	EvidenceIDs        []string            `json:"evidence_ids"`
+	Coverage           map[string][]string `json:"coverage"`
+	PrimaryReproducers []string            `json:"primary_reproducers"`
+}
 
 type QACleanupFacts struct {
 	Attempted             bool   `json:"attempted"`
@@ -54,6 +122,7 @@ type QAEvidencePlan struct {
 	CheckID                   string        `json:"check_id,omitempty"`
 	Executable                string        `json:"executable,omitempty"`
 	Args                      []string      `json:"args,omitempty"`
+	WorkingDirectory          string        `json:"working_directory,omitempty"`
 	EnvironmentNames          []string      `json:"environment_names,omitempty"`
 	Timeout                   time.Duration `json:"timeout"`
 	OutputLimit               int           `json:"output_limit"`
@@ -73,8 +142,12 @@ type QACommandResult struct {
 	Duration         time.Duration `json:"duration"`
 	StdoutDigest     string        `json:"stdout_digest,omitempty"`
 	StderrDigest     string        `json:"stderr_digest,omitempty"`
+	Stdout           string        `json:"stdout,omitempty"`
+	Stderr           string        `json:"stderr,omitempty"`
 	OutputBytes      int           `json:"output_bytes"`
 	Truncated        bool          `json:"truncated"`
+	Redacted         bool          `json:"redacted"`
+	RedactionCount   int           `json:"redaction_count,omitempty"`
 	TimedOut         bool          `json:"timed_out"`
 	Cancelled        bool          `json:"cancelled"`
 	CleanupAttempted bool          `json:"cleanup_attempted"`
@@ -238,6 +311,11 @@ func ValidateQAEvidencePlan(plan QAEvidencePlan, budgets QABudgets) error {
 			return err
 		}
 	}
+	if plan.WorkingDirectory != "" {
+		if err := validateQAPath(plan.WorkingDirectory); err != nil {
+			return err
+		}
+	}
 	if plan.CheckID != "" && !safeQAName(plan.CheckID) {
 		return fmt.Errorf("QA evidence plan check ID is invalid")
 	}
@@ -335,11 +413,11 @@ func NewQAV2ID(kind, project, sprint, parent string, value any) (string, error) 
 	return fmt.Sprintf("%s-%s-%s", QAEvidenceIDScope, kind, hex.EncodeToString(digest[:12])), nil
 }
 
-var qaV2IDPattern = regexp.MustCompile(`^qa-v2-(plan|evidence|patch|adjudication|issue|assessment|group)-[0-9a-f]{24}$`)
+var qaV2IDPattern = regexp.MustCompile(`^qa-v2-(plan|evidence|patch|adjudication|issue|assessment|group|spec|test|run|request|coverage)-[0-9a-f]{24}$`)
 
 func validQAV2Kind(kind string) bool {
 	switch kind {
-	case "plan", "evidence", "patch", "adjudication", "issue", "assessment", "group":
+	case "plan", "evidence", "patch", "adjudication", "issue", "assessment", "group", "spec", "test", "run", "request", "coverage":
 		return true
 	default:
 		return false
@@ -360,7 +438,7 @@ func validQACheckKind(kind QACheckKind) bool {
 }
 
 func validEvidenceOutcome(outcome QAEvidenceOutcome) bool {
-	return outcome == QAEvidencePass || outcome == QAEvidenceFail || outcome == QAEvidenceBlocked
+	return outcome == QAEvidencePass || outcome == QAEvidenceFail || outcome == QAEvidenceBlocked || outcome == QAEvidenceInconclusive
 }
 
 func normalizeIssueLocation(value string) string {

@@ -159,6 +159,50 @@ func QAEvidenceRelPath(s Sprint, attemptID, evidenceID string) string {
 	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "evidence", evidenceID+".json"))
 }
 
+func QAInvestigatorTestRelPath(s Sprint, attemptID, testID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "investigator-tests", testID))
+}
+
+func QAReproductionSpecRelPath(s Sprint, attemptID, testID string) string {
+	return filepath.ToSlash(filepath.Join(QAInvestigatorTestRelPath(s, attemptID, testID), "reproduction-spec.json"))
+}
+
+func QATestBundleRelPath(s Sprint, attemptID, testID string) string {
+	return filepath.ToSlash(filepath.Join(QAInvestigatorTestRelPath(s, attemptID, testID), "bundle.json"))
+}
+
+func QATestFileRelPath(s Sprint, attemptID, testID, path string) string {
+	return filepath.ToSlash(filepath.Join(QAInvestigatorTestRelPath(s, attemptID, testID), "files", filepath.FromSlash(path)))
+}
+
+func QATestAuthoringAttemptRelPath(s Sprint, attemptID, testID string, number int) string {
+	return filepath.ToSlash(filepath.Join(QAInvestigatorTestRelPath(s, attemptID, testID), "authoring-attempts", fmt.Sprintf("%06d.json", number)))
+}
+
+func QAReproductionRunRelPath(s Sprint, attemptID, testID, runID string) string {
+	return filepath.ToSlash(filepath.Join(QAInvestigatorTestRelPath(s, attemptID, testID), "runs", runID))
+}
+
+func QAReproductionRunResultRelPath(s Sprint, attemptID, testID, runID string) string {
+	return filepath.ToSlash(filepath.Join(QAReproductionRunRelPath(s, attemptID, testID, runID), "result.json"))
+}
+
+func QAArbiterEvidenceRequestRelPath(s Sprint, attemptID, requestID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "arbiter-evidence-requests", requestID+".json"))
+}
+
+func QAIssueEvidenceCoverageRelPath(s Sprint, attemptID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "issue-evidence-coverage.json"))
+}
+
+func QAInvestigatorWorkspaceCleanupRelPath(s Sprint, attemptID string) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "investigator-workspace-cleanup.json"))
+}
+
+func QAArbiterSessionRoundRelPath(s Sprint, attemptID, groupID string, round int) string {
+	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "arbiter-sessions", groupID, fmt.Sprintf("%06d.json", round)))
+}
+
 func QAPatchRelPath(s Sprint, attemptID, patchID string) string {
 	return filepath.ToSlash(filepath.Join("projects", s.Project, "sprints", s.Slug, "verification", "attempts", attemptID, "patches", patchID+".patch"))
 }
@@ -267,6 +311,17 @@ func (store QAStore) resolve(rel string) (string, error) {
 }
 
 func (store QAStore) LoadState() (QAState, error) {
+	return store.loadState(true)
+}
+
+// loadStateForRecovery reads the canonical state without following artifact
+// references. Recovery needs this narrow path precisely when an interrupted
+// publication left one of those references dangling or digest-mismatched.
+func (store QAStore) loadStateForRecovery() (QAState, error) {
+	return store.loadState(false)
+}
+
+func (store QAStore) loadState(verifyArtifacts bool) (QAState, error) {
 	path, err := store.StatePath()
 	if err != nil {
 		return QAState{}, err
@@ -281,6 +336,9 @@ func (store QAStore) LoadState() (QAState, error) {
 	if state.Project != store.sprint.Project || state.Sprint != store.sprint.Slug {
 		return QAState{}, NewQAError(QAErrorInvalidState, "load state", "QA state scope does not match the selected sprint", nil)
 	}
+	if !verifyArtifacts {
+		return state, nil
+	}
 	for _, ref := range []*QAArtifactRef{state.Map, state.Synthesis, state.Adjudication, state.Issues, state.Assessment, state.CanonicalReport} {
 		if ref == nil {
 			continue
@@ -290,6 +348,27 @@ func (store QAStore) LoadState() (QAState, error) {
 		}
 	}
 	return state, nil
+}
+
+func (store QAStore) clearInvalidArtifactReferences(state *QAState) []string {
+	if state == nil {
+		return nil
+	}
+	refs := []struct {
+		name string
+		ref  **QAArtifactRef
+	}{
+		{"map", &state.Map}, {"synthesis", &state.Synthesis}, {"adjudication", &state.Adjudication},
+		{"issues", &state.Issues}, {"assessment", &state.Assessment}, {"report", &state.CanonicalReport},
+	}
+	var cleared []string
+	for _, candidate := range refs {
+		if *candidate.ref != nil && store.verifyReference(**candidate.ref) != nil {
+			*candidate.ref = nil
+			cleared = append(cleared, candidate.name)
+		}
+	}
+	return cleared
 }
 
 func (store QAStore) LoadMap(attemptID string) (QAMap, error) {
@@ -312,8 +391,21 @@ func (store QAStore) LoadMap(attemptID string) (QAMap, error) {
 }
 
 func upgradeLegacyQAMap(value *QAMap) {
-	if value != nil && value.SchemaVersion == QASchemaVersion && value.Budgets.ArbiterMaxTheories == 0 {
-		value.Budgets.ArbiterMaxTheories = DefaultQABudgets().ArbiterMaxTheories
+	if value != nil && value.SchemaVersion == QASchemaVersion {
+		defaults := DefaultQABudgets()
+		if value.Budgets.ArbiterMaxTheories == 0 {
+			value.Budgets.ArbiterMaxTheories = defaults.ArbiterMaxTheories
+		}
+		if value.Budgets.EvidenceRoundsPerShard == 0 {
+			value.Budgets.EvidenceRoundsPerShard = defaults.EvidenceRoundsPerShard
+			value.Budgets.TestsPerTheory = defaults.TestsPerTheory
+			value.Budgets.TestsPerIssue = defaults.TestsPerIssue
+			value.Budgets.AuthoredTestFiles = defaults.AuthoredTestFiles
+			value.Budgets.AuthoredTestBytes = defaults.AuthoredTestBytes
+			value.Budgets.TestCommandsPerRound = defaults.TestCommandsPerRound
+			value.Budgets.AuthoringRuntimeTurns = defaults.AuthoringRuntimeTurns
+			value.Budgets.AuthoringWallTime = defaults.AuthoringWallTime
+		}
 	}
 }
 
@@ -501,13 +593,23 @@ type QAPatchRecord struct {
 }
 
 type QAEvidencePublication struct {
-	Plans        []QAEvidencePlan
-	Records      []QAEvidenceRecord
-	Patches      []QAPatchRecord
-	Adjudication *QAAdjudication
-	Assessment   *QAAssessmentRecord
-	Report       []byte
-	Budgets      QABudgets
+	Plans             []QAEvidencePlan
+	Records           []QAEvidenceRecord
+	Patches           []QAPatchRecord
+	Adjudication      *QAAdjudication
+	Assessment        *QAAssessmentRecord
+	Report            []byte
+	Budgets           QABudgets
+	InvestigatorTests []QATestPublication
+	EvidenceRequests  []QAArbiterEvidenceRequest
+	IssueCoverage     []QAIssueEvidenceCoverage
+}
+
+type QATestPublication struct {
+	Spec              QAReproductionSpec
+	Bundle            QATestBundle
+	AuthoringAttempts []QAInvestigatorAttempt
+	Runs              []QAReproductionRun
 }
 
 func (store QAStore) Publish(publication QAPublication, token QAWriterToken) (resultErr error) {
@@ -692,7 +794,7 @@ func (store QAStore) writeRecord(kind, path string, value any, immutable bool) (
 			if bytes.Equal(current, data) {
 				return hashBytes(data), nil
 			}
-			return "", NewQAError(QAErrorConflict, "publish "+kind, "immutable QA map already exists with different bytes", nil)
+			return "", NewQAError(QAErrorConflict, "publish "+kind, "immutable QA "+kind+" already exists with different bytes", nil)
 		}
 		if !errors.Is(readErr, fs.ErrNotExist) {
 			return "", NewQAError(QAErrorPersistenceFailure, "publish "+kind, "cannot inspect existing QA record", readErr)
@@ -769,6 +871,9 @@ func (store QAStore) publishEvidence(bundle *QAEvidencePublication, state *QASta
 	if len(bundle.Report) > 0 && !bytes.HasPrefix(bundle.Report, []byte("# QA")) {
 		return NewQAError(QAErrorMalformedEvidence, "publish report", "canonical QA report must start with # QA", nil)
 	}
+	if err := store.publishAuthoredTests(bundle, state.CurrentAttemptID, token); err != nil {
+		return err
+	}
 	for i := range bundle.Plans {
 		plan := bundle.Plans[i]
 		if err := ValidateQAEvidencePlan(plan, bundle.Budgets); err != nil || plan.AttemptID != state.CurrentAttemptID {
@@ -844,7 +949,7 @@ func (store QAStore) publishEvidence(bundle *QAEvidencePublication, state *QASta
 		if err := store.checkWriter(token); err != nil {
 			return err
 		}
-		digest, err := store.writeRecord("adjudication", path, bundle.Adjudication, true)
+		digest, err := store.writeRecord("adjudication", path, bundle.Adjudication, false)
 		if err != nil {
 			return err
 		}
@@ -860,7 +965,7 @@ func (store QAStore) publishEvidence(bundle *QAEvidencePublication, state *QASta
 			SchemaVersion int       `json:"schema_version"`
 			AttemptID     string    `json:"attempt_id"`
 			Issues        []QAIssue `json:"issues"`
-		}{QAEvidenceSchemaVersion, state.CurrentAttemptID, bundle.Adjudication.Issues}, true)
+		}{QAEvidenceSchemaVersion, state.CurrentAttemptID, bundle.Adjudication.Issues}, false)
 		if err != nil {
 			return err
 		}
@@ -883,7 +988,7 @@ func (store QAStore) publishEvidence(bundle *QAEvidencePublication, state *QASta
 		if err := store.checkWriter(token); err != nil {
 			return err
 		}
-		digest, err := store.writeRecord("assessment", path, bundle.Assessment, true)
+		digest, err := store.writeRecord("assessment", path, bundle.Assessment, false)
 		if err != nil {
 			return err
 		}

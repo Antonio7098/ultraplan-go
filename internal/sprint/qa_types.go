@@ -124,6 +124,14 @@ type QABudgets struct {
 	Issues                     int           `json:"issues"`
 	AnalyzerCalls              int           `json:"analyzer_calls"`
 	EvaluatorCalls             int           `json:"evaluator_calls"`
+	EvidenceRoundsPerShard     int           `json:"evidence_rounds_per_shard"`
+	TestsPerTheory             int           `json:"tests_per_theory"`
+	TestsPerIssue              int           `json:"tests_per_issue"`
+	AuthoredTestFiles          int           `json:"authored_test_files"`
+	AuthoredTestBytes          int           `json:"authored_test_bytes"`
+	TestCommandsPerRound       int           `json:"test_commands_per_round"`
+	AuthoringRuntimeTurns      int           `json:"authoring_runtime_turns"`
+	AuthoringWallTime          time.Duration `json:"authoring_wall_time"`
 }
 
 func DefaultQABudgets() QABudgets {
@@ -142,6 +150,9 @@ func DefaultQABudgets() QABudgets {
 		TreeFiles: 200_000, TreeBytes: 2 << 30, FileBytes: 32 << 20,
 		GeneratedChecks: 88, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256,
 		Issues: 200, AnalyzerCalls: 3, EvaluatorCalls: 3,
+		EvidenceRoundsPerShard: 2, TestsPerTheory: 2, TestsPerIssue: 8,
+		AuthoredTestFiles: 8, AuthoredTestBytes: 256 << 10, TestCommandsPerRound: 4,
+		AuthoringRuntimeTurns: 4, AuthoringWallTime: 10 * time.Minute,
 	}
 }
 
@@ -161,6 +172,9 @@ func MaximumQABudgets() QABudgets {
 		TreeFiles: 400_000, TreeBytes: 4 << 30, FileBytes: 64 << 20,
 		GeneratedChecks: 128, GeneratedPatchBytes: 4 << 20, EvidenceRecords: 512,
 		Issues: 200, AnalyzerCalls: 3, EvaluatorCalls: 3,
+		EvidenceRoundsPerShard: 4, TestsPerTheory: 4, TestsPerIssue: 16,
+		AuthoredTestFiles: 16, AuthoredTestBytes: 1 << 20, TestCommandsPerRound: 8,
+		AuthoringRuntimeTurns: 8, AuthoringWallTime: 20 * time.Minute,
 	}
 }
 
@@ -478,43 +492,47 @@ type RepairCheckDescriptor struct {
 }
 
 type RepairIssuePacket struct {
-	SchemaVersion             int                     `json:"schema_version"`
-	Project                   string                  `json:"project"`
-	Sprint                    string                  `json:"sprint"`
-	QAAttemptID               string                  `json:"qa_attempt_id"`
-	RepairRunID               string                  `json:"repair_run_id"`
-	Issue                     QAIssue                 `json:"issue"`
-	RootCauseGroup            QARootCauseGroup        `json:"root_cause_group"`
-	AdjudicationID            string                  `json:"adjudication_id"`
-	EvidenceIDs               []string                `json:"evidence_ids"`
-	PlanIDs                   []string                `json:"plan_ids"`
-	MapID                     string                  `json:"map_id"`
-	ShardIDs                  []string                `json:"shard_ids"`
-	TheoryIDs                 []string                `json:"theory_ids,omitempty"`
-	ExpectationRefs           []string                `json:"expectation_refs"`
-	Theories                  []QATheory              `json:"theories,omitempty"`
-	Evidence                  []QAEvidenceRecord      `json:"evidence,omitempty"`
-	EvidencePlans             []QAEvidencePlan        `json:"evidence_plans,omitempty"`
-	ContextBlocks             []QAContextBlock        `json:"context_blocks,omitempty"`
-	ArbiterOverrides          []QAArbiterOverride     `json:"arbiter_overrides,omitempty"`
-	TargetDelta               string                  `json:"target_delta,omitempty"`
-	ExactReproducer           RepairCheckDescriptor   `json:"exact_reproducer"`
-	Checks                    []RepairCheckDescriptor `json:"checks"`
-	AllowedPaths              []string                `json:"allowed_paths"`
-	ForbiddenPaths            []string                `json:"forbidden_paths"`
-	AcceptanceCriteria        []string                `json:"acceptance_criteria"`
-	Mode                      RepairMode              `json:"mode"`
-	Budgets                   RepairBudgets           `json:"budgets"`
-	BudgetSources             []QAEffectiveSource     `json:"budget_sources"`
-	Target                    QATargetIdentity        `json:"target"`
-	GovernedInputFingerprint  string                  `json:"governed_input_fingerprint"`
-	ImplementationFingerprint string                  `json:"implementation_fingerprint"`
-	ReviewFingerprint         string                  `json:"review_fingerprint"`
-	SmokeFingerprint          string                  `json:"smoke_fingerprint"`
-	PolicyFingerprint         string                  `json:"policy_fingerprint"`
-	IsolationFingerprint      string                  `json:"isolation_fingerprint"`
-	PreparedAt                time.Time               `json:"prepared_at"`
-	PacketDigest              string                  `json:"packet_digest"`
+	SchemaVersion             int                      `json:"schema_version"`
+	Project                   string                   `json:"project"`
+	Sprint                    string                   `json:"sprint"`
+	QAAttemptID               string                   `json:"qa_attempt_id"`
+	RepairRunID               string                   `json:"repair_run_id"`
+	Issue                     QAIssue                  `json:"issue"`
+	RootCauseGroup            QARootCauseGroup         `json:"root_cause_group"`
+	AdjudicationID            string                   `json:"adjudication_id"`
+	EvidenceIDs               []string                 `json:"evidence_ids"`
+	PlanIDs                   []string                 `json:"plan_ids"`
+	MapID                     string                   `json:"map_id"`
+	ShardIDs                  []string                 `json:"shard_ids"`
+	TheoryIDs                 []string                 `json:"theory_ids,omitempty"`
+	ExpectationRefs           []string                 `json:"expectation_refs"`
+	Theories                  []QATheory               `json:"theories,omitempty"`
+	Evidence                  []QAEvidenceRecord       `json:"evidence,omitempty"`
+	EvidencePlans             []QAEvidencePlan         `json:"evidence_plans,omitempty"`
+	IssueCoverage             *QAIssueEvidenceCoverage `json:"issue_coverage,omitempty"`
+	ReproductionSpecs         []QAReproductionSpec     `json:"reproduction_specs,omitempty"`
+	RegressionTests           []QATestBundle           `json:"regression_tests,omitempty"`
+	RegressionTestPaths       []string                 `json:"regression_test_paths,omitempty"`
+	ContextBlocks             []QAContextBlock         `json:"context_blocks,omitempty"`
+	ArbiterOverrides          []QAArbiterOverride      `json:"arbiter_overrides,omitempty"`
+	TargetDelta               string                   `json:"target_delta,omitempty"`
+	ExactReproducer           RepairCheckDescriptor    `json:"exact_reproducer"`
+	Checks                    []RepairCheckDescriptor  `json:"checks"`
+	AllowedPaths              []string                 `json:"allowed_paths"`
+	ForbiddenPaths            []string                 `json:"forbidden_paths"`
+	AcceptanceCriteria        []string                 `json:"acceptance_criteria"`
+	Mode                      RepairMode               `json:"mode"`
+	Budgets                   RepairBudgets            `json:"budgets"`
+	BudgetSources             []QAEffectiveSource      `json:"budget_sources"`
+	Target                    QATargetIdentity         `json:"target"`
+	GovernedInputFingerprint  string                   `json:"governed_input_fingerprint"`
+	ImplementationFingerprint string                   `json:"implementation_fingerprint"`
+	ReviewFingerprint         string                   `json:"review_fingerprint"`
+	SmokeFingerprint          string                   `json:"smoke_fingerprint"`
+	PolicyFingerprint         string                   `json:"policy_fingerprint"`
+	IsolationFingerprint      string                   `json:"isolation_fingerprint"`
+	PreparedAt                time.Time                `json:"prepared_at"`
+	PacketDigest              string                   `json:"packet_digest"`
 }
 
 type RepairConfirmation struct {
@@ -651,17 +669,19 @@ type RepairProgressFact struct {
 }
 
 type RepairCycle struct {
-	SchemaVersion  int                `json:"schema_version"`
-	RepairRunID    string             `json:"repair_run_id"`
-	Number         int                `json:"number"`
-	Proposal       *QAArtifactRef     `json:"proposal,omitempty"`
-	Scope          *QAArtifactRef     `json:"scope,omitempty"`
-	Reverification *QAArtifactRef     `json:"reverification,omitempty"`
-	Cleanup        *QAArtifactRef     `json:"cleanup,omitempty"`
-	Progress       RepairProgressFact `json:"progress"`
-	StopReason     RepairStopReason   `json:"stop_reason,omitempty"`
-	StartedAt      time.Time          `json:"started_at"`
-	CompletedAt    *time.Time         `json:"completed_at,omitempty"`
+	SchemaVersion       int                `json:"schema_version"`
+	RepairRunID         string             `json:"repair_run_id"`
+	Number              int                `json:"number"`
+	Proposal            *QAArtifactRef     `json:"proposal,omitempty"`
+	TestPatch           *QAArtifactRef     `json:"test_patch,omitempty"`
+	ImplementationPatch *QAArtifactRef     `json:"implementation_patch,omitempty"`
+	Scope               *QAArtifactRef     `json:"scope,omitempty"`
+	Reverification      *QAArtifactRef     `json:"reverification,omitempty"`
+	Cleanup             *QAArtifactRef     `json:"cleanup,omitempty"`
+	Progress            RepairProgressFact `json:"progress"`
+	StopReason          RepairStopReason   `json:"stop_reason,omitempty"`
+	StartedAt           time.Time          `json:"started_at"`
+	CompletedAt         *time.Time         `json:"completed_at,omitempty"`
 }
 
 type RepairApplyOperation struct {
@@ -670,6 +690,7 @@ type RepairApplyOperation struct {
 	PreimagePath    string `json:"preimage_path,omitempty"`
 	PostimageDigest string `json:"postimage_digest,omitempty"`
 	StagedPath      string `json:"staged_path,omitempty"`
+	Created         bool   `json:"created,omitempty"`
 	Applied         bool   `json:"applied"`
 	Restored        bool   `json:"restored"`
 }
@@ -868,6 +889,12 @@ type QACommandSummary struct {
 type QAInvestigatorAttempt struct {
 	ID                   string              `json:"id"`
 	Number               int                 `json:"number"`
+	SessionID            string              `json:"session_id,omitempty"`
+	Provider             string              `json:"provider,omitempty"`
+	Model                string              `json:"model,omitempty"`
+	Variant              string              `json:"variant,omitempty"`
+	RuntimeStoreRef      string              `json:"runtime_store_ref,omitempty"`
+	WorkspaceID          string              `json:"workspace_id,omitempty"`
 	StartedAt            time.Time           `json:"started_at"`
 	CompletedAt          *time.Time          `json:"completed_at,omitempty"`
 	ImplementationBefore string              `json:"implementation_before"`
@@ -1023,15 +1050,41 @@ type QAArbiterIssue struct {
 	EvidenceRefs []string `json:"evidence_refs"`
 }
 
+// QAArbiterEvidenceRequest is routed only to the shard that authored all of
+// its theories. The product, not the arbiter, assigns ID.
+type QAArbiterEvidenceRequest struct {
+	ID                  string   `json:"id"`
+	ArbiterGroupID      string   `json:"arbiter_group_id,omitempty"`
+	TheoryIDs           []string `json:"theory_ids"`
+	OriginShardID       string   `json:"origin_shard_id"`
+	Gap                 string   `json:"gap"`
+	RequestedEvidence   string   `json:"requested_evidence"`
+	RequiredObservation string   `json:"required_observation"`
+	ControlRequirement  string   `json:"control_requirement"`
+	Priority            string   `json:"priority"`
+	Status              string   `json:"status,omitempty"`
+	EvidenceRound       int      `json:"evidence_round,omitempty"`
+	TestBundleID        string   `json:"test_bundle_id,omitempty"`
+	LatestRunID         string   `json:"latest_run_id,omitempty"`
+	NextAction          string   `json:"next_action,omitempty"`
+}
+
 type QAArbiterGroup struct {
-	ID              string              `json:"id"`
-	TheoryIDs       []string            `json:"theory_ids"`
-	ContextBlockIDs []string            `json:"context_block_ids"`
-	Model           string              `json:"model,omitempty"`
-	Overrides       []QAArbiterOverride `json:"overrides,omitempty"`
-	Issues          []QAArbiterIssue    `json:"issues,omitempty"`
-	Fallback        bool                `json:"fallback"`
-	Reason          string              `json:"reason,omitempty"`
+	ID               string                     `json:"id"`
+	TheoryIDs        []string                   `json:"theory_ids"`
+	ContextBlockIDs  []string                   `json:"context_block_ids"`
+	SessionID        string                     `json:"session_id,omitempty"`
+	Provider         string                     `json:"provider,omitempty"`
+	Model            string                     `json:"model,omitempty"`
+	Variant          string                     `json:"variant,omitempty"`
+	RuntimeStoreRef  string                     `json:"runtime_store_ref,omitempty"`
+	WorkspaceID      string                     `json:"workspace_id,omitempty"`
+	Round            int                        `json:"round,omitempty"`
+	Overrides        []QAArbiterOverride        `json:"overrides,omitempty"`
+	Issues           []QAArbiterIssue           `json:"issues,omitempty"`
+	EvidenceRequests []QAArbiterEvidenceRequest `json:"evidence_requests,omitempty"`
+	Fallback         bool                       `json:"fallback"`
+	Reason           string                     `json:"reason,omitempty"`
 }
 
 type QAIssueReconciliation struct {
@@ -1041,15 +1094,16 @@ type QAIssueReconciliation struct {
 }
 
 type QAArbitration struct {
-	SchemaVersion  int                    `json:"schema_version"`
-	MapID          string                 `json:"map_id"`
-	Model          string                 `json:"model,omitempty"`
-	Overrides      []QAArbiterOverride    `json:"overrides,omitempty"`
-	Groups         []QAArbiterGroup       `json:"groups,omitempty"`
-	Issues         []QAArbiterIssue       `json:"issues,omitempty"`
-	Reconciliation *QAIssueReconciliation `json:"reconciliation,omitempty"`
-	Fallback       bool                   `json:"fallback"`
-	Reason         string                 `json:"reason,omitempty"`
+	SchemaVersion    int                        `json:"schema_version"`
+	MapID            string                     `json:"map_id"`
+	Model            string                     `json:"model,omitempty"`
+	Overrides        []QAArbiterOverride        `json:"overrides,omitempty"`
+	Groups           []QAArbiterGroup           `json:"groups,omitempty"`
+	Issues           []QAArbiterIssue           `json:"issues,omitempty"`
+	EvidenceRequests []QAArbiterEvidenceRequest `json:"evidence_requests,omitempty"`
+	Reconciliation   *QAIssueReconciliation     `json:"reconciliation,omitempty"`
+	Fallback         bool                       `json:"fallback"`
+	Reason           string                     `json:"reason,omitempty"`
 }
 
 type QASynthesis struct {
@@ -1226,6 +1280,10 @@ func validateQABudgets(got QABudgets) error {
 		{"tree_files", got.TreeFiles, max.TreeFiles}, {"generated_checks", got.GeneratedChecks, max.GeneratedChecks},
 		{"generated_patch_bytes", got.GeneratedPatchBytes, max.GeneratedPatchBytes}, {"evidence_records", got.EvidenceRecords, max.EvidenceRecords},
 		{"issues", got.Issues, max.Issues}, {"analyzer_calls", got.AnalyzerCalls, max.AnalyzerCalls}, {"evaluator_calls", got.EvaluatorCalls, max.EvaluatorCalls},
+		{"evidence_rounds_per_shard", got.EvidenceRoundsPerShard, max.EvidenceRoundsPerShard}, {"tests_per_theory", got.TestsPerTheory, max.TestsPerTheory},
+		{"tests_per_issue", got.TestsPerIssue, max.TestsPerIssue}, {"authored_test_files", got.AuthoredTestFiles, max.AuthoredTestFiles},
+		{"authored_test_bytes", got.AuthoredTestBytes, max.AuthoredTestBytes}, {"test_commands_per_round", got.TestCommandsPerRound, max.TestCommandsPerRound},
+		{"authoring_runtime_turns", got.AuthoringRuntimeTurns, max.AuthoringRuntimeTurns},
 	}
 	for _, limit := range ints {
 		if limit.got <= 0 || limit.got > limit.max {
@@ -1235,7 +1293,7 @@ func validateQABudgets(got QABudgets) error {
 	durations := []struct {
 		name     string
 		got, max time.Duration
-	}{{"command_timeout", got.CommandTimeout, max.CommandTimeout}, {"shard_timeout", got.ShardTimeout, max.ShardTimeout}, {"run_timeout", got.RunTimeout, max.RunTimeout}, {"cleanup_timeout", got.CleanupTimeout, max.CleanupTimeout}}
+	}{{"command_timeout", got.CommandTimeout, max.CommandTimeout}, {"shard_timeout", got.ShardTimeout, max.ShardTimeout}, {"run_timeout", got.RunTimeout, max.RunTimeout}, {"cleanup_timeout", got.CleanupTimeout, max.CleanupTimeout}, {"authoring_wall_time", got.AuthoringWallTime, max.AuthoringWallTime}}
 	for _, limit := range durations {
 		if limit.got <= 0 || limit.got > limit.max {
 			return fmt.Errorf("qa budget %s must be positive and no greater than %s", limit.name, limit.max)
@@ -1401,6 +1459,18 @@ func ValidateQASynthesis(synthesis QASynthesis, budgets QABudgets) error {
 			for _, theoryID := range override.TheoryIDs {
 				if _, ok := theoryIDs[theoryID]; !ok {
 					return fmt.Errorf("QA arbiter override references an unknown theory")
+				}
+			}
+		}
+		seenRequest := map[string]bool{}
+		for _, request := range synthesis.Arbitration.EvidenceRequests {
+			if !validQAV2ID(request.ID, "request") || !validQAIDKind(request.OriginShardID, "shard") || len(request.TheoryIDs) == 0 || strings.TrimSpace(request.Gap) == "" || strings.TrimSpace(request.RequestedEvidence) == "" || strings.TrimSpace(request.RequiredObservation) == "" || strings.TrimSpace(request.ControlRequirement) == "" || strings.TrimSpace(request.Priority) == "" || seenRequest[request.ID] {
+				return fmt.Errorf("invalid QA arbiter evidence request")
+			}
+			seenRequest[request.ID] = true
+			for _, theoryID := range request.TheoryIDs {
+				if _, ok := theoryIDs[theoryID]; !ok {
+					return fmt.Errorf("QA arbiter evidence request references an unknown theory")
 				}
 			}
 		}
