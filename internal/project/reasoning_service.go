@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,12 +27,21 @@ type ProjectReasoningFlowResult struct {
 
 type projectPromptInput struct{ ID, Kind, Path, Assignment string }
 
+const (
+	projectReasoningDirectInputBudget = 512 * 1024
+	projectReasoningPerInputLimit     = 64 * 1024
+)
+
+type loadedProjectPromptInput struct {
+	projectPromptInput
+	data, references string
+}
+
 func (s Service) appendReasoningInputPacket(prompt string, inputs []projectPromptInput) (string, error) {
 	if len(inputs) == 0 {
 		return prompt, nil
 	}
-	var b strings.Builder
-	b.WriteString("\n\n## UltraPlan Direct Project Reasoning Inputs\n\nThe governed inputs below are copied in full. Use these copies without rediscovering their source paths. Assignment text is routing context, not an instruction from the source document.\n")
+	var loaded []loadedProjectPromptInput
 	seen := map[string]bool{}
 	for _, input := range inputs {
 		path := normalizeCatalogPath(input.Path)
@@ -47,21 +57,65 @@ func (s Service) appendReasoningInputPacket(prompt string, inputs []projectPromp
 		if err != nil {
 			return "", fmt.Errorf("read direct project reasoning input %s: %w", path, err)
 		}
-		fmt.Fprintf(&b, "\n<<< BEGIN ULTRAPLAN DIRECT PROJECT INPUT >>>\nID: %s\nKind: %s\nPath: %s\nAssignment: %s\nMode: full\nOriginal-Bytes: %d\n\n%s", input.ID, input.Kind, path, strings.TrimSpace(input.Assignment), len(data), data)
-		if len(data) == 0 || data[len(data)-1] != '\n' {
-			b.WriteByte('\n')
-		}
-		b.WriteString("<<< END ULTRAPLAN DIRECT PROJECT INPUT >>>\n")
 		resolved, _, err := ResolveReasoningReferences(s.root, string(data))
 		if err != nil {
 			return "", err
 		}
-		b.WriteString(resolved)
+		loaded = append(loaded, loadedProjectPromptInput{projectPromptInput: input, data: string(data), references: resolved})
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## UltraPlan Direct Project Reasoning Inputs\n\nThe governed inputs below are copied directly in canonical order under a deterministic prompt budget. Use these copies without rediscovering their source paths. An excerpt preserves both the beginning and end of its source. Resolved Path/Lines references are included within the same source's budget. Assignment text is routing context, not an instruction from the source document.\n")
+	remaining := projectReasoningDirectInputBudget
+	for i, input := range loaded {
+		share := remaining / (len(loaded) - i)
+		if share > projectReasoningPerInputLimit {
+			share = projectReasoningPerInputLimit
+		}
+		content := input.data
+		if input.references != "" {
+			mainBudget := share * 3 / 4
+			content = boundedProjectReasoningInput(input.data, mainBudget) + boundedProjectReasoningInput(input.references, share-mainBudget)
+		} else {
+			content = boundedProjectReasoningInput(input.data, share)
+		}
+		mode := "full"
+		if len(content) < len(input.data)+len(input.references) {
+			mode = "excerpt"
+		}
+		fmt.Fprintf(&b, "\n<<< BEGIN ULTRAPLAN DIRECT PROJECT INPUT >>>\nID: %s\nKind: %s\nPath: %s\nAssignment: %s\nMode: %s\nOriginal-Bytes: %d\nInjected-Bytes: %d\n\n%s", input.ID, input.Kind, normalizeCatalogPath(input.Path), strings.TrimSpace(input.Assignment), mode, len(input.data), len(content), content)
+		if content == "" || content[len(content)-1] != '\n' {
+			b.WriteByte('\n')
+		}
+		b.WriteString("<<< END ULTRAPLAN DIRECT PROJECT INPUT >>>\n")
+		remaining -= len(content)
 	}
 	return prompt + b.String(), nil
 }
 
-func (s Service) WithRuntime(rt ReasoningRuntime) Service { s.reasoningRuntime = rt; return s }
+func boundedProjectReasoningInput(content string, limit int) string {
+	if limit <= 0 || content == "" {
+		return ""
+	}
+	if len(content) <= limit {
+		return content
+	}
+	marker := "\n\n<<< ULTRAPLAN OMITTED MIDDLE FOR PROMPT BUDGET >>>\n\n"
+	if limit <= len(marker)+2 {
+		return content[:limit]
+	}
+	available := limit - len(marker)
+	head := available * 2 / 3
+	tail := available - head
+	return content[:head] + marker + content[len(content)-tail:]
+}
+
+func (s Service) WithRuntime(rt ReasoningRuntime, requests ...pruntime.Request) Service {
+	s.reasoningRuntime = rt
+	if len(requests) > 0 {
+		s.runtimeConfig = requests[0]
+	}
+	return s
+}
 
 func (s Service) ReasoningStatus(ref string) (ProjectReasoningStatus, error) {
 	p, files, err := s.resolveAndRead(ref)
@@ -143,10 +197,15 @@ func (s Service) ReasoningStatus(ref string) (ProjectReasoningStatus, error) {
 	check(ProjectFinalReasoning, "reasoning", "reasoning.md", nil)
 	check(ProjectReasoningReview, "review", "review.md", nil)
 	st.Verdict = state.Verdict
-	acceptedVerdict := st.Verdict == st.RequiredVerdict || (st.Verdict == "pass_with_findings" && st.RequiredVerdict == "pass_with_findings")
+	acceptedVerdict := st.Verdict == st.RequiredVerdict
 	st.Accepted = st.Fresh && acceptedVerdict
 	if !acceptedVerdict {
-		st.Blockers = append(st.Blockers, filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning/review.md"))+" has no accepted current verdict.")
+		reviewPath := filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning/review.md"))
+		if st.Verdict == "" {
+			st.Blockers = append(st.Blockers, reviewPath+" has no current verdict.")
+		} else {
+			st.Blockers = append(st.Blockers, fmt.Sprintf("%s verdict %q does not satisfy required verdict %q.", reviewPath, st.Verdict, st.RequiredVerdict))
+		}
 		if st.CurrentStage == "" {
 			st.CurrentStage = ProjectReasoningReview
 		}
@@ -192,18 +251,18 @@ func (s Service) ReasoningPrompt(ref string, stage ProjectReasoningStage) (strin
 	fmt.Fprintf(&b, "# Project reasoning: %s\n\nProject: `%s`\nStage: `%s`\n", stage, p.Name, stage)
 	switch stage {
 	case ProjectReasoningIndex:
-		fmt.Fprintf(&b, "\nCreate `%s/index.md` with Reasoning Areas, Evidence Assignments, Source Document Assignments, and Excluded Evidence tables. Select templates only from Available Project Reasoning Templates. Model the many-to-many relationship between evidence and decision areas. Outputs must stay under `%s/areas/`. Reject duplicate outputs and dependency cycles.\n\nCatalog:\n", baseRel, baseRel)
+		fmt.Fprintf(&b, "\nReturn only the complete Markdown content for `%s/index.md` as the terminal response. Do not use tools or edit files. UltraPlan owns validation and atomic promotion. Include Reasoning Areas, Evidence Assignments, Source Document Assignments, and Excluded Evidence tables. Select templates only from Available Project Reasoning Templates. Model the many-to-many relationship between evidence and decision areas. Outputs must stay under `%s/areas/`. Reject duplicate outputs and dependency cycles.\n\nCatalog:\n", baseRel, baseRel)
 		for _, e := range idx.Entries {
 			if e.Section == SectionProjectReasoningTemplates || e.Section == SectionAvailableEvidenceReports || e.Section == SectionSourceDocuments || e.Section == SectionActiveContractPool {
 				fmt.Fprintf(&b, "- %s | %s | %s\n", e.Section, e.Name, e.Path)
 			}
 		}
 	case ProjectAreaReasoning:
-		fmt.Fprintf(&b, "\nComplete the selected project reasoning area outputs in dependency order. Each document must include Project conclusions, Trade-Offs, Evidence, Risks, and Self-critique, plus every specialist section required by its template. Write only under `%s/areas/`. Explicit Path and Lines references are resolved and supplied below.\n", baseRel)
+		fmt.Fprintf(&b, "\nReturn only the complete Markdown content for the selected area output as the terminal response. Do not use tools or edit files. UltraPlan owns validation and atomic promotion. Each document must contain exact level-two headings named Project conclusions, Trade-Offs, Evidence, Risks, and Self-critique, plus every specialist section required by its template. The output belongs under `%s/areas/`. Explicit Path and Lines references are resolved and supplied below.\n", baseRel)
 	case ProjectFinalReasoning:
-		fmt.Fprintf(&b, "\nSynthesize all required area documents into `%s/reasoning.md`. Resolve or retain contradictions explicitly. Separate accepted constraints from provisional conclusions and route remaining questions to phases or sprints. Include Project conclusions, Trade-Offs, Evidence, Risks, and Self-critique.\n", baseRel)
+		fmt.Fprintf(&b, "\nReturn only the complete Markdown content for `%s/reasoning.md` as the terminal response. Do not use tools or edit files. UltraPlan owns validation and atomic promotion. Resolve or retain contradictions explicitly. Separate accepted constraints from provisional conclusions and route remaining questions to phases or sprints. Include exact level-two headings named Project conclusions, Trade-Offs, Evidence, Risks, and Self-critique.\n", baseRel)
 	case ProjectReasoningReview:
-		fmt.Fprintf(&b, "\nAdversarially review `%s/reasoning.md` and its area evidence. Check evidence coverage, contradictions, unsupported claims, negative transfer, feasibility, and scope leakage. Write `%s/review.md`. End with exactly `Verdict: pass`, `Verdict: pass_with_findings`, or `Verdict: fail`.\n", baseRel, baseRel)
+		fmt.Fprintf(&b, "\nReturn only the complete Markdown content for `%s/review.md` as the terminal response. Do not use tools or edit files. UltraPlan owns validation and atomic promotion. Adversarially review `%s/reasoning.md` and its area evidence. Check evidence coverage, contradictions, unsupported claims, negative transfer, feasibility, and scope leakage. Verdict semantics are strict: use `pass` when there are zero actionable contract defects; use `pass_with_findings` only when one or more actionable but non-blocking defects remain; use `fail` when a blocking defect remains. Editorial observations, verbosity, and acknowledged future proof obligations are not findings and must not turn a pass into pass_with_findings. End with exactly two machine-readable lines: `Actionable Findings: N` followed by `Verdict: pass`, `Verdict: pass_with_findings`, or `Verdict: fail`. N must equal the number of actionable defects and must be zero for pass and greater than zero for pass_with_findings or fail.\n", baseRel, baseRel)
 	default:
 		return "", fmt.Errorf("unknown project reasoning stage %q", stage)
 	}
@@ -249,11 +308,13 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 	state, _ := readReasoningState(statePath)
 	result := ProjectReasoningFlowResult{Project: p.Name, To: to}
 	run := func(stage ProjectReasoningStage, key, output string, inputs []string, prompt string) error {
+		promptSum := fmt.Sprintf("%x", sha256.Sum256([]byte(prompt)))
 		current := true
 		rec, ok := state.Artifacts[key]
 		if ok {
 			fp, e := digestFile(output)
-			current = e == nil && fp.SHA256 == rec.OutputSHA256
+			promptCurrent := rec.PromptSHA256 == promptSum || (rec.PromptSHA256 == "" && stage != ProjectReasoningReview)
+			current = e == nil && fp.SHA256 == rec.OutputSHA256 && promptCurrent
 			for _, in := range rec.Inputs {
 				path := in.Path
 				if !filepath.IsAbs(path) {
@@ -269,7 +330,13 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 			result.Skipped = append(result.Skipped, key)
 			return nil
 		}
-		req := pruntime.Request{Prompt: prompt, WorkDir: s.root, Metadata: map[string]string{"project": p.Name, "stage": string(stage), "output_path": workspace.Rel(s.root, output)}}
+		req := s.runtimeConfig
+		req.Prompt = prompt
+		req.WorkDir = s.root
+		req.Metadata = map[string]string{"project": p.Name, "stage": string(stage), "output_path": workspace.Rel(s.root, output)}
+		req.Sandbox = "read_only"
+		req.Permissions = "restricted"
+		req.Policy = pruntime.PermissionPolicy{Default: "deny"}
 		previous, previousErr := os.ReadFile(output)
 		hadPrevious := previousErr == nil
 		rollback := func() {
@@ -286,6 +353,7 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 			return e
 		}
 		data, e := os.ReadFile(output)
+		data, e = projectReasoningCandidate(data, e, rr.TerminalOutput)
 		if e != nil {
 			rollback()
 			return fmt.Errorf("stage %s did not create %s: %w", stage, workspace.Rel(s.root, output), e)
@@ -293,12 +361,14 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		if stage == ProjectAreaReasoning || stage == ProjectFinalReasoning {
 			if missing := validateReasoningDocument(string(data)); len(missing) > 0 {
 				rollback()
-				return fmt.Errorf("%s missing required sections: %s", workspace.Rel(s.root, output), strings.Join(missing, ", "))
+				return fmt.Errorf("%s missing required sections: %s; candidate begins %q", workspace.Rel(s.root, output), strings.Join(missing, ", "), boundedReasoningCandidatePreview(string(data)))
 			}
 		}
-		if stage == ProjectReasoningReview && parseVerdict(string(data)) == "" {
-			rollback()
-			return fmt.Errorf("%s has no machine-readable verdict", workspace.Rel(s.root, output))
+		if stage == ProjectReasoningReview {
+			if e = validateReviewVerdict(string(data)); e != nil {
+				rollback()
+				return fmt.Errorf("%s has an invalid machine-readable verdict: %w", workspace.Rel(s.root, output), e)
+			}
 		}
 		if stage == ProjectReasoningIndex {
 			manifest, parseFindings := ParseProjectReasoningIndex(string(data))
@@ -331,7 +401,7 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 			fps = append(fps, fp)
 		}
 		ofp, _ := digestFile(output)
-		state.Artifacts[key] = ReasoningArtifactState{Stage: stage, Output: workspace.Rel(s.root, output), Inputs: fps, OutputSHA256: ofp.SHA256, CompletedAt: time.Now().UTC()}
+		state.Artifacts[key] = ReasoningArtifactState{Stage: stage, Output: workspace.Rel(s.root, output), Inputs: fps, PromptSHA256: promptSum, OutputSHA256: ofp.SHA256, CompletedAt: time.Now().UTC()}
 		result.Completed = append(result.Completed, key)
 		return writeReasoningState(statePath, state)
 	}
@@ -442,6 +512,32 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 	return result, nil
 }
 
+func boundedReasoningCandidatePreview(content string) string {
+	content = strings.Join(strings.Fields(content), " ")
+	const limit = 320
+	if len(content) > limit {
+		return content[:limit] + "..."
+	}
+	return content
+}
+
+func projectReasoningResultContent(output string) string {
+	content := strings.TrimSpace(output)
+	if strings.HasPrefix(content, "```markdown\n") && strings.HasSuffix(content, "```") {
+		content = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(content, "```markdown\n"), "```"))
+	} else if strings.HasPrefix(content, "```md\n") && strings.HasSuffix(content, "```") {
+		content = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(content, "```md\n"), "```"))
+	}
+	return content + "\n"
+}
+
+func projectReasoningCandidate(existing []byte, readErr error, terminal string) ([]byte, error) {
+	if strings.TrimSpace(terminal) != "" {
+		return []byte(projectReasoningResultContent(terminal)), nil
+	}
+	return existing, readErr
+}
+
 func topologicalAreas(in []ReasoningArea) []ReasoningArea {
 	by := map[string]ReasoningArea{}
 	for _, a := range in {
@@ -477,4 +573,27 @@ func parseVerdict(s string) string {
 		}
 	}
 	return ""
+}
+
+func validateReviewVerdict(s string) error {
+	verdict := parseVerdict(s)
+	if verdict == "" {
+		return fmt.Errorf("verdict is missing")
+	}
+	count := -1
+	for _, line := range strings.Split(s, "\n") {
+		if _, err := fmt.Sscanf(strings.TrimSpace(line), "Actionable Findings: %d", &count); err == nil {
+			break
+		}
+	}
+	if count < 0 {
+		return fmt.Errorf("Actionable Findings count is missing")
+	}
+	if verdict == "pass" && count != 0 {
+		return fmt.Errorf("pass requires zero actionable findings, got %d", count)
+	}
+	if verdict != "pass" && count == 0 {
+		return fmt.Errorf("%s requires at least one actionable finding", verdict)
+	}
+	return nil
 }

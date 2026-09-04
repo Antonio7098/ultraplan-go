@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
+	runtimepkg "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
@@ -202,7 +203,11 @@ func runProjectReasoning(deps dependencies, root string, service project.Service
 		if err != nil {
 			return classified(ExitRuntime, "project.reasoning.flow: %v", err)
 		}
-		result, err := service.WithRuntime(rt).ReasoningFlow(deps.ctx, ref, project.ProjectReasoningStage(args[2]))
+		runtimeRequest, err := runtimepkg.RequestFromConfig(effective.Config, root)
+		if err != nil {
+			return classified(ExitConfig, "project.reasoning.flow: %v", err)
+		}
+		result, err := service.WithRuntime(rt, runtimeRequest).ReasoningFlow(deps.ctx, ref, project.ProjectReasoningStage(args[2]))
 		if err != nil {
 			return classified(ExitRuntime, "project.reasoning.flow: %v", err)
 		}

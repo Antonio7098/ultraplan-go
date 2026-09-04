@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
@@ -36,10 +37,14 @@ func TestProjectIndexParsesReasoningPolicyAndTemplates(t *testing.T) {
 	}
 }
 
-type captureReasoningRuntime struct{ prompts []string }
+type captureReasoningRuntime struct {
+	prompts  []string
+	requests []pruntime.Request
+}
 
 func (r *captureReasoningRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
 	r.prompts = append(r.prompts, req.Prompt)
+	r.requests = append(r.requests, req)
 	return pruntime.Result{Status: "success"}, nil
 }
 
@@ -92,12 +97,15 @@ func TestAreaFlowDirectlyInjectsAssignedStudyReport(t *testing.T) {
 		}
 	}
 	rt := &captureReasoningRuntime{}
-	result, err := NewService(root).WithRuntime(rt).ReasoningFlow(context.Background(), "p", ProjectAreaReasoning)
+	result, err := NewService(root).WithRuntime(rt, pruntime.Request{Provider: "openrouter", Model: "minimax/minimax-m3:free", Timeout: time.Minute}).ReasoningFlow(context.Background(), "p", ProjectAreaReasoning)
 	if err != nil {
 		t.Fatalf("flow: %v result=%+v", err, result)
 	}
 	if len(rt.prompts) != 2 {
 		t.Fatalf("runtime prompts=%d", len(rt.prompts))
+	}
+	if rt.requests[1].Provider != "openrouter" || rt.requests[1].Model != "minimax/minimax-m3:free" || rt.requests[1].Timeout != time.Minute {
+		t.Fatalf("runtime config not propagated: %+v", rt.requests[1])
 	}
 	if result.Status.CurrentStage != ProjectFinalReasoning {
 		t.Fatalf("current stage = %q, want %q", result.Status.CurrentStage, ProjectFinalReasoning)
@@ -106,6 +114,61 @@ func TestAreaFlowDirectlyInjectsAssignedStudyReport(t *testing.T) {
 	for _, want := range []string{"Kind: assigned-evidence", "Unique study report body", "Relevant questions: Which owner commits state?", "Why assigned: Direct lifecycle evidence"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("area prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestProjectReasoningResultContentAcceptsMarkdownFence(t *testing.T) {
+	got := projectReasoningResultContent("```markdown\n# Result\n\nBody.\n```\n")
+	if got != "# Result\n\nBody.\n" {
+		t.Fatalf("content=%q", got)
+	}
+}
+
+func TestProjectReasoningTerminalCandidateReplacesExistingOutput(t *testing.T) {
+	got, err := projectReasoningCandidate([]byte("old\n"), nil, "```markdown\nnew\n```\n")
+	if err != nil || string(got) != "new\n" {
+		t.Fatalf("candidate=%q err=%v", got, err)
+	}
+}
+
+func TestReviewVerdictRequiresConsistentActionableFindingCount(t *testing.T) {
+	for _, test := range []struct {
+		content string
+		valid   bool
+	}{
+		{"Actionable Findings: 0\nVerdict: pass\n", true},
+		{"Actionable Findings: 2\nVerdict: pass_with_findings\n", true},
+		{"Actionable Findings: 1\nVerdict: fail\n", true},
+		{"Verdict: pass\n", false},
+		{"Actionable Findings: 0\nVerdict: pass_with_findings\n", false},
+		{"Actionable Findings: 1\nVerdict: pass\n", false},
+	} {
+		if got := validateReviewVerdict(test.content); (got == nil) != test.valid {
+			t.Errorf("validateReviewVerdict(%q)=%v, valid=%v", test.content, got, test.valid)
+		}
+	}
+}
+
+func TestProjectReasoningDirectInputsHaveDeterministicBudget(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"one.md", "two.md"} {
+		content := "start-" + name + "\n" + strings.Repeat("x", projectReasoningDirectInputBudget) + "\nend-" + name + "\n"
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inputs := []projectPromptInput{{ID: "one", Kind: "evidence", Path: "one.md"}, {ID: "two", Kind: "evidence", Path: "two.md"}}
+	got, err := NewService(root).appendReasoningInputPacket("instructions", inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) > projectReasoningDirectInputBudget+4096 {
+		t.Fatalf("prompt exceeds direct-input budget: %d", len(got))
+	}
+	for _, want := range []string{"Mode: excerpt", "start-one.md", "end-one.md", "start-two.md", "end-two.md", "ULTRAPLAN OMITTED MIDDLE"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt missing %q", want)
 		}
 	}
 }

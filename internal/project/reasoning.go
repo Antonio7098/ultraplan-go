@@ -48,6 +48,7 @@ type ReasoningArtifactState struct {
 	Stage        ProjectReasoningStage `json:"stage"`
 	Output       string                `json:"output"`
 	Inputs       []FingerprintRecord   `json:"inputs"`
+	PromptSHA256 string                `json:"prompt_sha256,omitempty"`
 	OutputSHA256 string                `json:"output_sha256"`
 	CompletedAt  time.Time             `json:"completed_at"`
 }

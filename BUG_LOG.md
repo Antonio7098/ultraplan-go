@@ -8,6 +8,42 @@ No open product bugs were identified by the two campaigns covered here.
 
 ## Fixed bugs
 
+### BUG-034: Project review verdicts could contradict their findings
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Project reasoning review
+- Symptom: The reviewer stated that no actionable contract defect remained but returned `pass_with_findings`, which kept an otherwise acceptable project blocked under a `pass` policy.
+- Resolution: Review output now includes an `Actionable Findings` count. Validation requires zero findings for `pass` and at least one for `pass_with_findings` or `fail`. The prompt distinguishes actionable defects from editorial observations and future proof obligations.
+- Verification: `TestReviewVerdictRequiresConsistentActionableFindingCount`; the Aren Phase 1 rerun returned `Actionable Findings: 0` and `Verdict: pass`.
+
+### BUG-033: Stale project-reasoning reruns reused the previous artifact
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Project reasoning promotion
+- Symptom: When an output file already existed, a rerun ignored the runtime's new terminal response and validated the old file. Prompt changes therefore appeared to have no effect.
+- Resolution: A non-empty terminal response always becomes the new candidate. UltraPlan retains the previous artifact only for rollback when the new candidate fails validation or promotion.
+- Verification: `TestProjectReasoningTerminalCandidateReplacesExistingOutput`; the corrected Aren review replaced the prior verdict while every upstream artifact resumed.
+
+### BUG-032: Oversized project-reasoning prompts displaced stage instructions
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Project reasoning prompts
+- Symptom: Aren's evidence-assessment prompt reached about 606,000 input tokens. MiniMax answered an embedded downstream template instead of the selected evidence-assessment area because the controlling prefix fell outside effective context.
+- Resolution: Direct project inputs now use canonical ordering, deduplication, a deterministic 512 KiB total budget, a 64 KiB per-input limit, fair allocation, and head-and-tail excerpts. Resolved references share the same bounded allocation.
+- Verification: `TestProjectReasoningDirectInputsHaveDeterministicBudget`; all six Aren areas completed without topic drift at about 110,000 input tokens for the largest later stages.
+
+### BUG-031: Project reasoning discarded runtime configuration and terminal Markdown
+
+- Found: 2026-09-04
+- Status: Fixed
+- Area: Project reasoning runtime
+- Symptom: The CLI resolved the requested model but built a bare runtime request for project reasoning. It also required the model to write the target file even though the stage contract should let UltraPlan validate and promote returned Markdown.
+- Resolution: Project reasoning now inherits provider, model, timeout, sandbox, permissions, and health settings from effective configuration. It accepts plain or fenced terminal Markdown while running the model read-only.
+- Verification: `TestAreaFlowDirectlyInjectsAssignedStudyReport`, `TestProjectReasoningResultContentAcceptsMarkdownFence`, and the complete Aren Phase 1 run with `openrouter/minimax/minimax-m3:free`.
+
 ### BUG-030: Merge descriptions could contradict the non-fast-forward policy
 
 - Found: 2026-09-04

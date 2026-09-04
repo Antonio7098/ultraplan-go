@@ -1,11 +1,16 @@
 package project
 
-import "sort"
+import (
+	"sort"
+
+	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
+)
 
 type Service struct {
 	root             string
 	store            FSStore
 	reasoningRuntime ReasoningRuntime
+	runtimeConfig    pruntime.Request
 }
 
 func NewService(root string) Service {

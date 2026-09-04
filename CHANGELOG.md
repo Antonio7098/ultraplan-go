@@ -6,18 +6,22 @@ This file records notable changes validated by the UltraPlan QA dogfood campaign
 
 ### Added
 
+- Added bounded direct-input packets for project reasoning. The flow injects every assigned document in canonical order, apportions a deterministic 512 KiB budget, preserves source beginnings and ends, and includes resolved `Path` and `Lines` references within each source's share.
+- Added prompt fingerprints to project-reasoning artifact state and a machine-readable `Actionable Findings` count to adversarial review output.
 - Completed the live investigator-authored-test dogfood campaign. The original investigator authored and strengthened persistent reproduction bundles, a reproduced failure was promoted to an issue, and a stable regression test was added to the production repository with the repair.
 - Added a 301-row QA-only runtime matrix covering every retained mapper, investigator, arbiter, reconciler, and repair call from the campaign. Review agents are excluded.
 - Added paid MiniMax M3 counterfactual cost accounting from OpenRouter list rates and comparisons with the preceding QA context-engineering campaigns, including tool calls.
 
 ### Changed
 
+- Project-reasoning runs now inherit the configured provider, model, timeout, sandbox, and permission policy. Generated Markdown comes from the runtime's terminal response and UltraPlan owns validation and atomic promotion.
 - Smoke subprocesses receive a unique invocation-scoped `TMPDIR`, preventing concurrent TypeScript harness IPC collisions while retaining durable evidence outside temporary workspaces.
 - The external smoke protocol launches its nested TypeScript CLI with Node's tsx import hook instead of a second tsx IPC server.
 - The dogfood fixture generator now emits only currently reproduced fixture defects and remains outside the target identity boundary.
 
 ### Fixed
 
+- Fixed oversized project-reasoning prompts displacing their controlling instructions, stale-stage reruns revalidating the previous artifact instead of the new terminal candidate, fenced Markdown being rejected, and review verdicts disagreeing with their actionable findings.
 - Fixed invalid UTF-8 replacement bytes being accepted by journaled repair application. `TestApplyRepairFilesRejectsInvalidUTF8WithoutMutation` now protects the production path.
 - Fixed authored-test failure classification, immutable-plan stability, resume hydration, evidence-request lifecycle projection, affected-group re-arbitration, semantic reference filtering, investigator draft validation, and recovery from broken optional artifact references.
 - Fixed containing smoke failing under nested or concurrent tsx execution with `EADDRINUSE` or missing run evidence.
@@ -28,6 +32,9 @@ This file records notable changes validated by the UltraPlan QA dogfood campaign
 
 ### Verified
 
+- Dogfooded the complete Aren Phase 1 project-reasoning flow with `openrouter/minimax/minimax-m3:free`. Six areas, final synthesis, and adversarial review completed with `accepted=true`, `fresh=true`, and `verdict=pass`.
+- Recorded all 15 project-reasoning agent runs in `docs/reports/project-reasoning-aren-phase-1-runtime-matrix.md`: 3,171,577 input tokens, 135,852 output tokens, 149,981 cache-read tokens, zero cache-write tokens, and six tool calls. The nine current artifact producers used 1,008,341 input tokens and 119,115 output tokens.
+- Passed project-reasoning status and validation, `go test ./internal/... ./cmd/...`, `go test -race ./internal/... ./cmd/...`, the CLI build, and `git diff --check` after the Aren run.
 - Final repair campaign `repair-campaign-v1-16b39893bef0f9ef6433ea1f` completed with outcome `verified`; all six progressive gates passed, production was applied, and cleanup was complete.
 - Live promotion run `repair-v1-run-d04767998970569ffa6c0af0` carried investigator bundle `qa-v2-test-00c7eecd3eb2cebcdbdcd3b0` and its implementation repair into the canonical target through one apply journal. The fail-before evidence exited 1; provisional checks, all six post-apply gates, containing smoke, and the canonical focused test passed. Production applied and cleanup complete are both true.
 - Proved the promoted test and repair can enter a real Git branch. Source commit `634721bd50dac48193db17b1c533065920021662` merged with `--no-ff` into `dogfood/qa-promotion-integration` as two-parent commit `4dd5f41a39892304beb3612a3c1f32eba983d94e`. The focused regression and full sprint package passed; `main` was not created, checked out, or moved.
