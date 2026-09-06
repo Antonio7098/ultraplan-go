@@ -54,8 +54,15 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Stage), Message: progress.State + ": " + summary, PhaseState: progress.State, SafeSummary: summary})
 			})
 			flow.Review = sprint.ReviewRequest{Restart: req.RestartReview}
-			flow.Smoke = sprint.SmokeRequest{NonInteractive: true, OverrideConfirmed: req.ForceReview, ForceReview: req.ForceReview, OverrideRationale: req.OverrideRationale}
 			flow.Merge = sprint.MergeRequest{Confirm: true, ModelOverride: req.Model}
+			if flow.To == sprint.StageQA || flow.To == sprint.StageMerge {
+				token, fence, ownershipErr := qaOwnershipFromContext(ctx)
+				if ownershipErr != nil {
+					return failedOperation(result, ownershipErr)
+				}
+				flow.QA.WriterToken = token
+				service = service.WithQAWriterFence(fence)
+			}
 			r, e := runSprintFlow(ctx, service, req.Project, req.Sprint, flow)
 			result.Message = r.Message
 			result = operationWithSprintFindings(result, r.Findings)

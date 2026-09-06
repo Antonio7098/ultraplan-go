@@ -39,7 +39,7 @@ port when the configured port is occupied.
 The browser pages and bundled `/api/v1` resources inspect:
 
 - workspace, project, sprint, and study summaries
-- current planning flow, execute, review, smoke, and study run state
+- current planning flow, execute, review, QA, and study run state
 - existing validation findings
 - governed Markdown and JSON artifacts through bounded source previews
 

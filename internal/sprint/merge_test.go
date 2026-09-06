@@ -52,8 +52,21 @@ func TestInspectMergeReportsDeterministicCommitAndVerificationGate(t *testing.T)
 	if len(inspection.ChangedPaths) != 1 || inspection.ChangedPaths[0] != "merged.txt" {
 		t.Fatalf("changed paths = %v", inspection.ChangedPaths)
 	}
-	if inspection.Ready || !strings.Contains(strings.Join(inspection.Diagnostics, " "), "verification") {
+	if inspection.Ready || !strings.Contains(strings.Join(inspection.Diagnostics, " "), "QA") {
 		t.Fatalf("inspection = %+v", inspection)
+	}
+}
+
+func TestMergeGateAcceptsOnlyPassingQA(t *testing.T) {
+	for _, assessment := range []OverallAssessment{AssessmentPass, AssessmentPassWithFindings} {
+		if !qaAssessmentPermitsMerge(assessment) {
+			t.Fatalf("assessment %q should permit merge", assessment)
+		}
+	}
+	for _, assessment := range []OverallAssessment{"", AssessmentIncomplete, AssessmentBlocked, AssessmentFail} {
+		if qaAssessmentPermitsMerge(assessment) {
+			t.Fatalf("assessment %q should block merge", assessment)
+		}
 	}
 }
 

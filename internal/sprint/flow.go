@@ -2,7 +2,9 @@ package sprint
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -65,7 +67,7 @@ type FlowRequest struct {
 	// defaults unchanged.
 	StageOverrides map[PlanningStage]StageRuntime
 	Review         ReviewRequest
-	Smoke          SmokeRequest
+	QA             QARunRequest
 	Merge          MergeRequest
 	Progress       func(FlowProgress)
 }
@@ -96,13 +98,21 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 		return FlowResult{}, err
 	}
 	if req.DryRun {
-		if req.To == StageReview || req.To == StageSmoke {
-			verified, verifyErr := s.Verify(ctx, projectRef, sprintRef, VerifyRequest{To: req.To, DryRun: true, Review: req.Review, Smoke: req.Smoke, Progress: req.Progress})
+		if req.To == StageReview {
+			verified, verifyErr := s.Verify(ctx, projectRef, sprintRef, VerifyRequest{To: req.To, DryRun: true, Review: req.Review, Progress: req.Progress})
 			message := "verification dry run"
 			if verified.ReviewResult != nil {
 				message = firstNonEmptyString(verified.ReviewResult.Prompt, verified.ReviewResult.Message, message)
 			}
 			return FlowResult{Project: verified.Project, Sprint: verified.Sprint, To: req.To, DryRun: true, Message: message}, verifyErr
+		}
+		if req.To == StageQA {
+			mapped, mapErr := s.QAMap(projectRef, sprintRef)
+			message := "QA map dry run"
+			if mapErr == nil {
+				message = fmt.Sprintf("QA map=%s changed_paths=%d shards=%d", mapped.Map.ID, len(mapped.Map.Coverage.ChangedPaths), len(mapped.Map.Shards))
+			}
+			return FlowResult{Project: projectRef, Sprint: sprintRef, To: req.To, DryRun: true, Message: message}, mapErr
 		}
 		if req.To == StageMerge {
 			inspection, inspectErr := s.InspectMerge(projectRef, sprintRef)
@@ -183,18 +193,47 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 		}
 		emitFlow(req.Progress, FlowProgress{Stage: stage, State: "complete", Message: firstNonEmptyString(result.Message, "stage complete")})
 	}
-	if req.To == StageReview || req.To == StageSmoke {
-		verified, verifyErr := s.Verify(ctx, projectRef, sprintRef, VerifyRequest{To: req.To, Review: req.Review, Smoke: req.Smoke, Progress: req.Progress})
+	if req.To == StageReview {
+		verified, verifyErr := s.Verify(ctx, projectRef, sprintRef, VerifyRequest{To: req.To, Review: req.Review, Progress: req.Progress})
 		message := fmt.Sprintf("verification assessment=%s next=%s", verified.Verification.Assessment, verified.Verification.NextAction)
 		return FlowResult{Project: verified.Project, Sprint: verified.Sprint, To: req.To, Message: message}, verifyErr
 	}
-	if req.To == StageMerge {
-		verified, verifyErr := s.Verify(ctx, projectRef, sprintRef, VerifyRequest{To: StageSmoke, Review: req.Review, Smoke: req.Smoke, Progress: req.Progress})
-		if verifyErr != nil || (verified.Verification.Assessment != AssessmentPass && verified.Verification.Assessment != AssessmentPassWithFindings) {
-			if verifyErr == nil {
-				verifyErr = fmt.Errorf("verification assessment %s does not permit merge", verified.Verification.Assessment)
-			}
+	if req.To == StageQA || req.To == StageMerge {
+		verified, verifyErr := s.Verify(ctx, projectRef, sprintRef, VerifyRequest{To: StageReview, Review: req.Review, Progress: req.Progress})
+		if verifyErr != nil {
 			return FlowResult{Project: verified.Project, Sprint: verified.Sprint, To: req.To, Message: verified.Verification.NextAction}, verifyErr
+		}
+		qaState, ready, gateErr := s.currentQAGate(projectRef, sprintRef)
+		if gateErr != nil {
+			ready = false
+		}
+		if !ready {
+			qaReq := req.QA
+			qaReq.Resume = true
+			qaReq.EvidenceProducing = true
+			qaProgress := qaReq.Progress
+			qaReq.Progress = func(progress QAProgress) {
+				if qaProgress != nil {
+					qaProgress(progress)
+				}
+				emitFlow(req.Progress, FlowProgress{Stage: StageQA, State: string(progress.Phase), Message: progress.Message})
+			}
+			qaRun, qaErr := s.RunQA(ctx, projectRef, sprintRef, qaReq)
+			qaState = qaRun.State
+			if qaErr != nil {
+				return FlowResult{Project: projectRef, Sprint: sprintRef, To: req.To, Message: qaState.NextAction}, qaErr
+			}
+			ready = qaAssessmentPermitsMerge(qaState.CanonicalAssessment) && qaState.Phase == QAPhaseCompleted && qaState.Freshness.Current
+		}
+		if !ready {
+			assessment := qaState.CanonicalAssessment
+			if assessment == "" {
+				assessment = AssessmentIncomplete
+			}
+			return FlowResult{Project: projectRef, Sprint: sprintRef, To: req.To, Message: qaState.NextAction}, fmt.Errorf("QA assessment %s does not permit %s", assessment, req.To)
+		}
+		if req.To == StageQA {
+			return FlowResult{Project: projectRef, Sprint: sprintRef, To: req.To, Message: fmt.Sprintf("QA assessment=%s next=%s", qaState.CanonicalAssessment, qaState.NextAction)}, nil
 		}
 		merged, mergeErr := s.RunMerge(ctx, projectRef, sprintRef, s.mergeRequestForFlow(projectRef, sprintRef, req.Merge))
 		return FlowResult{Project: merged.Inspection.Project, Sprint: merged.Inspection.Sprint, To: req.To, Message: "merge " + string(merged.State.Status)}, mergeErr
@@ -317,7 +356,7 @@ func flowStages(target PlanningStage) ([]PlanningStage, error) {
 		end = 6
 	case StagePlan:
 		end = 7
-	case StageExecute, StageReview, StageSmoke, StageMerge:
+	case StageExecute, StageReview, StageQA, StageMerge:
 		end = 8
 	}
 	return append([]PlanningStage(nil), ordered[:end]...), nil
@@ -469,8 +508,32 @@ func safeError(err error) string {
 }
 
 func validateFlowTarget(stage PlanningStage) error {
-	if stage != StageRequirements && stage != StageCodeContext && stage != StageSprintIndex && stage != StageTechnicalHandbook && stage != StageAreaReasoning && stage != StageReasoning && stage != StagePlan && stage != StageExecute && stage != StageReview && stage != StageSmoke && stage != StageMerge {
-		return fmt.Errorf("unsupported sprint flow target %q; supports requirements, code-context, sprint-index, technical-handbook, area-reasoning, reasoning, plan, execute, review, smoke, and merge", stage)
+	if stage != StageRequirements && stage != StageCodeContext && stage != StageSprintIndex && stage != StageTechnicalHandbook && stage != StageAreaReasoning && stage != StageReasoning && stage != StagePlan && stage != StageExecute && stage != StageReview && stage != StageQA && stage != StageMerge {
+		return fmt.Errorf("unsupported sprint flow target %q; supports requirements, code-context, sprint-index, technical-handbook, area-reasoning, reasoning, plan, execute, review, qa, and merge", stage)
 	}
 	return nil
+}
+
+func qaAssessmentPermitsMerge(assessment OverallAssessment) bool {
+	return assessment == AssessmentPass || assessment == AssessmentPassWithFindings
+}
+
+func (s Service) currentQAGate(projectRef, sprintRef string) (QAState, bool, error) {
+	mapped, err := s.QAMap(projectRef, sprintRef)
+	if err != nil {
+		return QAState{}, false, err
+	}
+	sp, err := s.resolveMutationSprint(projectRef, sprintRef)
+	if err != nil {
+		return QAState{}, false, err
+	}
+	state, err := NewQAStore(s.root, sp).LoadState()
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return QAState{}, false, nil
+		}
+		return QAState{}, false, err
+	}
+	ready := state.Freshness.Current && state.Phase == QAPhaseCompleted && state.CurrentAttemptID == mapped.Map.SemanticAttemptID && qaAssessmentPermitsMerge(state.CanonicalAssessment)
+	return state, ready, nil
 }

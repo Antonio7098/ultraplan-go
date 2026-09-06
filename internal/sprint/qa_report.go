@@ -43,10 +43,8 @@ func RenderQAReport(project, sprintSlug, inputFingerprint string, evidence []QAE
 			fmt.Fprintf(&b, "- `%s` [%s] %s at `%s`, evidence `%s`, regression candidate `%t`\n", issue.ID, issue.Severity, safeReportText(issue.Title), safeReportText(issue.Location), strings.Join(issue.EvidenceIDs, "`, `"), issue.RegressionCandidate)
 		}
 	}
-	fmt.Fprintln(&b, "\n## Smoke evidence")
-	if assessment.SmokeRunID == "" {
-		fmt.Fprintln(&b, "\nNo containing smoke evidence is attached to this assessment.")
-	} else {
+	if assessment.SmokeRunID != "" {
+		fmt.Fprintln(&b, "\n## Legacy smoke evidence")
 		fmt.Fprintf(&b, "\nVerdict: `%s`\nRun: `%s`\n", assessment.SmokeVerdict, safeReportText(assessment.SmokeRunID))
 	}
 	if len(assessment.Blockers) > 0 {

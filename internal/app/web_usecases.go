@@ -308,7 +308,7 @@ type WebSprintResult struct {
 	ExecutionPercent  int
 	ExecuteHealth     string
 	ReviewHealth      string
-	SmokeHealth       string
+	QAHealth          string
 }
 
 type WebSprintMission struct {
@@ -935,6 +935,10 @@ func (u *webUseCases) PromptBundle(ctx context.Context, project, slug, stageName
 	case sprint.StageReview:
 		result.Scope = "Conformance Review manifest preview; worker suffixes vary"
 		preview, err = service.PromptReview(project, slug, sprint.ReviewRequest{})
+	case sprint.StageQA:
+		result.Scope = "Deterministic QA map preview"
+		result.UnavailableReason = "QA builds its runtime work from the current deterministic map after Conformance Review."
+		return result, nil
 	case sprint.StageSmoke:
 		result.Scope = "Prepared after smoke harness discovery"
 		result.UnavailableReason = "The smoke prompt is assembled only after the governed harness and acceptance coverage are discovered."
@@ -1299,14 +1303,22 @@ func sprintRunStages(item SprintSummary) []StageSummary {
 		}
 	}
 	stages = append(stages, StageSummary{Name: "review", Status: reviewStatus, Error: item.Review.Error})
-	smokeStatus := "waiting"
-	if item.Smoke.Available {
-		smokeStatus = item.Smoke.Status
-		if smokeStatus == "" {
-			smokeStatus = "ready"
-		}
+	qaStatus := "waiting"
+	switch item.QA.Phase {
+	case string(sprint.QAPhaseCompleted):
+		qaStatus = "complete"
+	case string(sprint.QAPhaseQueued), string(sprint.QAPhaseRunning), string(sprint.QAPhaseSynthesizing):
+		qaStatus = "running"
+	case string(sprint.QAPhaseBlocked), string(sprint.QAPhaseInvalid), string(sprint.QAPhaseInterrupted), string(sprint.QAPhaseCancelled):
+		qaStatus = "failed"
+	case string(sprint.QAPhaseMapped):
+		qaStatus = "ready"
 	}
-	stages = append(stages, StageSummary{Name: "smoke", Status: smokeStatus, Error: item.Smoke.Error})
+	qaPath := ""
+	if item.QA.CanonicalReport != nil {
+		qaPath = item.QA.CanonicalReport.Path
+	}
+	stages = append(stages, StageSummary{Name: "qa", Status: qaStatus, Error: item.QA.NextAction, Path: qaPath})
 	mergeStatus := "waiting"
 	if item.Merge.Available {
 		mergeStatus = item.Merge.Status
@@ -1527,16 +1539,16 @@ func (u *webUseCases) webSprint(item SprintSummary) WebSprintResult {
 	case item.Review.Running > 0:
 		result.ReviewHealth = "running"
 	}
-	result.SmokeHealth = "waiting"
+	result.QAHealth = "waiting"
 	switch {
-	case item.Smoke.Stale:
-		result.SmokeHealth = "stale"
-	case item.Smoke.Status == "failed" || item.Smoke.Verdict == "fail":
-		result.SmokeHealth = "failed"
-	case item.Smoke.Status == "complete" || item.Smoke.Status == "completed":
-		result.SmokeHealth = "complete"
-	case item.Smoke.Status == "running":
-		result.SmokeHealth = "running"
+	case item.QA.Phase == string(sprint.QAPhaseStale) || item.QA.Phase == string(sprint.QAPhaseCompleted) && !item.QA.Fresh:
+		result.QAHealth = "stale"
+	case item.QA.Phase == string(sprint.QAPhaseBlocked) || item.QA.Phase == string(sprint.QAPhaseInvalid) || item.QA.Assessment == string(sprint.AssessmentFail) || item.QA.Assessment == string(sprint.AssessmentBlocked):
+		result.QAHealth = "failed"
+	case item.QA.Phase == string(sprint.QAPhaseCompleted) && item.QA.Fresh:
+		result.QAHealth = "complete"
+	case item.QA.Phase == string(sprint.QAPhaseQueued) || item.QA.Phase == string(sprint.QAPhaseRunning) || item.QA.Phase == string(sprint.QAPhaseSynthesizing):
+		result.QAHealth = "running"
 	}
 	return result
 }

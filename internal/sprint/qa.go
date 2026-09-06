@@ -733,7 +733,6 @@ func (s Service) validateQAEvidenceAdmission(sp Sprint, qaMap QAMap, target stri
 	capabilities := pprocess.IsolationCapabilityFacts()
 	admission := QAAdmission{
 		ReviewCurrent: status.Review.Fresh, ReviewVerdict: status.Review.Verdict,
-		SmokeCurrent: status.Smoke.Fresh, SmokeVerdict: status.Smoke.Verdict, ContainingSmoke: status.Smoke.Fresh,
 		ReadOnlyProofs: []string{"deterministic_map", "bounded_investigation", "synthesis"}, MapComplete: len(qaMap.Coverage.BlockedPaths) == 0 && len(qaMap.Coverage.PrimaryOwners) == len(qaMap.Coverage.ChangedPaths),
 		IsolationProven:     capabilities.NativeProtectedRootDeny && capabilities.DescendantCleanup && capabilities.WorkspaceRemoval,
 		WritableConcurrency: 1,
@@ -970,7 +969,7 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 		}
 		evidenceRequestBlockers = append(evidenceRequestBlockers, QABlocker{Category: QAErrorMalformedEvidence, Scope: request.ID, Summary: "arbiter evidence request is unresolved", NextAction: next})
 	}
-	assessmentValue, nextAction := DeriveQAAssessment(status.Review, records, adjudication, &status.Smoke, evidenceRequestBlockers)
+	assessmentValue, nextAction := DeriveQAAssessment(status.Review, records, adjudication, nil, evidenceRequestBlockers)
 	assessmentID, err := NewQAV2ID("assessment", sp.Project, sp.Slug, qaMap.SemanticAttemptID, struct {
 		Assessment OverallAssessment
 		Evidence   []string
@@ -979,7 +978,7 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, err
 	}
-	assessment := QAAssessmentRecord{SchemaVersion: QAEvidenceSchemaVersion, ID: assessmentID, AttemptID: qaMap.SemanticAttemptID, ReviewVerdict: ReviewVerdict(status.Review.Verdict), ReviewFingerprint: status.Review.InputFingerprint, SmokeVerdict: SmokeVerdict(status.Smoke.Verdict), SmokeRunID: status.Smoke.RunID, Assessment: assessmentValue, EvidenceTotal: len(records), RejectedTotal: len(adjudication.Rejected), IssueTotal: len(adjudication.Issues), NextAction: nextAction, CompletedAt: s.now().UTC()}
+	assessment := QAAssessmentRecord{SchemaVersion: QAEvidenceSchemaVersion, ID: assessmentID, AttemptID: qaMap.SemanticAttemptID, ReviewVerdict: ReviewVerdict(status.Review.Verdict), ReviewFingerprint: status.Review.InputFingerprint, Assessment: assessmentValue, EvidenceTotal: len(records), RejectedTotal: len(adjudication.Rejected), IssueTotal: len(adjudication.Issues), NextAction: nextAction, CompletedAt: s.now().UTC()}
 	report, err := RenderQAReport(sp.Project, sp.Slug, qaMap.GovernedInputFingerprint, records, adjudication, assessment)
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, err

@@ -222,7 +222,7 @@ func TestPrimaryNavigationUsesTopBarDestinations(t *testing.T) {
 
 func TestSprintRunExposesStageControls(t *testing.T) {
 	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
-	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `class="stage-details"`, `href="#stage-requirements" data-stage-select="stage-requirements" data-stage-has-artifact="true"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, `data-stage-operation-status role="status" aria-live="polite"`, "Start run to smoke", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript", `class="prompt-observability" data-prompt-observability`, `Stage input contract`, `Injected in this order`, `input contract + bundle summary`, `/api/v1/projects/alpha/sprints/30-web/prompts/requirements`, `<code>project-index</code>`, `<code>project-docs</code>`, `Open JSON summary`} {
+	for _, want := range []string{`class="stage-timeline"`, `data-stage-workspace`, `class="stage-details"`, `href="#stage-requirements" data-stage-select="stage-requirements" data-stage-has-artifact="true"`, `id="stage-requirements"`, `data-operation-kind="sprint-flow"`, `data-stage-operation-status role="status" aria-live="polite"`, "Start run to QA", "Open result summary", `id="operation-timeline"`, "Stage links and run forms work without JavaScript", `class="prompt-observability" data-prompt-observability`, `Stage input contract`, `Injected in this order`, `input contract + bundle summary`, `/api/v1/projects/alpha/sprints/30-web/prompts/requirements`, `<code>project-index</code>`, `<code>project-docs</code>`, `Open JSON summary`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("stage controls missing %q in %s", want, body)
 		}
@@ -254,21 +254,32 @@ func TestPromptBundleSummaryAPIIncludesRenderedBlockContent(t *testing.T) {
 	}
 }
 
-func TestSmokeCoverageMappingAppearsInRunAndSmokeResultOnly(t *testing.T) {
+func TestSmokeCoverageMappingAppearsOnlyOnSmokeResult(t *testing.T) {
 	queries := sampleQueries()
 	overview := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints/30-web", nil).Body.String()
 	if strings.Contains(overview, `id="smoke-coverage-heading"`) {
 		t.Fatal("smoke coverage mapping should not appear on the sprint overview")
 	}
 	run := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints/30-web/run", nil).Body.String()
+	if strings.Contains(run, `id="smoke-coverage-heading"`) {
+		t.Fatal("smoke coverage mapping should not appear in the QA-backed sprint flow")
+	}
 	queries.artifact.DisplayPath = "projects/alpha/sprints/30-web/smoke.md"
 	smokeResult := request(testHandler(t, queries, nil), http.MethodGet, "/projects/alpha/sprints/30-web/artifacts/artifact_ref", nil).Body.String()
-	for name, body := range map[string]string{"run": run, "smoke result": smokeResult} {
-		for _, want := range []string{`id="smoke-coverage-heading"`, `class="coverage-matrix"`, `class="coverage-requirement-trigger status-ok"`, `data-coverage-id="AC-01"`, `data-coverage-description="The browser boundary is exercised."`, `data-coverage-status="mapped"`, `data-coverage-id="AC-02"`, `data-coverage-status="unmapped"`, `class="coverage-requirement-popover"`, `data-coverage-requirement-dialog role="dialog"`, "provider probe missing", "browser-boundary", "sprint-30", "✓", "incomplete"} {
-			if !strings.Contains(body, want) {
-				t.Errorf("%s smoke coverage mapping missing %q", name, want)
-			}
+	for _, want := range []string{`id="smoke-coverage-heading"`, `class="coverage-matrix"`, `class="coverage-requirement-trigger status-ok"`, `data-coverage-id="AC-01"`, `data-coverage-description="The browser boundary is exercised."`, `data-coverage-status="mapped"`, `data-coverage-id="AC-02"`, `data-coverage-status="unmapped"`, `class="coverage-requirement-popover"`, `data-coverage-requirement-dialog role="dialog"`, "provider probe missing", "browser-boundary", "sprint-30", "✓", "incomplete"} {
+		if !strings.Contains(smokeResult, want) {
+			t.Errorf("smoke result coverage mapping missing %q", want)
 		}
+	}
+}
+
+func TestProjectDeliveryHealthUsesQANotSmoke(t *testing.T) {
+	body := request(testHandler(t, sampleQueries(), nil), http.MethodGet, "/projects/alpha", nil).Body.String()
+	if !strings.Contains(body, `title="QA"`) {
+		t.Fatal("project delivery health omitted the QA gate")
+	}
+	if strings.Contains(body, `title="Smoke"`) {
+		t.Fatal("project delivery health still presents smoke as a flow gate")
 	}
 }
 

@@ -133,7 +133,7 @@ does not depend on the bounded retained-event tail.
 
 ## QA verification phase
 
-`VerificationPhase` is independent from `PlanningStage`. It names `conformance-review`, `qa`, and `repair` without inserting verification work into planning order or changing `StageReview`, `StageSmoke`, `review.md`, or `smoke.md`. Human interfaces say Conformance Review; the `review` machine identity remains authoritative.
+`VerificationPhase` is independent from the planning artifact stages. It names `conformance-review`, `qa`, and `repair`. Sprint flow schedules QA after review without adding QA to `PlanningStages`; standalone smoke remains outside flow. Human interfaces say Conformance Review, while the `review` machine identity remains authoritative.
 
 Four authorities remain separate:
 

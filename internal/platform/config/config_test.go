@@ -36,6 +36,8 @@ planning:
   code_context_variant: high
   sprint_index_model: openai/gpt-5.5
   sprint_index_variant: high
+  project_reasoning_model: openrouter/openai/gpt-6-astra
+  project_reasoning_variant: high
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +72,9 @@ planning:
 	}
 	if effective.Config.Planning.SprintIndexModel != "openai/gpt-5.5" || effective.Config.Planning.SprintIndexVariant != "high" {
 		t.Fatalf("planning config not loaded: %+v", effective.Config.Planning)
+	}
+	if effective.Config.Planning.ProjectReasoningModel != "openrouter/openai/gpt-6-astra" || effective.Config.Planning.ProjectReasoningVariant != "high" {
+		t.Fatalf("project reasoning config not loaded: %+v", effective.Config.Planning)
 	}
 	if effective.Config.Planning.CodeContextModel != "env/context" || effective.Config.Planning.CodeContextVariant != "high" || effective.Sources["planning.code_context_model"] != "env" || effective.Sources["planning.code_context_variant"] != "workspace" {
 		t.Fatalf("code-context planning config/source not resolved: config=%+v sources=%+v", effective.Config.Planning, effective.Sources)

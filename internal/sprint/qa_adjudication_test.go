@@ -124,7 +124,7 @@ func TestPlanRepairAssignmentsPreservesIssueScopedRuns(t *testing.T) {
 }
 
 func TestQAAdmissionFailsClosed(t *testing.T) {
-	valid := QAAdmission{ReviewCurrent: true, ReviewVerdict: string(ReviewPassWithFindings), SmokeCurrent: true, SmokeVerdict: string(SmokePass), ContainingSmoke: true, ReadOnlyProofs: []string{"map", "cancellation", "resume"}, MapComplete: true, IsolationProven: true, WritableConcurrency: 1}
+	valid := QAAdmission{ReviewCurrent: true, ReviewVerdict: string(ReviewPassWithFindings), ReadOnlyProofs: []string{"map", "cancellation", "resume"}, MapComplete: true, IsolationProven: true, WritableConcurrency: 1}
 	if err := ValidateQAAdmission(valid); err != nil {
 		t.Fatal(err)
 	}

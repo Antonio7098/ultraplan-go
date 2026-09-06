@@ -265,9 +265,6 @@ type QAAssessmentRecord struct {
 type QAAdmission struct {
 	ReviewCurrent       bool     `json:"review_current"`
 	ReviewVerdict       string   `json:"review_verdict"`
-	SmokeCurrent        bool     `json:"smoke_current"`
-	SmokeVerdict        string   `json:"smoke_verdict"`
-	ContainingSmoke     bool     `json:"containing_smoke"`
 	ReadOnlyProofs      []string `json:"read_only_proofs"`
 	MapComplete         bool     `json:"map_complete"`
 	IsolationProven     bool     `json:"isolation_proven"`
@@ -278,9 +275,6 @@ type QAAdmission struct {
 func ValidateQAAdmission(admission QAAdmission) error {
 	if !admission.ReviewCurrent || admission.ReviewVerdict != string(ReviewPass) && admission.ReviewVerdict != string(ReviewPassWithFindings) {
 		return NewQAError(QAErrorAdmissionBlocked, "admission", "a current acceptable Conformance Review is required", nil)
-	}
-	if !admission.SmokeCurrent || !admission.ContainingSmoke || admission.SmokeVerdict != string(SmokePass) && admission.SmokeVerdict != string(SmokePassWithOpenIssues) {
-		return NewQAError(QAErrorAdmissionBlocked, "admission", "current containing smoke evidence is required", nil)
 	}
 	if !admission.MapComplete || len(admission.ReadOnlyProofs) == 0 {
 		return NewQAError(QAErrorAdmissionBlocked, "admission", "deterministic mapping and read-only QA proof are required", nil)

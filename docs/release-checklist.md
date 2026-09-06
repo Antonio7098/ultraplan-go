@@ -4,7 +4,7 @@ This checklist gates the local Phase 3 CLI and TUI release. It does not publish,
 
 ## Scope
 
-- Study workflows and governed sprint delivery through `execute -> review -> smoke -> merge`.
+- Study workflows and governed sprint delivery through `execute -> review -> qa -> merge`.
 - CLI and TUI support integrated `verify`, resumable/focused review, review-gated smoke, status, validation, cancellation, and recovery.
 - Local numeric-loopback browser UI with guarded operations and bounded SSE.
 - No issue management, hosted SaaS, remote/multi-user collaboration, or Git automation beyond configured stage publication, sprint worktree creation, and governed sprint merge.
@@ -196,7 +196,7 @@ Sprint 35 local release evidence (2026-08-21):
   state for one bounded fixture, including hostile display text.
 - Run `go test ./...`, `go test -race ./...`, `go vet ./...`,
   `go build ./cmd/ultraplan`, and `git diff --check`.
-- Gate real dogfood on a current acceptable review, containing smoke evidence,
+- Gate real dogfood on a current acceptable review, a complete QA map,
   runtime availability, and native isolation. Missing capability or cleanup
   certainty is `blocked`, never a waived pass.
 

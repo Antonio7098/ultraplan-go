@@ -252,7 +252,7 @@ Regenerates deterministic `studies/<study>/summary.csv` from existing reports wi
 ultraplan sprint <project> <sprint> status [--json]
 ```
 
-Inspects planning, execute, review, and smoke state and refreshes `projects/<project>/sprints/<sprint>/flow-state.json`. Static smoke readiness validates the catalog, manifest, review gate, artifact, fingerprint, and evidence paths without launching discovery or a run.
+Inspects planning, execute, review, and QA state and refreshes `projects/<project>/sprints/<sprint>/flow-state.json`. Standalone smoke evidence remains visible when present, but it does not determine flow status or merge readiness.
 
 ### `ultraplan sprint <project> <sprint> validate`
 
@@ -300,11 +300,11 @@ ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
 ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
 ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
 ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
-ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run] [--yes]
+ultraplan sprint <project> <sprint> flow --to qa [--restart-review] [--dry-run]
 ultraplan sprint <project> <sprint> flow --to merge --yes [--cleanup-worktree]
 ```
 
-Runs or previews the governed stage flow through merge. Cumulative planning order is `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan`; `flow --to plan` dispatches code-context exactly once when it is not already complete and valid. A code-context rerun reads the configured implementation target with restricted permissions and atomically replaces only `code-context.md`. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. Review and smoke use the same sprint-owned transition as `verify`. Compatible interrupted reviews resume by default; `--restart-review` discards retained review progress. Smoke and merge mutations require `--yes`. `flow --to merge --yes` completes verification before it starts integration. Add `--cleanup-worktree` to remove the clean recorded sprint worktree after the merge succeeds.
+Runs or previews the governed stage flow through merge. Cumulative planning order is `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan`; `flow --to plan` dispatches code-context exactly once when it is not already complete and valid. A code-context rerun reads the configured implementation target with restricted permissions and atomically replaces only `code-context.md`. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. After execute, flow obtains or reuses a current Conformance Review and runs or resumes evidence-producing QA. `flow --to merge --yes` requires a current passing QA assessment before integration. Smoke remains available through the standalone `smoke` and `verify` commands. Add `--cleanup-worktree` to remove the clean recorded sprint worktree after the merge succeeds.
 
 ### `ultraplan sprint <project> <sprint> execute`
 
@@ -361,7 +361,7 @@ ultraplan sprint <project> <sprint> qa recover [--json]
 
 Text says `QA completed` when bounded work ends. This is not a pass verdict. Theory outcomes are `confirmed`, `refuted`, `invalid`, `inconclusive`, `blocked`, `cross_shard`, and `not_applicable`; none is automatically an issue. Product adjudication separately accepts or rejects v2 evidence and is the only component that promotes bounded issue summaries. QA cannot change the separate Conformance Review verdict.
 
-With `--json`, success or failure is one object with `schema_version: 1`, `operation: "sprint.qa"`, `status`, `result`, and an optional stable `error`. The result carries phase and freshness separately from run lifecycle, cancellation, terminal result, Conformance Review status/verdict/freshness, fingerprints, coverage, effective limits, bounded shards, outcome totals, blocker, and next action. Evidence-producing starts validate review, smoke, map, target, and isolation admission before starting investigators, then recheck before publication. When a preflight failure is accompanied by older status data, `result_context: "retained_previous_attempt"` makes that provenance explicit. Usage errors use exit 2, configuration errors 3, validation/stale/policy errors 5, runtime or persistence failures 6, and cancellation or deadline partial results 8.
+With `--json`, success or failure is one object with `schema_version: 1`, `operation: "sprint.qa"`, `status`, `result`, and an optional stable `error`. The result carries phase and freshness separately from run lifecycle, cancellation, terminal result, Conformance Review status/verdict/freshness, fingerprints, coverage, effective limits, bounded shards, outcome totals, blocker, and next action. Evidence-producing starts validate review, map, target, and isolation admission before starting investigators, then recheck before publication. When a preflight failure is accompanied by older status data, `result_context: "retained_previous_attempt"` makes that provenance explicit. Usage errors use exit 2, configuration errors 3, validation/stale/policy errors 5, runtime or persistence failures 6, and cancellation or deadline partial results 8.
 
 QA configuration uses normal precedence: product default, `ultraplan.yml`, then environment. Invalid workspace or environment values stop configuration loading. Integer limits and durations must be positive and cannot exceed the listed hard maximum. A default equal to its maximum can still be lowered.
 
@@ -493,7 +493,7 @@ ultraplan sprint <project> <sprint> merge continue --yes [--model <provider/mode
 ultraplan sprint <project> <sprint> merge abort --yes [--json]
 ```
 
-Merges the recorded sprint branch into the integration branch captured in `.workspace.json`. The sprint worktree may contain tracked, staged, or untracked implementation changes. UltraPlan fingerprints all of them, asks an agent for a structured description, rechecks the fingerprint, and creates the sprint snapshot commit itself. Admission still requires a clean integration worktree and current acceptable review and smoke evidence. UltraPlan then freezes both commit IDs, takes a repository merge lock, and runs `git merge --no-ff --no-commit`. UltraPlan alone stages and commits. If Git reports conflicts, a restricted agent may edit only the conflicted paths before deterministic validation and staging. `.merge-state.json` makes conflicts resumable, and `merge.md` records the completed commit and reconciliation evidence. `--cleanup-worktree` runs only after a successful merge. It refuses dirty, stale, or mismatched worktrees, removes the recorded worktree with Git, and keeps the sprint branch and workspace artifacts.
+Merges the recorded sprint branch into the integration branch captured in `.workspace.json`. The sprint worktree may contain tracked, staged, or untracked implementation changes. UltraPlan fingerprints all of them, asks an agent for a structured description, rechecks the fingerprint, and creates the sprint snapshot commit itself. Admission requires a clean integration worktree and a current passing QA assessment. UltraPlan then freezes both commit IDs, takes a repository merge lock, and runs `git merge --no-ff --no-commit`. UltraPlan alone stages and commits. If Git reports conflicts, a restricted agent may edit only the conflicted paths before deterministic validation and staging. `.merge-state.json` makes conflicts resumable, and `merge.md` records the completed commit and reconciliation evidence. `--cleanup-worktree` runs only after a successful merge. It refuses dirty, stale, or mismatched worktrees, removes the recorded worktree with Git, and keeps the sprint branch and workspace artifacts.
 
 ### `ultraplan code`
 
@@ -600,7 +600,7 @@ ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
 Normal QA first runs the bounded read-only map and investigator pass, then runs
 approved checks sequentially in fresh disposable writable copies. The original
 target and workspace are mounted read-only by the native isolation layer. An
-unsupported isolation primitive, stale review or smoke evidence, target drift,
+unsupported isolation primitive, stale review evidence, target drift,
 unapproved path change, incomplete cleanup, or malformed evidence blocks the
 run. `qa resume --suite smoke` is invalid; start a new smoke-suite operation.
 

@@ -157,6 +157,7 @@ func forbiddenPlanStageContent(content string) []string {
 	patterns := []string{
 		"flow --to implementation",
 		"flow --to execute",
+		"flow --to qa",
 		"flow --to smoke",
 		"flow --to review",
 		"flow --to issues",

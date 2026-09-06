@@ -9,24 +9,24 @@ import (
 )
 
 type fakeQueries struct {
-	dashboard    app.WebDashboardResult
-	projects     app.WebProjectsResult
-	project      app.WebProjectResult
-	sprint       app.WebSprintResult
-	studies      app.WebStudiesResult
-	study        app.WebStudyResult
-	validation   app.WebValidationResult
-	artifact     app.WebArtifactPreview
-	dimensions   app.WebDimensionsResult
-	reports      app.WebStudyReportsResult
-	repoScores   app.WebStudyReposResult
-	health       app.WebHealthResult
-	prompt       app.WebPromptBundleResult
-	models       app.WebModelsResult
-	modelsErr    error
-	err          error
-	createErr    error
-	sprintUsage  app.SprintMetricsSummary
+	dashboard   app.WebDashboardResult
+	projects    app.WebProjectsResult
+	project     app.WebProjectResult
+	sprint      app.WebSprintResult
+	studies     app.WebStudiesResult
+	study       app.WebStudyResult
+	validation  app.WebValidationResult
+	artifact    app.WebArtifactPreview
+	dimensions  app.WebDimensionsResult
+	reports     app.WebStudyReportsResult
+	repoScores  app.WebStudyReposResult
+	health      app.WebHealthResult
+	prompt      app.WebPromptBundleResult
+	models      app.WebModelsResult
+	modelsErr   error
+	err         error
+	createErr   error
+	sprintUsage app.SprintMetricsSummary
 
 	healthCalls    int
 	promptCalls    int
@@ -44,7 +44,7 @@ func sampleQueries() *fakeQueries {
 		Ref: "sprint_ref", Project: "alpha", Slug: "30-web", Status: "available",
 		Overview: "Make sprint delivery easier to understand.", Assessment: "pass", NextAction: "Continue to review.",
 		Stages:          []app.StageSummary{{Name: "plan", Status: "complete"}},
-		RunStages:       []app.StageSummary{{Name: "requirements", Status: "complete", Path: "projects/alpha/sprints/30-web/requirements.md"}, {Name: "code-context", Status: "failed", Error: "provider failed", Path: "projects/alpha/sprints/30-web/code-context.md", ArtifactAvailable: true, ArtifactValid: true, LatestOutcome: "failed", NextAction: "A prior valid artifact is preserved; inspect the failure and explicitly rerun code-context."}, {Name: "sprint-index", Status: "waiting"}, {Name: "plan", Status: "complete"}, {Name: "execute", Status: "complete"}, {Name: "review", Status: "running"}, {Name: "smoke", Status: "waiting"}},
+		RunStages:       []app.StageSummary{{Name: "requirements", Status: "complete", Path: "projects/alpha/sprints/30-web/requirements.md"}, {Name: "code-context", Status: "failed", Error: "provider failed", Path: "projects/alpha/sprints/30-web/code-context.md", ArtifactAvailable: true, ArtifactValid: true, LatestOutcome: "failed", NextAction: "A prior valid artifact is preserved; inspect the failure and explicitly rerun code-context."}, {Name: "sprint-index", Status: "waiting"}, {Name: "plan", Status: "complete"}, {Name: "execute", Status: "complete"}, {Name: "review", Status: "running"}, {Name: "qa", Status: "waiting"}},
 		CompletedStages: 3, TotalStages: 5, CurrentStage: "review",
 		Execute: app.ExecuteSummary{Available: true, Total: 1, Complete: 1},
 		Review: app.ReviewSummary{Available: true, Status: "running", Verdict: "", Completed: 1, Total: 3, Pending: 1, Running: 1, Reviewers: []app.ReviewItemSummary{

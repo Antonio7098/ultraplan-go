@@ -20,7 +20,7 @@ func TestSprintVerificationActionsAndNarrowSummary(t *testing.T) {
 	for _, item := range items {
 		labels += item.Label + "\n"
 	}
-	for _, want := range []string{"Verify to Conformance Review", "Verify to Smoke", "Flow to smoke", "Diagnostic Override"} {
+	for _, want := range []string{"Verify to Conformance Review", "Verify to Smoke", "Flow to QA", "Diagnostic Override"} {
 		if !strings.Contains(labels, want) {
 			t.Fatalf("actions missing %q: %s", want, labels)
 		}

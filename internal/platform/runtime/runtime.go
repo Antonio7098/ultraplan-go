@@ -555,11 +555,17 @@ func (a Adapter) Capabilities(ctx context.Context) (Capabilities, error) {
 }
 
 func RequestFromConfig(c config.Config, workDir string) (Request, error) {
+	return RequestFromConfigForModel(c, workDir, c.Models.Primary, c.Execution.DefaultVariant)
+}
+
+// RequestFromConfigForModel builds a runtime request for a named model and
+// reasoning variant while retaining the shared workspace policy.
+func RequestFromConfigForModel(c config.Config, workDir, configuredModel, variant string) (Request, error) {
 	timeout, err := time.ParseDuration(c.Execution.DefaultTimeout)
 	if err != nil {
 		return Request{}, err
 	}
-	provider, model := splitModel(c.Models.Primary)
+	provider, model := splitModel(configuredModel)
 	if provider == "" && model == "" {
 		provider, model = splitModel(c.Models.Default)
 	}
@@ -576,6 +582,7 @@ func RequestFromConfig(c config.Config, workDir string) (Request, error) {
 			Default:             c.Agentwrap.PermissionDefault,
 			UnsupportedBehavior: c.Agentwrap.PermissionUnsupportedBehavior,
 		},
+		Metadata: map[string]string{"variant": strings.TrimSpace(variant)},
 	}, nil
 }
 

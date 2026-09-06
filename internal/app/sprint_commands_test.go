@@ -742,7 +742,7 @@ func TestSprintValidateFailuresAndUnsupportedStages(t *testing.T) {
 	if status != ExitUsage || stdout != "" {
 		t.Fatalf("unsupported status=%d stdout=%q stderr=%q", status, stdout, stderr)
 	}
-	assertContains(t, stderr, "--yes is required for smoke execution")
+	assertContains(t, stderr, "unsupported flow target")
 }
 
 func TestParseSprintReviewArgs(t *testing.T) {

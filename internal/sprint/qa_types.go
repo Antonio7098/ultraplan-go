@@ -14,13 +14,14 @@ import (
 )
 
 const (
-	QASchemaVersion         = 1
-	QAStateSchemaVersion    = 2
-	QAEvidenceSchemaVersion = 2
-	QAIDScope               = "qa-v1"
-	QAEvidenceIDScope       = "qa-v2"
-	QARepairSchemaVersion   = 1
-	QARepairIDScope         = "repair-v1"
+	StageQA                 PlanningStage = "qa"
+	QASchemaVersion                       = 1
+	QAStateSchemaVersion                  = 2
+	QAEvidenceSchemaVersion               = 2
+	QAIDScope                             = "qa-v1"
+	QAEvidenceIDScope                     = "qa-v2"
+	QARepairSchemaVersion                 = 1
+	QARepairIDScope                       = "repair-v1"
 )
 
 type QAPhaseStatus string

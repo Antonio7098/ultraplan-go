@@ -11,7 +11,7 @@ import (
 )
 
 // The mutation lease is product-owned and shared by flow, execute, review,
-// smoke, and verify. A context marker permits composite workflows to invoke
+// QA, smoke, and verify. A context marker permits composite workflows to invoke
 // child stages without reacquiring the same cross-process file lock.
 type mutationLeaseContextKey struct{}
 

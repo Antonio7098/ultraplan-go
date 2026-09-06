@@ -48,6 +48,25 @@ func TestSprintSummaryReportsUnreadableQAStateAsInvalid(t *testing.T) {
 	}
 }
 
+func TestFlowQAAssessmentRequiresCurrentEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		qa   QAResult
+		want string
+	}{
+		{name: "missing", qa: QAResult{}, want: string(sprint.AssessmentIncomplete)},
+		{name: "stale pass", qa: QAResult{Assessment: string(sprint.AssessmentPass)}, want: string(sprint.AssessmentIncomplete)},
+		{name: "current pass", qa: QAResult{Assessment: string(sprint.AssessmentPass), Fresh: true}, want: string(sprint.AssessmentPass)},
+		{name: "current failure", qa: QAResult{Assessment: string(sprint.AssessmentFail), Fresh: true}, want: string(sprint.AssessmentFail)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := flowQAAssessment(test.qa); got != test.want {
+				t.Fatalf("flowQAAssessment() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestExecuteTerminalComplete(t *testing.T) {
 	tests := []struct {
 		name    string

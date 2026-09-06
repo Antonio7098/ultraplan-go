@@ -61,6 +61,8 @@ func runConfig(deps dependencies, args []string) error {
 	fmt.Fprintf(deps.stdout, "planning.technical_handbook_model: %s\n", redacted.Planning.TechnicalHandbookModel)
 	fmt.Fprintf(deps.stdout, "planning.technical_handbook_variant: %s\n", redacted.Planning.TechnicalHandbookVariant)
 	fmt.Fprintf(deps.stdout, "planning.area_reasoning_model: %s\n", redacted.Planning.AreaReasoningModel)
+	fmt.Fprintf(deps.stdout, "planning.project_reasoning_model: %s\n", redacted.Planning.ProjectReasoningModel)
+	fmt.Fprintf(deps.stdout, "planning.project_reasoning_variant: %s\n", redacted.Planning.ProjectReasoningVariant)
 	fmt.Fprintf(deps.stdout, "planning.area_reasoning_variant: %s\n", redacted.Planning.AreaReasoningVariant)
 	fmt.Fprintf(deps.stdout, "planning.reasoning_model: %s\n", redacted.Planning.ReasoningModel)
 	fmt.Fprintf(deps.stdout, "planning.reasoning_variant: %s\n", redacted.Planning.ReasoningVariant)

@@ -65,6 +65,7 @@ func redactPlanning(p Planning) Planning {
 	p.SprintIndexModel = RedactValue("planning.sprint_index_model", p.SprintIndexModel)
 	p.TechnicalHandbookModel = RedactValue("planning.technical_handbook_model", p.TechnicalHandbookModel)
 	p.AreaReasoningModel = RedactValue("planning.area_reasoning_model", p.AreaReasoningModel)
+	p.ProjectReasoningModel = RedactValue("planning.project_reasoning_model", p.ProjectReasoningModel)
 	p.ReasoningModel = RedactValue("planning.reasoning_model", p.ReasoningModel)
 	p.PlanModel = RedactValue("planning.plan_model", p.PlanModel)
 	p.ExecuteModel = RedactValue("planning.execute_model", p.ExecuteModel)

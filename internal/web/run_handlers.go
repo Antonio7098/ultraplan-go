@@ -637,7 +637,7 @@ type sprintStageUsageView struct {
 func sprintStageOrder() []string {
 	return []string{
 		"requirements", "code-context", "sprint-index", "technical-handbook",
-		"area-reasoning", "reasoning", "plan", "execute", "review", "smoke", "merge",
+		"area-reasoning", "reasoning", "plan", "execute", "review", "qa", "merge", "smoke",
 	}
 }
 

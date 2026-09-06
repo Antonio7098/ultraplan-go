@@ -458,6 +458,7 @@ func (m Model) navItems() []navItem {
 				{Label: "Plan", Path: artifactByLabel(s.Artifacts, "plan")},
 				{Label: "Execute", Path: artifactByLabel(s.Artifacts, "execute")},
 				{Label: "Conformance Review", Path: artifactByLabel(s.Artifacts, "review")},
+				{Label: "QA report", Path: artifactByLabel(s.Artifacts, "qa")},
 				{Label: "Smoke", Path: artifactByLabel(s.Artifacts, "smoke")},
 				{Label: "Merge", Path: artifactByLabel(s.Artifacts, "merge")},
 				{Label: "Flow State", Path: artifactByLabel(s.Artifacts, "flow-state")},
@@ -472,8 +473,8 @@ func (m Model) navItems() []navItem {
 				items = append(items, navItem{Label: "Preview " + stageLabel(stage) + " Prompt", Operation: &app.OperationRequest{Kind: app.OperationPrompt, Project: route.Project, Sprint: route.Sprint, Stage: stage}})
 			}
 			items = append(items,
-				navItem{Label: "Dry Run Flow to smoke", Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
-				navItem{Label: "Run Flow to smoke [RUNTIME + EXTERNAL]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: "smoke"}},
+				navItem{Label: "Dry Run Flow to QA", Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "qa"}},
+				navItem{Label: "Run Flow to QA [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: "qa"}},
 				navItem{Label: "Inspect Flow to merge", Operation: &app.OperationRequest{Kind: app.OperationFlowDryRun, Project: route.Project, Sprint: route.Sprint, Stage: "merge"}},
 				navItem{Label: "Run Flow to merge [RUNTIME + GIT]", Operation: &app.OperationRequest{Kind: app.OperationFlow, Project: route.Project, Sprint: route.Sprint, Stage: "merge"}},
 				navItem{Label: "Validate merge", Validation: &app.ValidationRequest{Subject: app.ValidationSprint, Project: route.Project, Sprint: route.Sprint, Stage: "merge"}})

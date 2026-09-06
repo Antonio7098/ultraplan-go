@@ -8,14 +8,17 @@ import (
 	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 )
 
-func TestParseSprintVerifyAndFlowSmokeParity(t *testing.T) {
+func TestParseSprintVerifySmokeAndFlowQA(t *testing.T) {
 	req, jsonOut, err := parseSprintVerifyArgs([]string{"--to", "smoke", "--focus-review", "contract-errors", "--suite", "sprint-28", "--timeout", "2m", "--force-review", "--override-reason", "diagnostic evidence", "--yes", "--json"})
 	if err != nil || !jsonOut || req.To != sprint.StageSmoke || len(req.Review.Focus) != 1 || req.Smoke.Suite != "sprint-28" || req.Smoke.Timeout != 2*time.Minute || !req.Smoke.OverrideConfirmed || req.Smoke.OverrideRationale == "" {
 		t.Fatalf("request=%+v json=%t err=%v", req, jsonOut, err)
 	}
-	flow, err := parseSprintFlowArgs([]string{"--to", "smoke", "--force-review", "--override-reason", "diagnostic evidence", "--yes"})
-	if err != nil || flow.To != sprint.StageSmoke || !flow.Smoke.NonInteractive || !flow.Smoke.OverrideConfirmed || flow.Smoke.OverrideRationale != req.Smoke.OverrideRationale {
+	flow, err := parseSprintFlowArgs([]string{"--to", "qa"})
+	if err != nil || flow.To != sprint.StageQA {
 		t.Fatalf("flow=%+v err=%v", flow, err)
+	}
+	if _, err := parseSprintFlowArgs([]string{"--to", "smoke"}); err == nil {
+		t.Fatal("expected smoke to be unavailable as a flow target")
 	}
 	if _, _, err := parseSprintVerifyArgs([]string{"--to", "plan"}); err == nil {
 		t.Fatal("expected verify target validation")

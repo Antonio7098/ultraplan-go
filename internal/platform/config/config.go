@@ -49,6 +49,8 @@ type Planning struct {
 	TechnicalHandbookVariant string `json:"technical_handbook_variant"`
 	AreaReasoningModel       string `json:"area_reasoning_model"`
 	AreaReasoningVariant     string `json:"area_reasoning_variant"`
+	ProjectReasoningModel    string `json:"project_reasoning_model"`
+	ProjectReasoningVariant  string `json:"project_reasoning_variant"`
 	ReasoningModel           string `json:"reasoning_model"`
 	ReasoningVariant         string `json:"reasoning_variant"`
 	PlanModel                string `json:"plan_model"`
@@ -129,6 +131,8 @@ func EnvOverrides() []EnvOverride {
 		{Key: "ULTRAPLAN_DEFAULT_RETRIES", Field: "execution.default_retries"},
 		{Key: "ULTRAPLAN_CODE_CONTEXT_MODEL", Field: "planning.code_context_model"},
 		{Key: "ULTRAPLAN_CODE_CONTEXT_VARIANT", Field: "planning.code_context_variant"},
+		{Key: "ULTRAPLAN_PROJECT_REASONING_MODEL", Field: "planning.project_reasoning_model"},
+		{Key: "ULTRAPLAN_PROJECT_REASONING_VARIANT", Field: "planning.project_reasoning_variant"},
 		{Key: "ULTRAPLAN_SMOKE_DISCOVERY_TIMEOUT", Field: "smoke.discovery_timeout"},
 		{Key: "ULTRAPLAN_SMOKE_RUN_TIMEOUT", Field: "smoke.run_timeout"},
 		{Key: "ULTRAPLAN_SMOKE_STDOUT_LIMIT", Field: "smoke.stdout_limit"},
@@ -152,7 +156,7 @@ func EnvOverrides() []EnvOverride {
 
 func Load(opts LoadOptions) (Effective, error) {
 	e := Effective{Config: Defaults(), Sources: map[string]string{}}
-	fields := []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.code_context_model", "planning.code_context_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "planning.execute_model", "planning.execute_variant", "planning.review_model", "planning.review_variant", "planning.smoke_model", "planning.smoke_variant", "smoke.discovery_timeout", "smoke.run_timeout", "smoke.stdout_limit", "smoke.stderr_limit", "smoke.cleanup_grace", "smoke.environment", "git.stage_completion", "git.remote", "git.push_timeout", "run_control.full_history", "run_control.tombstone_history", "run_control.workspace_quota_bytes", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"}
+	fields := []string{"version", "runtime.default", "models.default", "models.primary", "models.backup", "execution.default_variant", "execution.default_parallel", "execution.default_timeout", "execution.default_retries", "planning.requirements_model", "planning.requirements_variant", "planning.code_context_model", "planning.code_context_variant", "planning.sprint_index_model", "planning.sprint_index_variant", "planning.technical_handbook_model", "planning.technical_handbook_variant", "planning.area_reasoning_model", "planning.area_reasoning_variant", "planning.project_reasoning_model", "planning.project_reasoning_variant", "planning.reasoning_model", "planning.reasoning_variant", "planning.plan_model", "planning.plan_variant", "planning.execute_model", "planning.execute_variant", "planning.review_model", "planning.review_variant", "planning.smoke_model", "planning.smoke_variant", "smoke.discovery_timeout", "smoke.run_timeout", "smoke.stdout_limit", "smoke.stderr_limit", "smoke.cleanup_grace", "smoke.environment", "git.stage_completion", "git.remote", "git.push_timeout", "run_control.full_history", "run_control.tombstone_history", "run_control.workspace_quota_bytes", "logging.format", "logging.level", "agentwrap.executable", "agentwrap.extra_args", "agentwrap.env", "agentwrap.stderr_limit", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.sandbox", "agentwrap.permission_mode", "agentwrap.permission_default", "agentwrap.permission_unsupported_behavior"}
 	for _, field := range append(fields, qaConfigFields()...) {
 		e.Sources[field] = "default"
 	}
@@ -345,6 +349,10 @@ func setField(c *Config, field, value string) error {
 		c.Planning.AreaReasoningModel = value
 	case "planning.area_reasoning_variant":
 		c.Planning.AreaReasoningVariant = value
+	case "planning.project_reasoning_model":
+		c.Planning.ProjectReasoningModel = value
+	case "planning.project_reasoning_variant":
+		c.Planning.ProjectReasoningVariant = value
 	case "planning.reasoning_model":
 		c.Planning.ReasoningModel = value
 	case "planning.reasoning_variant":

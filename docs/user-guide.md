@@ -287,7 +287,7 @@ Project validation checks that the project catalog resolves selected contracts, 
 
 ## 17. Work Through Sprint Planning
 
-Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `requirements`, `code-context`, `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, `plan`, controlled `execute`, automated `review`, and review-gated `smoke`.
+Planning sprints live under `projects/<project>/sprints/<sprint>/`. The supported chain is `requirements`, `code-context`, `sprint-index`, `technical-handbook`, optional `area-reasoning`, `reasoning`, `plan`, controlled `execute`, automated `review`, evidence-producing `qa`, and `merge`.
 
 ```bash
 ultraplan sprint <project> <sprint> status
@@ -317,22 +317,22 @@ With `commit-and-push`, UltraPlan pushes the current upstream branch. If the bra
 
 The planning flow continues through controlled execute from validated `plan.md` tasks. One reusable agent session owns the ordered pending-task queue: its first turn receives shared sprint context and the queue, later tasks use compact continuation turns, and UltraPlan checkpoints task status and evidence between turns. Execute writes `.run-state.json` and `execute.md`; automated review then writes the current `review.md`.
 
-Use the integrated transition after execute:
+Use the integrated flow after execute:
 
 ```bash
-ultraplan sprint <project> <sprint> verify --to review --dry-run
-ultraplan sprint <project> <sprint> verify --to smoke --dry-run
-ultraplan sprint <project> <sprint> verify --to smoke --yes
-ultraplan sprint <project> <sprint> validate smoke
+ultraplan sprint <project> <sprint> flow --to review --dry-run
+ultraplan sprint <project> <sprint> flow --to qa --dry-run
+ultraplan sprint <project> <sprint> flow --to qa
+ultraplan sprint <project> <sprint> flow --to merge --yes
 ```
 
-`verify` requires complete execute evidence, obtains or reuses a current review, then applies the smoke gate. Interrupted reviews resume validated coverage and retained OpenCode sessions by default. Use `review --restart` or `verify --restart-review` when you intentionally want fresh sessions; a restart cannot be combined with focused review.
+Flow requires complete execute evidence, obtains or reuses a current review, then runs or resumes bounded QA. Interrupted reviews resume validated coverage and retained OpenCode sessions by default. Use `review --restart` or `flow --to qa --restart-review` when you intentionally want fresh review sessions.
 
-The smoke preview shows the review gate, sufficient scope, prerequisites, duration/cost class where supplied, safe argv, and external evidence roots. `--force-review` additionally requires `--override-reason` and is diagnostic-only after a current failed/blocked review; it cannot override stale or malformed review evidence or improve the overall assessment. Raw harness evidence stays in its `runs/` and `issues/` directories, while the sprint stores only `smoke.md` and flow state.
+Standalone `smoke` and `verify --to smoke` remain available for explicit external-harness verification. They do not advance sprint flow or satisfy merge admission.
 
 ### Run evidence-producing QA
 
-Conformance Review is the existing analytical review capability. Its compatible command remains `review`; `conformance-review` invokes the same handler. QA is a later, separate evidence phase and never replaces that verdict.
+Conformance Review remains an independent analytical verdict. Its compatible command remains `review`; `conformance-review` invokes the same handler. QA follows it in sprint flow and cannot upgrade a failed or blocked review.
 
 Preview the deterministic map before spending runtime work:
 

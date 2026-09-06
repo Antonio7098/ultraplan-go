@@ -103,28 +103,15 @@ func runSprint(deps dependencies, args []string) error {
 		if err != nil {
 			return mapSprintError("sprint.status", err)
 		}
-		statusLabel := "ok"
-		smokeReadiness, smokeErr := service.SmokeStatus(args[0], args[1])
-		if smokeErr != nil {
-			smokeReadiness.Ready = false
-			if smokeFailure, ok := sprint.AsSmokeError(smokeErr); ok && (smokeFailure.Category == "catalog" || smokeFailure.Category == "review_gate") {
-				statusLabel = "partial"
-			} else {
-				mapped := mapSmokeError(smokeErr)
-				if jsonOut {
-					_ = json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.status", "status": "failed", "result": status, "smoke_readiness": smokeReadiness, "error": stableCommandError(mapped)})
-				}
-				return mapped
-			}
+		qaSnapshot, qaErr := service.QAStatus(args[0], args[1])
+		if qaErr != nil {
+			return mapQACommandError(qaErr)
 		}
+		qaResult := qaSnapshotProjection(qaSnapshot)
 		if jsonOut {
-			return json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.status", "status": statusLabel, "result": status, "smoke_readiness": smokeReadiness})
+			return json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.status", "status": "ok", "result": status, "qa": qaResult})
 		}
-		renderSprintStatus(deps, status)
-		fmt.Fprintf(deps.stdout, "  readiness: %t\n", smokeReadiness.Ready)
-		for _, diagnostic := range smokeReadiness.Diagnostics {
-			fmt.Fprintf(deps.stdout, "  diagnostic: %s\n", diagnostic)
-		}
+		renderSprintStatus(deps, status, qaResult)
 		return nil
 	case "metrics":
 		jsonOut := len(args) == 4 && args[3] == "--json"
@@ -236,12 +223,16 @@ func runSprint(deps dependencies, args []string) error {
 			return classified(ExitUsage, "sprint.flow: %w", err)
 		}
 		flowService := service
+		if req.To == sprint.StageQA || req.To == sprint.StageMerge {
+			qa, settingsErr := qaSettings(effective)
+			if settingsErr != nil {
+				return classified(ExitConfig, "qa.config: %w", settingsErr)
+			}
+			flowService = flowService.WithQASettings(qa)
+		}
 		runCtx := deps.ctx
 		var durable *durableCLICommand
 		if !req.DryRun {
-			if req.To == sprint.StageSmoke && !req.Smoke.NonInteractive {
-				return classified(ExitUsage, "sprint.flow: --yes is required for smoke execution")
-			}
 			if req.To == sprint.StageMerge && !req.Merge.Confirm {
 				return classified(ExitUsage, "sprint.flow: --yes is required for merge execution")
 			}
@@ -254,6 +245,14 @@ func runSprint(deps dependencies, args []string) error {
 			flowService, err = sprintRuntimeService(deps, root)
 			if err != nil {
 				return finishDurableCLICommand(durable, err)
+			}
+			if req.To == sprint.StageQA || req.To == sprint.StageMerge {
+				token, fence, ownershipErr := durable.QAWriterToken()
+				if ownershipErr != nil {
+					return finishDurableCLICommand(durable, ownershipErr)
+				}
+				req.QA.WriterToken = token
+				flowService = flowService.WithQAWriterFence(fence)
 			}
 		}
 		var result sprint.FlowResult
@@ -272,6 +271,9 @@ func runSprint(deps dependencies, args []string) error {
 				if len(result.Findings) > 0 {
 					return classified(ExitValidation, "sprint.flow: %w", err)
 				}
+				if _, ok := sprint.AsQAError(err); ok {
+					return mapQACommandError(err)
+				}
 				return mapSprintError("sprint.flow", err)
 			}
 			if len(result.Findings) > 0 {
@@ -281,11 +283,21 @@ func runSprint(deps dependencies, args []string) error {
 			if strings.Contains(err.Error(), "runtime") {
 				return classified(ExitRuntime, "sprint.flow: %w", err)
 			}
+			if _, ok := sprint.AsQAError(err); ok {
+				return mapQACommandError(err)
+			}
 			return mapSprintError("sprint.flow", err)
 		}
 		if jsonOut {
-			verification, _ := flowService.VerificationStatus(args[0], args[1])
-			return json.NewEncoder(deps.stdout).Encode(map[string]any{"schema_version": 1, "operation": "sprint.flow", "status": "complete", "result": result, "verification": verification})
+			payload := map[string]any{"schema_version": 1, "operation": "sprint.flow", "status": "complete", "result": result}
+			if req.To == sprint.StageQA || req.To == sprint.StageMerge {
+				qaSnapshot, _ := flowService.QAStatus(args[0], args[1])
+				payload["qa"] = qaSnapshotProjection(qaSnapshot)
+			} else if req.To == sprint.StageReview {
+				verification, _ := flowService.VerificationStatus(args[0], args[1])
+				payload["verification"] = verification
+			}
+			return json.NewEncoder(deps.stdout).Encode(payload)
 		}
 		renderSprintFlow(deps, result)
 		return nil
@@ -339,6 +351,11 @@ func runSprint(deps dependencies, args []string) error {
 		}
 		return nil
 	case "merge":
+		qa, settingsErr := qaSettings(effective)
+		if settingsErr != nil {
+			return classified(ExitConfig, "qa.config: %w", settingsErr)
+		}
+		service = service.WithQASettings(qa)
 		mergeCommand, parseErr := parseSprintMergeArgs(args[3:])
 		if parseErr != nil {
 			return classified(ExitUsage, "sprint.merge: %w", parseErr)
@@ -1783,28 +1800,16 @@ func parseSprintFlowArgs(args []string) (sprint.FlowRequest, error) {
 		case "--cleanup-worktree":
 			req.Merge.CleanupWorktree = true
 		case "--yes", "--non-interactive":
-			req.Smoke.NonInteractive, req.Smoke.OverrideConfirmed = true, true
 			req.Merge.Confirm = true
-		case "--force-review":
-			req.Smoke.ForceReview = true
-		case "--override-reason":
-			if i+1 >= len(args) {
-				return req, fmt.Errorf("--override-reason requires a value")
-			}
-			i++
-			req.Smoke.OverrideRationale = args[i]
 		default:
 			return req, fmt.Errorf("unsupported argument %q", args[i])
 		}
 	}
 	if req.To == "" {
-		return req, fmt.Errorf("--to requirements, --to code-context, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, --to plan, --to execute, --to review, --to smoke, or --to merge is required")
+		return req, fmt.Errorf("--to requirements, --to code-context, --to sprint-index, --to technical-handbook, --to area-reasoning, --to reasoning, --to plan, --to execute, --to review, --to qa, or --to merge is required")
 	}
-	if req.To != sprint.StageRequirements && req.To != sprint.StageCodeContext && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan && req.To != sprint.StageExecute && req.To != sprint.StageReview && req.To != sprint.StageSmoke && req.To != sprint.StageMerge {
+	if req.To != sprint.StageRequirements && req.To != sprint.StageCodeContext && req.To != sprint.StageSprintIndex && req.To != sprint.StageTechnicalHandbook && req.To != sprint.StageAreaReasoning && req.To != sprint.StageReasoning && req.To != sprint.StagePlan && req.To != sprint.StageExecute && req.To != sprint.StageReview && req.To != sprint.StageQA && req.To != sprint.StageMerge {
 		return req, fmt.Errorf("unsupported flow target %q", req.To)
-	}
-	if req.Smoke.ForceReview && strings.TrimSpace(req.Smoke.OverrideRationale) == "" {
-		return req, fmt.Errorf("--force-review requires --override-reason")
 	}
 	if req.Merge.CleanupWorktree && (req.To != sprint.StageMerge || req.DryRun) {
 		return req, fmt.Errorf("--cleanup-worktree requires a non-dry merge flow")
@@ -2022,7 +2027,7 @@ func parseSprintExecuteArgs(args []string) (sprint.ExecuteRequest, error) {
 	return req, nil
 }
 
-func renderSprintStatus(deps dependencies, status sprint.StatusSummary) {
+func renderSprintStatus(deps dependencies, status sprint.StatusSummary, qa QAResult) {
 	fmt.Fprintf(deps.stdout, "Project: %s\n", status.Project)
 	fmt.Fprintf(deps.stdout, "Sprint: %s\n", status.Sprint)
 	fmt.Fprintf(deps.stdout, "Sprint root: %s\n", status.SprintRoot)
@@ -2066,14 +2071,19 @@ func renderSprintStatus(deps dependencies, status sprint.StatusSummary) {
 	} else {
 		fmt.Fprintf(deps.stdout, "  status: %s\n  verdict: %s\n  stale: %t\n  progress: %d/%d\n", status.Review.Status, status.Review.Verdict, status.Review.Stale, status.Review.Completed, status.Review.Total)
 	}
-	fmt.Fprintln(deps.stdout, "Smoke:")
+	fmt.Fprintln(deps.stdout, "QA:")
+	assessment := qa.Assessment
+	if assessment == "" {
+		assessment = string(sprint.AssessmentIncomplete)
+	}
+	fmt.Fprintf(deps.stdout, "  phase: %s\n  assessment: %s\n  fresh: %t\n  progress: %d/%d\n  next action: %s\n", qa.Phase, assessment, qa.Fresh, qa.CompletedShards, qa.TotalShards, qa.NextAction)
+	fmt.Fprintln(deps.stdout, "Standalone Smoke:")
 	fmt.Fprintf(deps.stdout, "  artifact: %s\n", status.SmokePath)
 	if status.Smoke == nil {
 		fmt.Fprintln(deps.stdout, "  status: not started")
 	} else {
 		fmt.Fprintf(deps.stdout, "  status: %s\n  verdict: %s\n  stale: %t\n  run: %s\n  reconciliation required: %t\n", status.Smoke.Status, status.Smoke.Verdict, status.Smoke.Stale, status.Smoke.RunID, status.Smoke.Reconciliation)
 	}
-	renderSprintVerification(deps, status.Verification)
 }
 
 func renderSprintVerification(deps dependencies, status sprint.VerificationStatus) {
@@ -2370,7 +2380,7 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
   ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
   ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
-  ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to qa [--restart-review] [--dry-run]
   ultraplan sprint <project> <sprint> flow --to merge --yes [--cleanup-worktree]
   ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
   ultraplan sprint <project> <sprint> execute --task <id> --defer --reason <text>
@@ -2624,9 +2634,9 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
   ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
   ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
-  ultraplan sprint <project> <sprint> flow --to smoke [--restart-review] [--dry-run] [--yes]
+  ultraplan sprint <project> <sprint> flow --to qa [--restart-review] [--dry-run]
   ultraplan sprint <project> <sprint> flow --to merge --yes [--cleanup-worktree]
 
-Dry-run prints planned inputs without mutation. Non-dry-run validates prerequisites and uses the same sprint-owned review-to-smoke transition as verify. Smoke and merge require --yes; a diagnostic review override additionally requires --force-review and --override-reason. Merge accepts --cleanup-worktree to remove the clean recorded sprint worktree after success.
+Dry-run prints planned inputs without mutation. Non-dry-run validates prerequisites, obtains or reuses a current Conformance Review, and runs or resumes evidence-producing QA. Merge requires a current passing QA assessment and --yes. It accepts --cleanup-worktree to remove the clean recorded sprint worktree after success. Smoke remains available through the standalone smoke and verify commands, but is not a flow stage or merge gate.
 `
 }

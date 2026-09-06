@@ -223,14 +223,14 @@ If publication is blocked because inputs changed, report the exact changed logic
 Verify the implemented sprint against the current review gate and the project's smoke requirements. Keep the work bounded to the declared target and harness mutation roots, capture reproducible evidence, and report failures or blockers honestly.`,
 			StageWorkflow: `Use CLI status, validation, or a dry-run preview when useful to discover the review gate, bounded smoke scope, harness, and safety constraints.
 
-Perform the smoke verification yourself: inspect the declared harness, run the selected checks directly with your tools, capture the required evidence, and create or update the governed smoke artifact according to the resolved contract. Do not call ` + "`sprint smoke`" + `, ` + "`verify --to smoke`" + `, or ` + "`flow --to smoke`" + ` to execute or complete the stage. Then use validation and status commands to verify and reconcile the result. A failed or blocked result is not a pass. Do not bypass a stale or missing review gate unless the user explicitly requests a supported diagnostic override.`,
+Perform the smoke verification yourself: inspect the declared harness, run the selected checks directly with your tools, capture the required evidence, and create or update the governed smoke artifact according to the resolved contract. Do not call ` + "`sprint smoke`" + ` or ` + "`verify --to smoke`" + ` to execute or complete the stage. Then use validation and status commands to verify and reconcile the result. A failed or blocked result is not a pass. Do not bypass a stale or missing review gate unless the user explicitly requests a supported diagnostic override.`,
 		},
 		{
 			Stage:            "merge",
 			Name:             "ultraplan-merge",
 			DisplayName:      "UltraPlan Merge",
 			ShortDescription: "Merge a verified sprint worktree into its recorded integration branch",
-			Prerequisites:    []string{"completed execute stage", "fresh acceptable review and smoke evidence", "recorded sprint worktree and clean integration worktree"},
+			Prerequisites:    []string{"completed execute stage", "fresh passing QA evidence", "recorded sprint worktree and clean integration worktree"},
 			Prompt: `# Sprint Merge
 
 Use UltraPlan's governed merge command. UltraPlan resolves both worktrees, freezes commit identities, generates the description, owns every Git mutation, and invokes restricted conflict reconciliation only when Git reports conflicts.`,

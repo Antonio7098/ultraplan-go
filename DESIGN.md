@@ -253,7 +253,7 @@ Borders stay one pixel wide. Inset fact groups and document stacks use one-pixel
 ### Evidence previews
 
 - **Roadmap pulse:** A short previous-to-next timeline with delivered and current or planned nodes.
-- **Delivery health:** Compact rows with one labeled sprint and separate execute, review, and smoke state dots.
+- **Delivery health:** Compact rows with one labeled sprint and separate execute, review, and QA state dots.
 - **Project knowledge:** Three content-width dossier previews with kind, name, summary, and file metadata.
 - **Decision record:** A numbered list with monospace ordinal markers and one explicit open-risk line.
 - **Research matrix:** Source labels paired with compact state cells for dimension groups.

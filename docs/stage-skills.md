@@ -127,7 +127,7 @@ requires those artifacts; `review.md` remains owned by the governed review CLI.
 - Smoke is performed directly by the invoking agent within the review gate and
   declared harness/mutation boundaries. CLI dry runs and validation may inform
   and verify that work, but the agent must not delegate it to `sprint smoke`,
-  `verify --to smoke`, or a flow command.
+  or `verify --to smoke`.
 
 Running `sprint status` persists the newly derived planning-stage state while
 preserving review and smoke evidence. Existing malformed or unsupported flow

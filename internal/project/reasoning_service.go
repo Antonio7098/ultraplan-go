@@ -333,7 +333,14 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		req := s.runtimeConfig
 		req.Prompt = prompt
 		req.WorkDir = s.root
-		req.Metadata = map[string]string{"project": p.Name, "stage": string(stage), "output_path": workspace.Rel(s.root, output)}
+		metadata := map[string]string{}
+		for key, value := range s.runtimeConfig.Metadata {
+			metadata[key] = value
+		}
+		metadata["project"] = p.Name
+		metadata["stage"] = string(stage)
+		metadata["output_path"] = workspace.Rel(s.root, output)
+		req.Metadata = metadata
 		req.Sandbox = "read_only"
 		req.Permissions = "restricted"
 		req.Policy = pruntime.PermissionPolicy{Default: "deny"}

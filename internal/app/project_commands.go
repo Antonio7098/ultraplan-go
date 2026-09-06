@@ -203,7 +203,15 @@ func runProjectReasoning(deps dependencies, root string, service project.Service
 		if err != nil {
 			return classified(ExitRuntime, "project.reasoning.flow: %v", err)
 		}
-		runtimeRequest, err := runtimepkg.RequestFromConfig(effective.Config, root)
+		projectModel := effective.Config.Planning.ProjectReasoningModel
+		if strings.TrimSpace(projectModel) == "" {
+			projectModel = effective.Config.Models.Primary
+		}
+		projectVariant := effective.Config.Planning.ProjectReasoningVariant
+		if strings.TrimSpace(projectVariant) == "" {
+			projectVariant = effective.Config.Execution.DefaultVariant
+		}
+		runtimeRequest, err := runtimepkg.RequestFromConfigForModel(effective.Config, root, projectModel, projectVariant)
 		if err != nil {
 			return classified(ExitConfig, "project.reasoning.flow: %v", err)
 		}

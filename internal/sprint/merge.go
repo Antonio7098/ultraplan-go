@@ -242,11 +242,11 @@ func (s Service) InspectMerge(projectRef, sprintRef string) (MergeInspection, er
 	if len(out.SourceDirtyPaths) == 0 {
 		out.LikelyConflicts = likelyMergeConflicts(record.SourceRoot, out.TargetCommit, out.SourceCommit)
 	}
-	verification, verificationErr := s.VerificationStatus(projectRef, sprintRef)
-	if verificationErr != nil {
-		out.Diagnostics = append(out.Diagnostics, "verification status is unavailable: "+safeError(verificationErr))
-	} else if verification.Assessment != AssessmentPass && verification.Assessment != AssessmentPassWithFindings {
-		out.Diagnostics = append(out.Diagnostics, "current review and smoke evidence must pass before merge")
+	_, qaReady, qaErr := s.currentQAGate(projectRef, sprintRef)
+	if qaErr != nil {
+		out.Diagnostics = append(out.Diagnostics, "QA status is unavailable: "+safeError(qaErr))
+	} else if !qaReady {
+		out.Diagnostics = append(out.Diagnostics, "current QA evidence must pass before merge")
 	}
 	out.Diagnostics = uniqueSorted(out.Diagnostics)
 	out.Ready = len(out.Diagnostics) == 0

@@ -195,6 +195,22 @@ func TestFlowToPlanSchedulesCodeContextExactlyOnceInCanonicalOrder(t *testing.T)
 	}
 }
 
+func TestFlowTargetsQAInsteadOfSmoke(t *testing.T) {
+	stages, err := flowStages(StageQA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stages) != len(PlanningStages())+1 || stages[len(stages)-1] != StageExecute {
+		t.Fatalf("QA flow prerequisites = %v", stages)
+	}
+	if err := validateFlowTarget(StageQA); err != nil {
+		t.Fatalf("QA flow target rejected: %v", err)
+	}
+	if err := validateFlowTarget(StageSmoke); err == nil {
+		t.Fatal("smoke remains accepted as a flow target")
+	}
+}
+
 type fakeRuntime struct{}
 
 func (fakeRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {

@@ -719,6 +719,12 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 					review.Failed++
 				}
 			}
+			assessment := flowQAAssessment(qaSummary)
+			nextAction := qaSummary.NextAction
+			reviewVerdict := sprint.ReviewVerdict(status.Verification.Review.Verdict)
+			if !status.Verification.Review.Fresh || reviewVerdict != sprint.ReviewPass && reviewVerdict != sprint.ReviewPassWithFindings {
+				nextAction = status.Verification.Review.NextAction
+			}
 			summary := SprintSummary{
 				Project:           p.Name,
 				Slug:              sp.Slug,
@@ -736,8 +742,8 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				Merge:             summarizeMerge(status.Merge),
 				QA:                qaSummary,
 				Repair:            repairSummary,
-				Assessment:        string(status.Verification.Assessment),
-				NextAction:        status.Verification.NextAction,
+				Assessment:        assessment,
+				NextAction:        nextAction,
 			}
 			if status.HistoricalExecutionStatus != "" {
 				summary.Status = status.HistoricalExecutionStatus
@@ -772,12 +778,13 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 				DisplayArtifact{Label: "plan", Path: sprint.ArtifactRelPath(sp, sprint.StagePlan), Kind: "markdown"},
 				DisplayArtifact{Label: "execute", Path: sprint.ArtifactRelPath(sp, sprint.StageExecute), Kind: "markdown"},
 				DisplayArtifact{Label: "review", Path: sprint.ArtifactRelPath(sp, sprint.StageReview), Kind: "markdown"},
+				DisplayArtifact{Label: "qa", Path: sprint.QAReportRelPath(sp), Kind: "markdown"},
 				DisplayArtifact{Label: "smoke", Path: sprint.ArtifactRelPath(sp, sprint.StageSmoke), Kind: "markdown"},
 				DisplayArtifact{Label: "merge", Path: sprint.ArtifactRelPath(sp, sprint.StageMerge), Kind: "markdown"},
 				DisplayArtifact{Label: "flow-state", Path: sprint.FlowStateRelPath(sp), Kind: "json"},
 				DisplayArtifact{Label: "run-state", Path: sprint.ExecuteRunStateRelPath(sp), Kind: "json"},
 			)
-			for _, stage := range []sprint.PlanningStage{sprint.StageRequirements, sprint.StageCodeContext, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview, sprint.StageSmoke, sprint.StageMerge} {
+			for _, stage := range []sprint.PlanningStage{sprint.StageRequirements, sprint.StageCodeContext, sprint.StageSprintIndex, sprint.StageTechnicalHandbook, sprint.StageReasoning, sprint.StagePlan, sprint.StageExecute, sprint.StageReview, sprint.StageMerge} {
 				result, err := validateSprintStage(service, p.Name, sp.Slug, stage)
 				if err != nil {
 					continue
@@ -811,7 +818,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 }
 
 func sortSprintArtifacts(items []DisplayArtifact) {
-	order := map[string]int{"requirements": 0, "code-context": 1, "sprint-index": 2, "technical-handbook": 3, "reasoning": 4, "plan": 5, "execute": 6, "review": 7, "smoke": 8, "merge": 9, "flow-state": 10, "run-state": 11}
+	order := map[string]int{"requirements": 0, "code-context": 1, "sprint-index": 2, "technical-handbook": 3, "reasoning": 4, "plan": 5, "execute": 6, "review": 7, "qa": 8, "merge": 9, "smoke": 10, "flow-state": 11, "run-state": 12}
 	sort.SliceStable(items, func(i, j int) bool {
 		left, leftOK := order[items[i].Label]
 		right, rightOK := order[items[j].Label]
@@ -823,6 +830,13 @@ func sortSprintArtifacts(items []DisplayArtifact) {
 		}
 		return items[i].Path < items[j].Path
 	})
+}
+
+func flowQAAssessment(qa QAResult) string {
+	if qa.Assessment == "" || !qa.Fresh && (qa.Assessment == string(sprint.AssessmentPass) || qa.Assessment == string(sprint.AssessmentPassWithFindings)) {
+		return string(sprint.AssessmentIncomplete)
+	}
+	return qa.Assessment
 }
 
 func validateSprintStage(service sprint.Service, projectRef, sprintRef string, stage sprint.PlanningStage) (sprint.ValidationResult, error) {

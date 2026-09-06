@@ -359,8 +359,11 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Runtime = true
 		c.Mutates = true
 		if req.Stage == string(sprint.StageMerge) {
-			c.Scope = []string{"verified sprint branch", "recorded integration branch", "agent merge description", "conflicted paths only when required"}
+			c.Scope = []string{"QA-approved sprint branch", "recorded integration branch", "agent merge description", "conflicted paths only when required"}
 			c.Warning = "RUNTIME + SPRINT SNAPSHOT COMMIT + GIT MERGE COMMIT; REQUIRES CLEAN INTEGRATION WORKTREE"
+		} else if req.Stage == string(sprint.StageQA) {
+			c.Scope = []string{"planning and execution through current Conformance Review", "bounded QA evidence in disposable copies"}
+			c.Warning = "RUNTIME + PRIVATE QA STATE WRITE; IMPLEMENTATION TARGET READ-ONLY"
 		} else {
 			c.Scope = []string{"planning stages through " + req.Stage}
 			c.Warning = "RUNTIME + WORKSPACE MUTATION"
@@ -593,7 +596,11 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 		if err != nil {
 			return failedOperation(result, err)
 		}
-		result.Message = summarizeSprintStatus(r)
+		qaSnapshot, err := ss.QAStatus(req.Project, req.Sprint)
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Message = summarizeSprintStatus(r, qaSnapshotProjection(qaSnapshot))
 	case OperationPrompt:
 		p, err := promptSprintStage(ss, req.Project, req.Sprint, stage)
 		if err != nil {
@@ -788,7 +795,10 @@ func operationPrerequisites(req OperationRequest) []string {
 		prerequisites = append(prerequisites, "complete execute evidence", "current Conformance Review", "approved read-only target")
 	}
 	if (req.Kind == OperationFlow || req.Kind == OperationFlowDryRun) && req.Stage == string(sprint.StageMerge) {
-		prerequisites = append(prerequisites, "fresh acceptable review and smoke", "recorded sprint worktree", "clean integration worktree")
+		prerequisites = append(prerequisites, "fresh acceptable QA", "recorded sprint worktree", "clean integration worktree")
+	}
+	if (req.Kind == OperationFlow || req.Kind == OperationFlowDryRun) && req.Stage == string(sprint.StageQA) {
+		prerequisites = append(prerequisites, "complete execute evidence", "current Conformance Review", "approved read-only target")
 	}
 	if req.Kind == OperationRepairPrepare || req.Kind == OperationRepairStart || req.Kind == OperationRepairResume || req.Kind == OperationRepairRecover || req.Kind == OperationRepairCampaignStart {
 		prerequisites = append(prerequisites, "current evidence-producing QA", "current adjudicated repair-eligible issue", "current containing smoke", "approved isolated repair host")
@@ -813,6 +823,10 @@ func operationRuntimeIdentity(req OperationRequest, stages map[sprint.PlanningSt
 			return "configured smoke author and harness"
 		}
 		return "configured QA runtime"
+	case OperationFlow:
+		if stage == sprint.StageQA || stage == sprint.StageMerge {
+			return "configured QA runtime"
+		}
 	case OperationRepairStart, OperationRepairResume, OperationRepairCampaignStart:
 		return "configured isolated repair runtime"
 	}
@@ -927,7 +941,7 @@ func hashOperationFile(hash interface{ Write([]byte) (int, error) }, path, rel s
 	return nil
 }
 
-func summarizeSprintStatus(status sprint.StatusSummary) string {
+func summarizeSprintStatus(status sprint.StatusSummary, qa QAResult) string {
 	parts := make([]string, 0, len(status.Stages)+2)
 	for _, stage := range status.Stages {
 		parts = append(parts, fmt.Sprintf("%s=%s", stage.Stage, stage.Status))
@@ -944,11 +958,12 @@ func summarizeSprintStatus(status sprint.StatusSummary) string {
 		parts = append(parts, fmt.Sprintf("review=%s verdict=%s stale=%t", status.Review.Status, status.Review.Verdict, status.Review.Stale))
 	}
 	if status.Smoke == nil {
-		parts = append(parts, "smoke=not started")
+		parts = append(parts, "standalone-smoke=not started")
 	} else {
-		parts = append(parts, fmt.Sprintf("smoke=%s verdict=%s stale=%t", status.Smoke.Status, status.Smoke.Verdict, status.Smoke.Stale))
+		parts = append(parts, fmt.Sprintf("standalone-smoke=%s verdict=%s stale=%t", status.Smoke.Status, status.Smoke.Verdict, status.Smoke.Stale))
 	}
-	parts = append(parts, fmt.Sprintf("assessment=%s next=%s", status.Verification.Assessment, status.Verification.NextAction))
+	assessment := flowQAAssessment(qa)
+	parts = append(parts, fmt.Sprintf("qa=%s assessment=%s fresh=%t next=%s", qa.Phase, assessment, qa.Fresh, qa.NextAction))
 	return strings.Join(parts, "\n")
 }
 
