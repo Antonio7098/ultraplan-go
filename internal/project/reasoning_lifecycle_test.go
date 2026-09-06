@@ -188,6 +188,19 @@ func TestProjectReasoningIndexPromptInjectsIndexTemplate(t *testing.T) {
 	}
 }
 
+func TestConciseProjectReasoningPromptOnlyTruncatesPreview(t *testing.T) {
+	full := "prefix\n<<< BEGIN ULTRAPLAN DIRECT PROJECT INPUT >>>\nID: one\n\n" + strings.Repeat("x", 5000) + "\n<<< END ULTRAPLAN DIRECT PROJECT INPUT >>>\n"
+	got := conciseProjectReasoningPrompt(full)
+	if len(got) >= len(full) || !strings.Contains(got, "CONCISE PREVIEW") || !strings.Contains(got, "actual agent prompt is not truncated") {
+		t.Fatalf("concise prompt was not reduced safely: full=%d concise=%d", len(full), len(got))
+	}
+	if !strings.Contains(full, "CONCISE PREVIEW") {
+		// The source full prompt must remain untouched by the preview operation.
+		return
+	}
+	t.Fatal("full prompt unexpectedly contained concise marker")
+}
+
 func TestProjectReasoningStagesShareGovernedPromptPrefix(t *testing.T) {
 	root := t.TempDir()
 	base := filepath.Join(root, "projects", "p")

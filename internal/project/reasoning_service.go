@@ -245,6 +245,10 @@ func (s Service) RequireAcceptedReasoning(ref string) error {
 }
 
 func (s Service) ReasoningPrompt(ref string, stage ProjectReasoningStage) (string, error) {
+	return s.ReasoningPromptWithOptions(ref, stage, false)
+}
+
+func (s Service) ReasoningPromptWithOptions(ref string, stage ProjectReasoningStage, concise bool) (string, error) {
 	p, files, err := s.resolveAndRead(ref)
 	if err != nil {
 		return "", err
@@ -256,18 +260,21 @@ func (s Service) ReasoningPrompt(ref string, stage ProjectReasoningStage) (strin
 			return prompt, err
 		}
 		inputs := []projectPromptInput{{ID: "project-index", Kind: "project-index", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-index.md")), Assignment: "Authoritative project catalog and reasoning policy."}}
-		for _, entry := range idx.Entries {
-			if entry.Section == SectionSourceDocuments {
-				inputs = append(inputs, projectPromptInput{ID: "project-source-" + strings.ToLower(strings.ReplaceAll(entry.Name, " ", "-")), Kind: "project-source-document", Path: entry.Path, Assignment: "Catalogued project source document: " + entry.Name})
-			}
+		inputs = append(inputs, projectReasoningSourceInputs(idx)...)
+		prompt, err = s.appendReasoningInputPacket(prompt, inputs)
+		if concise {
+			prompt = conciseProjectReasoningPrompt(prompt)
 		}
-		return s.appendReasoningInputPacket(prompt, inputs)
+		return prompt, err
 	}
 	if stage != ProjectAreaReasoning && stage != ProjectFinalReasoning && stage != ProjectReasoningReview {
 		return prompt, err
 	}
 	manifestData, readErr := os.ReadFile(filepath.Join(p.Path, "project-reasoning", "index.md"))
 	if readErr != nil {
+		if concise {
+			prompt = conciseProjectReasoningPrompt(prompt)
+		}
 		return prompt, nil
 	}
 	m, findings := ParseProjectReasoningIndex(string(manifestData))
@@ -307,7 +314,11 @@ func (s Service) ReasoningPrompt(ref string, stage ProjectReasoningStage) (strin
 			}
 			out.WriteString(areaPrompt + "\n\n--- NEXT AREA PROMPT ---\n\n")
 		}
-		return strings.TrimSuffix(out.String(), "\n\n--- NEXT AREA PROMPT ---\n\n"), nil
+		prompt = strings.TrimSuffix(out.String(), "\n\n--- NEXT AREA PROMPT ---\n\n")
+		if concise {
+			prompt = conciseProjectReasoningPrompt(prompt)
+		}
+		return prompt, nil
 	}
 	inputs := []projectPromptInput{}
 	if stage == ProjectFinalReasoning {
@@ -322,7 +333,49 @@ func (s Service) ReasoningPrompt(ref string, stage ProjectReasoningStage) (strin
 			inputs = append(inputs, projectPromptInput{ID: "area-" + area.Name, Kind: "area-output", Path: area.Output, Assignment: area.Why})
 		}
 	}
-	return s.composeProjectReasoningPrompt(p, idx, stage, shared, inputs)
+	prompt, err = s.composeProjectReasoningPrompt(p, idx, stage, shared, inputs)
+	if concise {
+		prompt = conciseProjectReasoningPrompt(prompt)
+	}
+	return prompt, err
+}
+
+func conciseProjectReasoningPrompt(prompt string) string {
+	const limit = 1800
+	var out strings.Builder
+	for {
+		start := strings.Index(prompt, "<<< BEGIN ULTRAPLAN DIRECT PROJECT INPUT >>>")
+		if start < 0 {
+			out.WriteString(prompt)
+			break
+		}
+		out.WriteString(prompt[:start])
+		rest := prompt[start:]
+		end := strings.Index(rest, "<<< END ULTRAPLAN DIRECT PROJECT INPUT >>>")
+		if end < 0 {
+			out.WriteString(rest)
+			break
+		}
+		block := rest[:end]
+		if len(block) > limit {
+			block = boundedProjectReasoningInput(block, limit) + "\n[CONCISE PREVIEW: direct input truncated; the actual agent prompt is not truncated.]"
+		}
+		out.WriteString(block)
+		closeMarker := "<<< END ULTRAPLAN DIRECT PROJECT INPUT >>>"
+		out.WriteString(closeMarker)
+		prompt = rest[end+len(closeMarker):]
+	}
+	return out.String()
+}
+
+func projectReasoningSourceInputs(idx ProjectIndex) []projectPromptInput {
+	inputs := []projectPromptInput{}
+	for _, entry := range idx.Entries {
+		if entry.Section == SectionSourceDocuments {
+			inputs = append(inputs, projectPromptInput{ID: "project-source-" + strings.ToLower(strings.ReplaceAll(entry.Name, " ", "-")), Kind: "project-source-document", Path: entry.Path, Assignment: "Catalogued project source document: " + entry.Name})
+		}
+	}
+	return inputs
 }
 
 func renderProjectReasoningPrompt(p Project, idx ProjectIndex, stage ProjectReasoningStage) (string, error) {
@@ -533,13 +586,7 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		projectIndexInput := projectPromptInput{ID: "project-index", Kind: "project-index", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-index.md")), Assignment: "Authoritative project catalog and reasoning policy."}
 		prompt := ""
 		if stage == ProjectReasoningIndex {
-			shared := []projectPromptInput{projectIndexInput}
-			for _, entry := range idx.Entries {
-				if entry.Section != SectionSourceDocuments {
-					continue
-				}
-				shared = append(shared, projectPromptInput{ID: "project-source-" + strings.ToLower(strings.ReplaceAll(entry.Name, " ", "-")), Kind: "project-source-document", Path: entry.Path, Assignment: "Catalogued project source document: " + entry.Name})
-			}
+			shared := append([]projectPromptInput{projectIndexInput}, projectReasoningSourceInputs(idx)...)
 			prompt, err = s.composeProjectReasoningPrompt(p, idx, stage, shared, nil)
 			if err != nil {
 				return result, err
@@ -561,6 +608,7 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 			projectIndexInput,
 			{ID: "project-reasoning-index", Kind: "manifest", Path: workspace.Rel(s.root, filepath.Join(base, "index.md")), Assignment: "Selected decision areas, assignments, and dependencies."},
 		}
+		shared = append(shared, projectReasoningSourceInputs(idx)...)
 		if stage == ProjectAreaReasoning {
 			areas := topologicalAreas(m.Areas)
 			for _, a := range areas {

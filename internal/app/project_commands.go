@@ -148,7 +148,7 @@ Usage:
   ultraplan project <project> status
   ultraplan project <project> validate
   ultraplan project <project> reasoning status
-  ultraplan project <project> reasoning prompt <index|area-reasoning|reasoning|review>
+  ultraplan project <project> reasoning prompt <index|area-reasoning|reasoning|review> [--concise]
   ultraplan project <project> reasoning flow --to <stage>
   ultraplan project <project> reasoning validate
 
@@ -171,9 +171,13 @@ func runProjectReasoning(deps dependencies, root string, service project.Service
 		}
 		return nil
 	}
-	if len(args) == 2 && args[0] == "prompt" {
+	if len(args) >= 2 && args[0] == "prompt" {
 		stage := project.ProjectReasoningStage(args[1])
-		prompt, err := service.ReasoningPrompt(ref, stage)
+		concise := len(args) == 3 && args[2] == "--concise"
+		if len(args) > 2 && !concise {
+			return classified(ExitUsage, "project reasoning prompt: expected optional --concise")
+		}
+		prompt, err := service.ReasoningPromptWithOptions(ref, stage, concise)
 		if err != nil {
 			return classified(ExitValidation, "project.reasoning.prompt: %v", err)
 		}
