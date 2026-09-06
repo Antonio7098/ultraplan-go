@@ -273,7 +273,7 @@ func (s Service) runParallelRepairCampaign(ctx context.Context, projectRef, spri
 		return state, err
 	}
 
-	parallelism := settings.Budgets.ConcurrentInvestigators
+	parallelism := qaRuntimeParallelism(settings.Budgets.ConcurrentInvestigators)
 	if parallelism < 1 {
 		parallelism = 1
 	}

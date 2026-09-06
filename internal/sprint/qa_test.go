@@ -145,6 +145,7 @@ func (runtime *qaInvestigatorRuntime) StartRun(_ context.Context, req pruntime.R
 func TestQAInvestigationUsesBoundedWorkersAndPersistsTerminalShards(t *testing.T) {
 	root, sp, target, qaMap, flow, state, token := qaRunFixture(t)
 	runtime := &qaInvestigatorRuntime{}
+	wantWorkers := qaRuntimeParallelism(qaMap.Budgets.ConcurrentInvestigators)
 	service := withTestQAMapFence(NewService(root).WithRuntime(runtime).WithQASettings(QASettings{Runtime: StageRuntime{Model: "openai/qa", Variant: "high"}, Budgets: qaMap.Budgets}), func(QAMap) error { return nil })
 	store := NewQAStore(root, sp).WithWriterFence(func(got QAWriterToken) error {
 		if got != token {
@@ -163,7 +164,7 @@ func TestQAInvestigationUsesBoundedWorkersAndPersistsTerminalShards(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := runtime.max.Load(); got != int32(qaMap.Budgets.ConcurrentInvestigators) {
+	if got := runtime.max.Load(); got != int32(wantWorkers) {
 		t.Fatalf("maximum concurrent investigators = %d", got)
 	}
 	if updated.CompletedShards != len(shards) {

@@ -1293,7 +1293,7 @@ func (s Service) runQAShardBatch(ctx context.Context, store QAStore, flow FlowSt
 	if req.FocusShard != "" && len(indices) == 0 {
 		return shards, state, NewQAError(QAErrorInvalidState, "run", "focused shard is absent or already terminal", nil)
 	}
-	workers := qaMap.Budgets.ConcurrentInvestigators
+	workers := qaRuntimeParallelism(qaMap.Budgets.ConcurrentInvestigators)
 	if workers > len(indices) {
 		workers = len(indices)
 	}
