@@ -27,6 +27,28 @@ func TestMissingSessionPolicyStopsWithoutRetrying(t *testing.T) {
 	}
 }
 
+func TestFallbackStagePolicyVetoesOnlyConfiguredStages(t *testing.T) {
+	runtimeErr := agentwrap.NewError(agentwrap.ErrorRuntimeUnavailable, "primary", "unavailable", nil)
+	policy := agentwrap.BasicPolicy{
+		MaxAttemptsPerTarget: 2,
+		Fallbacks:            []agentwrap.FallbackAlternative{{Name: "backup"}},
+		FallbackGuards:       []func(agentwrap.PolicyContext) bool{fallbackStageGuard(map[string]struct{}{"execute": {}})},
+	}
+
+	retry, err := policy.Decide(context.Background(), agentwrap.PolicyContext{Err: runtimeErr, AttemptOnTarget: 1, Metadata: map[string]string{"stage": " Execute "}})
+	if err != nil || retry.Kind != agentwrap.PolicyDecisionRetry {
+		t.Fatalf("retry decision=%+v err=%v", retry, err)
+	}
+	stopped, err := policy.Decide(context.Background(), agentwrap.PolicyContext{Err: runtimeErr, AttemptOnTarget: 2, Metadata: map[string]string{"stage": " Execute "}})
+	if err != nil || stopped.Kind != agentwrap.PolicyDecisionStop || stopped.Err != runtimeErr {
+		t.Fatalf("stopped decision=%+v err=%v", stopped, err)
+	}
+	allowed, err := policy.Decide(context.Background(), agentwrap.PolicyContext{Err: runtimeErr, AttemptOnTarget: 2, Metadata: map[string]string{"stage": "plan"}})
+	if err != nil || allowed.Kind != agentwrap.PolicyDecisionFallback {
+		t.Fatalf("allowed decision=%+v err=%v", allowed, err)
+	}
+}
+
 type variantProbeRuntime struct {
 	calls int
 }

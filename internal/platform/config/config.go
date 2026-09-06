@@ -28,9 +28,13 @@ type Runtime struct {
 	Default string `json:"default"`
 }
 type Models struct {
-	Default string `json:"default"`
-	Primary string `json:"primary"`
-	Backup  string `json:"backup"`
+	Default  string        `json:"default"`
+	Primary  string        `json:"primary"`
+	Backup   string        `json:"backup"`
+	Fallback ModelFallback `json:"fallback"`
+}
+type ModelFallback struct {
+	DisabledStages []string `json:"disabled_stages"`
 }
 type Execution struct {
 	DefaultVariant  string `json:"default_variant"`
@@ -125,6 +129,7 @@ func EnvOverrides() []EnvOverride {
 		{Key: "ULTRAPLAN_MODEL_DEFAULT", Field: "models.default"},
 		{Key: "ULTRAPLAN_MODEL_PRIMARY", Field: "models.primary"},
 		{Key: "ULTRAPLAN_MODEL_BACKUP", Field: "models.backup"},
+		{Key: "ULTRAPLAN_MODEL_NO_FALLBACK_STAGES", Field: "models.fallback.disabled_stages"},
 		{Key: "ULTRAPLAN_DEFAULT_VARIANT", Field: "execution.default_variant"},
 		{Key: "ULTRAPLAN_DEFAULT_PARALLEL", Field: "execution.default_parallel"},
 		{Key: "ULTRAPLAN_DEFAULT_TIMEOUT", Field: "execution.default_timeout"},
@@ -160,6 +165,7 @@ func Load(opts LoadOptions) (Effective, error) {
 	for _, field := range append(fields, qaConfigFields()...) {
 		e.Sources[field] = "default"
 	}
+	e.Sources["models.fallback.disabled_stages"] = "default"
 	if opts.WorkspaceRoot != "" {
 		if err := loadFile(filepath.Join(opts.WorkspaceRoot, "ultraplan.yml"), &e); err != nil {
 			return e, err
@@ -186,7 +192,7 @@ func Defaults() Config {
 	return Config{
 		Version:    1,
 		Runtime:    Runtime{Default: "opencode"},
-		Models:     Models{Default: "provider/model", Primary: "provider/model", Backup: "provider/model"},
+		Models:     Models{Default: "provider/model", Primary: "provider/model", Backup: "provider/model", Fallback: ModelFallback{DisabledStages: []string{}}},
 		Execution:  Execution{DefaultVariant: "high", DefaultParallel: 3, DefaultTimeout: "30m", DefaultRetries: 3},
 		Planning:   Planning{},
 		QA:         DefaultQA(),
@@ -232,6 +238,9 @@ func loadFile(path string, e *Effective) error {
 		if strings.HasPrefix(line, "- ") {
 			item := strings.Trim(strings.TrimPrefix(line, "- "), `"`)
 			switch listField {
+			case "models.fallback.disabled_stages":
+				e.Config.Models.Fallback.DisabledStages = append(e.Config.Models.Fallback.DisabledStages, item)
+				e.Sources[listField] = "workspace"
 			case "agentwrap.required_health":
 				e.Config.Agentwrap.RequiredHealth = append(e.Config.Agentwrap.RequiredHealth, item)
 				e.Sources[listField] = "workspace"
@@ -313,6 +322,8 @@ func setField(c *Config, field, value string) error {
 		c.Models.Primary = value
 	case "models.backup":
 		c.Models.Backup = value
+	case "models.fallback.disabled_stages":
+		c.Models.Fallback.DisabledStages = splitConfigList(value)
 	case "execution.default_variant":
 		c.Execution.DefaultVariant = value
 	case "execution.default_parallel":
@@ -454,6 +465,9 @@ func Validate(c Config) error {
 	if c.Execution.DefaultRetries < 0 {
 		return fmt.Errorf("execution.default_retries: must not be negative")
 	}
+	if err := validateFallbackStages(c.Models.Fallback.DisabledStages); err != nil {
+		return err
+	}
 	if err := validateQA(c.QA); err != nil {
 		return err
 	}
@@ -563,7 +577,7 @@ func validGitRemoteName(name string) bool {
 
 func listConfigField(field string) bool {
 	switch field {
-	case "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.extra_args", "agentwrap.env", "smoke.environment":
+	case "models.fallback.disabled_stages", "agentwrap.required_health", "agentwrap.required_capabilities", "agentwrap.extra_args", "agentwrap.env", "smoke.environment":
 		return true
 	default:
 		return false
@@ -572,6 +586,8 @@ func listConfigField(field string) bool {
 
 func clearListField(c *Config, field string) {
 	switch field {
+	case "models.fallback.disabled_stages":
+		c.Models.Fallback.DisabledStages = nil
 	case "agentwrap.required_health":
 		c.Agentwrap.RequiredHealth = nil
 	case "agentwrap.required_capabilities":
@@ -583,6 +599,39 @@ func clearListField(c *Config, field string) {
 	case "smoke.environment":
 		c.Smoke.Environment = nil
 	}
+}
+
+func splitConfigList(value string) []string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if item := strings.TrimSpace(part); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func validateFallbackStages(stages []string) error {
+	allowed := map[string]bool{
+		"requirements": true, "code-context": true, "sprint-index": true,
+		"technical-handbook": true, "area-reasoning": true, "reasoning": true,
+		"plan": true, "execute": true, "review": true, "qa": true,
+		"repair": true, "merge": true, "smoke": true, "study": true,
+		"project-reasoning": true,
+	}
+	seen := map[string]bool{}
+	for _, raw := range stages {
+		stage := strings.ToLower(strings.TrimSpace(raw))
+		if !allowed[stage] {
+			return fmt.Errorf("models.fallback.disabled_stages: unsupported stage %q", raw)
+		}
+		if seen[stage] {
+			return fmt.Errorf("models.fallback.disabled_stages: duplicate stage %q", raw)
+		}
+		seen[stage] = true
+	}
+	return nil
 }
 
 func validEnvName(value string) bool {

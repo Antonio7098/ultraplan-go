@@ -5,6 +5,10 @@ models:
   default: openrouter/minimax/minimax-m3:free
   primary: openrouter/minimax/minimax-m3:free
   backup: openrouter/minimax/minimax-m3:free
+  # fallback:
+  #   Stages listed here retry the primary model but never switch to the backup.
+  #   disabled_stages:
+  #     - execute
 execution:
   default_variant: high
   default_parallel: 5

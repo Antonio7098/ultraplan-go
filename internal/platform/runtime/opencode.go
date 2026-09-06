@@ -70,6 +70,11 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 			},
 		}}
 	}
+	disabledFallbackStages := make(map[string]struct{}, len(c.Models.Fallback.DisabledStages))
+	for _, stage := range c.Models.Fallback.DisabledStages {
+		disabledFallbackStages[strings.ToLower(strings.TrimSpace(stage))] = struct{}{}
+	}
+	policy.FallbackGuards = append(policy.FallbackGuards, fallbackStageGuard(disabledFallbackStages))
 	stack := agentwrap.ObservingRuntime{
 		Runtime: agentwrap.ValidatingRuntime{
 			Runtime: agentwrap.PolicyRunner{
@@ -124,6 +129,14 @@ func NewOpenCode(c config.Config) (Adapter, error) {
 		return nil
 	}
 	return adapter, nil
+}
+
+func fallbackStageGuard(disabled map[string]struct{}) func(agentwrap.PolicyContext) bool {
+	return func(policyCtx agentwrap.PolicyContext) bool {
+		stage := strings.ToLower(strings.TrimSpace(policyCtx.Metadata["stage"]))
+		_, blocked := disabled[stage]
+		return !blocked
+	}
 }
 
 type missingSessionPolicy struct {

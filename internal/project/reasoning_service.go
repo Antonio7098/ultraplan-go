@@ -580,7 +580,8 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 			metadata[key] = value
 		}
 		metadata["project"] = p.Name
-		metadata["stage"] = string(stage)
+		metadata["stage"] = "project-reasoning"
+		metadata["project_reasoning.stage"] = string(stage)
 		metadata["output_path"] = workspace.Rel(s.root, output)
 		req.Metadata = metadata
 		if s.reasoningProgress != nil {

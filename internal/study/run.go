@@ -288,6 +288,7 @@ func splitModelReference(value string) (string, string) {
 
 func executionMetadata(req runtimepkg.Request, kind TaskKind, study Study, dimension Dimension, source Source, outputPath string) map[string]string {
 	meta := map[string]string{
+		"stage":            "study",
 		"task.kind":        string(kind),
 		"study":            study.Name,
 		"dimension.number": dimension.Number,

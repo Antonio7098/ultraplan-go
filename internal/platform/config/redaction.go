@@ -55,7 +55,7 @@ func RedactValue(key, value string) string {
 }
 
 func redactModels(m Models) Models {
-	return Models{Default: RedactValue("models.default", m.Default), Primary: RedactValue("models.primary", m.Primary), Backup: RedactValue("models.backup", m.Backup)}
+	return Models{Default: RedactValue("models.default", m.Default), Primary: RedactValue("models.primary", m.Primary), Backup: RedactValue("models.backup", m.Backup), Fallback: m.Fallback}
 }
 
 func redactPlanning(p Planning) Planning {

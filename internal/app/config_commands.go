@@ -48,6 +48,7 @@ func runConfig(deps dependencies, args []string) error {
 	fmt.Fprintf(deps.stdout, "models.default: %s\n", redacted.Models.Default)
 	fmt.Fprintf(deps.stdout, "models.primary: %s\n", redacted.Models.Primary)
 	fmt.Fprintf(deps.stdout, "models.backup: %s\n", redacted.Models.Backup)
+	fmt.Fprintf(deps.stdout, "models.fallback.disabled_stages: %s\n", strings.Join(redacted.Models.Fallback.DisabledStages, ","))
 	fmt.Fprintf(deps.stdout, "execution.default_variant: %s\n", redacted.Execution.DefaultVariant)
 	fmt.Fprintf(deps.stdout, "execution.default_parallel: %d\n", redacted.Execution.DefaultParallel)
 	fmt.Fprintf(deps.stdout, "execution.default_timeout: %s\n", redacted.Execution.DefaultTimeout)

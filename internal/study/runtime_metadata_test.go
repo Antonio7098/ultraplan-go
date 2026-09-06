@@ -56,3 +56,10 @@ func TestExecutionTaskErrorPreservesAttemptDetail(t *testing.T) {
 		t.Fatalf("task error detail not preserved: %+v", err)
 	}
 }
+
+func TestExecutionMetadataUsesStudyFallbackStage(t *testing.T) {
+	meta := executionMetadata(runtimepkg.Request{}, TaskKind("report"), Study{Name: "runtime"}, Dimension{Number: "1", Slug: "policy"}, Source{}, "report.md")
+	if meta["stage"] != "study" {
+		t.Fatalf("stage = %q, want study", meta["stage"])
+	}
+}

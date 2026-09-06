@@ -266,6 +266,50 @@ run_control:
 	}
 }
 
+func TestFallbackDisabledStagesConfig(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ultraplan.yml"), []byte(`version: 1
+models:
+  fallback:
+    disabled_stages:
+      - execute
+      - study
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	effective, err := Load(LoadOptions{WorkspaceRoot: root, Env: func(key string) string {
+		if key == "ULTRAPLAN_MODEL_NO_FALLBACK_STAGES" {
+			return " qa, project-reasoning "
+		}
+		return ""
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := effective.Config.Models.Fallback.DisabledStages
+	if len(got) != 2 || got[0] != "qa" || got[1] != "project-reasoning" {
+		t.Fatalf("disabled stages = %v", got)
+	}
+	if effective.Sources["models.fallback.disabled_stages"] != "env" {
+		t.Fatalf("source = %q", effective.Sources["models.fallback.disabled_stages"])
+	}
+}
+
+func TestFallbackDisabledStagesValidation(t *testing.T) {
+	for name, stages := range map[string][]string{
+		"unknown":   {"deploy"},
+		"duplicate": {"execute", " Execute "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.Models.Fallback.DisabledStages = stages
+			if err := Validate(cfg); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 func TestQAConfigFieldsHaveEffectiveSourcesAndLowerOnlyBounds(t *testing.T) {
 	effective, err := Load(LoadOptions{})
 	if err != nil {

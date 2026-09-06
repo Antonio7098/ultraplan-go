@@ -263,6 +263,14 @@ Borders stay one pixel wide. Inset fact groups and document stacks use one-pixel
 
 **The Control Adjacency Rule.** An action belongs beside the state or object it changes. A panel with nested controls is not a whole-panel link.
 
+### Model fallback boundaries
+
+Model fallback remains eligible by default after retries on the primary target.
+`models.fallback.disabled_stages` lets operators prevent a stage from switching
+to the backup model while preserving the primary error. Ultraplan applies this
+as an additive agentwrap fallback guard, so it cannot make an otherwise
+ineligible error eligible for fallback.
+
 ### Attention
 
 Attention is a compact strip with an amber-tinted border. It reports current findings or degraded run health and collapses to content height when empty. Do not give healthy empty states the same visual weight as active problems.

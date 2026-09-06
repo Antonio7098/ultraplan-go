@@ -110,6 +110,14 @@ func TestAreaFlowDirectlyInjectsAssignedStudyReport(t *testing.T) {
 	if rt.requests[1].Provider != "openrouter" || rt.requests[1].Model != "minimax/minimax-m3:free" || rt.requests[1].Timeout != time.Minute {
 		t.Fatalf("runtime config not propagated: %+v", rt.requests[1])
 	}
+	for i, req := range rt.requests {
+		if req.Metadata["stage"] != "project-reasoning" {
+			t.Fatalf("request %d stage = %q, want project-reasoning", i, req.Metadata["stage"])
+		}
+		if req.Metadata["project_reasoning.stage"] == "" {
+			t.Fatalf("request %d is missing project reasoning substage", i)
+		}
+	}
 	if result.Status.CurrentStage != ProjectFinalReasoning {
 		t.Fatalf("current stage = %q, want %q", result.Status.CurrentStage, ProjectFinalReasoning)
 	}
