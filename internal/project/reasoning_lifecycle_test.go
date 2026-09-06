@@ -176,6 +176,18 @@ func TestProjectReasoningDirectInputsHaveDeterministicBudget(t *testing.T) {
 	}
 }
 
+func TestProjectReasoningIndexPromptInjectsIndexTemplate(t *testing.T) {
+	prompt, err := renderProjectReasoningStagePrompt(Project{Name: "p"}, ProjectIndex{}, ProjectReasoningIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## Index template", "## Reasoning Areas", "## Evidence Assignments", "## Source Document Assignments", "## Excluded Evidence"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("index prompt missing %q", want)
+		}
+	}
+}
+
 func TestProjectReasoningStagesShareGovernedPromptPrefix(t *testing.T) {
 	root := t.TempDir()
 	base := filepath.Join(root, "projects", "p")

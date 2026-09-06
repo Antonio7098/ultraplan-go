@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,9 @@ import (
 	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 	"github.com/Antonio7098/ultraplan-go/internal/workspace"
 )
+
+//go:embed templates/project-reasoning-index.md
+var projectReasoningIndexTemplate string
 
 type ReasoningRuntime interface {
 	StartRun(context.Context, pruntime.Request) (pruntime.Result, error)
@@ -267,7 +271,7 @@ func renderProjectReasoningStagePrompt(p Project, idx ProjectIndex, stage Projec
 	fmt.Fprintf(&b, "\n## Stage instructions\n\nStage: `%s`\n", stage)
 	switch stage {
 	case ProjectReasoningIndex:
-		fmt.Fprintf(&b, "\nReturn only the complete Markdown content for `%s/index.md` as the terminal response. Use the supplied governed context first, and use available read-only tools when you need to verify a contained workspace detail. UltraPlan owns validation and atomic promotion. Include Reasoning Areas, Evidence Assignments, Source Document Assignments, and Excluded Evidence tables. Select templates only from Available Project Reasoning Templates. Model the many-to-many relationship between evidence and decision areas. Outputs must stay under `%s/areas/`. Reject duplicate outputs and dependency cycles.\n\nCatalog:\n", baseRel, baseRel)
+		fmt.Fprintf(&b, "\nReturn only the complete Markdown content for `%s/index.md` as the terminal response. Use the supplied governed context first, and use available read-only tools when you need to verify a contained workspace detail. UltraPlan owns validation and atomic promotion. Follow the injected index template exactly. Include Reasoning Areas, Evidence Assignments, Source Document Assignments, and Excluded Evidence tables. Select templates only from Available Project Reasoning Templates. Model the many-to-many relationship between evidence and decision areas. Outputs must stay under `%s/areas/`. Reject duplicate outputs and dependency cycles.\n\n## Index template\n\n%s\n\nCatalog:\n", baseRel, baseRel, strings.TrimSpace(projectReasoningIndexTemplate))
 		for _, e := range idx.Entries {
 			if e.Section == SectionProjectReasoningTemplates || e.Section == SectionAvailableEvidenceReports || e.Section == SectionSourceDocuments || e.Section == SectionActiveContractPool {
 				fmt.Fprintf(&b, "- %s | %s | %s\n", e.Section, e.Name, e.Path)
