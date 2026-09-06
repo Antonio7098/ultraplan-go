@@ -251,16 +251,78 @@ func (s Service) ReasoningPrompt(ref string, stage ProjectReasoningStage) (strin
 	}
 	idx, _ := ParseProjectIndex(files.IndexContent)
 	prompt, err := renderProjectReasoningPrompt(p, idx, stage)
-	if err != nil || stage != ProjectReasoningIndex {
+	if err != nil || stage == ProjectReasoningIndex {
+		if err != nil {
+			return prompt, err
+		}
+		inputs := []projectPromptInput{{ID: "project-index", Kind: "project-index", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-index.md")), Assignment: "Authoritative project catalog and reasoning policy."}}
+		for _, entry := range idx.Entries {
+			if entry.Section == SectionSourceDocuments {
+				inputs = append(inputs, projectPromptInput{ID: "project-source-" + strings.ToLower(strings.ReplaceAll(entry.Name, " ", "-")), Kind: "project-source-document", Path: entry.Path, Assignment: "Catalogued project source document: " + entry.Name})
+			}
+		}
+		return s.appendReasoningInputPacket(prompt, inputs)
+	}
+	if stage != ProjectAreaReasoning && stage != ProjectFinalReasoning && stage != ProjectReasoningReview {
 		return prompt, err
 	}
-	inputs := []projectPromptInput{{ID: "project-index", Kind: "project-index", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-index.md")), Assignment: "Authoritative project catalog and reasoning policy."}}
-	for _, entry := range idx.Entries {
-		if entry.Section == SectionSourceDocuments {
-			inputs = append(inputs, projectPromptInput{ID: "project-source-" + strings.ToLower(strings.ReplaceAll(entry.Name, " ", "-")), Kind: "project-source-document", Path: entry.Path, Assignment: "Catalogued project source document: " + entry.Name})
+	manifestData, readErr := os.ReadFile(filepath.Join(p.Path, "project-reasoning", "index.md"))
+	if readErr != nil {
+		return prompt, nil
+	}
+	m, findings := ParseProjectReasoningIndex(string(manifestData))
+	if len(findings) > 0 {
+		return prompt, nil
+	}
+	shared := []projectPromptInput{{ID: "project-index", Kind: "project-index", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-index.md")), Assignment: "Authoritative project catalog and reasoning policy."}, {ID: "project-reasoning-index", Kind: "manifest", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning/index.md")), Assignment: "Selected decision areas, assignments, and dependencies."}}
+	if stage == ProjectAreaReasoning {
+		var out strings.Builder
+		for _, area := range topologicalAreas(m.Areas) {
+			inputs := []projectPromptInput{{ID: "template", Kind: "selected-template", Path: area.Template, Assignment: area.Why}}
+			for _, x := range m.Evidence {
+				if x.Area == area.Name {
+					inputs = append(inputs, projectPromptInput{ID: "evidence-" + area.Name, Kind: "assigned-evidence", Path: x.Evidence, Assignment: "Relevant questions: " + x.RelevantQuestions + ". Why assigned: " + x.Why})
+				}
+			}
+			for _, x := range m.Sources {
+				if x.Area == area.Name {
+					inputs = append(inputs, projectPromptInput{ID: "source-" + area.Name, Kind: "assigned-source", Path: x.Source, Assignment: "Authority: " + x.Authority + ". Why assigned: " + x.Why})
+				}
+			}
+			for _, dep := range area.DependsOn {
+				for _, candidate := range m.Areas {
+					if candidate.Name == dep {
+						inputs = append(inputs, projectPromptInput{ID: "dependency-" + dep, Kind: "dependency-output", Path: candidate.Output, Assignment: "Declared dependency for " + area.Name + "."})
+					}
+				}
+			}
+			areaPrompt, e := s.composeProjectReasoningPrompt(p, idx, stage, shared, nil)
+			if e != nil {
+				return "", e
+			}
+			areaPrompt += "\nArea: " + area.Name + "\nTemplate: " + area.Template + "\nOutput: " + area.Output + "\n"
+			areaPrompt, e = s.appendReasoningInputPacket(areaPrompt, inputs)
+			if e != nil {
+				return "", e
+			}
+			out.WriteString(areaPrompt + "\n\n--- NEXT AREA PROMPT ---\n\n")
+		}
+		return strings.TrimSuffix(out.String(), "\n\n--- NEXT AREA PROMPT ---\n\n"), nil
+	}
+	inputs := []projectPromptInput{}
+	if stage == ProjectFinalReasoning {
+		for _, area := range m.Areas {
+			if area.Required {
+				inputs = append(inputs, projectPromptInput{ID: "area-" + area.Name, Kind: "required-area-output", Path: area.Output, Assignment: area.Why})
+			}
+		}
+	} else {
+		inputs = append(inputs, projectPromptInput{ID: "project-reasoning", Kind: "project-synthesis", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning/reasoning.md")), Assignment: "Candidate accepted project contract."})
+		for _, area := range m.Areas {
+			inputs = append(inputs, projectPromptInput{ID: "area-" + area.Name, Kind: "area-output", Path: area.Output, Assignment: area.Why})
 		}
 	}
-	return s.appendReasoningInputPacket(prompt, inputs)
+	return s.composeProjectReasoningPrompt(p, idx, stage, shared, inputs)
 }
 
 func renderProjectReasoningPrompt(p Project, idx ProjectIndex, stage ProjectReasoningStage) (string, error) {
