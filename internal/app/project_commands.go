@@ -215,7 +215,7 @@ func runProjectReasoning(deps dependencies, root string, service project.Service
 		if err != nil {
 			return classified(ExitConfig, "project.reasoning.flow: %v", err)
 		}
-		result, err := service.WithRuntime(rt, runtimeRequest).ReasoningFlow(deps.ctx, ref, project.ProjectReasoningStage(args[2]))
+		result, err := service.WithReasoningProgress(renderProjectReasoningProgress(deps)).WithRuntime(rt, runtimeRequest).ReasoningFlow(deps.ctx, ref, project.ProjectReasoningStage(args[2]))
 		if err != nil {
 			return classified(ExitRuntime, "project.reasoning.flow: %v", err)
 		}

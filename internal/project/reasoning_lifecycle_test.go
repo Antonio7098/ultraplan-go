@@ -45,6 +45,9 @@ type captureReasoningRuntime struct {
 func (r *captureReasoningRuntime) StartRun(_ context.Context, req pruntime.Request) (pruntime.Result, error) {
 	r.prompts = append(r.prompts, req.Prompt)
 	r.requests = append(r.requests, req)
+	if req.OnEvent != nil {
+		req.OnEvent(pruntime.Event{Kind: "message", Type: "text", Payload: map[string]any{"text": "progress"}})
+	}
 	return pruntime.Result{Status: "success"}, nil
 }
 

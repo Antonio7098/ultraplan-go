@@ -373,6 +373,15 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		metadata["stage"] = string(stage)
 		metadata["output_path"] = workspace.Rel(s.root, output)
 		req.Metadata = metadata
+		if s.reasoningProgress != nil {
+			configured := req.OnEvent
+			req.OnEvent = func(event pruntime.Event) {
+				if configured != nil {
+					configured(event)
+				}
+				s.reasoningProgress(stage, event)
+			}
+		}
 		req.Sandbox = "read_only"
 		req.Permissions = "restricted"
 		req.Policy = pruntime.PermissionPolicy{Default: "deny"}

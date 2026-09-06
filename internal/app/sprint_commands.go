@@ -1560,6 +1560,18 @@ func renderSprintRuntimeProgress(deps dependencies) func(sprint.RuntimeProgress)
 	}
 }
 
+func renderProjectReasoningProgress(deps dependencies) func(project.ProjectReasoningStage, runtimepkg.Event) {
+	var mu sync.Mutex
+	return func(stage project.ProjectReasoningStage, event runtimepkg.Event) {
+		if !runtimeEventIsProgress(event) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(deps.stderr, "[runtime] project/%-12s | %s\n", stage, runtimeProgressSummary(event))
+	}
+}
+
 func smokeSettings(e config.Effective, lookups ...func(string) string) sprint.SmokeSettings {
 	discovery, _ := time.ParseDuration(e.Config.Smoke.DiscoveryTimeout)
 	run, _ := time.ParseDuration(e.Config.Smoke.RunTimeout)

@@ -7,14 +7,22 @@ import (
 )
 
 type Service struct {
-	root             string
-	store            FSStore
-	reasoningRuntime ReasoningRuntime
-	runtimeConfig    pruntime.Request
+	root              string
+	store             FSStore
+	reasoningRuntime  ReasoningRuntime
+	runtimeConfig     pruntime.Request
+	reasoningProgress func(ProjectReasoningStage, pruntime.Event)
 }
 
 func NewService(root string) Service {
 	return Service{root: root, store: NewFSStore(root)}
+}
+
+// WithReasoningProgress observes runtime events while a project reasoning
+// stage is running.
+func (s Service) WithReasoningProgress(progress func(ProjectReasoningStage, pruntime.Event)) Service {
+	s.reasoningProgress = progress
+	return s
 }
 
 func (s Service) ListProjects() ([]Project, error) {
