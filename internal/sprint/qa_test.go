@@ -45,6 +45,25 @@ type qaPanicRuntime struct{}
 
 type qaEmptyTheoryRuntime struct{}
 
+type qaWorkspacePreflightRuntime struct {
+	qaInvestigatorRuntime
+	expected int
+	checked  atomic.Bool
+	err      error
+}
+
+func (runtime *qaWorkspacePreflightRuntime) StartRun(ctx context.Context, req pruntime.Request) (pruntime.Result, error) {
+	if runtime.checked.CompareAndSwap(false, true) {
+		entries, err := os.ReadDir(filepath.Dir(req.WorkDir))
+		if err != nil {
+			runtime.err = err
+		} else if len(entries) != runtime.expected {
+			runtime.err = fmt.Errorf("private workspaces at first runtime call = %d, want %d", len(entries), runtime.expected)
+		}
+	}
+	return runtime.qaInvestigatorRuntime.StartRun(ctx, req)
+}
+
 func (qaPanicRuntime) StartRun(context.Context, pruntime.Request) (pruntime.Result, error) {
 	panic("runtime adapter panic")
 }
@@ -160,6 +179,23 @@ func TestQAInvestigationUsesBoundedWorkersAndPersistsTerminalShards(t *testing.T
 	}
 }
 
+func TestQAShardBatchPreparesEveryWorkspaceBeforeStartingRuntime(t *testing.T) {
+	root, sp, target, qaMap, flow, state, token := qaRunFixture(t)
+	qaMap.Budgets.ConcurrentInvestigators = 1
+	runtime := &qaWorkspacePreflightRuntime{expected: len(qaMap.Shards)}
+	service := withTestQAMapFence(NewService(root).WithRuntime(runtime).WithQASettings(QASettings{Runtime: StageRuntime{Model: "openai/qa", Variant: "high"}, Budgets: qaMap.Budgets}), func(QAMap) error { return nil })
+	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error { return nil })
+	if err := store.Publish(QAPublication{Map: &qaMap, Shards: qaMap.Shards, State: state, Flow: flow}, token); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.runQAShardBatch(context.Background(), store, flow, qaMap, target, append([]QAShard(nil), qaMap.Shards...), state, QARunRequest{WriterToken: token}); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.err != nil {
+		t.Fatal(runtime.err)
+	}
+}
+
 func TestQAShardBatchStopsWorkersAfterPublicationFailure(t *testing.T) {
 	root, sp, target, qaMap, flow, state, token := qaRunFixture(t)
 	runtime := &qaInvestigatorRuntime{}
@@ -255,6 +291,11 @@ func TestPrepareQAAttemptRetriesInfrastructureBlockedShardOnResume(t *testing.T)
 	state.Phase = QAPhaseBlocked
 	state.CompletedShards = 1
 	state.CurrentAttemptID = qaMap.SemanticAttemptID
+	artifact := &QAArtifactRef{Path: "stale.json", Digest: strings.Repeat("a", 64)}
+	state.Synthesis, state.Adjudication, state.Issues, state.Assessment, state.CanonicalReport = artifact, artifact, artifact, artifact, artifact
+	state.EvidenceCount, state.RejectedCount, state.IssueCount, state.RegressionCandidates = 4, 3, 2, 1
+	state.CanonicalAssessment = AssessmentPassWithFindings
+	state.OutcomeCounts = map[QATheoryOutcome]int{QATheoryConfirmed: 1}
 	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error { return nil })
 	if err := store.Publish(QAPublication{Map: &qaMap, Shards: []QAShard{blocked}, State: state, Flow: flow}, token); err != nil {
 		t.Fatal(err)
@@ -269,6 +310,9 @@ func TestPrepareQAAttemptRetriesInfrastructureBlockedShardOnResume(t *testing.T)
 	}
 	if resumed.CompletedShards != 0 {
 		t.Fatalf("completed shards = %d, want 0", resumed.CompletedShards)
+	}
+	if resumed.Synthesis != nil || resumed.Adjudication != nil || resumed.Issues != nil || resumed.Assessment != nil || resumed.CanonicalReport != nil || resumed.EvidenceCount != 0 || resumed.RejectedCount != 0 || resumed.IssueCount != 0 || resumed.RegressionCandidates != 0 || resumed.CanonicalAssessment != "" || resumed.OutcomeCounts != nil {
+		t.Fatalf("resume retained stale downstream state: %+v", resumed)
 	}
 }
 

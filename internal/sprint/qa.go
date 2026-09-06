@@ -1214,11 +1214,21 @@ func (s Service) prepareQAAttempt(store QAStore, flow FlowState, qaMap QAMap, re
 		prior, err := store.LoadState()
 		if err == nil && prior.CurrentAttemptID == qaMap.SemanticAttemptID && prior.Map != nil {
 			shards := append([]QAShard(nil), qaMap.Shards...)
+			retrying := false
 			for i := range shards {
 				loaded, loadErr := store.LoadShard(qaMap.SemanticAttemptID, shards[i].ID)
 				if loadErr == nil && (loaded.Phase == QAPhaseCompleted || loaded.Phase == QAPhaseBlocked && !retryableQAShardBlocker(loaded.Blocker)) {
 					shards[i] = loaded
+				} else {
+					retrying = true
 				}
+			}
+			if retrying {
+				// Downstream artifacts describe the prior, incomplete shard set. Do
+				// not expose them as current while replacement shard results run.
+				prior.Synthesis, prior.Adjudication, prior.Issues, prior.Assessment, prior.CanonicalReport = nil, nil, nil, nil, nil
+				prior.EvidenceCount, prior.RejectedCount, prior.IssueCount, prior.RegressionCandidates = 0, 0, 0, 0
+				prior.CanonicalAssessment, prior.CurrentFailure, prior.OutcomeCounts = "", nil, nil
 			}
 			prior.Run = qaRunCorrelation(req.WriterToken, QARunClaimed)
 			prior.Phase = QAPhaseQueued
@@ -1290,6 +1300,18 @@ func (s Service) runQAShardBatch(ctx context.Context, store QAStore, flow FlowSt
 	if workers == 0 {
 		return shards, state, nil
 	}
+	// Materialize every private copy before starting any restricted runtime.
+	// Some sandbox implementations tighten permissions on workspace ancestors
+	// while a run is active. Creating a later sibling copy during that window
+	// made otherwise identical shards fail depending on worker scheduling.
+	workspaces := make(map[int]string, len(indices))
+	for _, index := range indices {
+		workspace, err := prepareQAInvestigatorWorkspace(batchCtx, s.root, target, qaMap, shards[index])
+		if err != nil {
+			return shards, state, err
+		}
+		workspaces[index] = workspace
+	}
 	jobs := make(chan int, workers)
 	results := make(chan qaShardResult, workers)
 	var group sync.WaitGroup
@@ -1298,7 +1320,7 @@ func (s Service) runQAShardBatch(ctx context.Context, store QAStore, flow FlowSt
 		go func() {
 			defer group.Done()
 			for index := range jobs {
-				shard, err := s.runOneQAShardSafely(batchCtx, qaMap, shards[index], target, req.WriterToken)
+				shard, err := s.runOneQAShardInWorkspaceSafely(batchCtx, qaMap, shards[index], target, workspaces[index], req.WriterToken)
 				select {
 				case results <- qaShardResult{shard: shard, err: err}:
 				case <-abortResults:
@@ -1363,21 +1385,33 @@ func (s Service) runQAShardBatch(ctx context.Context, store QAStore, flow FlowSt
 }
 
 func (s Service) runOneQAShardSafely(ctx context.Context, qaMap QAMap, shard QAShard, target string, token QAWriterToken) (result QAShard, err error) {
+	workspace, err := prepareQAInvestigatorWorkspace(ctx, s.root, target, qaMap, shard)
+	if err != nil {
+		return shard, err
+	}
+	return s.runOneQAShardInWorkspaceSafely(ctx, qaMap, shard, target, workspace, token)
+}
+
+func (s Service) runOneQAShardInWorkspaceSafely(ctx context.Context, qaMap QAMap, shard QAShard, target, workspace string, token QAWriterToken) (result QAShard, err error) {
 	result = shard
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = NewQAError(QAErrorRuntimeUnavailable, "investigate shard", "investigator runtime panicked", fmt.Errorf("panic: %v", recovered))
 		}
 	}()
-	return s.runOneQAShard(ctx, qaMap, shard, target, token)
+	return s.runOneQAShardInWorkspace(ctx, qaMap, shard, target, workspace, token)
 }
 
 func (s Service) runOneQAShard(ctx context.Context, qaMap QAMap, shard QAShard, target string, token QAWriterToken) (QAShard, error) {
-	if err := s.validateCurrentQAMap(qaMap); err != nil {
-		return shard, err
-	}
 	workspace, err := prepareQAInvestigatorWorkspace(ctx, s.root, target, qaMap, shard)
 	if err != nil {
+		return shard, err
+	}
+	return s.runOneQAShardInWorkspace(ctx, qaMap, shard, target, workspace, token)
+}
+
+func (s Service) runOneQAShardInWorkspace(ctx context.Context, qaMap QAMap, shard QAShard, target, workspace string, token QAWriterToken) (QAShard, error) {
+	if err := s.validateCurrentQAMap(qaMap); err != nil {
 		return shard, err
 	}
 	request, err := s.QAInvestigatorRequest(qaMap, shard, workspace)
