@@ -250,7 +250,17 @@ func (s Service) ReasoningPrompt(ref string, stage ProjectReasoningStage) (strin
 		return "", err
 	}
 	idx, _ := ParseProjectIndex(files.IndexContent)
-	return renderProjectReasoningPrompt(p, idx, stage)
+	prompt, err := renderProjectReasoningPrompt(p, idx, stage)
+	if err != nil || stage != ProjectReasoningIndex {
+		return prompt, err
+	}
+	inputs := []projectPromptInput{{ID: "project-index", Kind: "project-index", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-index.md")), Assignment: "Authoritative project catalog and reasoning policy."}}
+	for _, entry := range idx.Entries {
+		if entry.Section == SectionSourceDocuments {
+			inputs = append(inputs, projectPromptInput{ID: "project-source-" + strings.ToLower(strings.ReplaceAll(entry.Name, " ", "-")), Kind: "project-source-document", Path: entry.Path, Assignment: "Catalogued project source document: " + entry.Name})
+		}
+	}
+	return s.appendReasoningInputPacket(prompt, inputs)
 }
 
 func renderProjectReasoningPrompt(p Project, idx ProjectIndex, stage ProjectReasoningStage) (string, error) {
