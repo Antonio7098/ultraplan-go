@@ -246,9 +246,25 @@ func (s Service) ReasoningPrompt(ref string, stage ProjectReasoningStage) (strin
 		return "", err
 	}
 	idx, _ := ParseProjectIndex(files.IndexContent)
+	return renderProjectReasoningPrompt(p, idx, stage)
+}
+
+func renderProjectReasoningPrompt(p Project, idx ProjectIndex, stage ProjectReasoningStage) (string, error) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# UltraPlan project reasoning\n\nProject: `%s`\n\n", p.Name)
+	b.WriteString("Governed shared inputs, when present, appear before the stage section.\n\n")
+	stagePrompt, err := renderProjectReasoningStagePrompt(p, idx, stage)
+	if err != nil {
+		return "", err
+	}
+	b.WriteString(stagePrompt)
+	return b.String(), nil
+}
+
+func renderProjectReasoningStagePrompt(p Project, idx ProjectIndex, stage ProjectReasoningStage) (string, error) {
 	baseRel := filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning"))
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Project reasoning: %s\n\nProject: `%s`\nStage: `%s`\n", stage, p.Name, stage)
+	fmt.Fprintf(&b, "\n## Stage instructions\n\nStage: `%s`\n", stage)
 	switch stage {
 	case ProjectReasoningIndex:
 		fmt.Fprintf(&b, "\nReturn only the complete Markdown content for `%s/index.md` as the terminal response. Do not use tools or edit files. UltraPlan owns validation and atomic promotion. Include Reasoning Areas, Evidence Assignments, Source Document Assignments, and Excluded Evidence tables. Select templates only from Available Project Reasoning Templates. Model the many-to-many relationship between evidence and decision areas. Outputs must stay under `%s/areas/`. Reject duplicate outputs and dependency cycles.\n\nCatalog:\n", baseRel, baseRel)
@@ -267,6 +283,22 @@ func (s Service) ReasoningPrompt(ref string, stage ProjectReasoningStage) (strin
 		return "", fmt.Errorf("unknown project reasoning stage %q", stage)
 	}
 	return b.String(), nil
+}
+
+func (s Service) composeProjectReasoningPrompt(p Project, idx ProjectIndex, stage ProjectReasoningStage, shared, stageInputs []projectPromptInput) (string, error) {
+	var prefix strings.Builder
+	fmt.Fprintf(&prefix, "# UltraPlan project reasoning\n\nProject: `%s`\n\n", p.Name)
+	prefix.WriteString("The following governed inputs are shared project context.\n")
+	prompt, err := s.appendReasoningInputPacket(prefix.String(), shared)
+	if err != nil {
+		return "", err
+	}
+	stagePrompt, err := renderProjectReasoningStagePrompt(p, idx, stage)
+	if err != nil {
+		return "", err
+	}
+	prompt += "\n\n" + stagePrompt
+	return s.appendReasoningInputPacket(prompt, stageInputs)
 }
 
 func (s Service) ValidateReasoning(ref string) (ProjectReasoningStatus, []ValidationFinding, error) {
@@ -413,9 +445,10 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		return writeReasoningState(statePath, state)
 	}
 	for _, stage := range order {
-		prompt, _ := s.ReasoningPrompt(ref, stage)
+		projectIndexInput := projectPromptInput{ID: "project-index", Kind: "project-index", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-index.md")), Assignment: "Authoritative project catalog and reasoning policy."}
+		prompt := ""
 		if stage == ProjectReasoningIndex {
-			prompt, err = s.appendReasoningInputPacket(prompt, []projectPromptInput{{ID: "project-index", Kind: "project-index", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-index.md")), Assignment: "Authoritative project catalog and reasoning policy."}})
+			prompt, err = s.composeProjectReasoningPrompt(p, idx, stage, []projectPromptInput{projectIndexInput}, nil)
 			if err != nil {
 				return result, err
 			}
@@ -432,11 +465,15 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		if len(pf)+len(vf) > 0 {
 			return result, fmt.Errorf("project-reasoning/index.md failed validation")
 		}
+		shared := []projectPromptInput{
+			projectIndexInput,
+			{ID: "project-reasoning-index", Kind: "manifest", Path: workspace.Rel(s.root, filepath.Join(base, "index.md")), Assignment: "Selected decision areas, assignments, and dependencies."},
+		}
 		if stage == ProjectAreaReasoning {
 			areas := topologicalAreas(m.Areas)
 			for _, a := range areas {
 				inputs := []string{a.Template, filepath.Join(base, "index.md")}
-				direct := []projectPromptInput{{ID: "project-reasoning-index", Kind: "manifest", Path: workspace.Rel(s.root, filepath.Join(base, "index.md")), Assignment: "Selected decision areas, assignments, and dependencies."}, {ID: "template", Kind: "selected-template", Path: a.Template, Assignment: a.Why}}
+				direct := []projectPromptInput{{ID: "template", Kind: "selected-template", Path: a.Template, Assignment: a.Why}}
 				for _, x := range m.Evidence {
 					if x.Area == a.Name {
 						inputs = append(inputs, x.Evidence)
@@ -457,7 +494,11 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 						}
 					}
 				}
-				areaPrompt := prompt + "\nArea: " + a.Name + "\nTemplate: " + a.Template + "\nOutput: " + a.Output + "\n"
+				areaPrompt, e := s.composeProjectReasoningPrompt(p, idx, stage, shared, nil)
+				if e != nil {
+					return result, e
+				}
+				areaPrompt += "\nArea: " + a.Name + "\nTemplate: " + a.Template + "\nOutput: " + a.Output + "\n"
 				areaPrompt, e = s.appendReasoningInputPacket(areaPrompt, direct)
 				if e != nil {
 					return result, e
@@ -469,14 +510,14 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		}
 		if stage == ProjectFinalReasoning {
 			inputs := []string{filepath.Join(base, "index.md")}
-			direct := []projectPromptInput{{ID: "project-reasoning-index", Kind: "manifest", Path: workspace.Rel(s.root, filepath.Join(base, "index.md")), Assignment: "Accepted project reasoning selection and dependency graph."}}
+			direct := []projectPromptInput{}
 			for _, a := range m.Areas {
 				if a.Required {
 					inputs = append(inputs, a.Output)
 					direct = append(direct, projectPromptInput{ID: "area-" + a.Name, Kind: "required-area-output", Path: a.Output, Assignment: a.Why})
 				}
 			}
-			prompt, err = s.appendReasoningInputPacket(prompt, direct)
+			prompt, err = s.composeProjectReasoningPrompt(p, idx, stage, shared, direct)
 			if err != nil {
 				return result, err
 			}
@@ -489,11 +530,11 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 			for _, a := range m.Areas {
 				inputs = append(inputs, a.Output)
 			}
-			direct := []projectPromptInput{{ID: "project-reasoning-index", Kind: "manifest", Path: workspace.Rel(s.root, filepath.Join(base, "index.md")), Assignment: "Review coverage and assignments."}, {ID: "project-reasoning", Kind: "project-synthesis", Path: workspace.Rel(s.root, filepath.Join(base, "reasoning.md")), Assignment: "Candidate accepted project contract."}}
+			direct := []projectPromptInput{{ID: "project-reasoning", Kind: "project-synthesis", Path: workspace.Rel(s.root, filepath.Join(base, "reasoning.md")), Assignment: "Candidate accepted project contract."}}
 			for _, a := range m.Areas {
 				direct = append(direct, projectPromptInput{ID: "area-" + a.Name, Kind: "area-output", Path: a.Output, Assignment: a.Why})
 			}
-			prompt, err = s.appendReasoningInputPacket(prompt, direct)
+			prompt, err = s.composeProjectReasoningPrompt(p, idx, stage, shared, direct)
 			if err != nil {
 				return result, err
 			}

@@ -173,6 +173,48 @@ func TestProjectReasoningDirectInputsHaveDeterministicBudget(t *testing.T) {
 	}
 }
 
+func TestProjectReasoningStagesShareGovernedPromptPrefix(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "projects", "p")
+	if err := os.MkdirAll(filepath.Join(base, "project-reasoning"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{
+		"project-index.md":           "## Project Reasoning Policy\n\nstable policy\n",
+		"project-reasoning/index.md": "## Reasoning Areas\n\nstable manifest\n",
+	} {
+		if err := os.WriteFile(filepath.Join(base, filepath.FromSlash(path)), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := NewService(root)
+	project := Project{Name: "p", Path: base}
+	shared := []projectPromptInput{
+		{ID: "project-index", Kind: "project-index", Path: "projects/p/project-index.md", Assignment: "Authoritative project catalog and reasoning policy."},
+		{ID: "project-reasoning-index", Kind: "manifest", Path: "projects/p/project-reasoning/index.md", Assignment: "Selected decision areas, assignments, and dependencies."},
+	}
+	var prefix string
+	for _, stage := range []ProjectReasoningStage{ProjectAreaReasoning, ProjectFinalReasoning, ProjectReasoningReview} {
+		prompt, err := service.composeProjectReasoningPrompt(project, ProjectIndex{}, stage, shared, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cut := strings.Index(prompt, "## Stage instructions")
+		if cut < 0 {
+			t.Fatalf("stage prompt missing boundary: %s", prompt)
+		}
+		got := prompt[:cut]
+		if prefix == "" {
+			prefix = got
+		} else if got != prefix {
+			t.Fatalf("stage %s does not reuse the governed prefix", stage)
+		}
+		if !strings.Contains(got, "stable policy") || !strings.Contains(got, "stable manifest") {
+			t.Fatalf("shared prefix lacks governed documents: %s", got)
+		}
+	}
+}
+
 func TestProjectReasoningManifestRejectsCycleAndDuplicateOutput(t *testing.T) {
 	root := t.TempDir()
 	projectRoot := filepath.Join(root, "projects", "p")
