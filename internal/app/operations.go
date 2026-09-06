@@ -962,7 +962,9 @@ func summarizeSprintStatus(status sprint.StatusSummary, qa QAResult) string {
 	} else {
 		parts = append(parts, fmt.Sprintf("standalone-smoke=%s verdict=%s stale=%t", status.Smoke.Status, status.Smoke.Verdict, status.Smoke.Stale))
 	}
-	assessment := flowQAAssessment(qa)
+	reviewVerdict := sprint.ReviewVerdict(status.Verification.Review.Verdict)
+	reviewCurrent := status.Verification.Review.Fresh && (reviewVerdict == sprint.ReviewPass || reviewVerdict == sprint.ReviewPassWithFindings)
+	assessment := flowQAAssessment(qa, reviewCurrent)
 	parts = append(parts, fmt.Sprintf("qa=%s assessment=%s fresh=%t next=%s", qa.Phase, assessment, qa.Fresh, qa.NextAction))
 	return strings.Join(parts, "\n")
 }

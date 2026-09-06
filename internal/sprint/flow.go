@@ -209,6 +209,12 @@ func (s Service) Flow(ctx context.Context, projectRef, sprintRef string, req Flo
 		}
 		if !ready {
 			qaReq := req.QA
+			if req.To == StageQA && strings.TrimSpace(qaReq.ModelOverride) == "" {
+				qaReq.ModelOverride = strings.TrimSpace(req.ModelOverride)
+				if override, ok := req.StageOverrides[StageQA]; ok && strings.TrimSpace(override.Model) != "" {
+					qaReq.ModelOverride = strings.TrimSpace(override.Model)
+				}
+			}
 			qaReq.Resume = true
 			qaReq.EvidenceProducing = true
 			qaProgress := qaReq.Progress

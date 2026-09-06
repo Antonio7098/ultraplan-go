@@ -105,6 +105,23 @@ func TestQARoleModelOverridesAreIndependent(t *testing.T) {
 	}
 }
 
+func TestQARequestModelOverrideAppliesToEveryRole(t *testing.T) {
+	settings := qaMapInputFixture().Settings
+	settings.Mapper.Model = "provider/mapper"
+	settings.Investigator.Model = "provider/investigator"
+	settings.Repair.Model = "provider/repair"
+
+	overridden := settings.WithModelOverride("  provider/requested  ")
+	for _, role := range []string{"mapper", "investigator", "challenger", "arbiter", "reconciler", "evaluator", "repair"} {
+		if got := overridden.RuntimeFor(role).Model; got != "provider/requested" {
+			t.Fatalf("%s model = %q", role, got)
+		}
+	}
+	if settings.RuntimeFor("mapper").Model != "provider/mapper" {
+		t.Fatal("model override mutated the configured settings")
+	}
+}
+
 func TestApprovedQACheckCatalogUsesExplicitReadOnlyArgv(t *testing.T) {
 	target := t.TempDir()
 	checks, err := ApprovedQAChecks(target, []string{"internal/a.go", "README.md"}, DefaultQABudgets())

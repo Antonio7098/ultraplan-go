@@ -1,6 +1,6 @@
 # UltraPlan User Guide
 
-This guide covers study workflows and governed sprint delivery through execute, resumable automated review, integrated verification, review-gated deep smoke, opt-in stage publication to Git, and the local loopback browser dashboard. Issue management, hosted services, remote/multi-user browser access, and general Git automation beyond stage publication and sprint worktree creation are not part of this release.
+This guide covers study workflows and governed sprint delivery through execute, resumable automated review, QA, and merge. It also covers standalone review-gated smoke, opt-in stage publication to Git, and the local loopback browser dashboard. Issue management, hosted services, remote/multi-user browser access, and general Git automation beyond stage publication and sprint worktree creation are not part of this release.
 
 ## Local Browser Dashboard
 
@@ -8,7 +8,8 @@ Run `ultraplan serve` inside a workspace, then open the exact numeric-loopback
 URL printed by the command. Use `--listen 127.0.0.1:<port>` or `[::1]:<port>`
 to choose a different local address and `--open-browser` to request automatic
 launch. The browser reads the same app-owned project, sprint, study, validation,
-artifact, review, and smoke projections used by CLI/TUI surfaces.
+artifact, review, QA, merge, and standalone smoke projections used by CLI/TUI
+surfaces.
 
 Guarded actions use prepare -> review normalized scope -> confirm -> observe.
 Closing or refreshing a tab cancels only observation; use the visible cancel

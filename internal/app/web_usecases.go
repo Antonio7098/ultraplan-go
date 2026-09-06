@@ -1114,7 +1114,7 @@ func (u *webUseCases) enrichProjectDashboard(result *WebProjectResult) {
 		}
 	}
 	for _, sprint := range result.Sprints {
-		if len(sprint.Findings) > 0 || sprint.Review.Stale || sprint.Smoke.Stale || sprint.Review.Failed > 0 || sprint.Execute.Failed > 0 {
+		if len(sprint.Findings) > 0 || sprint.Review.Stale || sprint.QAHealth == "stale" || sprint.QAHealth == "failed" || sprint.Review.Failed > 0 || sprint.Execute.Failed > 0 {
 			result.NeedsAttention++
 		}
 	}
@@ -1170,7 +1170,7 @@ func (u *webUseCases) enrichSprintDashboard(result *WebSprintResult) {
 	if result.Execute.Total > 0 {
 		result.ExecutionPercent = result.Execute.Complete * 100 / result.Execute.Total
 	}
-	preferred := map[string]bool{"requirements": true, "reasoning": true, "plan": true, "execute": true, "review": true, "smoke": true}
+	preferred := map[string]bool{"requirements": true, "reasoning": true, "plan": true, "execute": true, "review": true, "qa": true}
 	for _, artifact := range result.Artifacts {
 		if preferred[artifact.Label] {
 			result.Evidence = append(result.Evidence, artifact)
@@ -1259,6 +1259,10 @@ func dashboardDimensionGroup(value string) string {
 func (u *webUseCases) annotateStageModels(result *WebSprintResult) {
 	for index := range result.RunStages {
 		stage := sprint.PlanningStage(result.RunStages[index].Name)
+		if stage == sprint.StageQA {
+			result.RunStages[index].ConfiguredModel = strings.TrimSpace(u.dashboard.qaSettings.Runtime.Model)
+			continue
+		}
 		if runtime, ok := u.dashboard.stageRuntime[stage]; ok {
 			result.RunStages[index].ConfiguredModel = strings.TrimSpace(runtime.Model)
 		}
@@ -1305,8 +1309,14 @@ func sprintRunStages(item SprintSummary) []StageSummary {
 	stages = append(stages, StageSummary{Name: "review", Status: reviewStatus, Error: item.Review.Error})
 	qaStatus := "waiting"
 	switch item.QA.Phase {
+	case string(sprint.QAPhaseStale):
+		qaStatus = "stale"
 	case string(sprint.QAPhaseCompleted):
-		qaStatus = "complete"
+		if item.QA.Fresh {
+			qaStatus = "complete"
+		} else {
+			qaStatus = "stale"
+		}
 	case string(sprint.QAPhaseQueued), string(sprint.QAPhaseRunning), string(sprint.QAPhaseSynthesizing):
 		qaStatus = "running"
 	case string(sprint.QAPhaseBlocked), string(sprint.QAPhaseInvalid), string(sprint.QAPhaseInterrupted), string(sprint.QAPhaseCancelled):

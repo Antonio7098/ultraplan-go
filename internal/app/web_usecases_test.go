@@ -115,6 +115,19 @@ func TestWebUseCasesCodeContextPreservesArtifactAndLatestOutcome(t *testing.T) {
 	t.Fatal("code-context artifact missing from web projection")
 }
 
+func TestSprintRunStagesKeepsStaleQAInTheFlow(t *testing.T) {
+	stages := sprintRunStages(SprintSummary{QA: QAResult{Phase: string(sprint.QAPhaseCompleted), Assessment: string(sprint.AssessmentPass)}})
+	for _, stage := range stages {
+		if stage.Name == "qa" {
+			if stage.Status != "stale" {
+				t.Fatalf("QA stage status = %q, want stale", stage.Status)
+			}
+			return
+		}
+	}
+	t.Fatal("QA stage missing from sprint flow")
+}
+
 func TestWebPromptBundleIsContentFreeLazyAndReadOnly(t *testing.T) {
 	root := initializedWorkspace(t)
 	writeCommandSprintProject(t, root, "proj", "01-alpha")
@@ -287,7 +300,7 @@ func TestWebSprintSurfacesStageModels(t *testing.T) {
 
 	queries := NewWebUseCases(root, WebUseCaseOptions{StageRuntime: map[sprint.PlanningStage]sprint.StageRuntime{
 		sprint.StageReasoning: {Model: "openai/gpt-5.6-sol", Variant: "high"},
-	}})
+	}, QASettings: sprint.QASettings{Runtime: sprint.StageRuntime{Model: "openai/qa"}}})
 	result, err := queries.Sprint(context.Background(), "proj", "01-alpha")
 	if err != nil {
 		t.Fatal(err)
@@ -306,6 +319,9 @@ func TestWebSprintSurfacesStageModels(t *testing.T) {
 	}
 	if plan := models["plan"]; plan.RunModel != "" {
 		t.Fatalf("plan stage should have no recorded run model = %+v", plan)
+	}
+	if qa := models["qa"]; qa.ConfiguredModel != "openai/qa" {
+		t.Fatalf("QA configured model = %+v", qa)
 	}
 }
 

@@ -13,6 +13,7 @@ func TestSprintVerificationActionsAndNarrowSummary(t *testing.T) {
 	data.Sprints[0].Assessment = "pass_with_findings"
 	data.Sprints[0].NextAction = "resolve issue ISSUE-1"
 	data.Sprints[0].Review = app.ReviewSummary{Available: true, Status: "completed", Verdict: "pass_with_findings", Artifact: "projects/alpha/sprints/01/review.md"}
+	data.Sprints[0].QA = app.QAResult{Phase: "completed", Assessment: "pass_with_findings", Fresh: true, CompletedShards: 2, TotalShards: 2, IssueCount: 1}
 	data.Sprints[0].Smoke = app.SmokeSummary{Available: true, Status: "completed", Verdict: "pass_with_open_issues", RunID: "run-1", Artifact: "projects/alpha/sprints/01/smoke.md", Issues: []sprint.SmokeIssue{{ID: "ISSUE-1", Status: "open", Path: "issues/ISSUE-1.md"}}}
 	m := Model{Data: data, Routes: []Route{{Kind: RouteSprint, Project: "alpha", Sprint: "01"}}}
 	items := m.navItems()
@@ -27,7 +28,7 @@ func TestSprintVerificationActionsAndNarrowSummary(t *testing.T) {
 	}
 	var b strings.Builder
 	renderRouteSummary(&b, m)
-	for _, want := range []string{"pass_with_findings", "run-1", "ISSUE-1", "resolve issue ISSUE-1"} {
+	for _, want := range []string{"Sprint flow summary", "QA: completed", "Standalone Smoke", "pass_with_findings", "run-1", "ISSUE-1", "resolve issue ISSUE-1"} {
 		if !strings.Contains(b.String(), want) {
 			t.Fatalf("summary missing %q: %s", want, b.String())
 		}

@@ -56,7 +56,7 @@ composition root.
 
 ## State And Artifact Ownership
 
-Workspace files and product-owned flow, execute, review, smoke, and study run
+Workspace files and product-owned flow, execute, review, QA, standalone smoke, and study run
 state remain authoritative. Web requests perform fresh sequential app queries.
 The server retains only immutable configuration, parsed embedded templates,
 listener/server objects, request/session IDs, opaque artifact references,
@@ -67,7 +67,7 @@ handles, and terminal projections for ten minutes. It never persists a queue
 or operation history.
 
 Read-only sprint status uses the sprint service's non-persisting projection
-mode. Product-owned workspace artifacts, execute/review/smoke state, study run
+mode. Product-owned workspace artifacts, execute/review/QA/standalone-smoke state, study run
 state, and per-sprint/study mutation locks remain authoritative. Restart and
 replay-gap recovery direct users back to that durable state rather than
 reconstructing product truth from the hub. Server startup acquires product
@@ -108,7 +108,7 @@ build step exists.
 Preparation is side-effect-free and does not reserve capacity or acquire a
 mutation lock. Start repeats normalization and fingerprinting, consumes one
 session-bound confirmation, and creates a server-owned context immediately;
-there is no web queue. Sprint flow, execute, review, smoke, and verify use one
+there is no web queue. Sprint flow, execute, review, QA, smoke, and verify use one
 product-owned per-sprint cross-process mutation lease. Study run-loop keeps its
 independent product lock.
 
@@ -178,7 +178,7 @@ composition may inject configured stage publication into product services.
 
 Reference resolution is repository-contained, symlink-rejecting, regular-file-only, cancellation-aware, and fail-closed. References retain their authored labels, rationale, and symbol metadata while selected ranges from the same file are sorted and merged so source bytes are injected once and each file is scanned once. The complete shared prefix is capped at 256 KiB; overflow is an actionable error, never truncation or omission. Stage suffixes include every available governed input in full and defer context-window enforcement to the selected runtime model and provider. Evidence is marked untrusted, and agents retain permission to inspect additional live source.
 
-The first non-dry-run code-context operation creates a sprint-owned linked Git worktree from the configured target's current `HEAD`. UltraPlan records the source root, baseline commit, branch, worktree path, and creation time in the sprint's `.workspace.json`. The source checkout must be clean. The worktree remains writable during execution, but its assignment never changes implicitly. Later code-context, planning, execute, review, and smoke operations reuse it. A missing or invalid recorded worktree fails closed once the record exists. Existing sprints without a record retain direct-target compatibility until code-context runs again.
+The first non-dry-run code-context operation creates a sprint-owned linked Git worktree from the configured target's current `HEAD`. UltraPlan records the source root, baseline commit, branch, worktree path, and creation time in the sprint's `.workspace.json`. The source checkout must be clean. The worktree remains writable during execution, but its assignment never changes implicitly. Later code-context, planning, execute, review, QA, and standalone smoke operations reuse it. A missing or invalid recorded worktree fails closed once the record exists. Existing sprints without a record retain direct-target compatibility until code-context runs again.
 
 ## Git stage publication
 

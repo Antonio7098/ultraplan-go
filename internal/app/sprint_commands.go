@@ -2392,7 +2392,7 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
   ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
   ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
-  ultraplan sprint <project> <sprint> flow --to qa [--restart-review] [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to qa [--restart-review] [--model <provider/model>] [--dry-run]
   ultraplan sprint <project> <sprint> flow --to merge --yes [--cleanup-worktree]
   ultraplan sprint <project> <sprint> execute [--task <id>] [--dry-run] [--resume] [--model <provider/model>]
   ultraplan sprint <project> <sprint> execute --task <id> --defer --reason <text>
@@ -2646,7 +2646,7 @@ Usage:
   ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
   ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
   ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
-  ultraplan sprint <project> <sprint> flow --to qa [--restart-review] [--dry-run]
+  ultraplan sprint <project> <sprint> flow --to qa [--restart-review] [--model <provider/model>] [--dry-run]
   ultraplan sprint <project> <sprint> flow --to merge --yes [--cleanup-worktree]
 
 Dry-run prints planned inputs without mutation. Non-dry-run validates prerequisites, obtains or reuses a current Conformance Review, and runs or resumes evidence-producing QA. Merge requires a current passing QA assessment and --yes. It accepts --cleanup-worktree to remove the clean recorded sprint worktree after success. Smoke remains available through the standalone smoke and verify commands, but is not a flow stage or merge gate.

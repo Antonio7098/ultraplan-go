@@ -48,7 +48,7 @@ they affect. Dashboards contain common start and validation actions; Roadmap,
 Sprint Workflow, and Study Progress contain more specific controls. There is
 no user-facing Operations section. The actions use the same typed app
 capability as the TUI: validation, prompt/dry-run and sprint flow, execute,
-review, smoke, verify, study run-loop, status, and explicit cancellation. The
+review, QA, smoke, verify, study run-loop, status, and explicit cancellation. The
 browser cannot submit arbitrary commands, paths, prompts, or executables.
 
 Each request reads current app-owned workspace state. State-bearing HTML, JSON,
@@ -176,7 +176,7 @@ The hub is deliberately ephemeral. Durable workspace and product run state are
 the recovery authority after eviction or restart. A replay gap emits
 `recovery_required` plus a current snapshot; it never fabricates missing
 progress. Before accepting traffic, server startup reconciles dead-owner sprint
-execute/review/smoke attempts to explicit interrupted evidence while leaving
+execute/review/QA/smoke attempts to explicit interrupted evidence while leaving
 live cross-process mutation leases untouched.
 
 ### Operation bounds

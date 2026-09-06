@@ -669,6 +669,7 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 						{Label: "plan", Path: sprint.ArtifactRelPath(sp, sprint.StagePlan), Kind: "markdown"},
 						{Label: "execute", Path: sprint.ArtifactRelPath(sp, sprint.StageExecute), Kind: "markdown"},
 						{Label: "review", Path: sprint.ArtifactRelPath(sp, sprint.StageReview), Kind: "markdown"},
+						{Label: "qa", Path: sprint.QAReportRelPath(sp), Kind: "markdown"},
 						{Label: "smoke", Path: sprint.ArtifactRelPath(sp, sprint.StageSmoke), Kind: "markdown"},
 						{Label: "merge", Path: sprint.ArtifactRelPath(sp, sprint.StageMerge), Kind: "markdown"},
 						{Label: "flow-state", Path: sprint.FlowStateRelPath(sp), Kind: "json"},
@@ -719,10 +720,11 @@ func (u dashboardUseCases) SprintSummaries(ctx context.Context) ([]SprintSummary
 					review.Failed++
 				}
 			}
-			assessment := flowQAAssessment(qaSummary)
-			nextAction := qaSummary.NextAction
 			reviewVerdict := sprint.ReviewVerdict(status.Verification.Review.Verdict)
-			if !status.Verification.Review.Fresh || reviewVerdict != sprint.ReviewPass && reviewVerdict != sprint.ReviewPassWithFindings {
+			reviewCurrent := status.Verification.Review.Fresh && (reviewVerdict == sprint.ReviewPass || reviewVerdict == sprint.ReviewPassWithFindings)
+			assessment := flowQAAssessment(qaSummary, reviewCurrent)
+			nextAction := qaSummary.NextAction
+			if !reviewCurrent {
 				nextAction = status.Verification.Review.NextAction
 			}
 			summary := SprintSummary{
@@ -832,8 +834,9 @@ func sortSprintArtifacts(items []DisplayArtifact) {
 	})
 }
 
-func flowQAAssessment(qa QAResult) string {
-	if qa.Assessment == "" || !qa.Fresh && (qa.Assessment == string(sprint.AssessmentPass) || qa.Assessment == string(sprint.AssessmentPassWithFindings)) {
+func flowQAAssessment(qa QAResult, reviewCurrent bool) string {
+	passing := qa.Assessment == string(sprint.AssessmentPass) || qa.Assessment == string(sprint.AssessmentPassWithFindings)
+	if qa.Assessment == "" || passing && (!qa.Fresh || !reviewCurrent) {
 		return string(sprint.AssessmentIncomplete)
 	}
 	return qa.Assessment

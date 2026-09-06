@@ -227,6 +227,20 @@ func (s QASettings) RuntimeFor(role string) StageRuntime {
 	return selected
 }
 
+// WithModelOverride returns a request-scoped QA configuration that routes
+// every QA role through model. Role-specific variants remain intact.
+func (s QASettings) WithModelOverride(model string) QASettings {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return s
+	}
+	s.Runtime.Model = model
+	for _, runtime := range []*StageRuntime{&s.Mapper, &s.Investigator, &s.Challenger, &s.Arbiter, &s.Reconciler, &s.Evaluator, &s.Repair} {
+		runtime.Model = model
+	}
+	return s
+}
+
 type QAFreshness struct {
 	Current                   bool     `json:"current"`
 	Reasons                   []string `json:"reasons,omitempty"`

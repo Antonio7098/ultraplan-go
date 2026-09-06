@@ -1,6 +1,6 @@
 # CLI Reference
 
-This release includes study commands and governed sprint planning, execute, resumable automated review, integrated `verify`, focused review reruns, review-gated deep smoke, governed sprint-worktree merge, opt-in Git publication after completed stages, the terminal dashboard, and a loopback-only browser dashboard with guarded operations and SSE progress. Issue management, arbitrary Git automation outside stage publication, worktree creation, and sprint merge, and hosted services remain deferred.
+This release includes study commands and governed sprint planning, execute, resumable automated review, QA, and governed sprint-worktree merge. Integrated `verify`, focused review reruns, and review-gated deep smoke remain available as standalone checks. The CLI also supports opt-in Git publication after completed stages, the terminal dashboard, and a loopback-only browser dashboard with guarded operations and SSE progress. Issue management, hosted services, and arbitrary Git automation beyond stage publication, sprint worktree creation, and sprint merge remain deferred.
 
 ## Global Usage
 
@@ -300,11 +300,11 @@ ultraplan sprint <project> <sprint> flow --to reasoning [--dry-run]
 ultraplan sprint <project> <sprint> flow --to plan [--dry-run]
 ultraplan sprint <project> <sprint> flow --to execute [--dry-run]
 ultraplan sprint <project> <sprint> flow --to review [--restart-review] [--dry-run]
-ultraplan sprint <project> <sprint> flow --to qa [--restart-review] [--dry-run]
+ultraplan sprint <project> <sprint> flow --to qa [--restart-review] [--model <provider/model>] [--dry-run]
 ultraplan sprint <project> <sprint> flow --to merge --yes [--cleanup-worktree]
 ```
 
-Runs or previews the governed stage flow through merge. Cumulative planning order is `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan`; `flow --to plan` dispatches code-context exactly once when it is not already complete and valid. A code-context rerun reads the configured implementation target with restricted permissions and atomically replaces only `code-context.md`. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. After execute, flow obtains or reuses a current Conformance Review and runs or resumes evidence-producing QA. `flow --to merge --yes` requires a current passing QA assessment before integration. Smoke remains available through the standalone `smoke` and `verify` commands. Add `--cleanup-worktree` to remove the clean recorded sprint worktree after the merge succeeds.
+Runs or previews the governed stage flow through merge. Cumulative planning order is `requirements -> code-context -> sprint-index -> technical-handbook -> area-reasoning -> reasoning -> plan`; `flow --to plan` dispatches code-context exactly once when it is not already complete and valid. A code-context rerun reads the configured implementation target with restricted permissions and atomically replaces only `code-context.md`. A non-dry-run flow reports each stage as it is checked, started, skipped, completed, or failed and interleaves sanitized runtime progress. After execute, flow obtains or reuses a current Conformance Review and runs or resumes evidence-producing QA. For `flow --to qa`, `--model` overrides the model for every QA role while retaining role-specific variants. `flow --to merge --yes` requires a current passing QA assessment before integration. Smoke remains available through the standalone `smoke` and `verify` commands. Add `--cleanup-worktree` to remove the clean recorded sprint worktree after the merge succeeds.
 
 ### `ultraplan sprint <project> <sprint> execute`
 

@@ -353,12 +353,13 @@ func renderRouteSummary(b *strings.Builder, m Model) {
 		if !ok {
 			return
 		}
-		fmt.Fprintln(b, "Verification summary")
+		fmt.Fprintln(b, "Sprint flow summary")
 		fmt.Fprintf(b, "  Conformance Review: %s verdict=%s stale=%t evidence=%s\n", sprint.Review.Status, sprint.Review.Verdict, sprint.Review.Stale, sprint.Review.Artifact)
 		for _, reason := range sprint.Review.FreshnessReasons {
 			fmt.Fprintf(b, "    Reason: %s\n", reason)
 		}
-		fmt.Fprintf(b, "  Smoke: %s verdict=%s stale=%t run=%s evidence=%s\n", sprint.Smoke.Status, sprint.Smoke.Verdict, sprint.Smoke.Stale, sprint.Smoke.RunID, sprint.Smoke.Artifact)
+		fmt.Fprintf(b, "  QA: %s assessment=%s fresh=%t shards=%d/%d issues=%d\n", sprint.QA.Phase, sprint.QA.Assessment, sprint.QA.Fresh, sprint.QA.CompletedShards, sprint.QA.TotalShards, sprint.QA.IssueCount)
+		fmt.Fprintf(b, "  Standalone Smoke: %s verdict=%s stale=%t run=%s evidence=%s\n", sprint.Smoke.Status, sprint.Smoke.Verdict, sprint.Smoke.Stale, sprint.Smoke.RunID, sprint.Smoke.Artifact)
 		for _, issue := range sprint.Smoke.Issues {
 			fmt.Fprintf(b, "    Issue: %s [%s] %s\n", issue.ID, issue.Status, issue.Path)
 		}

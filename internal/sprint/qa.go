@@ -24,6 +24,7 @@ type QARunRequest struct {
 	Resume            bool
 	FocusShard        string
 	Suite             string
+	ModelOverride     string
 	EvidenceProducing bool
 	WriterToken       QAWriterToken
 	Progress          func(QAProgress)
@@ -411,6 +412,7 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	if err != nil {
 		return QARunResult{}, NewQAError(QAErrorInvalidState, "run", "effective QA settings are invalid", err)
 	}
+	settings = settings.WithModelOverride(req.ModelOverride)
 	req.Progress = boundedQAProgress(req.Progress, settings.Budgets.RecentProgress)
 	lockedCtx, release, err := s.acquireMutationContext(ctx, projectRef, sprintRef)
 	if err != nil {
@@ -712,8 +714,8 @@ func qaMapForRun(store QAStore, candidate QAMap, resume bool) (QAMap, bool, erro
 }
 
 func (s Service) buildQAEvidencePublication(ctx context.Context, sp Sprint, qaMap QAMap, target string, shards []QAShard, reconciledIssues []QAArbiterIssue, authoredTests []QATestPublication, evidenceRequests []QAArbiterEvidenceRequest, progress func(QAProgress)) (QAEvidencePublication, QAAssessmentRecord, error) {
-	// Recheck admission after investigation because review, smoke, or the target
-	// may have changed while the model work was in flight.
+	// Recheck admission after investigation because the review or target may
+	// have changed while the model work was in flight.
 	status, implementationBefore, err := s.validateQAEvidenceAdmission(sp, qaMap, target)
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, err
