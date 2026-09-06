@@ -461,7 +461,14 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		projectIndexInput := projectPromptInput{ID: "project-index", Kind: "project-index", Path: filepath.ToSlash(filepath.Join("projects", p.Name, "project-index.md")), Assignment: "Authoritative project catalog and reasoning policy."}
 		prompt := ""
 		if stage == ProjectReasoningIndex {
-			prompt, err = s.composeProjectReasoningPrompt(p, idx, stage, []projectPromptInput{projectIndexInput}, nil)
+			shared := []projectPromptInput{projectIndexInput}
+			for _, entry := range idx.Entries {
+				if entry.Section != SectionSourceDocuments {
+					continue
+				}
+				shared = append(shared, projectPromptInput{ID: "project-source-" + strings.ToLower(strings.ReplaceAll(entry.Name, " ", "-")), Kind: "project-source-document", Path: entry.Path, Assignment: "Catalogued project source document: " + entry.Name})
+			}
+			prompt, err = s.composeProjectReasoningPrompt(p, idx, stage, shared, nil)
 			if err != nil {
 				return result, err
 			}
