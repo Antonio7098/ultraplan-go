@@ -233,6 +233,45 @@ func TestCountCompletedQAShardsExcludesBlockedTerminalShards(t *testing.T) {
 	}
 }
 
+func TestRetryableQAShardBlocker(t *testing.T) {
+	for _, category := range []QAErrorCategory{QAErrorPermissionDenied, QAErrorBudgetExhausted, QAErrorConflict, QAErrorPersistenceFailure, QAErrorRuntimeUnavailable, QAErrorAdmissionBlocked} {
+		if !retryableQAShardBlocker(&QABlocker{Category: category}) {
+			t.Errorf("category %q should retry after its prerequisite is restored", category)
+		}
+	}
+	if retryableQAShardBlocker(&QABlocker{Category: QAErrorInvalidState}) {
+		t.Error("invalid-state shard blocker must remain terminal on resume")
+	}
+	if retryableQAShardBlocker(nil) {
+		t.Error("nil blocker must remain terminal on resume")
+	}
+}
+
+func TestPrepareQAAttemptRetriesInfrastructureBlockedShardOnResume(t *testing.T) {
+	root, sp, _, qaMap, flow, state, token := qaRunFixture(t)
+	blocked := qaMap.Shards[0]
+	blocked.Phase = QAPhaseBlocked
+	blocked.Blocker = &QABlocker{Category: QAErrorPermissionDenied, Scope: blocked.ID, Summary: "copy failed"}
+	state.Phase = QAPhaseBlocked
+	state.CompletedShards = 1
+	state.CurrentAttemptID = qaMap.SemanticAttemptID
+	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error { return nil })
+	if err := store.Publish(QAPublication{Map: &qaMap, Shards: []QAShard{blocked}, State: state, Flow: flow}, token); err != nil {
+		t.Fatal(err)
+	}
+
+	resumed, shards, err := NewService(root).prepareQAAttempt(store, flow, qaMap, QARunRequest{Resume: true, WriterToken: token}, QASettings{Budgets: qaMap.Budgets})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shards[0].Phase != QAPhaseMapped || shards[0].Blocker != nil {
+		t.Fatalf("retryable blocked shard was retained: %+v", shards[0])
+	}
+	if resumed.CompletedShards != 0 {
+		t.Fatalf("completed shards = %d, want 0", resumed.CompletedShards)
+	}
+}
+
 func TestQATerminalSynthesisFailureRetainsSynthesisArtifact(t *testing.T) {
 	root, sp, _, qaMap, flow, state, token := qaRunFixture(t)
 	store := NewQAStore(root, sp).WithWriterFence(func(QAWriterToken) error { return nil })

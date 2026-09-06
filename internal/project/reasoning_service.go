@@ -203,7 +203,8 @@ func (s Service) ReasoningStatus(ref string) (ProjectReasoningStatus, error) {
 		st.Blockers = append(st.Blockers, "project-reasoning/flow-state.json is invalid")
 		return st, nil
 	}
-	check := func(stage ProjectReasoningStage, key, out string, inputs []string) {
+	nonInvalidatingInputs := projectReasoningNonInvalidatingInputs(p.Name, idx)
+	check := func(stage ProjectReasoningStage, key, out string) {
 		rel := filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning", out))
 		st.Outputs = append(st.Outputs, rel)
 		markStale := func() {
@@ -226,6 +227,9 @@ func (s Service) ReasoningStatus(ref string) (ProjectReasoningStatus, error) {
 			return
 		}
 		for _, in := range rec.Inputs {
+			if nonInvalidatingInputs[normalizeCatalogPath(in.Path)] {
+				continue
+			}
 			resolved := in.Path
 			if !filepath.IsAbs(resolved) {
 				resolved = filepath.Join(s.root, filepath.FromSlash(resolved))
@@ -238,10 +242,10 @@ func (s Service) ReasoningStatus(ref string) (ProjectReasoningStatus, error) {
 		}
 	}
 	for _, a := range m.Areas {
-		check(ProjectAreaReasoning, "area:"+a.Name, strings.TrimPrefix(normalizeCatalogPath(a.Output), filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning"))+"/"), nil)
+		check(ProjectAreaReasoning, "area:"+a.Name, strings.TrimPrefix(normalizeCatalogPath(a.Output), filepath.ToSlash(filepath.Join("projects", p.Name, "project-reasoning"))+"/"))
 	}
-	check(ProjectFinalReasoning, "reasoning", "reasoning.md", nil)
-	check(ProjectReasoningReview, "review", "review.md", nil)
+	check(ProjectFinalReasoning, "reasoning", "reasoning.md")
+	check(ProjectReasoningReview, "review", "review.md")
 	st.Verdict = state.Verdict
 	acceptedVerdict := st.Verdict == st.RequiredVerdict
 	st.Accepted = st.Fresh && acceptedVerdict
@@ -432,6 +436,23 @@ func projectReasoningSourceInputs(idx ProjectIndex) []projectPromptInput {
 	return inputs
 }
 
+// Project source documents and the catalog inform a reasoning run, but they
+// evolve throughout planning. Their content does not revoke an accepted result.
+// The current catalog still validates the manifest and policy. Selected
+// templates, evidence, dependencies, generated outputs, and the review verdict
+// remain freshness authorities.
+func projectReasoningNonInvalidatingInputs(projectName string, idx ProjectIndex) map[string]bool {
+	paths := map[string]bool{
+		filepath.ToSlash(filepath.Join("projects", projectName, "project-index.md")): true,
+	}
+	for _, entry := range idx.Entries {
+		if entry.Section == SectionSourceDocuments {
+			paths[normalizeCatalogPath(entry.Path)] = true
+		}
+	}
+	return paths
+}
+
 func renderProjectReasoningPrompt(p Project, idx ProjectIndex, stage ProjectReasoningStage) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# UltraPlan project reasoning\n\nProject: `%s`\n\n", p.Name)
@@ -516,6 +537,7 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 	}
 	idx, _ := ParseProjectIndex(files.IndexContent)
 	idx = annotateProjectCatalog(s.root, idx)
+	nonInvalidatingInputs := projectReasoningNonInvalidatingInputs(p.Name, idx)
 	base := filepath.Join(p.Path, "project-reasoning")
 	if err = os.MkdirAll(filepath.Join(base, "areas"), 0o755); err != nil {
 		return ProjectReasoningFlowResult{}, err
@@ -529,9 +551,13 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		rec, ok := state.Artifacts[key]
 		if ok {
 			fp, e := digestFile(output)
-			promptCurrent := rec.PromptSHA256 == promptSum || (rec.PromptSHA256 == "" && stage != ProjectReasoningReview)
-			current = e == nil && fp.SHA256 == rec.OutputSHA256 && promptCurrent
+			// Prompt digests are retained as provenance. They do not invalidate an
+			// accepted artifact because source-document text is part of every prompt.
+			current = e == nil && fp.SHA256 == rec.OutputSHA256
 			for _, in := range rec.Inputs {
+				if nonInvalidatingInputs[normalizeCatalogPath(in.Path)] {
+					continue
+				}
 				path := in.Path
 				if !filepath.IsAbs(path) {
 					path = filepath.Join(s.root, filepath.FromSlash(path))
@@ -646,7 +672,7 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 			if err != nil {
 				return result, err
 			}
-			if err = run(stage, "index", filepath.Join(base, "index.md"), []string{filepath.Join(p.Path, "project-index.md")}, prompt); err != nil {
+			if err = run(stage, "index", filepath.Join(base, "index.md"), nil, prompt); err != nil {
 				return result, err
 			}
 		}
@@ -677,7 +703,6 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 				}
 				for _, x := range m.Sources {
 					if x.Area == a.Name {
-						inputs = append(inputs, x.Source)
 						direct = append(direct, projectPromptInput{ID: "source-" + a.Name, Kind: "assigned-source", Path: x.Source, Assignment: "Authority: " + x.Authority + ". Why assigned: " + x.Why})
 					}
 				}

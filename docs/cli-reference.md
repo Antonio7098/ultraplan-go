@@ -142,6 +142,12 @@ ultraplan project <project> validate
 
 Validates required project files and `project-index.md` catalog references for contracts, evidence reports, reasoning templates, review protocols, and the external smoke harness manifest. It also validates project reasoning overrides and rejects reasoning templates owned by a different project.
 
+### Project reasoning freshness
+
+Accepted project reasoning remains accepted when a catalogued source document such as a PRD or roadmap changes. Those documents inform an intentional reasoning run but do not become permanent freshness locks. Changes to `project-index.md` also do not revoke acceptance when the existing reasoning manifest still validates against the current catalog and policy.
+
+Selected reasoning templates, selected evidence reports, declared area dependencies, generated reasoning outputs, and the review verdict remain freshness authorities. Changing any of them invalidates the affected reasoning result.
+
 ### `ultraplan study init`
 
 ```text

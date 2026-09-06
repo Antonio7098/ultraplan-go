@@ -404,3 +404,44 @@ Campaign totals: 301 model calls, 7,695,962 uncached input tokens, 620,480 outpu
 At OpenRouter's 2026-09-04 paid MiniMax M3 list rates of $0.23/M uncached input, $0.96/M output, and $0.05/M cache read, the API-equivalent campaign cost is $2.787406: $1.770071 input, $0.595661 output, and $0.421674 cache read. The actual runs used `minimax-m3:free`, so this is a paid-model counterfactual, not money spent.
 
 Compared with the previous post-policy rerun above, this campaign used 301 versus 32 calls and 256 versus zero tool calls. The larger count includes every retained failed and successful attempt while the flow was being repaired. The final live QA-and-promotion slice used 68 calls, 1,495,377 uncached input tokens, 80,156 output tokens, 1,989,778 cache-read tokens, 3,565,311 total reported tokens, and 148 tool calls. The prior campaign's 32-call run used 531,830 input, 73,574 output, 1,015,291 cache-read, 1,620,695 total tokens, and zero tool calls. The completed evidence-producing slice used 2.1 times as many calls, 2.8 times the uncached input, 1.1 times the output, 2.0 times the cache reads, and 2.2 times the total tokens. Those extra calls include investigator test authoring, evidence continuation, exact-session re-arbitration, five repair proposals, and the successful paired-patch promotion.
+
+## Sprint 39 GPT-5.6-sol QA dogfood
+
+Run date: 2026-09-06. Source: `/home/antonioborgerees/coding/ultraplan/ultraplan-go-workspace/projects/ultraplan-go/sprints/39-performance-stage/.runtime-metrics.json`
+
+This is the first retained QA dogfood on a paid OpenAI route. The retained QA and repair calls from the prior sections above used `openrouter/minimax/minimax-m3:free`, which reported zero cost. Sprint 39 switched the QA model route to `openai/gpt-5.6-sol`, which reported the actual paid cost per call. The attempt ended incomplete: six of thirteen shards returned `permission_denied` when the investigator tried to create its private per-shard target copy, so the assessment is `pass_with_findings` with 14 evidence records accepted, 0 rejected, 0 promoted issues.
+
+The two cancelled attempts that preceded this one are excluded from the table because they reported no metrics: `qa-v1-attempt-43e4e9d0af621e8189e8e6f6` on `minimax-coding-plan/MiniMax-M3/high` and `qa-v1-attempt-29a1a22c3d351fa1ebd0b2d8` on `openai/got-5.6-sol/low`. The table below covers only the 18 retained calls on the successful attempt `qa-v1-attempt-c382cef18d1a659e6fa57c62`.
+
+| Seq | Attempt | Agent | Operation | Task | Status | Input | Output | Cache read | Cache write | Total | Tool calls | Exact |
+|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|:---:|
+| 54 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | semantic-mapper | qa-map | qa-v1-map-0ce19d014b123dbd4b9d4d44 | completed | 152245 | 6291 | unknown | known | 158790 | 0 | yes |
+| 55 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | semantic-mapper | qa-map | qa-v1-map-0ce19d014b123dbd4b9d4d44 | completed | 6842 | 5984 | 152064 | known | 165170 | 0 | yes |
+| 56 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate | qa-v1-shard-55c75ed35ae9a28675ef8779 | completed | 919 | 686 | 28928 | known | 30856 | 3 | yes |
+| 57 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate | qa-v1-shard-65c6fc03c89d778911b504e3 | completed | 9835 | 517 | 31232 | known | 41976 | 8 | yes |
+| 58 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate | qa-v1-shard-62b033bcef3afb3af1bba41c | completed | 2146 | 1091 | 34176 | known | 37805 | 4 | yes |
+| 59 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate-output-repair | qa-v1-shard-55c75ed35ae9a28675ef8779 | completed | 1287 | 698 | 29696 | known | 31715 | 0 | yes |
+| 60 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate-output-repair | qa-v1-shard-65c6fc03c89d778911b504e3 | completed | 1143 | 486 | 40960 | known | 42649 | 0 | yes |
+| 61 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate | qa-v1-shard-81e0d9c9e1087e58135f030b | completed | 33469 | 504 | unknown | known | 34307 | 0 | yes |
+| 62 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate | qa-v1-shard-b29b255f71007d67ac6ef323 | completed | 24768 | 453 | unknown | known | 25721 | 0 | yes |
+| 63 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate-output-repair | qa-v1-shard-81e0d9c9e1087e58135f030b | completed | 1154 | 564 | 33280 | known | 35058 | 0 | yes |
+| 64 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate-output-repair | qa-v1-shard-b29b255f71007d67ac6ef323 | completed | 1272 | 470 | 24576 | known | 26337 | 0 | yes |
+| 65 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate | qa-v1-shard-85fe99477f20d95596434ef9 | completed | 735 | 1021 | 34432 | known | 36428 | 6 | yes |
+| 66 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate | qa-v1-shard-b951f08c0478926a7e675a81 | completed | 32987 | 447 | unknown | known | 33861 | 0 | yes |
+| 67 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | investigator | qa-investigate-output-repair | qa-v1-shard-b951f08c0478926a7e675a81 | completed | 1092 | 458 | 32896 | known | 34477 | 0 | yes |
+| 68 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | arbiter | qa-arbitrate | qa-v1-arbiter-group-d5b86fa600c0d38f48c365a9 | completed | 94237 | 2022 | unknown | known | 96426 | 0 | yes |
+| 69 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | issue_reconciler | qa-reconcile-issues | qa-v1-map-0ce19d014b123dbd4b9d4d44 | completed | 3998 | 898 | unknown | known | 4896 | 0 | yes |
+| 70 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | arbiter | qa-arbitrate | qa-v1-arbiter-group-d5b86fa600c0d38f48c365a9 | completed | 93857 | 2098 | 94080 | known | 190082 | 0 | yes |
+| 71 | qa-v1-attempt-c382cef18d1a659e6fa57c62 | issue_reconciler | qa-reconcile-issues | qa-v1-map-0ce19d014b123dbd4b9d4d44 | completed | 3998 | 898 | unknown | known | 4896 | 0 | yes |
+
+`Cache read: unknown` means the metric file marked the value unknown for that call even though the metric exists. `Cache write: known` means the field is known to be a real value but the metric file did not record the count. The reasoning token field (separate from the output token field) is reported per call in the source runtime-metrics.json and is folded into the Total column.
+
+Role totals across the 18 completed calls: semantic-mapper 2 calls (159,087 input, 12,275 output, 152,064 cache read, 323,960 total, $1.3637), investigator 12 calls (110,807 input, 7,395 output, 290,176 cache read, 411,190 total, 21 tool calls, $1.0131), arbiter 2 calls (188,094 input, 4,120 output, 94,080 cache read, 286,508 total, $1.2222), issue_reconciler 2 calls (7,996 input, 1,796 output, 0 cache read, 9,792 total, $0.1032). Total 18 calls, 465,984 input, 25,586 output, 536,320 cache read, 1,031,450 total, 21 tool calls, $3.7022.
+
+Cancelled calls: `qa-v1-attempt-43e4e9d0af621e8189e8e6f6` on `minimax-coding-plan/MiniMax-M3/high` and `qa-v1-attempt-29a1a22c3d351fa1ebd0b2d8` on `openai/got-5.6-sol/low` (model name typo for `gpt-5.6-sol`). Both cancelled during validation with `error_category: cancellation` and reported no usage metrics. They appear in the source file at sequences 52 and 53.
+
+Wall time: first call 2026-09-06T14:09:42+01:00, last call 2026-09-06T15:41:50+01:00, total 92 minutes 8 seconds. Sum of call durations 1,099.3 seconds. The 4,429-second gap between the mapper finishing at 14:13:52 and the investigators starting at 15:29:16 is not represented by any retained call.
+
+Compared with the 30-call MiniMax M3 final fixture ledger above (Seq 1 to 30), the 18-call GPT run used 465,984 vs 979,779 uncached input (-52.4%), 25,586 vs 85,903 output (-70.2%), 536,320 vs 775,807 cache read (-30.9%), and 1,031,450 vs 1,841,489 total reported tokens (-44.0%). The MiniMax M3 run cost $0 on the free route; the GPT run cost $3.7022 on the paid OpenAI route. The comparison is not exact because the Sprint 39 attempt was incomplete (six shards refused to create their per-shard target copy and produced no evidence or theories) and the MiniMax M3 fixture completed all of its shards. Tool calls are also not directly comparable: zero in the MiniMax M3 Seq-1-to-30 fixture (forced no-tool policy), zero in the MiniMax M3 post-fix rerun (no call exercised an allowed tool), 21 here (read-only grep and read operations under a `read_only` sandbox with `permission_default: deny`).
+
+The companion report at [qa-sprint-39-gpt-dogfood.md](qa-sprint-39-gpt-dogfood.md) records the per-call table, the role totals, the cost comparison at OpenRouter and GPT rates, and the six permission-denied blockers that prevented issue promotion.

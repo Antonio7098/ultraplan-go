@@ -634,6 +634,14 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 			if synthesis.Arbitration != nil {
 				reconciledIssues = synthesis.Arbitration.Issues
 			}
+			workspaceCleanup := cleanupQAInvestigatorWorkspaces(s.root, mapResult.Map.SemanticAttemptID)
+			if err := store.PublishInvestigatorWorkspaceCleanup(mapResult.Map.SemanticAttemptID, workspaceCleanup, req.WriterToken); err != nil {
+				return s.publishTerminalQAFailureWithSynthesis(store, flow, mapResult.Map, shards, synthesis, state, req.WriterToken, err)
+			}
+			if !workspaceCleanup.Complete {
+				err := NewQAError(QAErrorPersistenceFailure, "complete QA", "private investigator workspace cleanup is incomplete", errors.New(workspaceCleanup.Diagnostic))
+				return s.publishTerminalQAFailureWithSynthesis(store, flow, mapResult.Map, shards, synthesis, state, req.WriterToken, err)
+			}
 			bundle, assessment, evidenceErr := s.buildQAEvidencePublication(runCtx, sp, mapResult.Map, manifest.Target, decisionShards, reconciledIssues, authoredTests, arbiterEvidenceRequests, req.Progress)
 			if evidenceErr != nil {
 				return s.publishTerminalQAFailureWithSynthesis(store, flow, mapResult.Map, shards, synthesis, state, req.WriterToken, evidenceErr)
@@ -1208,7 +1216,7 @@ func (s Service) prepareQAAttempt(store QAStore, flow FlowState, qaMap QAMap, re
 			shards := append([]QAShard(nil), qaMap.Shards...)
 			for i := range shards {
 				loaded, loadErr := store.LoadShard(qaMap.SemanticAttemptID, shards[i].ID)
-				if loadErr == nil && (loaded.Phase == QAPhaseCompleted || loaded.Phase == QAPhaseBlocked) {
+				if loadErr == nil && (loaded.Phase == QAPhaseCompleted || loaded.Phase == QAPhaseBlocked && !retryableQAShardBlocker(loaded.Blocker)) {
 					shards[i] = loaded
 				}
 			}
@@ -1244,6 +1252,18 @@ func (s Service) prepareQAAttempt(store QAStore, flow FlowState, qaMap QAMap, re
 		return QAState{}, nil, err
 	}
 	return loaded, shards, nil
+}
+
+func retryableQAShardBlocker(blocker *QABlocker) bool {
+	if blocker == nil {
+		return false
+	}
+	switch blocker.Category {
+	case QAErrorPermissionDenied, QAErrorBudgetExhausted, QAErrorConflict, QAErrorPersistenceFailure, QAErrorRuntimeUnavailable, QAErrorAdmissionBlocked:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s Service) runQAShardBatch(ctx context.Context, store QAStore, flow FlowState, qaMap QAMap, target string, shards []QAShard, state QAState, req QARunRequest) ([]QAShard, QAState, error) {

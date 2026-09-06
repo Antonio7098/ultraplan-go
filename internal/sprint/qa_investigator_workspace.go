@@ -38,7 +38,13 @@ func prepareQAInvestigatorWorkspace(ctx context.Context, root, target string, qa
 	}
 	workspace, err := pprocess.CreateIsolation(ctx, pprocess.IsolationRequest{SourceRoot: target, ParentDir: qaInvestigatorWorkspaceParent(root, qaMap.SemanticAttemptID), Destination: path, Prefix: shard.ID, ProtectedRoots: []string{root, target}, Limits: limits})
 	if err != nil {
-		return "", NewQAError(QAErrorPermissionDenied, "prepare investigator workspace", "cannot create the private per-shard target copy", err)
+		category := QAErrorPermissionDenied
+		detail := "cannot create the private per-shard target copy"
+		if errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "exceeds declared limits") {
+			category = QAErrorBudgetExhausted
+			detail = "the target exceeds the private per-shard copy limits"
+		}
+		return "", NewQAError(category, "prepare investigator workspace", detail, err)
 	}
 	capabilities := workspace.Capabilities
 	if !capabilities.PrivateWorkspace || !capabilities.ContainedCopy || !capabilities.DescendantCleanup || !capabilities.WorkspaceRemoval || !capabilities.NativeProtectedRootDeny {

@@ -288,3 +288,161 @@ func TestRequiredProjectReasoningFailsClosedBeforeSprintCreation(t *testing.T) {
 		t.Fatalf("error = %v typed=%+v", err, typed)
 	}
 }
+
+func TestMutableProjectDocumentsDoNotInvalidateAcceptedReasoning(t *testing.T) {
+	root := t.TempDir()
+	projectRoot := filepath.Join(root, "projects", "p")
+	for _, dir := range []string{"docs", "templates", "evidence", "project-reasoning/areas"} {
+		if err := os.MkdirAll(filepath.Join(projectRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	projectIndex := `## Project Reasoning Policy
+
+| Setting | Value |
+| --- | --- |
+| Mode | required |
+| Required Review Verdict | pass |
+
+## Source Documents
+
+| Document | Path | Summary |
+| --- | --- | --- |
+| PRD | projects/p/docs/PRD.md | Mutable product requirements. |
+
+## Available Project Reasoning Templates
+
+| Template | Path | Use When |
+| --- | --- | --- |
+| Lifecycle | projects/p/templates/lifecycle.md | Lifecycle decisions. |
+
+## Available Evidence Reports
+
+| Report | Path | Covers |
+| --- | --- | --- |
+| Study | projects/p/evidence/study.md | Stable evidence. |
+`
+	manifest := `## Reasoning Areas
+
+| Area | Template | Output | Required | Depends On | Why |
+| --- | --- | --- | --- | --- | --- |
+| Lifecycle | projects/p/templates/lifecycle.md | projects/p/project-reasoning/areas/lifecycle.md | yes | none | Own lifecycle decisions. |
+
+## Evidence Assignments
+
+| Area | Evidence | Relevant Questions | Why Assigned |
+| --- | --- | --- | --- |
+| Lifecycle | projects/p/evidence/study.md | Who owns state? | Stable evidence. |
+
+## Source Document Assignments
+
+| Area | Source | Authority | Why Assigned |
+| --- | --- | --- | --- |
+| Lifecycle | projects/p/docs/PRD.md | Product requirements | Current scope. |
+
+## Excluded Evidence
+
+| Source | Reason Excluded | Revisit Trigger |
+| --- | --- | --- |
+`
+	reasoning := "## Project conclusions\n\nConclusion.\n\n## Trade-Offs\n\nTrade.\n\n## Evidence\n\nEvidence.\n\n## Risks\n\nRisk.\n\n## Self-critique\n\nCritique.\n"
+	review := "# Review\n\nActionable Findings: 0\nVerdict: pass\n"
+	files := map[string]string{
+		"project-index.md":                     projectIndex,
+		"docs/PRD.md":                          "# Product requirements\n\nVersion one.\n",
+		"templates/lifecycle.md":               "# Lifecycle template\n",
+		"evidence/study.md":                    "# Stable study\n",
+		"project-reasoning/index.md":           manifest,
+		"project-reasoning/areas/lifecycle.md": reasoning,
+		"project-reasoning/reasoning.md":       reasoning,
+		"project-reasoning/review.md":          review,
+	}
+	for rel, content := range files {
+		if err := os.WriteFile(filepath.Join(projectRoot, filepath.FromSlash(rel)), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fingerprint := func(rel string) FingerprintRecord {
+		fp, err := digestFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fp.Path = rel
+		return fp
+	}
+	state := ProjectReasoningState{
+		SchemaVersion: 1,
+		Verdict:       "pass",
+		Artifacts: map[string]ReasoningArtifactState{
+			"index": {
+				Stage: ProjectReasoningIndex, Output: "projects/p/project-reasoning/index.md",
+				Inputs: []FingerprintRecord{fingerprint("projects/p/project-index.md")}, PromptSHA256: "old-prompt",
+				OutputSHA256: fingerprint("projects/p/project-reasoning/index.md").SHA256,
+			},
+			"area:Lifecycle": {
+				Stage: ProjectAreaReasoning, Output: "projects/p/project-reasoning/areas/lifecycle.md",
+				Inputs: []FingerprintRecord{
+					fingerprint("projects/p/templates/lifecycle.md"),
+					fingerprint("projects/p/project-reasoning/index.md"),
+					fingerprint("projects/p/evidence/study.md"),
+					fingerprint("projects/p/docs/PRD.md"),
+				}, PromptSHA256: "old-prompt",
+				OutputSHA256: fingerprint("projects/p/project-reasoning/areas/lifecycle.md").SHA256,
+			},
+			"reasoning": {
+				Stage: ProjectFinalReasoning, Output: "projects/p/project-reasoning/reasoning.md",
+				Inputs: []FingerprintRecord{
+					fingerprint("projects/p/project-reasoning/index.md"),
+					fingerprint("projects/p/project-reasoning/areas/lifecycle.md"),
+				}, PromptSHA256: "old-prompt",
+				OutputSHA256: fingerprint("projects/p/project-reasoning/reasoning.md").SHA256,
+			},
+			"review": {
+				Stage: ProjectReasoningReview, Output: "projects/p/project-reasoning/review.md",
+				Inputs: []FingerprintRecord{
+					fingerprint("projects/p/project-reasoning/index.md"),
+					fingerprint("projects/p/project-reasoning/reasoning.md"),
+					fingerprint("projects/p/project-reasoning/areas/lifecycle.md"),
+				}, PromptSHA256: "old-prompt",
+				OutputSHA256: fingerprint("projects/p/project-reasoning/review.md").SHA256,
+			},
+		},
+	}
+	if err := writeReasoningState(filepath.Join(projectRoot, "project-reasoning", "flow-state.json"), state); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "docs", "PRD.md"), []byte("# Product requirements\n\nVersion two.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "project-index.md"), []byte(projectIndex+"\n<!-- added planning catalog context -->\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(root)
+	status, err := service.ReasoningStatus("p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Accepted || !status.Fresh || len(status.Blockers) != 0 {
+		t.Fatalf("status after source edit = %+v", status)
+	}
+	runtime := &captureReasoningRuntime{}
+	result, err := service.WithRuntime(runtime).ReasoningFlow(context.Background(), "p", ProjectReasoningReview)
+	if err != nil {
+		t.Fatalf("flow after source edit: %v", err)
+	}
+	if len(result.Skipped) != 4 || len(result.Completed) != 0 || len(runtime.prompts) != 0 {
+		t.Fatalf("flow reran accepted reasoning: result=%+v prompts=%d", result, len(runtime.prompts))
+	}
+
+	if err := os.WriteFile(filepath.Join(projectRoot, "evidence", "study.md"), []byte("# Changed evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status, err = service.ReasoningStatus("p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Accepted || status.Fresh || !strings.Contains(strings.Join(status.Blockers, "\n"), "projects/p/evidence/study.md changed") {
+		t.Fatalf("stable evidence edit did not invalidate reasoning: %+v", status)
+	}
+}
