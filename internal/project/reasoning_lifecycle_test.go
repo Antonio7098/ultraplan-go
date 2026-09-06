@@ -215,6 +215,9 @@ func TestProjectReasoningStagesShareGovernedPromptPrefix(t *testing.T) {
 		if !strings.Contains(got, "stable policy") || !strings.Contains(got, "stable manifest") {
 			t.Fatalf("shared prefix lacks governed documents: %s", got)
 		}
+		if strings.Contains(prompt, "Do not use tools") || !strings.Contains(prompt, "available read-only tools") {
+			t.Fatalf("stage %s has incorrect tool-use contract: %s", stage, prompt)
+		}
 	}
 }
 
