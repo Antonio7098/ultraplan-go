@@ -329,6 +329,7 @@ func (s Service) ReasoningPromptWithOptions(ref string, stage ProjectReasoningSt
 		var out strings.Builder
 		for _, area := range topologicalAreas(m.Areas) {
 			inputs := []projectPromptInput{{ID: "template", Kind: "selected-template", Path: area.Template, Assignment: area.Why}}
+			missingDependencies := ""
 			for _, x := range m.Evidence {
 				if x.Area == area.Name {
 					inputs = append(inputs, projectPromptInput{ID: "evidence-" + area.Name, Kind: "assigned-evidence", Path: x.Evidence, Assignment: "Relevant questions: " + x.RelevantQuestions + ". Why assigned: " + x.Why})
@@ -342,7 +343,16 @@ func (s Service) ReasoningPromptWithOptions(ref string, stage ProjectReasoningSt
 			for _, dep := range area.DependsOn {
 				for _, candidate := range m.Areas {
 					if candidate.Name == dep {
-						inputs = append(inputs, projectPromptInput{ID: "dependency-" + dep, Kind: "dependency-output", Path: candidate.Output, Assignment: "Declared dependency for " + area.Name + "."})
+						// Prompt previews are also useful before the area run has
+						// produced dependency outputs. Keep the preview renderable and
+						// make the unavailable dependency explicit; the execution flow
+						// remains fail-closed when it actually needs that output.
+						depPath := filepath.Join(s.root, filepath.FromSlash(candidate.Output))
+						if _, statErr := os.Stat(depPath); statErr == nil {
+							inputs = append(inputs, projectPromptInput{ID: "dependency-" + dep, Kind: "dependency-output", Path: candidate.Output, Assignment: "Declared dependency for " + area.Name + "."})
+						} else {
+							missingDependencies += "\n[Dependency output not yet available for preview: " + candidate.Output + "]\n"
+						}
 					}
 				}
 			}
@@ -351,6 +361,7 @@ func (s Service) ReasoningPromptWithOptions(ref string, stage ProjectReasoningSt
 				return "", e
 			}
 			areaPrompt += "\nArea: " + area.Name + "\nTemplate: " + area.Template + "\nOutput: " + area.Output + "\n"
+			areaPrompt += missingDependencies
 			areaPrompt, e = s.appendReasoningInputPacket(areaPrompt, inputs)
 			if e != nil {
 				return "", e
