@@ -29,7 +29,7 @@ type ProjectReasoningFlowResult struct {
 	Runtime            []pruntime.Result
 }
 
-type projectPromptInput struct{ ID, Kind, Path, Assignment string }
+type projectPromptInput struct{ ID, Kind, Path, Assignment, Summary string }
 
 const (
 	projectReasoningDirectInputBudget = 512 * 1024
@@ -65,6 +65,9 @@ func (s Service) appendReasoningInputPacket(prompt string, inputs []projectPromp
 		if err != nil {
 			return "", err
 		}
+		if strings.TrimSpace(input.Summary) == "" {
+			input.Summary = reasoningArtifactSummary(string(data))
+		}
 		loaded = append(loaded, loadedProjectPromptInput{projectPromptInput: input, data: string(data), references: resolved})
 	}
 	var b strings.Builder
@@ -86,7 +89,7 @@ func (s Service) appendReasoningInputPacket(prompt string, inputs []projectPromp
 		if len(content) < len(input.data)+len(input.references) {
 			mode = "excerpt"
 		}
-		fmt.Fprintf(&b, "\n<<< BEGIN ULTRAPLAN DIRECT PROJECT INPUT >>>\nID: %s\nKind: %s\nPath: %s\nAssignment: %s\nMode: %s\nOriginal-Bytes: %d\nInjected-Bytes: %d\n\n%s", input.ID, input.Kind, normalizeCatalogPath(input.Path), strings.TrimSpace(input.Assignment), mode, len(input.data), len(content), content)
+		fmt.Fprintf(&b, "\n<<< BEGIN ULTRAPLAN DIRECT PROJECT INPUT >>>\nID: %s\nKind: %s\nPath: %s\nSummary: %s\nAssignment: %s\nMode: %s\nOriginal-Bytes: %d\nInjected-Bytes: %d\n\n%s", input.ID, input.Kind, normalizeCatalogPath(input.Path), reasoningSingleLine(input.Summary), strings.TrimSpace(input.Assignment), mode, len(input.data), len(content), content)
 		if content == "" || content[len(content)-1] != '\n' {
 			b.WriteByte('\n')
 		}
@@ -94,6 +97,45 @@ func (s Service) appendReasoningInputPacket(prompt string, inputs []projectPromp
 		remaining -= len(content)
 	}
 	return prompt + b.String(), nil
+}
+
+func reasoningSingleLine(value string) string {
+	return strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(value))
+}
+
+func reasoningArtifactSummary(content string) string {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		heading := strings.TrimSpace(strings.TrimLeft(line, "#"))
+		if !strings.EqualFold(heading, "purpose") && !strings.EqualFold(heading, "overview") {
+			continue
+		}
+		for _, candidate := range lines[i+1:] {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "" || strings.HasPrefix(candidate, "#") || strings.HasPrefix(candidate, "|") {
+				if candidate != "" {
+					break
+				}
+				continue
+			}
+			return strings.TrimSpace(strings.Join(strings.Fields(candidate), " "))
+		}
+	}
+	return ""
+}
+
+func annotateProjectCatalog(root string, idx ProjectIndex) ProjectIndex {
+	for i := range idx.Entries {
+		if strings.TrimSpace(idx.Entries[i].Description) != "" || isExternalPath(idx.Entries[i].Path) {
+			continue
+		}
+		if full, err := workspace.ResolveInside(root, normalizeCatalogPath(idx.Entries[i].Path)); err == nil {
+			if data, err := os.ReadFile(full); err == nil {
+				idx.Entries[i].Description = reasoningArtifactSummary(string(data))
+			}
+		}
+	}
+	return idx
 }
 
 func boundedProjectReasoningInput(content string, limit int) string {
@@ -254,6 +296,7 @@ func (s Service) ReasoningPromptWithOptions(ref string, stage ProjectReasoningSt
 		return "", err
 	}
 	idx, _ := ParseProjectIndex(files.IndexContent)
+	idx = annotateProjectCatalog(s.root, idx)
 	prompt, err := renderProjectReasoningPrompt(p, idx, stage)
 	if err != nil || stage == ProjectReasoningIndex {
 		if err != nil {
@@ -372,7 +415,7 @@ func projectReasoningSourceInputs(idx ProjectIndex) []projectPromptInput {
 	inputs := []projectPromptInput{}
 	for _, entry := range idx.Entries {
 		if entry.Section == SectionSourceDocuments {
-			inputs = append(inputs, projectPromptInput{ID: "project-source-" + strings.ToLower(strings.ReplaceAll(entry.Name, " ", "-")), Kind: "project-source-document", Path: entry.Path, Assignment: "Catalogued project source document: " + entry.Name})
+			inputs = append(inputs, projectPromptInput{ID: "project-source-" + strings.ToLower(strings.ReplaceAll(entry.Name, " ", "-")), Kind: "project-source-document", Path: entry.Path, Summary: entry.Description, Assignment: "Catalogued project source document: " + entry.Name})
 		}
 	}
 	return inputs
@@ -399,7 +442,7 @@ func renderProjectReasoningStagePrompt(p Project, idx ProjectIndex, stage Projec
 		fmt.Fprintf(&b, "\nReturn only the complete Markdown content for `%s/index.md` as the terminal response. Use the supplied governed context first, and use available read-only tools when you need to verify a contained workspace detail. UltraPlan owns validation and atomic promotion. Follow the injected index template exactly. Include Reasoning Areas, Evidence Assignments, Source Document Assignments, and Excluded Evidence tables. Select templates only from Available Project Reasoning Templates. Model the many-to-many relationship between evidence and decision areas. Outputs must stay under `%s/areas/`. Reject duplicate outputs and dependency cycles.\n\n## Index template\n\n%s\n\nCatalog:\n", baseRel, baseRel, strings.TrimSpace(projectReasoningIndexTemplate))
 		for _, e := range idx.Entries {
 			if e.Section == SectionProjectReasoningTemplates || e.Section == SectionAvailableEvidenceReports || e.Section == SectionSourceDocuments || e.Section == SectionActiveContractPool {
-				fmt.Fprintf(&b, "- %s | %s | %s\n", e.Section, e.Name, e.Path)
+				fmt.Fprintf(&b, "- %s | %s | %s | %s\n", e.Section, e.Name, e.Path, e.Description)
 			}
 		}
 	case ProjectAreaReasoning:
@@ -461,6 +504,7 @@ func (s Service) ReasoningFlow(ctx context.Context, ref string, to ProjectReason
 		return ProjectReasoningFlowResult{}, err
 	}
 	idx, _ := ParseProjectIndex(files.IndexContent)
+	idx = annotateProjectCatalog(s.root, idx)
 	base := filepath.Join(p.Path, "project-reasoning")
 	if err = os.MkdirAll(filepath.Join(base, "areas"), 0o755); err != nil {
 		return ProjectReasoningFlowResult{}, err
