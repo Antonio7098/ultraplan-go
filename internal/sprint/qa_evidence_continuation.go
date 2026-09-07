@@ -2,6 +2,7 @@ package sprint
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,7 +67,7 @@ func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QA
 	if err != nil {
 		return pruntime.Result{}, nil, QAInvestigatorAttempt{}, err
 	}
-	prompt := "The arbiter needs stronger executable evidence. Continue your original investigation in the same private workspace. Create or strengthen only the approved _test.go files. The failing test output must contain the reproduction_spec.predicted_failure.test_name, assertion, and exact single-line output_matcher so UltraPlan can distinguish the predicted defect from unrelated failures. Include a passing control in the same test. Do not modify product source, repository control files, generated binaries, or any other path. Do not classify the result or approve the test. UltraPlan will snapshot and execute it independently.\n\n" + string(data) + "\n"
+	prompt := "The arbiter needs stronger executable evidence. Continue your original investigation in the same private workspace. Create or strengthen only the approved _test.go files. The failing test output must contain the reproduction_spec.predicted_failure.test_name, assertion, and exact single-line output_matcher so UltraPlan can distinguish the predicted defect from unrelated failures. Include a passing control in the same test. Do not modify product source, repository control files, generated binaries, or any other path. Do not classify the result or approve the test. UltraPlan will snapshot and execute it independently. If no valid verification can be constructed, leave files unchanged and return a JSON object with status unverifiable, reason explaining what prevents verification, and required_prerequisite explaining what would make it possible. This records an unresolved blocker, never a refutation or waiver.\n\n" + string(data) + "\n"
 	if len(prompt) > qaMap.Budgets.PromptBytes {
 		return pruntime.Result{}, nil, QAInvestigatorAttempt{}, NewQAError(QAErrorBudgetExhausted, "continue investigator for evidence", "evidence continuation prompt exceeds its frozen limit", nil)
 	}
@@ -105,6 +106,10 @@ func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QA
 		return result, nil, attempt, NewQAError(QAErrorPermissionDenied, "continue investigator for evidence", attempt.StopReason, err)
 	}
 	if len(changed) == 0 {
+		if reason := qaUnverifiableEvidenceReason(result.TerminalOutput); reason != "" {
+			attempt.StopReason = "verification_unavailable: " + reason
+			return result, nil, attempt, NewQAError(QAErrorMalformedEvidence, "continue investigator for evidence", attempt.StopReason, nil)
+		}
 		correction := req
 		correction.Prompt = "No approved test file was created in the previous turn. This evidence request cannot be completed with prose alone. Use the available write or edit tool now to create exactly one approved _test.go path from the frozen reproduction spec. The failing assertion must emit the exact frozen test_name, assertion, and output_matcher, and the test must include a passing control. Do not modify any other path.\n"
 		correction.SessionID, correction.SessionAction, correction.Cache = result.SessionID, "continue", pruntime.CacheDirective{}
@@ -162,6 +167,21 @@ func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QA
 	}
 	attempt.StopReason = "investigator-authored test snapshotted"
 	return result, files, attempt, nil
+}
+
+func qaUnverifiableEvidenceReason(output string) string {
+	if len(output) > 8192 {
+		return ""
+	}
+	var response struct {
+		Status       string `json:"status"`
+		Reason       string `json:"reason"`
+		Prerequisite string `json:"required_prerequisite"`
+	}
+	if json.Unmarshal([]byte(output), &response) != nil || response.Status != "unverifiable" || strings.TrimSpace(response.Reason) == "" || strings.TrimSpace(response.Prerequisite) == "" {
+		return ""
+	}
+	return safeReportText(response.Reason + ". Required prerequisite: " + response.Prerequisite)
 }
 
 func addQAUsageSummaries(left, right QAUsageSummary) QAUsageSummary {

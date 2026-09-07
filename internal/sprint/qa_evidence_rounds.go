@@ -14,53 +14,91 @@ import (
 
 var qaTestNameCleaner = regexp.MustCompile(`[^A-Za-z0-9_]`)
 
-func (s Service) strengthenQARequestedEvidence(ctx context.Context, qaMap QAMap, target string, shards []QAShard, requests []QAArbiterEvidenceRequest, rounds map[string]int, seen map[string]string) ([]QAShard, []QATestPublication, bool) {
+func (s Service) strengthenQARequestedEvidence(ctx context.Context, qaMap QAMap, target string, shards []QAShard, requests []QAArbiterEvidenceRequest, active map[string]bool, retained []QATestPublication, checkpoint func([]QAShard, []QATestPublication, []QAArbiterEvidenceRequest) error) ([]QAShard, []QATestPublication, bool, error) {
 	byShard := make(map[string]int, len(shards))
 	for i := range shards {
 		byShard[shards[i].ID] = i
 	}
 	var publications []QATestPublication
 	progressed := false
-	for _, request := range requests {
+	rounds := qaEvidenceRoundsUsed(shards, requests)
+	persist := func() error {
+		return checkpoint(shards, append(append([]QATestPublication(nil), retained...), publications...), requests)
+	}
+	for requestIndex := range requests {
+		request := &requests[requestIndex]
+		if !active[request.ID] {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return shards, publications, progressed, err
+		}
+		previousTest := qaLatestRequestTest(retained, *request)
+		if previousTest != nil && qaUsableReproduction(qaMap, *previousTest) {
+			request.Status, request.ReasonCode = "evidence_recorded", ""
+			request.TestBundleID = previousTest.Bundle.ID
+			request.LatestRunID = previousTest.Runs[len(previousTest.Runs)-1].ID
+			continue
+		}
 		index, ok := byShard[request.OriginShardID]
 		if !ok {
+			stopQAEvidenceRequest(request, "origin_shard_unavailable")
 			continue
 		}
 		shard := &shards[index]
 		if len(shard.Attempts) == 0 {
-			markQARequestInconclusive(shard, request, "original_session_unavailable")
+			stopQAEvidenceRequest(request, "original_session_unavailable")
 			continue
 		}
 		if rounds[shard.ID] >= qaMap.Budgets.EvidenceRoundsPerShard {
-			markQARequestInconclusive(shard, request, "evidence_round_budget_exhausted")
+			stopQAEvidenceRequest(request, "evidence_round_budget_exhausted")
 			continue
 		}
 		if qaTheoryTestBudgetExhausted(*shard, request.TheoryIDs, qaMap.Budgets.TestsPerTheory) {
-			markQARequestInconclusive(shard, request, "tests_per_theory_budget_exhausted")
+			stopQAEvidenceRequest(request, "tests_per_theory_budget_exhausted")
 			continue
 		}
 		evidenceBefore := qaShardEvidenceFingerprint(*shard)
-		if seen[request.ID] == evidenceBefore {
-			markQARequestInconclusive(shard, request, "repeated_evidence_request_without_new_evidence")
+		retryPrerequisite := request.ReasonCode == "original_session_unavailable" || request.ReasonCode == "investigator_workspace_unavailable" || request.ReasonCode == "reproduction_workspace_unavailable"
+		if request.Attempts > 0 && request.EvidenceFingerprint == evidenceBefore && request.Status != "running" && !retryPrerequisite {
+			stopQAEvidenceRequest(request, "repeated_evidence_request_without_new_evidence")
 			continue
 		}
-		seen[request.ID] = evidenceBefore
 		rounds[shard.ID]++
-		spec, err := buildQARequestedReproductionSpec(qaMap, *shard, request, target, s.now().UTC())
+		request.Attempts++
+		request.EvidenceRound, request.EvidenceFingerprint = rounds[shard.ID], evidenceBefore
+		request.Status, request.ReasonCode = "running", ""
+		// Reserve the attempt before any model call. Resume cannot reset budgets
+		// when a process dies during authoring or execution.
+		if err := persist(); err != nil {
+			return shards, publications, progressed, err
+		}
+		spec, err := buildQARequestedReproductionSpec(qaMap, *shard, *request, target, s.now().UTC())
 		if err != nil {
-			markQARequestInconclusive(shard, request, "reproduction_spec_unavailable")
+			stopQAEvidenceRequest(request, "reproduction_spec_unavailable")
 			continue
+		}
+		if previousTest != nil {
+			spec = previousTest.Spec
 		}
 		workspace := qaInvestigatorWorkspacePath(s.root, qaMap.SemanticAttemptID, shard.ID)
+		if err := restoreQAInvestigatorEvidenceWorkspace(ctx, s.root, target, qaMap, *shard, retained); err != nil {
+			stopQAEvidenceRequest(request, "investigator_workspace_unavailable")
+			continue
+		}
 		initial, err := s.QAInvestigatorRequest(qaMap, *shard, workspace)
 		if err != nil {
-			markQARequestInconclusive(shard, request, "original_session_unavailable")
+			stopQAEvidenceRequest(request, "original_session_unavailable")
 			continue
 		}
 		original := shard.Attempts[0]
 		initial.Provider, initial.Model = original.Provider, original.Model
 		initial.Metadata["variant"], initial.RuntimeStorePath = original.Variant, original.RuntimeStoreRef
-		result, files, attempt, continueErr := s.continueQAInvestigatorForEvidence(ctx, qaMap, *shard, initial, original, request, spec, nil, rounds[shard.ID])
+		var previousRun *QAReproductionRun
+		if previousTest != nil {
+			previousRun = &previousTest.Runs[len(previousTest.Runs)-1]
+		}
+		result, files, attempt, continueErr := s.continueQAInvestigatorForEvidence(ctx, qaMap, *shard, initial, original, *request, spec, previousRun, rounds[shard.ID])
 		if attempt.Number > 0 {
 			shard.Attempts = append(shard.Attempts, attempt)
 		}
@@ -68,32 +106,45 @@ func (s Service) strengthenQARequestedEvidence(ctx context.Context, qaMap QAMap,
 			reason := "evidence_authoring_inconclusive"
 			if strings.Contains(continueErr.Error(), "original_session_unavailable") {
 				reason = "original_session_unavailable"
+			} else if strings.Contains(attempt.StopReason, "verification_unavailable:") {
+				reason = "verification_unavailable"
 			}
-			markQARequestInconclusive(shard, request, reason)
+			stopQAEvidenceRequest(request, reason)
+			request.NextAction += " " + safeReportText(safeError(continueErr))
 			continue
 		}
 		_ = result
 		bundle, err := BuildQATestBundle(qaMap.Project, qaMap.Sprint, spec, files, "", qaMap.Budgets)
 		if err != nil {
-			markQARequestInconclusive(shard, request, "test_bundle_invalid")
+			stopQAEvidenceRequest(request, "test_bundle_invalid")
 			continue
 		}
 		workspaceParent, err := os.MkdirTemp("", "ultraplan-qa-authored-test-")
 		if err != nil {
-			markQARequestInconclusive(shard, request, "reproduction_workspace_unavailable")
+			stopQAEvidenceRequest(request, "reproduction_workspace_unavailable")
 			continue
 		}
 		run, runErr := RunQAReproduction(ctx, QAReproductionRequest{Project: qaMap.Project, Sprint: qaMap.Sprint, TargetRoot: target, WorkspaceParent: workspaceParent, ProtectedRoots: []string{s.root, target}, Spec: spec, Bundle: bundle, Budgets: qaMap.Budgets, ExpectedTargetID: spec.ImplementationFingerprint, Now: s.now})
 		_ = os.RemoveAll(workspaceParent)
 		if runErr != nil {
-			markQARequestInconclusive(shard, request, "reproduction_run_unavailable")
+			stopQAEvidenceRequest(request, "reproduction_run_unavailable")
 			continue
 		}
 		publication := QATestPublication{Spec: spec, Bundle: bundle, AuthoringAttempts: []QAInvestigatorAttempt{attempt}, Runs: []QAReproductionRun{run}}
 		publications = append(publications, publication)
-		progressed = applyQAReproductionToTheories(shard, request, bundle, run) || progressed
+		request.TestBundleID, request.LatestRunID = bundle.ID, run.ID
+		if run.Outcome == QAEvidenceFail || run.Outcome == QAEvidencePass {
+			request.Status, request.ReasonCode = "evidence_recorded", ""
+			request.NextAction = "Return the recorded test and observations to arbitration."
+		} else {
+			stopQAEvidenceRequest(request, run.ReasonCode)
+		}
+		progressed = applyQAReproductionToTheories(shard, *request, bundle, run) || progressed
+		if err := persist(); err != nil {
+			return shards, publications, progressed, err
+		}
 	}
-	return shards, publications, progressed
+	return shards, publications, progressed, persist()
 }
 
 func buildQARequestedReproductionSpec(qaMap QAMap, shard QAShard, request QAArbiterEvidenceRequest, target string, now time.Time) (QAReproductionSpec, error) {
@@ -129,24 +180,23 @@ func buildQARequestedReproductionSpec(qaMap QAMap, shard QAShard, request QAArbi
 	// stable marker prevents punctuation, quoting, and truncation differences
 	// from turning a reproduced defect into a signature mismatch.
 	matcher := "ULTRAPLAN_QA_PREDICTED_FAILURE:" + testName
-	command := QACheckDescriptor{ID: "investigator-test-" + strings.ToLower(suffix), Executable: executable, Args: []string{"test", ".", "-run", "^" + testName + "$", "-count=1"}, Environment: []string{"PATH"}, WorkingDirectory: filepath.ToSlash(filepath.Dir(source)), Timeout: qaMap.Budgets.CommandTimeout, OutputLimit: qaMap.Budgets.CommandOutputBytes}
+	command := QACheckDescriptor{ID: "investigator-test-" + strings.ToLower(suffix), Executable: executable, Args: []string{"test", ".", "-v", "-run", "^" + testName + "$", "-count=1"}, Environment: []string{"PATH"}, WorkingDirectory: filepath.ToSlash(filepath.Dir(source)), Timeout: qaMap.Budgets.CommandTimeout, OutputLimit: qaMap.Budgets.CommandOutputBytes}
 	command.Fingerprint, err = fingerprintQAValue(command)
 	if err != nil {
 		return QAReproductionSpec{}, err
 	}
-	spec := QAReproductionSpec{AttemptID: qaMap.SemanticAttemptID, ShardID: shard.ID, TheoryIDs: append([]string(nil), request.TheoryIDs...), Claim: request.Gap, Preconditions: []string{request.ControlRequirement}, ExpectedBehavior: request.RequestedEvidence, PredictedFailure: QAFailureSignature{TestName: testName, Assertion: assertion, ExitClass: "nonzero", OutputMatcher: matcher}, InconclusiveConditions: []string{"compile error", "unrelated panic", "timeout", "truncated output", "infrastructure error", "mismatched assertion"}, ApprovedTestPaths: []string{testPath}, Command: command, ImplementationFingerprint: qaMap.ImplementationFingerprint}
-	return FreezeQAReproductionSpec(qaMap.Project, qaMap.Sprint, spec, qaMap.Budgets, now)
-}
-
-func markQARequestInconclusive(shard *QAShard, request QAArbiterEvidenceRequest, reason string) {
-	wanted := stringSet(request.TheoryIDs)
-	for i := range shard.Theories {
-		if wanted[shard.Theories[i].ID] {
-			shard.Theories[i].Outcome = QATheoryInconclusive
-			shard.Theories[i].OutcomeReason = reason
-			shard.Theories[i].AttemptHistory = append([]QAInvestigatorAttempt(nil), shard.Attempts...)
+	var claims []string
+	for _, theory := range shard.Theories {
+		if containsQAString(request.TheoryIDs, theory.ID) && strings.TrimSpace(theory.Claim) != "" {
+			claims = append(claims, theory.Claim)
 		}
 	}
+	claim := strings.Join(claims, "; ")
+	if claim == "" {
+		claim = request.Gap
+	}
+	spec := QAReproductionSpec{AttemptID: qaMap.SemanticAttemptID, ShardID: shard.ID, EvidenceRequestID: request.ID, TheoryIDs: append([]string(nil), request.TheoryIDs...), Claim: claim, Preconditions: []string{request.ControlRequirement}, ExpectedBehavior: request.RequiredObservation, PredictedFailure: QAFailureSignature{TestName: testName, Assertion: assertion, ExitClass: "nonzero", OutputMatcher: matcher}, InconclusiveConditions: []string{"compile error", "unrelated panic", "timeout", "truncated output", "infrastructure error", "mismatched assertion"}, ApprovedTestPaths: []string{testPath}, Command: command, ImplementationFingerprint: qaMap.ImplementationFingerprint}
+	return FreezeQAReproductionSpec(qaMap.Project, qaMap.Sprint, spec, qaMap.Budgets, now)
 }
 
 func applyQAReproductionToTheories(shard *QAShard, request QAArbiterEvidenceRequest, bundle QATestBundle, run QAReproductionRun) bool {
@@ -169,7 +219,14 @@ func applyQAReproductionToTheories(shard *QAShard, request QAArbiterEvidenceRequ
 			continue
 		}
 		newEvidence = true
-		theory.Evidence = append(theory.Evidence, QAEvidenceSummary{Kind: "investigator_test", Summary: run.ReasonCode, Paths: testBundlePaths(bundle), CheckID: bundle.ID, OutputDigest: run.Result.StdoutDigest})
+		// Give the arbiter observations and actual assertions, not just the
+		// classifier's verdict. Existing prompt budgets bound the full packet.
+		summary := "Request " + request.ID + ": " + run.ReasonCode + "\nRequired observation: " + request.RequiredObservation
+		for _, file := range bundle.Files {
+			summary += "\nTest " + file.Path + ":\n" + file.Content
+		}
+		summary += "\nObserved stdout:\n" + run.Result.Stdout + "\nObserved stderr:\n" + run.Result.Stderr
+		theory.Evidence = append(theory.Evidence, QAEvidenceSummary{Kind: "investigator_test", Summary: summary, Paths: testBundlePaths(bundle), CheckID: bundle.ID, OutputDigest: run.Result.StdoutDigest})
 		theory.AttemptHistory = append([]QAInvestigatorAttempt(nil), shard.Attempts...)
 		switch run.Outcome {
 		case QAEvidenceFail:
@@ -238,32 +295,63 @@ func appendUniqueQAArbiterEvidenceRequests(current, next []QAArbiterEvidenceRequ
 }
 
 func finalizeQAArbiterEvidenceRequests(requests []QAArbiterEvidenceRequest, tests []QATestPublication, shards []QAShard) []QAArbiterEvidenceRequest {
+	requests = append([]QAArbiterEvidenceRequest(nil), requests...)
+	outcomes := map[string]QATheoryOutcome{}
+	for _, shard := range shards {
+		for _, theory := range shard.Theories {
+			outcomes[theory.ID] = theory.Outcome
+		}
+	}
 	for i := range requests {
 		request := &requests[i]
-		request.Status, request.NextAction = "pending", "Continue the original investigator session."
-		for _, test := range tests {
-			if test.Spec.ShardID != request.OriginShardID || sharedQAStrings(test.Spec.TheoryIDs, request.TheoryIDs) != len(request.TheoryIDs) || len(test.Runs) == 0 {
-				continue
+		resolved := len(request.TheoryIDs) > 0
+		for _, id := range request.TheoryIDs {
+			switch outcomes[id] {
+			case QATheoryRefuted, QATheoryInvalid, QATheoryNotApplicable:
+			default:
+				resolved = false
 			}
-			request.Status = "evidence_recorded"
-			request.EvidenceRound = len(test.AuthoringAttempts)
-			request.TestBundleID = test.Bundle.ID
-			request.LatestRunID = test.Runs[len(test.Runs)-1].ID
-			request.NextAction = "Inspect the retained reproduction run and arbitration outcome."
 		}
-		if request.Status != "pending" {
+		if resolved {
+			request.Status, request.ReasonCode, request.NextAction = "superseded", "theory_dismissed_by_arbitration", "Inspect the retained arbitration decision."
 			continue
 		}
-		for _, shard := range shards {
-			if shard.ID != request.OriginShardID {
-				continue
+		if test := qaLatestRequestTest(tests, *request); test != nil {
+			run := test.Runs[len(test.Runs)-1]
+			request.TestBundleID, request.LatestRunID = test.Bundle.ID, run.ID
+			if ValidateQAReproductionRun(run, test.Spec, test.Bundle) == nil && run.TargetIdentity == test.Spec.ImplementationFingerprint && (run.Outcome == QAEvidenceFail || run.Outcome == QAEvidencePass) {
+				request.Status, request.ReasonCode = "evidence_recorded", ""
+				request.NextAction = "Inspect the retained reproduction run and arbitration outcome."
+			} else if request.ReasonCode == "" {
+				stopQAEvidenceRequest(request, "requested_observation_unresolved")
 			}
-			wanted := stringSet(request.TheoryIDs)
-			for _, theory := range shard.Theories {
-				if wanted[theory.ID] && strings.Contains(theory.OutcomeReason, "unavailable") || wanted[theory.ID] && strings.Contains(theory.OutcomeReason, "exhausted") || wanted[theory.ID] && strings.Contains(theory.OutcomeReason, "repeated_evidence_request") {
-					request.Status, request.NextAction = "inconclusive", theory.OutcomeReason
-				}
+		} else if request.Status == "evidence_recorded" {
+			stopQAEvidenceRequest(request, "request_evidence_binding_missing")
+		} else if request.Status == "" {
+			request.Status, request.NextAction = "pending", "Continue the original investigator session."
+		}
+	}
+	byID := map[string]int{}
+	for i, request := range requests {
+		byID[request.ID] = i
+	}
+	// Follow explicit forward lineage only. The exact request binding above
+	// remains necessary for the replacement itself to be satisfied.
+	for i := range requests {
+		seen := map[string]bool{requests[i].ID: true}
+		next := requests[i].SupersededBy
+		for next != "" && !seen[next] {
+			seen[next] = true
+			index, ok := byID[next]
+			if !ok {
+				break
 			}
+			if requests[index].Status == "evidence_recorded" || requests[index].Status == "superseded" {
+				requests[i].Status, requests[i].ReasonCode = "superseded", "replaced_by_answered_evidence_request"
+				requests[i].NextAction = "Inspect replacement evidence request " + requests[i].SupersededBy + "."
+				break
+			}
+			next = requests[index].SupersededBy
 		}
 	}
 	return requests

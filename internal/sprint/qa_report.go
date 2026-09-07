@@ -20,6 +20,8 @@ func RenderQAReport(project, sprintSlug, inputFingerprint string, evidence []QAE
 	sort.Slice(issues, func(i, j int) bool { return issues[i].ID < issues[j].ID })
 	rejected := append([]QARejectedEvidence(nil), adjudication.Rejected...)
 	sort.Slice(rejected, func(i, j int) bool { return rejected[i].EvidenceID < rejected[j].EvidenceID })
+	unpromoted := append([]QAUnpromotedIssue(nil), adjudication.Unpromoted...)
+	sort.Slice(unpromoted, func(i, j int) bool { return unpromoted[i].CandidateID < unpromoted[j].CandidateID })
 	var b bytes.Buffer
 	fmt.Fprintln(&b, "# QA")
 	fmt.Fprintln(&b)
@@ -34,6 +36,11 @@ func RenderQAReport(project, sprintSlug, inputFingerprint string, evidence []QAE
 		for _, record := range rejected {
 			fmt.Fprintf(&b, "- `%s` `%s`: %s\n", record.EvidenceID, safeReportText(record.Code), safeReportText(record.Detail))
 		}
+	}
+	fmt.Fprintln(&b, "\n## Issue candidates")
+	fmt.Fprintf(&b, "\nTotal: `%d`\nPromoted: `%d`\nUnpromoted: `%d`\n", len(issues)+len(unpromoted), len(issues), len(unpromoted))
+	for _, candidate := range unpromoted {
+		fmt.Fprintf(&b, "- `%s` [%s] %s at `%s`, outcome `unpromoted`, reason `%s`: %s\n", candidate.CandidateID, candidate.Severity, safeReportText(candidate.Title), safeReportText(candidate.Location), safeReportText(candidate.ReasonCode), safeReportText(candidate.Detail))
 	}
 	fmt.Fprintln(&b, "\n## Promoted issues")
 	if len(issues) == 0 {

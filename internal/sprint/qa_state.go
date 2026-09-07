@@ -970,7 +970,11 @@ func (store QAStore) publishEvidence(bundle *QAEvidencePublication, state *QASta
 			return err
 		}
 		state.Issues = &QAArtifactRef{Path: QAIssuesRelPath(store.sprint, state.CurrentAttemptID), Digest: issuesDigest}
-		state.RejectedCount, state.IssueCount = len(bundle.Adjudication.Rejected), len(bundle.Adjudication.Issues)
+		state.RejectedCount = len(bundle.Adjudication.Rejected)
+		state.UnpromotedCount = len(bundle.Adjudication.Unpromoted)
+		state.IssueCount = len(bundle.Adjudication.Issues)
+		state.CandidateCount = state.UnpromotedCount + state.IssueCount
+		state.RegressionCandidates = 0
 		for _, issue := range bundle.Adjudication.Issues {
 			if issue.RegressionCandidate {
 				state.RegressionCandidates++
@@ -1046,8 +1050,27 @@ func validateQAAdjudication(value QAAdjudication, attemptID string, budgets QABu
 	if value.SchemaVersion != QAEvidenceSchemaVersion || !validQAV2ID(value.ID, "adjudication") || value.AttemptID != attemptID || !validFingerprint(value.MapFingerprint) || value.CompletedAt.IsZero() {
 		return fmt.Errorf("invalid QA adjudication schema or identity")
 	}
-	if len(value.AcceptedIDs)+len(value.Rejected) > budgets.EvidenceRecords || len(value.Issues) > budgets.Issues {
+	if len(value.AcceptedIDs)+len(value.Rejected) > budgets.EvidenceRecords || len(value.Issues)+len(value.Unpromoted) > budgets.Issues {
 		return fmt.Errorf("QA adjudication exceeds frozen limits")
+	}
+	if value.Replay != nil && (!validQAV2ID(value.Replay.SourceAdjudicationID, "adjudication") || !validQAV2ID(value.Replay.SourceAssessmentID, "assessment") || !validFingerprint(value.Replay.SourcePolicyFingerprint) || !validFingerprint(value.Replay.AppliedPolicyFingerprint) || strings.TrimSpace(value.Replay.Reason) == "") {
+		return fmt.Errorf("invalid QA adjudication replay provenance")
+	}
+	seenCandidates := make(map[string]struct{}, len(value.Unpromoted))
+	for _, candidate := range value.Unpromoted {
+		validCandidateID := validQAArbiterIssueID(candidate.CandidateID) || validQAV2ID(candidate.CandidateID, "candidate")
+		if !validCandidateID || strings.TrimSpace(candidate.Title) == "" || strings.TrimSpace(candidate.IssueClass) == "" || strings.TrimSpace(candidate.Location) == "" || strings.TrimSpace(candidate.ReasonCode) == "" || strings.TrimSpace(candidate.Detail) == "" {
+			return fmt.Errorf("invalid unpromoted issue candidate")
+		}
+		if _, duplicate := seenCandidates[candidate.CandidateID]; duplicate {
+			return fmt.Errorf("duplicate unpromoted issue candidate")
+		}
+		seenCandidates[candidate.CandidateID] = struct{}{}
+		for _, theoryID := range candidate.TheoryIDs {
+			if !validQAIDKind(theoryID, "theory") {
+				return fmt.Errorf("unpromoted issue candidate references an invalid theory")
+			}
+		}
 	}
 	rootGroups := make(map[string]struct{}, len(value.Groups))
 	for _, group := range value.Groups {
@@ -1093,6 +1116,10 @@ func validateQAAdjudication(value QAAdjudication, attemptID string, budgets QABu
 func validateQAAssessment(value QAAssessmentRecord, attemptID string) error {
 	if value.SchemaVersion != QAEvidenceSchemaVersion || !validQAV2ID(value.ID, "assessment") || value.AttemptID != attemptID || value.CompletedAt.IsZero() || strings.TrimSpace(value.NextAction) == "" {
 		return fmt.Errorf("invalid QA assessment schema or identity")
+	}
+	countsDisagree := value.CandidateTotal > 0 && value.CandidateTotal != value.UnpromotedTotal+value.IssueTotal
+	if value.EvidenceTotal < 0 || value.RejectedTotal < 0 || value.CandidateTotal < 0 || value.UnpromotedTotal < 0 || value.IssueTotal < 0 || countsDisagree {
+		return fmt.Errorf("invalid QA assessment counts")
 	}
 	switch value.Assessment {
 	case AssessmentIncomplete, AssessmentBlocked, AssessmentFail, AssessmentNotApplicable, AssessmentPassWithFindings, AssessmentPass:
@@ -1250,7 +1277,7 @@ func qaFlowSummary(state QAState, stateDigest string, sprint Sprint) *QAFlowSumm
 		Cancellation: state.Cancellation, StatePath: QAVerificationStateRelPath(sprint),
 		StateDigest: stateDigest, CurrentAttemptID: state.CurrentAttemptID, NextAction: state.NextAction,
 		Assessment: state.CanonicalAssessment, EvidenceCount: state.EvidenceCount, RejectedCount: state.RejectedCount,
-		IssueCount: state.IssueCount,
+		CandidateCount: state.CandidateCount, UnpromotedCount: state.UnpromotedCount, IssueCount: state.IssueCount,
 	}
 	if state.CanonicalReport != nil {
 		out.ReportPath, out.ReportDigest = state.CanonicalReport.Path, state.CanonicalReport.Digest

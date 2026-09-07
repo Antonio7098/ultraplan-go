@@ -773,12 +773,11 @@ func TestParseSprintQAArgsUsesOnlyPublicBoundedControls(t *testing.T) {
 		yes    bool
 	}{
 		{args: []string{"--dry-run", "--json"}, action: "map"},
-		{args: []string{"--dry-run", "--suite", "smoke", "--json"}, action: "map", suite: "smoke"},
-		{args: []string{"--suite", "smoke", "--yes"}, action: "run", suite: "smoke", yes: true},
 		{args: []string{"--shard", "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa", "--json"}, action: "run", shard: "qa-v1-shard-aaaaaaaaaaaaaaaaaaaaaaaa"},
 		{args: []string{"resume", "--shard", "qa-v1-shard-bbbbbbbbbbbbbbbbbbbbbbbb"}, action: "resume", shard: "qa-v1-shard-bbbbbbbbbbbbbbbbbbbbbbbb"},
 		{args: []string{"status"}, action: "status"},
 		{args: []string{"recover"}, action: "recover"},
+		{args: []string{"replay-adjudication", "--json"}, action: "replay-adjudication"},
 		{args: []string{"cancel", "--run", "run_01JTEST0000000000000000000"}, action: "cancel", runID: "run_01JTEST0000000000000000000"},
 	} {
 		command, err := parseSprintQAArgs(test.args)
@@ -786,12 +785,12 @@ func TestParseSprintQAArgsUsesOnlyPublicBoundedControls(t *testing.T) {
 			t.Fatalf("args=%v command=%+v err=%v", test.args, command, err)
 		}
 	}
-	for _, args := range [][]string{{"resume", "--dry-run"}, {"resume", "--suite", "smoke"}, {"status", "--shard", "id"}, {"status", "--suite", "smoke"}, {"--suite", "other"}, {"--suite", "smoke"}, {"--suite", "smoke", "--yes", "--shard", "id"}, {"cancel"}, {"cancel", "--run", "run-1", "--suite", "smoke"}, {"--model", "openai/qa"}, {"--budget", "99"}, {"--command", "go test"}, {"--path", "internal"}, {"--restart"}} {
+	for _, args := range [][]string{{"resume", "--dry-run"}, {"--dry-run", "--suite", "smoke"}, {"resume", "--suite", "smoke"}, {"status", "--shard", "id"}, {"status", "--suite", "smoke"}, {"--suite", "other"}, {"--suite", "smoke"}, {"--suite", "smoke", "--yes", "--shard", "id"}, {"cancel"}, {"cancel", "--run", "run-1", "--suite", "smoke"}, {"--model", "openai/qa"}, {"--budget", "99"}, {"--command", "go test"}, {"--path", "internal"}, {"--restart"}} {
 		if _, err := parseSprintQAArgs(args); err == nil {
 			t.Fatalf("unsafe or unsupported args accepted: %v", args)
 		}
 	}
-	for _, want := range []string{"conformance-review", "--suite smoke", "qa resume", "qa cancel", "disposable copies"} {
+	for _, want := range []string{"conformance-review", "qa resume", "qa cancel", "qa replay-adjudication", "disposable copies"} {
 		if !strings.Contains(sprintHelp(), want) {
 			t.Fatalf("help missing %q", want)
 		}

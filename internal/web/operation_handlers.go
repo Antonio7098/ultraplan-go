@@ -720,6 +720,8 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 		req.Task = options.Shard
 	case "qa-recover":
 		req.Kind = app.OperationQARecover
+	case "qa-replay-adjudication":
+		req.Kind = app.OperationQAReplayAdjudication
 	case "repair-prepare":
 		req.Kind = app.OperationRepairPrepare
 		req.RepairMode = "manual"

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
@@ -18,6 +19,65 @@ func qaInvestigatorWorkspaceParent(root, attemptID string) string {
 
 func qaInvestigatorWorkspacePath(root, attemptID, shardID string) string {
 	return filepath.Join(qaInvestigatorWorkspaceParent(root, attemptID), shardID)
+}
+
+// Restore a cleaned workspace at the same path for a retained session. Only
+// the frozen target and validated immutable test bundles may be materialized.
+func restoreQAInvestigatorEvidenceWorkspace(ctx context.Context, root, target string, qaMap QAMap, shard QAShard, tests []QATestPublication) error {
+	path := qaInvestigatorWorkspacePath(root, qaMap.SemanticAttemptID, shard.ID)
+	if info, err := os.Lstat(path); err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("unsafe investigator workspace")
+		}
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	identity, err := targetIdentity(target)
+	if err != nil || identity != qaMap.ImplementationFingerprint {
+		return NewQAError(QAErrorStaleInput, "restore investigator workspace", "target no longer matches the frozen implementation", err)
+	}
+	if _, err := prepareQAInvestigatorWorkspace(ctx, root, target, qaMap, shard); err != nil {
+		return err
+	}
+	ordered := append([]QATestPublication(nil), tests...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].Spec.FrozenAt.Before(ordered[j].Spec.FrozenAt)
+	})
+	for _, test := range ordered {
+		if test.Spec.ShardID != shard.ID || test.Spec.AttemptID != qaMap.SemanticAttemptID {
+			continue
+		}
+		if test.Spec.ImplementationFingerprint != qaMap.ImplementationFingerprint {
+			return errors.New("stale retained investigator test")
+		}
+		if err := ValidateQAReproductionSpec(test.Spec, qaMap.Budgets); err != nil {
+			return err
+		}
+		if err := ValidateQATestBundle(test.Bundle, test.Spec, qaMap.Budgets); err != nil {
+			return err
+		}
+		for _, file := range test.Bundle.Files {
+			full := filepath.Join(path, filepath.FromSlash(file.Path))
+			for parent := full; parent != path; parent = filepath.Dir(parent) {
+				if !inside(path, parent) {
+					return errors.New("retained test escapes investigator workspace")
+				}
+				if info, err := os.Lstat(parent); err == nil && info.Mode()&os.ModeSymlink != 0 {
+					return errors.New("retained test path contains a symlink")
+				} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return err
+				}
+			}
+			if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+				return err
+			}
+			if err := os.WriteFile(full, []byte(file.Content), 0o600); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func prepareQAInvestigatorWorkspace(ctx context.Context, root, target string, qaMap QAMap, shard QAShard) (string, error) {

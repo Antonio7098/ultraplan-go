@@ -8,12 +8,15 @@ import (
 )
 
 type QAIssueCandidate struct {
+	ID                  string
+	TheoryIDs           []string
 	Claim               string
 	Title               string
 	IssueClass          string
 	Severity            string
 	Location            string
 	EvidenceIDs         []string
+	EvidenceByTheory    map[string][]string
 	RepairEligible      bool
 	RegressionCandidate bool
 }
@@ -101,20 +104,80 @@ func AdjudicateQA(req QAAdjudicationRequest) (QAAdjudication, error) {
 	}
 	groups := map[string]*QARootCauseGroup{}
 	issueAggregates := map[string]*issueAggregate{}
-	for _, candidate := range req.Candidates {
+	unpromoted := make([]QAUnpromotedIssue, 0)
+	for candidateIndex, candidate := range req.Candidates {
+		candidate.TheoryIDs = normalizeQAStrings(candidate.TheoryIDs)
 		candidate.EvidenceIDs = normalizeQAStrings(candidate.EvidenceIDs)
-		if strings.TrimSpace(candidate.Claim) == "" || strings.TrimSpace(candidate.Title) == "" || strings.TrimSpace(candidate.IssueClass) == "" || len(candidate.EvidenceIDs) == 0 {
+		candidateID := strings.TrimSpace(candidate.ID)
+		if !validQAArbiterIssueID(candidateID) && !validQAV2ID(candidateID, "candidate") {
+			var err error
+			candidateID, err = NewQAV2ID("candidate", req.Project, req.Sprint, req.AttemptID, struct {
+				Index                  int
+				Claim, Class, Location string
+				TheoryIDs, EvidenceIDs []string
+			}{candidateIndex, candidate.Claim, candidate.IssueClass, candidate.Location, candidate.TheoryIDs, candidate.EvidenceIDs})
+			if err != nil {
+				return QAAdjudication{}, err
+			}
+		}
+		baseDisposition := QAUnpromotedIssue{CandidateID: candidateID, TheoryIDs: candidate.TheoryIDs, Title: strings.TrimSpace(candidate.Title), IssueClass: strings.TrimSpace(candidate.IssueClass), Severity: normalizeQASeverity(candidate.Severity), Location: normalizeIssueLocation(candidate.Location), EvidenceIDs: candidate.EvidenceIDs}
+		if strings.TrimSpace(candidate.Claim) == "" || baseDisposition.Title == "" || baseDisposition.IssueClass == "" || baseDisposition.Location == "" {
+			baseDisposition.ReasonCode = "candidate_invalid"
+			baseDisposition.Detail = "the reconciled candidate is incomplete"
+			unpromoted = append(unpromoted, baseDisposition)
+			continue
+		}
+		if len(candidate.EvidenceIDs) == 0 {
+			baseDisposition.ReasonCode = "promotion_evidence_missing"
+			baseDisposition.Detail = "no accepted failing evidence was linked to this candidate"
+			unpromoted = append(unpromoted, baseDisposition)
 			continue
 		}
 		admitted := true
+		reasonCode := "promotion_evidence_not_accepted"
+		detail := "linked evidence was not accepted"
 		for _, evidenceID := range candidate.EvidenceIDs {
 			record, ok := accepted[evidenceID]
-			if !ok || record.Outcome != QAEvidenceFail {
+			if !ok {
 				admitted = false
+				break
+			}
+			if record.Outcome != QAEvidenceFail {
+				admitted = false
+				reasonCode = "promotion_failure_not_reproduced"
+				detail = "linked evidence did not reproduce the candidate failure"
 				break
 			}
 		}
 		if !admitted {
+			baseDisposition.ReasonCode = reasonCode
+			baseDisposition.Detail = detail
+			unpromoted = append(unpromoted, baseDisposition)
+			continue
+		}
+		for _, theoryID := range candidate.TheoryIDs {
+			covered := normalizeQAStrings(candidate.EvidenceByTheory[theoryID])
+			if len(covered) == 0 {
+				admitted = false
+				baseDisposition.ReasonCode = "promotion_theory_coverage_missing"
+				baseDisposition.Detail = fmt.Sprintf("confirmed theory %s has no linked failing evidence", theoryID)
+				break
+			}
+			for _, evidenceID := range covered {
+				record, ok := accepted[evidenceID]
+				if !ok || record.Outcome != QAEvidenceFail || !containsQAString(candidate.EvidenceIDs, evidenceID) {
+					admitted = false
+					baseDisposition.ReasonCode = "promotion_theory_coverage_invalid"
+					baseDisposition.Detail = fmt.Sprintf("confirmed theory %s is not covered by accepted failing evidence", theoryID)
+					break
+				}
+			}
+			if !admitted {
+				break
+			}
+		}
+		if !admitted {
+			unpromoted = append(unpromoted, baseDisposition)
 			continue
 		}
 		location := normalizeIssueLocation(candidate.Location)
@@ -185,6 +248,7 @@ func AdjudicateQA(req QAAdjudicationRequest) (QAAdjudication, error) {
 		}
 		return rejected[i].EvidenceID < rejected[j].EvidenceID
 	})
+	sort.Slice(unpromoted, func(i, j int) bool { return unpromoted[i].CandidateID < unpromoted[j].CandidateID })
 	acceptedRecords := make([]QAEvidenceRecord, 0, len(accepted))
 	for _, record := range accepted {
 		acceptedRecords = append(acceptedRecords, record)
@@ -195,15 +259,16 @@ func AdjudicateQA(req QAAdjudicationRequest) (QAAdjudication, error) {
 		completedAt = time.Unix(0, 0).UTC()
 	}
 	id, err := NewQAV2ID("adjudication", req.Project, req.Sprint, req.AttemptID, struct {
-		Map      string
-		Accepted []string
-		Rejected []QARejectedEvidence
-		Issues   []QAIssue
-	}{req.MapFingerprint, acceptedIDs, rejected, issues})
+		Map        string
+		Accepted   []string
+		Rejected   []QARejectedEvidence
+		Unpromoted []QAUnpromotedIssue
+		Issues     []QAIssue
+	}{req.MapFingerprint, acceptedIDs, rejected, unpromoted, issues})
 	if err != nil {
 		return QAAdjudication{}, err
 	}
-	return QAAdjudication{SchemaVersion: QAEvidenceSchemaVersion, ID: id, AttemptID: req.AttemptID, MapFingerprint: req.MapFingerprint, AcceptedIDs: acceptedIDs, Rejected: rejected, Groups: groupList, Issues: issues, RepairGroups: repairGroups, RepairAssignments: assignments, Evaluators: append([]QAModelObservation(nil), req.Evaluators...), CompletedAt: completedAt}, nil
+	return QAAdjudication{SchemaVersion: QAEvidenceSchemaVersion, ID: id, AttemptID: req.AttemptID, MapFingerprint: req.MapFingerprint, AcceptedIDs: acceptedIDs, Rejected: rejected, Unpromoted: unpromoted, Groups: groupList, Issues: issues, RepairGroups: repairGroups, RepairAssignments: assignments, Evaluators: append([]QAModelObservation(nil), req.Evaluators...), CompletedAt: completedAt}, nil
 }
 
 func qaSeverityRank(severity string) int {
@@ -329,7 +394,7 @@ func AdjudicateFailedShard(evidenceDigest string, evaluators []QAModelObservatio
 	return QAEvidenceFail, nil
 }
 
-func DeriveQAAssessment(review VerificationStage, evidence []QAEvidenceRecord, adjudication QAAdjudication, smoke *VerificationStage, blockers []QABlocker) (OverallAssessment, string) {
+func DeriveQAAssessment(review VerificationStage, evidence []QAEvidenceRecord, adjudication QAAdjudication, blockers []QABlocker) (OverallAssessment, string) {
 	if !review.Fresh || review.ExecutionStatus != string(ReviewCompleted) {
 		return AssessmentIncomplete, "Run the independent Conformance Review with current inputs."
 	}
@@ -342,23 +407,19 @@ func DeriveQAAssessment(review VerificationStage, evidence []QAEvidenceRecord, a
 	if len(blockers) > 0 || len(adjudication.Rejected) > 0 {
 		return AssessmentBlocked, "Resolve blocked or rejected QA evidence and start a current attempt."
 	}
+	if len(adjudication.Unpromoted) > 0 {
+		noun := "candidates"
+		if len(adjudication.Unpromoted) == 1 {
+			noun = "candidate"
+		}
+		return AssessmentBlocked, fmt.Sprintf("Collect promotion evidence for %d unpromoted issue %s.", len(adjudication.Unpromoted), noun)
+	}
 	if len(evidence) == 0 || len(adjudication.AcceptedIDs) != len(evidence) {
 		return AssessmentIncomplete, "Complete every required evidence plan."
 	}
 	for _, record := range evidence {
 		if record.Outcome == QAEvidenceBlocked {
 			return AssessmentBlocked, "Resolve blocked evidence and rerun QA."
-		}
-	}
-	if smoke != nil {
-		if !smoke.Fresh || smoke.ExecutionStatus != string(SmokeCompleted) {
-			return AssessmentIncomplete, "Run the required containing smoke suite."
-		}
-		if smoke.Verdict == string(SmokeFailVerdict) {
-			return AssessmentFail, "Resolve the containing smoke failure."
-		}
-		if smoke.Verdict != string(SmokePass) && smoke.Verdict != string(SmokePassWithOpenIssues) {
-			return AssessmentBlocked, "Restore valid containing smoke evidence."
 		}
 	}
 	if len(adjudication.Issues) > 0 {

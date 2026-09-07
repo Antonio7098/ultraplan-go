@@ -197,14 +197,6 @@ func TestQAOperationPreparationRejectsEveryCallerOwnedControl(t *testing.T) {
 			t.Fatalf("invalid QA suite request accepted: %+v", req)
 		}
 	}
-	for _, req := range []OperationRequest{
-		{Kind: OperationQAStart, Project: "alpha", Sprint: "37-evidence", Suite: "smoke"},
-		{Kind: OperationQADryRun, Project: "alpha", Sprint: "37-evidence", Suite: "smoke"},
-	} {
-		if err := validateQAOperationRequest(req); err != nil {
-			t.Fatalf("valid QA suite request rejected: %+v: %v", req, err)
-		}
-	}
 }
 
 func operationTree(t *testing.T, root string) []string {

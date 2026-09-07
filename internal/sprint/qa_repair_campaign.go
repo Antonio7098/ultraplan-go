@@ -179,13 +179,12 @@ func (s Service) RunRepairCampaign(ctx context.Context, projectRef, sprintRef st
 			}
 			authorized = true
 			emitRepairCampaign(req.Progress, state, wi, ii, "Running isolated issue repair")
-			intermediate := state.Completed+1 < state.Total
-			result, runErr := s.RunRepair(ctx, projectRef, sprintRef, RepairRunRequest{RepairRunID: prepared.Packet.RepairRunID, WriterToken: req.WriterToken, SessionID: state.Workers[wi].SessionID, WorkerNumber: state.Workers[wi].Number, WorkerQueueSize: len(state.Workers[wi].Issues), WorkerRoot: workerRoot, campaignAuthorized: true, campaignIntermediate: intermediate})
+			result, runErr := s.RunRepair(ctx, projectRef, sprintRef, RepairRunRequest{RepairRunID: prepared.Packet.RepairRunID, WriterToken: req.WriterToken, SessionID: state.Workers[wi].SessionID, WorkerNumber: state.Workers[wi].Number, WorkerQueueSize: len(state.Workers[wi].Issues), WorkerRoot: workerRoot, campaignAuthorized: true})
 			item.Outcome = result.Outcome
 			if result.Runtime != nil {
 				state.Workers[wi].SessionID = result.Runtime.SessionID
 			}
-			acceptable := result.Outcome == RepairOutcomeVerified || result.Outcome == RepairOutcomeVerifiedWithFindings || intermediate && result.Outcome == RepairOutcomeCampaignPending
+			acceptable := result.Outcome == RepairOutcomeVerified || result.Outcome == RepairOutcomeVerifiedWithFindings
 			if runErr != nil || !acceptable {
 				item.Status, item.Reason = "failed", strings.TrimSpace(result.Reason)
 				if runErr == nil {
@@ -360,14 +359,13 @@ func (s Service) runParallelRepairCampaign(ctx context.Context, projectRef, spri
 				return finishRepairCampaignFailure(store, state, req.WriterToken, confirmErr)
 			}
 			item.Status = "confirmed"
-			intermediate := state.Completed+1 < state.Total
 			emitRepairCampaign(req.Progress, state, wi, ii, "Integrating isolated repair proposal")
-			result, runErr := s.RunRepair(ctx, projectRef, sprintRef, RepairRunRequest{RepairRunID: prepared.Packet.RepairRunID, WriterToken: req.WriterToken, SessionID: state.Workers[wi].SessionID, WorkerNumber: state.Workers[wi].Number, WorkerQueueSize: len(state.Workers[wi].Issues), WorkerRoot: workerRoot, campaignAuthorized: true, campaignIntermediate: intermediate, preparedProposal: preparedProposal})
+			result, runErr := s.RunRepair(ctx, projectRef, sprintRef, RepairRunRequest{RepairRunID: prepared.Packet.RepairRunID, WriterToken: req.WriterToken, SessionID: state.Workers[wi].SessionID, WorkerNumber: state.Workers[wi].Number, WorkerQueueSize: len(state.Workers[wi].Issues), WorkerRoot: workerRoot, campaignAuthorized: true, preparedProposal: preparedProposal})
 			item.Outcome = result.Outcome
 			if result.Runtime != nil {
 				state.Workers[wi].SessionID = result.Runtime.SessionID
 			}
-			acceptable := result.Outcome == RepairOutcomeVerified || result.Outcome == RepairOutcomeVerifiedWithFindings || intermediate && result.Outcome == RepairOutcomeCampaignPending
+			acceptable := result.Outcome == RepairOutcomeVerified || result.Outcome == RepairOutcomeVerifiedWithFindings
 			if runErr != nil || !acceptable {
 				item.Status, item.Reason = "failed", strings.TrimSpace(result.Reason)
 				if runErr == nil {

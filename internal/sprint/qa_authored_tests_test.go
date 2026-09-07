@@ -186,7 +186,7 @@ func TestRequestedReproductionSpecUsesDeterministicOutputMarker(t *testing.T) {
 	qaMap, shard, _ := authoredTestFixture(t, target)
 	shard.ChangedPaths = []string{"internal/calc.go"}
 	request := QAArbiterEvidenceRequest{
-		ID:                  "qa-v1-request-abc123",
+		ID:                  "qa-v2-request-aaaaaaaaaaaaaaaaaaaaaaaa",
 		TheoryIDs:           []string{shard.Theories[0].ID},
 		OriginShardID:       shard.ID,
 		Gap:                 "missing behavior",

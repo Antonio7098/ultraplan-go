@@ -11,6 +11,24 @@ import (
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
 )
 
+func TestQAEvidencePlanIdentityIncludesFrozenAt(t *testing.T) {
+	budgets := DefaultQABudgets()
+	attemptID, _ := NewQASemanticAttemptID("alpha", "37-evidence", QASemanticIdentity{ChangedPaths: []string{"a.go"}})
+	shardID, _ := NewQAShardID("alpha", "37-evidence", attemptID, QAShardIdentity{Kind: QAShardPrimary, ChangedPaths: []string{"a.go"}, BehavioralConcerns: []string{"identity"}, ExpectationRefs: []string{"REQ-1"}})
+	input := QAEvidencePlan{AttemptID: attemptID, ShardID: shardID, ExpectationRefs: []string{"REQ-1"}, Kind: QACheckFact, ConfirmationCondition: "pass", RefutationCondition: "fail", InconclusiveCondition: "unknown", ApprovedPaths: []string{"a.go"}, Executable: "true", Timeout: time.Second, OutputLimit: 128, CleanupRequired: true, GovernedInputFingerprint: testQAFingerprint, ImplementationFingerprint: strings.Repeat("b", 64), MapFingerprint: strings.Repeat("c", 64)}
+	first, err := FreezeQAEvidencePlan("alpha", "37-evidence", input, budgets, time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := FreezeQAEvidencePlan("alpha", "37-evidence", input, budgets, time.Unix(2, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == second.ID {
+		t.Fatal("evidence plans with different immutable bytes shared an ID")
+	}
+}
+
 func TestQAInvestigationWritableCopyPreservesTargetAndCleans(t *testing.T) {
 	target := t.TempDir()
 	targetFile := filepath.Join(target, "source.txt")

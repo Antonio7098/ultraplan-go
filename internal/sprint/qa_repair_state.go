@@ -701,9 +701,7 @@ func ValidateRepairReverification(value RepairReverification) error {
 				return fmt.Errorf("skipped repair gate lacks prior stop and guidance")
 			}
 		case RepairGateDeferred:
-			if blocked || gate.Gate != RepairGateContainingSmoke || strings.TrimSpace(gate.Reason) == "" || strings.TrimSpace(gate.NextAction) == "" {
-				return fmt.Errorf("deferred repair gate is not a guided final campaign smoke deferral")
-			}
+			return fmt.Errorf("repair gates cannot be deferred")
 		default:
 			return fmt.Errorf("repair reverification is not terminal")
 		}

@@ -51,6 +51,7 @@ func TestBrowserOperationKindContract(t *testing.T) {
 		{"qa-start", app.OperationQAStart, projectScope},
 		{"qa-resume", app.OperationQAResume, projectScope},
 		{"qa-recover", app.OperationQARecover, projectScope},
+		{"qa-replay-adjudication", app.OperationQAReplayAdjudication, projectScope},
 		{"study-start", app.OperationStudyStart, studyScope},
 		{"study-resume", app.OperationStudyResume, studyScope},
 		{"study-cancel", app.OperationStudyCancel, studyScope},

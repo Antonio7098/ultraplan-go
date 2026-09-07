@@ -189,9 +189,8 @@ Sprint 35 local release evidence (2026-08-21):
   removal, and unapproved-change rejection.
 - Validate frozen plans, v1 reads, v2 writes, immutable evidence, adjudication
   rejection, issue grouping, assessment, stale fences, rollback, and recovery.
-- Compare `smoke` with `qa --suite smoke` for containing selection, argv,
-  environment, timeout, external run identity, evidence, verdict, cleanup,
-  `smoke.md`, and flow state. Confirm one durable QA run and no nested smoke run.
+- Confirm standalone `smoke` remains operational without participating in QA
+  or repair admission and reverification.
 - Compare the app, CLI text/JSON, TUI, browser HTML/JSON, `qa.md`, and private
   state for one bounded fixture, including hostile display text.
 - Run `go test ./...`, `go test -race ./...`, `go vet ./...`,
@@ -213,7 +212,7 @@ inputs, configuration, repository controls, or Git state.
 - Prove deterministic packet bytes and rejection of stale, incomplete, cross-attempt, protected-path, target-drift, and ambiguous issue authority without runtime construction or target mutation.
 - Prove durable accept, writer claim, single-use confirmation, and dispatch ordering for CLI, TUI, browser, and the shared runner. Acceptance or confirmation persistence failure must start no child.
 - Exercise isolation, exact scope, preimage checks, hard-link and symlink rejection, private preimage staging, apply-journal updates, atomic replacement, partial-failure compensation, and crash recovery. No committed apply may repeat.
-- Prove the ordered exact, shard, theory, follow-up, QA, and repaired-target smoke ladder. Conformance Review runs once before repair admission.
+- Prove the ordered exact, shard, theory, follow-up, and containing-QA ladder. Conformance Review runs once before repair admission.
 - Compare bounded CLI text/JSON, TUI, browser HTML/JSON, durable operation, repair state, result, and flow summary. Verify hostile text escaping and absence of patch bodies, production bytes, prompts, private preimages, environment values, and raw output.
 - Run `go test ./...`, `go test -race ./...`, `go vet ./...`, `go build ./cmd/ultraplan`, and `git diff --check`.
 - Retain one real manual `verified` or `verified_with_findings` run with current target, complete ladder, proven cleanup, interface captures, and Architecture/Sprint/Deep Smoke reviews. If the prerequisite evidence is missing, record `blocked` and keep automatic mode unavailable.

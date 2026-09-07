@@ -513,6 +513,7 @@ func (m Model) navItems() []navItem {
 				{Label: "Start QA [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationQAStart, Project: route.Project, Sprint: route.Sprint}},
 				{Label: "Resume QA [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationQAResume, Project: route.Project, Sprint: route.Sprint}},
 				{Label: "Recover QA", Operation: &app.OperationRequest{Kind: app.OperationQARecover, Project: route.Project, Sprint: route.Sprint}},
+				{Label: "Replay QA adjudication", Operation: &app.OperationRequest{Kind: app.OperationQAReplayAdjudication, Project: route.Project, Sprint: route.Sprint}},
 			}
 			if s.QA.RunID != "" {
 				items = append(items, navItem{Label: "View QA durable run  " + s.QA.RunID, Route: &Route{Kind: RouteRun, RunID: s.QA.RunID}})

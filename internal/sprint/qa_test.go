@@ -233,6 +233,9 @@ func TestQAShardBatchContainsRuntimePanicAndPublishesBlockedShard(t *testing.T) 
 	if shards[0].Phase != QAPhaseBlocked || shards[0].Blocker == nil || shards[0].Blocker.Category != QAErrorRuntimeUnavailable {
 		t.Fatalf("panic result = %+v", shards[0])
 	}
+	if _, statErr := os.Lstat(qaInvestigatorWorkspaceParent(root, qaMap.SemanticAttemptID)); !os.IsNotExist(statErr) {
+		t.Fatalf("shard batch workspace was not removed: %v", statErr)
+	}
 }
 
 func TestQATerminalFailurePublicationAndProgressBound(t *testing.T) {

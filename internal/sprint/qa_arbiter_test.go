@@ -182,7 +182,7 @@ func TestArbiterReferencesFallBackToTheirDeliveredTheories(t *testing.T) {
 	}
 }
 
-func TestArbiterDiscardsEvidenceRequestsResolvedBySameOutput(t *testing.T) {
+func TestArbiterKeepsEvidenceRequestsForStaticallyConfirmedTheories(t *testing.T) {
 	requests := []QAArbiterEvidenceRequest{
 		{TheoryIDs: []string{"confirmed"}},
 		{TheoryIDs: []string{"inconclusive"}},
@@ -194,7 +194,7 @@ func TestArbiterDiscardsEvidenceRequestsResolvedBySameOutput(t *testing.T) {
 		"refuted":      QATheoryRefuted,
 	}
 	got := discardResolvedQAArbiterEvidenceRequests(requests, outcomes)
-	if len(got) != 1 || len(got[0].TheoryIDs) != 1 || got[0].TheoryIDs[0] != "inconclusive" {
+	if len(got) != 2 || got[0].TheoryIDs[0] != "confirmed" || got[1].TheoryIDs[0] != "inconclusive" {
 		t.Fatalf("unexpected retained requests: %+v", got)
 	}
 }

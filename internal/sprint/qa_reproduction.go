@@ -137,7 +137,7 @@ func RunQAReproduction(ctx context.Context, req QAReproductionRequest) (QAReprod
 	if runErr != nil && !command.TimedOut && !command.Cancelled && command.ExitCode == 0 {
 		command.ExitCode = 1
 	}
-	outcome, reason := ClassifyQAReproductionResult(command, req.Spec.PredictedFailure)
+	outcome, reason := classifyQARequestedReproduction(command, req.Spec)
 	if removeErr := removeQAReproductionRuntime(runtimeRoot); removeErr != nil {
 		outcome, reason = QAEvidenceInconclusive, "runtime_cleanup_incomplete"
 	}

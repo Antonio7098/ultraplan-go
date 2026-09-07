@@ -193,10 +193,7 @@ func (s Service) prepareSmokeStatic(projectRef, sprintRef string, req SmokeReque
 		review.Stale = readErr != nil || len(ValidateReviewContent(content, validationManifest)) > 0 || review.ArtifactDigest == "" || hashBytes([]byte(content)) != review.ArtifactDigest
 	}
 	if review.Stale {
-		repairOverride := req.RepairVerification && req.ForceReview && req.OverrideConfirmed && strings.TrimSpace(req.OverrideRationale) != "" && (review.Verdict == ReviewPass || review.Verdict == ReviewPassWithFindings)
-		if !repairOverride {
-			return smokePrepared{}, smokeError("smoke_review_stale", "review_gate", "review is stale", "Run sprint review again; stale reviews cannot be overridden.", nil)
-		}
+		return smokePrepared{}, smokeError("smoke_review_stale", "review_gate", "review is stale", "Run sprint review again; stale reviews cannot be overridden.", nil)
 	}
 	switch review.Verdict {
 	case ReviewPass, ReviewPassWithFindings:

@@ -29,6 +29,13 @@ func FreezeQAReproductionSpec(project, sprint string, spec QAReproductionSpec, b
 	if err != nil {
 		return QAReproductionSpec{}, err
 	}
+	// Preserve legacy identities, but bind new specs to the exact request.
+	if spec.EvidenceRequestID != "" {
+		id, err = NewQAV2ID("spec", project, sprint, id, spec.EvidenceRequestID)
+		if err != nil {
+			return QAReproductionSpec{}, err
+		}
+	}
 	spec.ID = id
 	if err := ValidateQAReproductionSpec(spec, budgets); err != nil {
 		return QAReproductionSpec{}, err
@@ -37,6 +44,9 @@ func FreezeQAReproductionSpec(project, sprint string, spec QAReproductionSpec, b
 }
 
 func ValidateQAReproductionSpec(spec QAReproductionSpec, budgets QABudgets) error {
+	if spec.EvidenceRequestID != "" && !validQAV2ID(spec.EvidenceRequestID, "request") {
+		return fmt.Errorf("invalid reproduction evidence request identity")
+	}
 	if spec.SchemaVersion != QAEvidenceSchemaVersion || !validQAV2ID(spec.ID, "spec") || !validQAIDKind(spec.AttemptID, "attempt") || !validQAIDKind(spec.ShardID, "shard") {
 		return fmt.Errorf("invalid QA reproduction specification identity")
 	}
@@ -250,6 +260,22 @@ func signatureOutputMatches(output string, signature QAFailureSignature) bool {
 	return true
 }
 
+// New request-bound Go tests run verbosely so a successful command cannot
+// refute a theory merely because its selected test was absent or skipped.
+func classifyQARequestedReproduction(result QACommandResult, spec QAReproductionSpec) (QAEvidenceOutcome, string) {
+	outcome, reason := ClassifyQAReproductionResult(result, spec.PredictedFailure)
+	if spec.EvidenceRequestID == "" || filepath.Base(spec.Command.Executable) != "go" || outcome != QAEvidencePass {
+		return outcome, reason
+	}
+	for _, line := range strings.Split(result.Stdout+"\n"+result.Stderr, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[0] == "---" && fields[1] == "PASS:" && fields[2] == spec.PredictedFailure.TestName {
+			return outcome, reason
+		}
+	}
+	return QAEvidenceInconclusive, "selected_test_did_not_pass"
+}
+
 func ValidateQAReproductionRun(run QAReproductionRun, spec QAReproductionSpec, bundle QATestBundle) error {
 	if run.SchemaVersion != QAEvidenceSchemaVersion || !validQAV2ID(run.ID, "run") || run.SpecID != spec.ID || run.TestBundleID != bundle.ID || !validFingerprint(run.TargetIdentity) || run.CompletedAt.IsZero() {
 		return fmt.Errorf("invalid QA reproduction run identity")
@@ -260,7 +286,7 @@ func ValidateQAReproductionRun(run QAReproductionRun, spec QAReproductionSpec, b
 	if !validEvidenceOutcome(run.Outcome) || strings.TrimSpace(run.ReasonCode) == "" {
 		return fmt.Errorf("QA reproduction run outcome is invalid")
 	}
-	wantOutcome, wantReason := ClassifyQAReproductionResult(run.Result, spec.PredictedFailure)
+	wantOutcome, wantReason := classifyQARequestedReproduction(run.Result, spec)
 	if qaReproductionIntegrityOverride(run.ReasonCode) {
 		wantOutcome, wantReason = QAEvidenceInconclusive, run.ReasonCode
 	}

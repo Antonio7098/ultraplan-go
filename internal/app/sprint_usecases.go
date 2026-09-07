@@ -246,6 +246,8 @@ type QAResult struct {
 	Assessment                   string                            `json:"assessment,omitempty"`
 	EvidenceCount                int                               `json:"evidence_count,omitempty"`
 	RejectedEvidenceCount        int                               `json:"rejected_evidence_count,omitempty"`
+	CandidateCount               int                               `json:"candidate_count,omitempty"`
+	UnpromotedCandidateCount     int                               `json:"unpromoted_candidate_count,omitempty"`
 	IssueCount                   int                               `json:"issue_count,omitempty"`
 	RegressionCandidateCount     int                               `json:"regression_candidate_count,omitempty"`
 	CanonicalReport              *QAArtifactRefSummary             `json:"canonical_report,omitempty"`
@@ -551,6 +553,8 @@ type QAAdjudicationResult struct {
 	AttemptID         string                      `json:"attempt_id"`
 	AcceptedCount     int                         `json:"accepted_count"`
 	Rejected          []QARejectedSummary         `json:"rejected,omitempty"`
+	CandidateCount    int                         `json:"candidate_count"`
+	Unpromoted        []QAUnpromotedIssueSummary  `json:"unpromoted_issue_candidates,omitempty"`
 	IssueCount        int                         `json:"issue_count"`
 	EvaluatorCount    int                         `json:"evaluator_count"`
 	RepairGroups      []sprint.QARepairIssueGroup `json:"suggested_repair_groups,omitempty"`
@@ -561,6 +565,18 @@ type QARejectedSummary struct {
 	EvidenceID string `json:"evidence_id"`
 	Code       string `json:"code"`
 	Detail     string `json:"detail"`
+}
+
+type QAUnpromotedIssueSummary struct {
+	CandidateID string   `json:"candidate_id"`
+	TheoryIDs   []string `json:"theory_ids,omitempty"`
+	Title       string   `json:"title"`
+	IssueClass  string   `json:"issue_class"`
+	Severity    string   `json:"severity"`
+	Location    string   `json:"location"`
+	EvidenceIDs []string `json:"evidence_ids,omitempty"`
+	ReasonCode  string   `json:"reason_code"`
+	Detail      string   `json:"detail"`
 }
 
 type QAIssueSummary struct {
@@ -582,14 +598,16 @@ type QAIssuePage struct {
 }
 
 type QAAssessmentResult struct {
-	Assessment    string             `json:"assessment"`
-	ReviewVerdict string             `json:"review_verdict"`
-	SmokeVerdict  string             `json:"smoke_verdict,omitempty"`
-	EvidenceTotal int                `json:"evidence_total"`
-	RejectedTotal int                `json:"rejected_total"`
-	IssueTotal    int                `json:"issue_total"`
-	Blockers      []QABlockerSummary `json:"blockers,omitempty"`
-	NextAction    string             `json:"next_action"`
+	Assessment      string             `json:"assessment"`
+	ReviewVerdict   string             `json:"review_verdict"`
+	SmokeVerdict    string             `json:"smoke_verdict,omitempty"`
+	EvidenceTotal   int                `json:"evidence_total"`
+	RejectedTotal   int                `json:"rejected_total"`
+	CandidateTotal  int                `json:"candidate_total"`
+	UnpromotedTotal int                `json:"unpromoted_total"`
+	IssueTotal      int                `json:"issue_total"`
+	Blockers        []QABlockerSummary `json:"blockers,omitempty"`
+	NextAction      string             `json:"next_action"`
 }
 
 type QASmokeSuiteResult struct {
@@ -1150,9 +1168,12 @@ func (u dashboardUseCases) QAAdjudication(ctx context.Context, req QARequest) (Q
 	if err != nil {
 		return QAAdjudicationResult{}, mapQAUseCaseError(err)
 	}
-	result := QAAdjudicationResult{ID: value.ID, AttemptID: value.AttemptID, AcceptedCount: len(value.AcceptedIDs), IssueCount: len(value.Issues), EvaluatorCount: len(value.Evaluators), RepairGroups: append([]sprint.QARepairIssueGroup(nil), value.RepairGroups...), RepairAssignments: append([]sprint.QARepairAssignment(nil), value.RepairAssignments...)}
+	result := QAAdjudicationResult{ID: value.ID, AttemptID: value.AttemptID, AcceptedCount: len(value.AcceptedIDs), CandidateCount: len(value.Issues) + len(value.Unpromoted), IssueCount: len(value.Issues), EvaluatorCount: len(value.Evaluators), RepairGroups: append([]sprint.QARepairIssueGroup(nil), value.RepairGroups...), RepairAssignments: append([]sprint.QARepairAssignment(nil), value.RepairAssignments...)}
 	for _, rejected := range value.Rejected {
 		result.Rejected = append(result.Rejected, QARejectedSummary{EvidenceID: rejected.EvidenceID, Code: displaySafe(rejected.Code), Detail: displaySafe(rejected.Detail)})
+	}
+	for _, candidate := range value.Unpromoted {
+		result.Unpromoted = append(result.Unpromoted, QAUnpromotedIssueSummary{CandidateID: candidate.CandidateID, TheoryIDs: append([]string(nil), candidate.TheoryIDs...), Title: displaySafe(candidate.Title), IssueClass: displaySafe(candidate.IssueClass), Severity: displaySafe(candidate.Severity), Location: displaySafe(candidate.Location), EvidenceIDs: append([]string(nil), candidate.EvidenceIDs...), ReasonCode: displaySafe(candidate.ReasonCode), Detail: displaySafe(candidate.Detail)})
 	}
 	return result, nil
 }
@@ -1240,7 +1261,11 @@ func (u dashboardUseCases) QAAssessment(ctx context.Context, req QARequest) (QAA
 	if err != nil {
 		return QAAssessmentResult{}, mapQAUseCaseError(err)
 	}
-	result := QAAssessmentResult{Assessment: string(value.Assessment), ReviewVerdict: string(value.ReviewVerdict), SmokeVerdict: string(value.SmokeVerdict), EvidenceTotal: value.EvidenceTotal, RejectedTotal: value.RejectedTotal, IssueTotal: value.IssueTotal, NextAction: displaySafe(value.NextAction)}
+	candidateTotal := value.CandidateTotal
+	if candidateTotal == 0 && value.IssueTotal > 0 {
+		candidateTotal = value.IssueTotal + value.UnpromotedTotal
+	}
+	result := QAAssessmentResult{Assessment: string(value.Assessment), ReviewVerdict: string(value.ReviewVerdict), SmokeVerdict: string(value.SmokeVerdict), EvidenceTotal: value.EvidenceTotal, RejectedTotal: value.RejectedTotal, CandidateTotal: candidateTotal, UnpromotedTotal: value.UnpromotedTotal, IssueTotal: value.IssueTotal, NextAction: displaySafe(value.NextAction)}
 	for i := range value.Blockers {
 		if blocker := qaBlockerProjection(&value.Blockers[i]); blocker != nil {
 			result.Blockers = append(result.Blockers, *blocker)
@@ -1365,7 +1390,11 @@ func qaMapProjection(qaMap sprint.QAMap) QAResult {
 
 func qaSnapshotProjection(snapshot sprint.QASnapshot) QAResult {
 	state := snapshot.State
-	result := QAResult{SchemaVersion: 1, Project: state.Project, Sprint: state.Sprint, Phase: string(state.Phase), Fresh: state.Freshness.Current, FreshnessReasons: qaDisplayStrings(state.Freshness.Reasons), AttemptID: state.CurrentAttemptID, RunID: state.Run.RunID, OperationalAttemptID: state.Run.OperationalAttemptID, FencingGeneration: state.Run.FencingGeneration, RunLifecycle: string(state.Run.Lifecycle), TerminalResult: string(state.Run.TerminalResult), GovernedInputFingerprint: state.Freshness.GovernedInputFingerprint, ImplementationFingerprint: state.Freshness.ImplementationFingerprint, ReviewFingerprint: state.Freshness.ReviewFingerprint, PolicyFingerprint: state.Freshness.PolicyFingerprint, UpdatedAt: state.UpdatedAt, MapRecord: qaArtifactRefProjection(state.Map), SynthesisRecord: qaArtifactRefProjection(state.Synthesis), CompletedShards: state.CompletedShards, TotalShards: state.TotalShards, OutcomeTotals: qaOutcomeProjection(state.OutcomeCounts), Blocker: qaBlockerProjection(state.Blocker), Cancellation: QACancellationSummary{Requested: state.Cancellation.Requested, Scope: displaySafe(state.Cancellation.Scope), ShardID: state.Cancellation.ShardID, Reason: displaySafe(state.Cancellation.Reason), At: state.Cancellation.At}, NextAction: displaySafe(state.NextAction), Assessment: string(state.CanonicalAssessment), EvidenceCount: state.EvidenceCount, RejectedEvidenceCount: state.RejectedCount, IssueCount: state.IssueCount, RegressionCandidateCount: state.RegressionCandidates, CanonicalReport: qaArtifactRefProjection(state.CanonicalReport), CurrentFailure: qaBlockerProjection(state.CurrentFailure)}
+	candidateCount := state.CandidateCount
+	if candidateCount == 0 && state.IssueCount > 0 {
+		candidateCount = state.IssueCount + state.UnpromotedCount
+	}
+	result := QAResult{SchemaVersion: 1, Project: state.Project, Sprint: state.Sprint, Phase: string(state.Phase), Fresh: state.Freshness.Current, FreshnessReasons: qaDisplayStrings(state.Freshness.Reasons), AttemptID: state.CurrentAttemptID, RunID: state.Run.RunID, OperationalAttemptID: state.Run.OperationalAttemptID, FencingGeneration: state.Run.FencingGeneration, RunLifecycle: string(state.Run.Lifecycle), TerminalResult: string(state.Run.TerminalResult), GovernedInputFingerprint: state.Freshness.GovernedInputFingerprint, ImplementationFingerprint: state.Freshness.ImplementationFingerprint, ReviewFingerprint: state.Freshness.ReviewFingerprint, PolicyFingerprint: state.Freshness.PolicyFingerprint, UpdatedAt: state.UpdatedAt, MapRecord: qaArtifactRefProjection(state.Map), SynthesisRecord: qaArtifactRefProjection(state.Synthesis), CompletedShards: state.CompletedShards, TotalShards: state.TotalShards, OutcomeTotals: qaOutcomeProjection(state.OutcomeCounts), Blocker: qaBlockerProjection(state.Blocker), Cancellation: QACancellationSummary{Requested: state.Cancellation.Requested, Scope: displaySafe(state.Cancellation.Scope), ShardID: state.Cancellation.ShardID, Reason: displaySafe(state.Cancellation.Reason), At: state.Cancellation.At}, NextAction: displaySafe(state.NextAction), Assessment: string(state.CanonicalAssessment), EvidenceCount: state.EvidenceCount, RejectedEvidenceCount: state.RejectedCount, CandidateCount: candidateCount, UnpromotedCandidateCount: state.UnpromotedCount, IssueCount: state.IssueCount, RegressionCandidateCount: state.RegressionCandidates, CanonicalReport: qaArtifactRefProjection(state.CanonicalReport), CurrentFailure: qaBlockerProjection(state.CurrentFailure)}
 	if snapshot.Map != nil {
 		result.MapFingerprint = snapshot.Map.ID
 		result.CheckCatalogFingerprint = snapshot.Map.CheckCatalogFingerprint

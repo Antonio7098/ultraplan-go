@@ -353,17 +353,18 @@ ultraplan sprint ultraplan-go 28-review-to-smoke-flow review --focus architectur
 ### `ultraplan sprint <project> <sprint> qa`
 
 ```text
-ultraplan sprint <project> <sprint> qa --dry-run [--suite smoke] [--json]
-ultraplan sprint <project> <sprint> qa [--shard <map-owned-id> | --suite smoke] [--json]
+ultraplan sprint <project> <sprint> qa --dry-run [--json]
+ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>] [--json]
 ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
 ultraplan sprint <project> <sprint> qa status [--json]
 ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
 ultraplan sprint <project> <sprint> qa recover [--json]
+ultraplan sprint <project> <sprint> qa replay-adjudication [--json]
 ```
 
 `--dry-run` creates the byte-stable current map without a runtime, durable acceptance, or state write. Start and resume require current execute and Conformance Review evidence, accept and claim a durable run before child work, and optionally focus one current map-owned shard. Commands, paths, permissions, fingerprints, IDs, prompts, and theory content are product-owned. There are no caller flags for model or budgets. Workspace configuration may select the model and lower product limits.
 
-`status` is read-only. `cancel` sends an explicit request through durable run control; closing a terminal or browser session does not cancel work. `recover` is runtime-free but may reconcile an interrupted/stale pointer, digest, bounded flow summary, or retention state. Resume always creates a new durable owner and never adopts an old runtime session.
+`status` is read-only. `cancel` sends an explicit request through durable run control; closing a terminal or browser session does not cancel work. `recover` is runtime-free but may reconcile an interrupted/stale pointer, digest, bounded flow summary, or retention state. `replay-adjudication` is also runtime-free: it applies the current deterministic promotion policy to the current attempt's retained arbiter candidates, plans, and evidence. It permits policy drift only; changed governed inputs, implementation, review, check catalog, or target stop replay as stale. Resume always creates a new durable owner and never adopts an old runtime session.
 
 Text says `QA completed` when bounded work ends. This is not a pass verdict. Theory outcomes are `confirmed`, `refuted`, `invalid`, `inconclusive`, `blocked`, `cross_shard`, and `not_applicable`; none is automatically an issue. Product adjudication separately accepts or rejects v2 evidence and is the only component that promotes bounded issue summaries. QA cannot change the separate Conformance Review verdict.
 
@@ -448,11 +449,11 @@ ultraplan sprint <project> <sprint> repair recover [--run <repair-run-id>] [--js
 
 An assignment is an adjudication-time ordered queue of issue IDs. A repair run handles one issue. A campaign is the durable coordinator that executes all current assignments. `campaign` uses `qa.repair_assignment_mode`, `qa.issues_per_repair_agent`, and `qa.repair_execution_mode`. In grouped mode it creates bounded worker queues and reuses one model session per queue. Sequential execution retains the compatibility order. Parallel execution generates issue-scoped proposals concurrently in private copied workspaces, then integrates and verifies them in deterministic single-writer order. Every queued issue is refreshed before integration. If an earlier repair changes a later proposal's file preimage, UltraPlan regenerates that proposal against the current target. No Git merge or combined multi-issue packet is used.
 
-An intermediate issue in a multi-issue queue may record `verified_pending_campaign` after its scoped gates, production apply, and cleanup pass. Its containing-smoke gate is `deferred`. The final issue must complete the full ladder, including repaired-target containing smoke, before the campaign can complete. `verified_pending_campaign` is not standalone success and cannot complete a campaign. The campaign stops on the first failed item and records durable worker, queue, session, and outcome state. Automatic campaign admission requires a current qualifying manual repair proof plus the explicit campaign confirmation.
+Every issue in a multi-issue queue must complete its containing-QA ladder. The campaign stops on the first failed item and records durable worker, queue, session, and outcome state. Automatic campaign admission requires a current qualifying manual repair proof plus the explicit campaign confirmation.
 
 Repair JSON status includes consumed cycle, mutation, file, byte, runtime-attempt, command, and output-byte counters. After proposal execution it also includes provider, model, variant, session, timing, token, cache, cost, event, and tool-call facts. Completed cycle inspection includes enforced scope, every gate result with duration and output bytes, cleanup facts, and the terminal repair result. An active cycle appears in `current_cycle` before its immutable cycle record exists; inspection returns only durably completed cycles.
 
-Manual repair permits one isolated proposal and at most one journaled product-owned production apply. The fixed ladder is exact reproducer, primary shards, linked theories, follow-up shards, containing QA, then repaired-target containing smoke. Conformance Review runs once before repair admission. A required non-pass skips wider gates. Standalone exit zero is reserved for `verified` and `verified_with_findings`; `failed`, `blocked`, `escalated`, and `stalled` are non-zero semantic outcomes. `verified_pending_campaign` is restricted to an intermediate campaign item and is not standalone success. Packet, status, cycle, and result projections omit patch bodies, production contents, prompts, private preimages, raw runtime payloads, and unrestricted output.
+Manual repair permits one isolated proposal and at most one journaled product-owned production apply. The fixed ladder is exact reproducer, primary shards, linked theories, follow-up shards, then containing QA. Conformance Review runs once before repair admission. A required non-pass skips wider gates. Standalone exit zero is reserved for `verified` and `verified_with_findings`; `failed`, `blocked`, `escalated`, and `stalled` are non-zero semantic outcomes. Packet, status, cycle, and result projections omit patch bodies, production contents, prompts, private preimages, raw runtime payloads, and unrestricted output.
 
 Repair limits are lower-only `qa.repair.*` settings. Workspace configuration can reduce cycles, mutation cycles, reopenings, stagnation, files, bytes, patch size, wall time, runtime attempts, model turns, command count and timeout, output bytes, retained cycles, and cleanup timeout. Matching `ULTRAPLAN_QA_REPAIR_*` environment variables take precedence. Packet JSON reports an effective source for every limit. Manual mode always lowers `max_cycles` and `max_mutation_cycles` to one and labels those values `manual_policy`.
 
@@ -598,8 +599,8 @@ workspace path.
 ## Evidence-producing QA
 
 ```text
-ultraplan sprint <project> <sprint> qa --dry-run [--suite smoke] [--json]
-ultraplan sprint <project> <sprint> qa [--shard <map-owned-id> | --suite smoke] [--json]
+ultraplan sprint <project> <sprint> qa --dry-run [--json]
+ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>] [--json]
 ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
 ```
 
@@ -608,10 +609,6 @@ approved checks sequentially in fresh disposable writable copies. The original
 target and workspace are mounted read-only by the native isolation layer. An
 unsupported isolation primitive, stale review evidence, target drift,
 unapproved path change, incomplete cleanup, or malformed evidence blocks the
-run. `qa resume --suite smoke` is invalid; start a new smoke-suite operation.
-
-`--suite smoke` is a closed compatibility selector. It calls the canonical
-smoke implementation, so selection, review gating, harness evidence,
-`smoke.md`, and flow state have one authority. JSON remains schema version 1
-with additive assessment, evidence, issue, report, failure, limit, and suite
-fields.
+run. Smoke remains available only through the standalone `smoke` command and
+does not participate in QA or repair. JSON remains schema version 1 with
+additive assessment, evidence, issue, report, failure, and limit fields.

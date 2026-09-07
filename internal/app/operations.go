@@ -107,6 +107,7 @@ const (
 	OperationQAStart                  OperationKind = "qa-start"
 	OperationQAResume                 OperationKind = "qa-resume"
 	OperationQARecover                OperationKind = "qa-recover"
+	OperationQAReplayAdjudication     OperationKind = "qa-replay-adjudication"
 	OperationRepairPrepare            OperationKind = "repair-prepare"
 	OperationRepairStart              OperationKind = "repair-start"
 	OperationRepairResume             OperationKind = "repair-resume"
@@ -259,15 +260,6 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Scope = []string{req.Stage}
 		c.Warning = "runtime-free; no runtime-backed writes"
 	case OperationQADryRun:
-		if req.Suite == "smoke" {
-			smoke, err := u.sprintService().RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{DryRun: true})
-			if err != nil {
-				return c, err
-			}
-			c.Scope = []string{"canonical containing smoke selection", smoke.ScopeKind + " " + smoke.Scope}
-			c.Warning = "RUNTIME-FREE SMOKE PREFLIGHT; NO HARNESS INVOCATION"
-			break
-		}
 		mapped, err := u.QAMap(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
 		if err != nil {
 			return c, err
@@ -275,12 +267,6 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Scope = []string{fmt.Sprintf("deterministic map %s", mapped.MapFingerprint), fmt.Sprintf("%d changed paths in %d bounded shards", mapped.ChangedPaths, mapped.TotalShards)}
 		c.Warning = "RUNTIME-FREE; TARGET AND GOVERNED INPUTS READ-ONLY; NO QA STATE WRITE"
 	case OperationQAStart, OperationQAResume:
-		if req.Suite == "smoke" {
-			c.Runtime, c.Mutates = true, true
-			c.Scope = []string{"one canonical smoke harness invocation", "one smoke.md and flow-state update"}
-			c.Warning = "RUNTIME + EXTERNAL HARNESS EVIDENCE; IMPLEMENTATION TARGET READ-ONLY"
-			break
-		}
 		mapped, err := u.QAMap(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
 		if err != nil {
 			return c, err
@@ -304,6 +290,10 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Mutates = true
 		c.Scope = []string{"QA pointer, digest, interrupted ownership, flow summary, and retention reconciliation"}
 		c.Warning = "RUNTIME-FREE QA RECOVERY; NO CHILD WORK"
+	case OperationQAReplayAdjudication:
+		c.Mutates = true
+		c.Scope = []string{"retained QA map, arbiter groups, evidence plans, and evidence records", "derived adjudication, assessment, issue summary, and QA report"}
+		c.Warning = "RUNTIME-FREE ADJUDICATION REPLAY; NO INVESTIGATORS, MODELS, TESTS, OR CHECKS"
 	case OperationRepairPrepare:
 		c.Mutates = true
 		c.Scope = []string{"one current adjudicated issue", "immutable repair packet", "manual one-cycle budget"}
@@ -464,21 +454,15 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 
 func validateQAOperationRequest(req OperationRequest) error {
 	switch req.Kind {
-	case OperationQAStatus, OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover:
+	case OperationQAStatus, OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover, OperationQAReplayAdjudication:
 	default:
 		return nil
 	}
 	if req.Study != "" || req.Stage != "" || req.Model != "" || req.Level != "" || req.Test != "" || req.Timeout != "" || req.ForceReview || req.RestartReview || req.OverrideRationale != "" || len(req.ReviewFocus) > 0 || len(req.Sources) > 0 || len(req.Dimensions) > 0 || req.Parallelism != 0 {
 		return fmt.Errorf("QA operations accept only project, sprint, and a map-owned shard")
 	}
-	if req.Suite != "" && req.Suite != "smoke" {
-		return fmt.Errorf("QA suite must be smoke")
-	}
-	if req.Suite != "" && req.Kind != OperationQAStart && req.Kind != OperationQADryRun {
-		return fmt.Errorf("QA suite is valid only for start or dry-run")
-	}
-	if req.Suite != "" && req.Task != "" {
-		return fmt.Errorf("QA suite and shard focus are mutually exclusive")
+	if req.Suite != "" {
+		return fmt.Errorf("QA operations do not accept a suite; use the standalone smoke operation")
 	}
 	if req.Task != "" && req.Kind != OperationQAStart && req.Kind != OperationQAResume {
 		return fmt.Errorf("QA shard is valid only for start or resume")
@@ -675,15 +659,6 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 		}
 		result.Message = fmt.Sprintf("phase=%s fresh=%t shards=%d/%d next=%s", qa.Phase, qa.Fresh, qa.CompletedShards, qa.TotalShards, qa.NextAction)
 	case OperationQADryRun:
-		if req.Suite == "smoke" {
-			smoke, err := ss.RunSmoke(ctx, req.Project, req.Sprint, sprint.SmokeRequest{DryRun: true})
-			if err != nil {
-				return failedOperation(result, err)
-			}
-			result.Message = fmt.Sprintf("smoke suite ready: %s %s", smoke.ScopeKind, smoke.Scope)
-			result.Content, result.Truncated = boundContent(sprint.RenderSmoke(smoke))
-			break
-		}
 		qa, err := u.QAMap(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
 		if err != nil {
 			return failedOperation(result, err)
@@ -697,6 +672,12 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 			return failedOperation(result, err)
 		}
 		result.Message = fmt.Sprintf("phase=%s next=%s", qa.Phase, qa.NextAction)
+	case OperationQAReplayAdjudication:
+		replay, err := ss.ReplayQAAdjudication(ctx, req.Project, req.Sprint)
+		if err != nil {
+			return failedOperation(result, err)
+		}
+		result.Message = fmt.Sprintf("attempt=%s candidates=%d promoted=%d unpromoted=%d accepted_evidence=%d", replay.AttemptID, replay.CandidateCount, replay.PromotedCount, replay.UnpromotedCount, replay.AcceptedEvidenceCount)
 	case OperationVerifyDryRun:
 		r, err := ss.Verify(ctx, req.Project, req.Sprint, sprint.VerifyRequest{To: sprint.PlanningStage(req.Stage), DryRun: true, Review: sprint.ReviewRequest{DryRun: true, Focus: req.ReviewFocus, Restart: req.RestartReview}, Smoke: sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, ForceReview: req.ForceReview, OverrideConfirmed: req.ForceReview, OverrideRationale: req.OverrideRationale, DryRun: true}})
 		if err != nil {
@@ -791,7 +772,7 @@ func operationPrerequisites(req OperationRequest) []string {
 	if req.Kind == OperationExecuteStart || req.Kind == OperationExecuteResume {
 		prerequisites = append(prerequisites, "validated plan", "approved target implementation directory")
 	}
-	if req.Kind == OperationQAStart || req.Kind == OperationQAResume || req.Kind == OperationQADryRun || req.Kind == OperationQARecover {
+	if req.Kind == OperationQAStart || req.Kind == OperationQAResume || req.Kind == OperationQADryRun || req.Kind == OperationQARecover || req.Kind == OperationQAReplayAdjudication {
 		prerequisites = append(prerequisites, "complete execute evidence", "current Conformance Review", "approved read-only target")
 	}
 	if (req.Kind == OperationFlow || req.Kind == OperationFlowDryRun) && req.Stage == string(sprint.StageMerge) {
@@ -801,7 +782,7 @@ func operationPrerequisites(req OperationRequest) []string {
 		prerequisites = append(prerequisites, "complete execute evidence", "current Conformance Review", "approved read-only target")
 	}
 	if req.Kind == OperationRepairPrepare || req.Kind == OperationRepairStart || req.Kind == OperationRepairResume || req.Kind == OperationRepairRecover || req.Kind == OperationRepairCampaignStart {
-		prerequisites = append(prerequisites, "current evidence-producing QA", "current adjudicated repair-eligible issue", "current containing smoke", "approved isolated repair host")
+		prerequisites = append(prerequisites, "current evidence-producing QA", "current adjudicated repair-eligible issue", "approved isolated repair host")
 	}
 	return prerequisites
 }
@@ -819,9 +800,6 @@ func operationRuntimeIdentity(req OperationRequest, stages map[sprint.PlanningSt
 	case OperationSmokeStart, OperationVerifyStart:
 		stage = sprint.StageSmoke
 	case OperationQAStart, OperationQAResume:
-		if req.Suite == "smoke" {
-			return "configured smoke author and harness"
-		}
 		return "configured QA runtime"
 	case OperationFlow:
 		if stage == sprint.StageQA || stage == sprint.StageMerge {
@@ -863,7 +841,7 @@ func governedOperationInputs(req OperationRequest) []string {
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "plan.md")),
 		}
 		switch req.Kind {
-		case OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover, OperationQAStatus, OperationRepairPrepare, OperationRepairStart, OperationRepairResume, OperationRepairRecover, OperationRepairCampaignStart:
+		case OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover, OperationQAReplayAdjudication, OperationQAStatus, OperationRepairPrepare, OperationRepairStart, OperationRepairResume, OperationRepairRecover, OperationRepairCampaignStart:
 			inputs = append(inputs,
 				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "execute.md")),
 				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, ".run-state.json")),

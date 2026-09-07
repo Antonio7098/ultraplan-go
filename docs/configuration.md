@@ -164,10 +164,9 @@ No Git merge is required, and a worker never receives a multi-issue patch
 packet.
 Before integration, UltraPlan runs each distinct frozen external check in the
 private proposal workspace. A non-pass rejects the proposal without modifying
-the canonical target. Product-owned checks and containing smoke still run only
-after ordered integration.
-Intermediate items may record `verified_pending_campaign` and defer containing
-smoke. The final item must pass the full ladder before the campaign completes.
+the canonical target. The same frozen checks remain authoritative after ordered
+integration, ending with containing QA.
+Every campaign item must pass its complete ladder before the campaign continues.
 Campaign admission requires a qualifying manual repair proof and explicit
 confirmation.
 

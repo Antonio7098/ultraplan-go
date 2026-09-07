@@ -309,6 +309,8 @@ type QAState struct {
 	CanonicalReport      *QAArtifactRef          `json:"canonical_report,omitempty"`
 	EvidenceCount        int                     `json:"evidence_count,omitempty"`
 	RejectedCount        int                     `json:"rejected_count,omitempty"`
+	CandidateCount       int                     `json:"candidate_count,omitempty"`
+	UnpromotedCount      int                     `json:"unpromoted_count,omitempty"`
 	IssueCount           int                     `json:"issue_count,omitempty"`
 	RegressionCandidates int                     `json:"regression_candidates,omitempty"`
 	CanonicalAssessment  OverallAssessment       `json:"canonical_assessment,omitempty"`
@@ -340,6 +342,8 @@ type QAFlowSummary struct {
 	Assessment       OverallAssessment `json:"assessment,omitempty"`
 	EvidenceCount    int               `json:"evidence_count,omitempty"`
 	RejectedCount    int               `json:"rejected_count,omitempty"`
+	CandidateCount   int               `json:"candidate_count,omitempty"`
+	UnpromotedCount  int               `json:"unpromoted_count,omitempty"`
 	IssueCount       int               `json:"issue_count,omitempty"`
 	ReportPath       string            `json:"report_path,omitempty"`
 	ReportDigest     string            `json:"report_digest,omitempty"`
@@ -400,7 +404,6 @@ const (
 	RepairGateLinkedTheories  RepairGateKind = "linked_theories"
 	RepairGateFollowUpShards  RepairGateKind = "follow_up_shards"
 	RepairGateContainingQA    RepairGateKind = "containing_qa"
-	RepairGateContainingSmoke RepairGateKind = "containing_smoke"
 )
 
 type RepairGateStatus string
@@ -543,7 +546,6 @@ type RepairIssuePacket struct {
 	GovernedInputFingerprint  string                   `json:"governed_input_fingerprint"`
 	ImplementationFingerprint string                   `json:"implementation_fingerprint"`
 	ReviewFingerprint         string                   `json:"review_fingerprint"`
-	SmokeFingerprint          string                   `json:"smoke_fingerprint"`
 	PolicyFingerprint         string                   `json:"policy_fingerprint"`
 	IsolationFingerprint      string                   `json:"isolation_fingerprint"`
 	PreparedAt                time.Time                `json:"prepared_at"`
@@ -1079,6 +1081,10 @@ type QAArbiterEvidenceRequest struct {
 	Priority            string   `json:"priority"`
 	Status              string   `json:"status,omitempty"`
 	EvidenceRound       int      `json:"evidence_round,omitempty"`
+	Attempts            int      `json:"attempts,omitempty"`
+	EvidenceFingerprint string   `json:"evidence_fingerprint,omitempty"`
+	ReasonCode          string   `json:"reason_code,omitempty"`
+	SupersededBy        string   `json:"superseded_by,omitempty"`
 	TestBundleID        string   `json:"test_bundle_id,omitempty"`
 	LatestRunID         string   `json:"latest_run_id,omitempty"`
 	NextAction          string   `json:"next_action,omitempty"`
@@ -1427,7 +1433,8 @@ func ValidateQAState(state QAState) error {
 	if state.CompletedShards < 0 || state.TotalShards < 0 || state.CompletedShards > state.TotalShards {
 		return fmt.Errorf("invalid QA shard counts")
 	}
-	if state.EvidenceCount < 0 || state.RejectedCount < 0 || state.IssueCount < 0 || state.RegressionCandidates < 0 {
+	countsDisagree := state.CandidateCount > 0 && state.CandidateCount != state.UnpromotedCount+state.IssueCount
+	if state.EvidenceCount < 0 || state.RejectedCount < 0 || state.CandidateCount < 0 || state.UnpromotedCount < 0 || state.IssueCount < 0 || state.RegressionCandidates < 0 || countsDisagree {
 		return fmt.Errorf("invalid QA evidence counts")
 	}
 	if strings.TrimSpace(state.NextAction) == "" || state.UpdatedAt.IsZero() {
@@ -1638,7 +1645,7 @@ func qaRecovery(category QAErrorCategory) string {
 	case QAErrorRuntimeUnavailable:
 		return "Restore the configured runtime and resume the current semantic attempt."
 	case QAErrorAdmissionBlocked:
-		return "Restore the current review, containing smoke, mapping, and isolation prerequisites before retrying."
+		return "Restore the current review, QA mapping, and isolation prerequisites before retrying."
 	case QAErrorAssertionFailure:
 		return "Inspect the admitted evidence and adjudicated issue before any governed repair."
 	case QAErrorCleanupUncertain:

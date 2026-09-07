@@ -481,16 +481,10 @@ func runSprint(deps dependencies, args []string) error {
 		var runErr error
 		switch qaCommand.Action {
 		case "map":
-			if qaCommand.Suite == "smoke" {
-				smoke, smokeErr := qaService.RunSmoke(deps.ctx, args[0], args[1], sprint.SmokeRequest{DryRun: true})
-				runErr = smokeErr
-				qaResult = QAResult{SchemaVersion: 1, Project: args[0], Sprint: args[1], Phase: "mapped", Fresh: smokeErr == nil, Suite: "smoke", NextAction: smoke.NextAction}
-			} else {
-				mapped, mapErr := qaService.QAMap(args[0], args[1])
-				runErr = mapErr
-				if mapErr == nil {
-					qaResult = qaMapProjection(mapped.Map)
-				}
+			mapped, mapErr := qaService.QAMap(args[0], args[1])
+			runErr = mapErr
+			if mapErr == nil {
+				qaResult = qaMapProjection(mapped.Map)
 			}
 		case "status":
 			snapshot, statusErr := qaService.QAStatus(args[0], args[1])
@@ -503,6 +497,18 @@ func runSprint(deps dependencies, args []string) error {
 			runErr = recoverErr
 			if recoverErr == nil {
 				qaResult = qaSnapshotProjection(snapshot)
+			}
+		case "replay-adjudication":
+			replay, replayErr := qaService.ReplayQAAdjudication(deps.ctx, args[0], args[1])
+			runErr = replayErr
+			if replayErr == nil {
+				snapshot, statusErr := qaService.QAStatus(args[0], args[1])
+				if statusErr != nil {
+					runErr = statusErr
+				} else {
+					qaResult = qaSnapshotProjection(snapshot)
+					qaResult.ResultContext = fmt.Sprintf("adjudication replay: %d candidates, %d promoted, %d unpromoted", replay.CandidateCount, replay.PromotedCount, replay.UnpromotedCount)
+				}
 			}
 		case "cancel":
 			repository, _, repositoryErr := runRepository(deps)
@@ -538,7 +544,7 @@ func runSprint(deps dependencies, args []string) error {
 				break
 			}
 			runtimeService = runtimeService.WithQAWriterFence(fence)
-			qaRun, qaErr := runtimeService.RunQA(durable.Context(), args[0], args[1], sprint.QARunRequest{Resume: qaCommand.Action == "resume", FocusShard: qaCommand.Shard, Suite: qaCommand.Suite, EvidenceProducing: qaCommand.Suite == "", WriterToken: token, Progress: func(progress sprint.QAProgress) {
+			qaRun, qaErr := runtimeService.RunQA(durable.Context(), args[0], args[1], sprint.QARunRequest{Resume: qaCommand.Action == "resume", FocusShard: qaCommand.Shard, EvidenceProducing: true, WriterToken: token, Progress: func(progress sprint.QAProgress) {
 				fmt.Fprintf(deps.stderr, "[qa] %s %d/%d", progress.Phase, progress.Completed, progress.Total)
 				if progress.ShardID != "" {
 					fmt.Fprintf(deps.stderr, " %s", progress.ShardID)
@@ -546,30 +552,14 @@ func runSprint(deps dependencies, args []string) error {
 				fmt.Fprintf(deps.stderr, ": %s\n", config.RedactValue("qa.progress", progress.Message))
 			}})
 			runErr = finishDurableCLICommand(durable, qaErr)
-			if qaCommand.Suite == "smoke" {
-				qaResult = QAResult{SchemaVersion: 1, Project: args[0], Sprint: args[1], Phase: string(qaRun.State.Phase), Fresh: qaRun.State.Freshness.Current, Suite: "smoke", RunID: token.RunID, TerminalResult: string(qaRun.State.Run.TerminalResult), NextAction: qaRun.State.NextAction}
-				if qaRun.Smoke != nil {
-					switch qaRun.Smoke.Verdict {
-					case sprint.SmokeFailVerdict:
-						qaResult.Assessment = string(sprint.AssessmentFail)
-					case sprint.SmokeBlockedVerdict:
-						qaResult.Assessment = string(sprint.AssessmentBlocked)
-					case sprint.SmokePassWithOpenIssues:
-						qaResult.Assessment = string(sprint.AssessmentPassWithFindings)
-					case sprint.SmokePass:
-						qaResult.Assessment = string(sprint.AssessmentPass)
-					}
+			snapshot, statusErr := runtimeService.QAStatus(args[0], args[1])
+			if statusErr == nil {
+				qaResult = qaSnapshotProjection(snapshot)
+				if qaErr != nil && qaRun.State.CurrentAttemptID == "" {
+					qaResult.ResultContext = "retained_previous_attempt"
 				}
 			} else {
-				snapshot, statusErr := runtimeService.QAStatus(args[0], args[1])
-				if statusErr == nil {
-					qaResult = qaSnapshotProjection(snapshot)
-					if qaErr != nil && qaRun.State.CurrentAttemptID == "" {
-						qaResult.ResultContext = "retained_previous_attempt"
-					}
-				} else {
-					runErr = errors.Join(runErr, statusErr)
-				}
+				runErr = errors.Join(runErr, statusErr)
 			}
 		}
 		if runErr != nil {
@@ -737,7 +727,7 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 	}
 	if command.Action == "run" && len(args) > 0 {
 		switch args[0] {
-		case "status", "resume", "cancel", "recover":
+		case "status", "resume", "cancel", "recover", "replay-adjudication":
 			command.Action = args[0]
 			args = args[1:]
 		}
@@ -792,17 +782,8 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 		if command.RunID != "" {
 			return command, errors.New("--run is valid only with qa cancel")
 		}
-		if command.Suite != "" && command.Suite != "smoke" {
-			return command, errors.New("QA suite must be smoke")
-		}
-		if command.Suite != "" && command.Shard != "" {
-			return command, errors.New("--suite and --shard are mutually exclusive")
-		}
-		if command.Action == "resume" && command.Suite != "" {
-			return command, errors.New("qa resume does not accept --suite; start a new smoke-suite run")
-		}
-		if command.Suite == "smoke" && !command.Yes {
-			return command, errors.New("--yes is required for non-interactive external harness execution")
+		if command.Suite != "" {
+			return command, errors.New("qa does not accept --suite; use the standalone smoke command")
 		}
 	case "cancel":
 		if command.RunID == "" {
@@ -815,10 +796,10 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 		if command.Shard != "" || command.RunID != "" || command.Yes {
 			return command, errors.New("qa dry-run does not accept --shard, --run, or --yes")
 		}
-		if command.Suite != "" && command.Suite != "smoke" {
-			return command, errors.New("QA suite must be smoke")
+		if command.Suite != "" {
+			return command, errors.New("qa dry-run does not accept --suite; use the standalone smoke command")
 		}
-	case "status", "recover":
+	case "status", "recover", "replay-adjudication":
 		if command.Shard != "" || command.RunID != "" || command.Suite != "" || command.Yes {
 			return command, fmt.Errorf("qa %s does not accept --shard, --run, --suite, or --yes", command.Action)
 		}
@@ -2398,14 +2379,15 @@ Usage:
   ultraplan sprint <project> <sprint> execute --task <id> --defer --reason <text>
   ultraplan sprint <project> <sprint> review [--restart] [--dry-run] [--model <provider/model>] [--parallel <n>] [--json]
   ultraplan sprint <project> <sprint> conformance-review [same flags as review]
-  ultraplan sprint <project> <sprint> qa [--dry-run] [--shard <map-owned-id>|--suite smoke] [--json]
+  ultraplan sprint <project> <sprint> qa [--dry-run] [--shard <map-owned-id>] [--json]
   ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
   ultraplan sprint <project> <sprint> qa status [--json]
   ultraplan sprint <project> <sprint> qa evidence tests [--json]
   ultraplan sprint <project> <sprint> qa evidence inspect --test <test-id> [--json]
   ultraplan sprint <project> <sprint> qa evidence rerun --test <test-id> --target current [--json]
   ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
-  ultraplan sprint <project> <sprint> qa recover [--json]
+	  ultraplan sprint <project> <sprint> qa recover [--json]
+	  ultraplan sprint <project> <sprint> qa replay-adjudication [--json]
   ultraplan sprint <project> <sprint> repair prepare --issue <current-issue-id> [--automatic] [--max-cycles <n>] [--json]
   ultraplan sprint <project> <sprint> repair start --run <repair-run-id> --confirmer <identity> --yes [--automatic] [--json]
   ultraplan sprint <project> <sprint> repair campaign --confirmer <identity> --yes [--json]
@@ -2477,8 +2459,8 @@ func sprintQAHelp() string {
 	return `ultraplan sprint <project> <sprint> qa
 
 Usage:
-  ultraplan sprint <project> <sprint> qa --dry-run [--suite smoke] [--json]
-  ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>|--suite smoke --yes] [--json]
+  ultraplan sprint <project> <sprint> qa --dry-run [--json]
+  ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>] [--json]
   ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
   ultraplan sprint <project> <sprint> qa status [--json]
   ultraplan sprint <project> <sprint> qa evidence tests [--json]
@@ -2486,8 +2468,9 @@ Usage:
   ultraplan sprint <project> <sprint> qa evidence rerun --test <test-id> --target current [--json]
   ultraplan sprint <project> <sprint> qa cancel --run <durable-run-id> [--json]
   ultraplan sprint <project> <sprint> qa recover [--json]
+  ultraplan sprint <project> <sprint> qa replay-adjudication [--json]
 
-Runs bounded QA after current execute and Conformance Review evidence. Normal evidence work uses disposable writable copies while the implementation target stays immutable. --suite smoke routes through the canonical external smoke harness, requires --yes, and cannot resume. Start and resume are durably accepted before runtime work. Status and dry-run are read-only; recovery is runtime-free. Completed means bounded investigation ended, not that QA passed. QA never changes the independent Conformance Review verdict.
+Runs bounded QA after current execute and Conformance Review evidence. Evidence work uses disposable writable copies while the implementation target stays immutable. Start and resume are durably accepted before runtime work. Status and dry-run are read-only; recovery and adjudication replay are runtime-free. Replay applies the current deterministic promotion policy to retained candidates and evidence only when the governed inputs, implementation, review, check catalog, and target still match. Completed means bounded investigation ended, not that QA passed. QA never changes the independent Conformance Review verdict. Smoke remains available only through its standalone command.
 `
 }
 
@@ -2504,7 +2487,7 @@ Usage:
   ultraplan sprint <project> <sprint> repair cancel --run <durable-operation-run-id> [--json]
   ultraplan sprint <project> <sprint> repair recover [--run <repair-run-id>] [--json]
 
-Prepare freezes one current repair-eligible QA issue without runtime work or target mutation. Start requires a separate explicit --yes and publishes single-use confirmation after durable acceptance but before dispatch. A current acceptable conformance review and passing containing smoke are required. Campaign uses qa.repair_assignment_mode and qa.issues_per_repair_agent, requires qualifying manual proof, and refreshes review, smoke, and evidence-producing QA between issue-scoped runs. Manual mode permits one proposal and one bounded production apply. Automatic mode requires a current qualifying manual proof, explicit --automatic on prepare and start, and frozen lower-only limits. Reverification ends with repaired-target containing smoke. Progress is written to stderr; --json writes one versioned document to stdout.
+Prepare freezes one current repair-eligible QA issue without runtime work or target mutation. Start requires a separate explicit --yes and publishes single-use confirmation after durable acceptance but before dispatch. A current acceptable conformance review and evidence-producing QA attempt are required. Campaign uses qa.repair_assignment_mode and qa.issues_per_repair_agent, requires qualifying manual proof, and refreshes evidence-producing QA between issue-scoped runs. Manual mode permits one proposal and one bounded production apply. Automatic mode requires a current qualifying manual proof, explicit --automatic on prepare and start, and frozen lower-only limits. Reverification ends with containing QA. Progress is written to stderr; --json writes one versioned document to stdout.
 `
 }
 

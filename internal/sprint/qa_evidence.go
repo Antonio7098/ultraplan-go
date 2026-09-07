@@ -47,6 +47,7 @@ type QAReproductionSpec struct {
 	ID                        string             `json:"id"`
 	AttemptID                 string             `json:"attempt_id"`
 	ShardID                   string             `json:"shard_id"`
+	EvidenceRequestID         string             `json:"evidence_request_id,omitempty"`
 	TheoryIDs                 []string           `json:"theory_ids"`
 	Claim                     string             `json:"claim"`
 	Preconditions             []string           `json:"preconditions"`
@@ -195,6 +196,21 @@ type QARejectedEvidence struct {
 	Detail     string `json:"detail"`
 }
 
+// QAUnpromotedIssue records a reconciled issue candidate that did not satisfy
+// the deterministic promotion gate. Keeping this beside promoted issues makes
+// candidate coverage auditable without weakening the evidence requirement.
+type QAUnpromotedIssue struct {
+	CandidateID string   `json:"candidate_id"`
+	TheoryIDs   []string `json:"theory_ids,omitempty"`
+	Title       string   `json:"title"`
+	IssueClass  string   `json:"issue_class"`
+	Severity    string   `json:"severity"`
+	Location    string   `json:"location"`
+	EvidenceIDs []string `json:"evidence_ids,omitempty"`
+	ReasonCode  string   `json:"reason_code"`
+	Detail      string   `json:"detail"`
+}
+
 type QARootCauseGroup struct {
 	ID          string   `json:"id"`
 	Claim       string   `json:"claim"`
@@ -217,18 +233,28 @@ type QAIssue struct {
 }
 
 type QAAdjudication struct {
-	SchemaVersion     int                  `json:"schema_version"`
-	ID                string               `json:"id"`
-	AttemptID         string               `json:"attempt_id"`
-	MapFingerprint    string               `json:"map_fingerprint"`
-	AcceptedIDs       []string             `json:"accepted_evidence_ids"`
-	Rejected          []QARejectedEvidence `json:"rejected_evidence"`
-	Groups            []QARootCauseGroup   `json:"root_cause_groups"`
-	Issues            []QAIssue            `json:"issues"`
-	RepairGroups      []QARepairIssueGroup `json:"suggested_repair_groups,omitempty"`
-	RepairAssignments []QARepairAssignment `json:"repair_assignments,omitempty"`
-	Evaluators        []QAModelObservation `json:"evaluators,omitempty"`
-	CompletedAt       time.Time            `json:"completed_at"`
+	SchemaVersion     int                   `json:"schema_version"`
+	ID                string                `json:"id"`
+	AttemptID         string                `json:"attempt_id"`
+	MapFingerprint    string                `json:"map_fingerprint"`
+	AcceptedIDs       []string              `json:"accepted_evidence_ids"`
+	Rejected          []QARejectedEvidence  `json:"rejected_evidence"`
+	Unpromoted        []QAUnpromotedIssue   `json:"unpromoted_issue_candidates,omitempty"`
+	Groups            []QARootCauseGroup    `json:"root_cause_groups"`
+	Issues            []QAIssue             `json:"issues"`
+	RepairGroups      []QARepairIssueGroup  `json:"suggested_repair_groups,omitempty"`
+	RepairAssignments []QARepairAssignment  `json:"repair_assignments,omitempty"`
+	Evaluators        []QAModelObservation  `json:"evaluators,omitempty"`
+	Replay            *QAAdjudicationReplay `json:"replay,omitempty"`
+	CompletedAt       time.Time             `json:"completed_at"`
+}
+
+type QAAdjudicationReplay struct {
+	SourceAdjudicationID     string `json:"source_adjudication_id"`
+	SourceAssessmentID       string `json:"source_assessment_id"`
+	SourcePolicyFingerprint  string `json:"source_policy_fingerprint"`
+	AppliedPolicyFingerprint string `json:"applied_policy_fingerprint"`
+	Reason                   string `json:"reason"`
 }
 
 // QARepairIssueGroup is scheduling advice only. Every issue in the group still
@@ -256,6 +282,8 @@ type QAAssessmentRecord struct {
 	Assessment        OverallAssessment `json:"assessment"`
 	EvidenceTotal     int               `json:"evidence_total"`
 	RejectedTotal     int               `json:"rejected_total"`
+	CandidateTotal    int               `json:"candidate_total,omitempty"`
+	UnpromotedTotal   int               `json:"unpromoted_total,omitempty"`
 	IssueTotal        int               `json:"issue_total"`
 	Blockers          []QABlocker       `json:"blockers,omitempty"`
 	NextAction        string            `json:"next_action"`
@@ -407,11 +435,11 @@ func NewQAV2ID(kind, project, sprint, parent string, value any) (string, error) 
 	return fmt.Sprintf("%s-%s-%s", QAEvidenceIDScope, kind, hex.EncodeToString(digest[:12])), nil
 }
 
-var qaV2IDPattern = regexp.MustCompile(`^qa-v2-(plan|evidence|patch|adjudication|issue|assessment|group|spec|test|run|request|coverage)-[0-9a-f]{24}$`)
+var qaV2IDPattern = regexp.MustCompile(`^qa-v2-(plan|evidence|patch|adjudication|issue|assessment|group|spec|test|run|request|coverage|candidate)-[0-9a-f]{24}$`)
 
 func validQAV2Kind(kind string) bool {
 	switch kind {
-	case "plan", "evidence", "patch", "adjudication", "issue", "assessment", "group", "spec", "test", "run", "request", "coverage":
+	case "plan", "evidence", "patch", "adjudication", "issue", "assessment", "group", "spec", "test", "run", "request", "coverage", "candidate":
 		return true
 	default:
 		return false

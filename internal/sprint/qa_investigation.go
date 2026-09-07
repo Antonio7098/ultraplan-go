@@ -212,8 +212,9 @@ func FreezeQAEvidencePlan(project, sprint string, plan QAEvidencePlan, budgets Q
 		Output              int
 		RequireEmptyStdout  bool
 		Analyzers           int
+		FrozenAt            time.Time
 		Governed, Impl, Map string
-	}{plan.Kind, plan.TheoryIDs, plan.ExpectationRefs, []string{plan.ConfirmationCondition, plan.RefutationCondition, plan.InconclusiveCondition}, plan.ApprovedPaths, plan.CheckID, plan.Executable, plan.Args, plan.WorkingDirectory, plan.EnvironmentNames, plan.Timeout, plan.OutputLimit, plan.RequireEmptyStdout, plan.AnalyzerCalls, plan.GovernedInputFingerprint, plan.ImplementationFingerprint, plan.MapFingerprint})
+	}{plan.Kind, plan.TheoryIDs, plan.ExpectationRefs, []string{plan.ConfirmationCondition, plan.RefutationCondition, plan.InconclusiveCondition}, plan.ApprovedPaths, plan.CheckID, plan.Executable, plan.Args, plan.WorkingDirectory, plan.EnvironmentNames, plan.Timeout, plan.OutputLimit, plan.RequireEmptyStdout, plan.AnalyzerCalls, plan.FrozenAt, plan.GovernedInputFingerprint, plan.ImplementationFingerprint, plan.MapFingerprint})
 	if err != nil {
 		return QAEvidencePlan{}, err
 	}

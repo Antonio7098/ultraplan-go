@@ -352,6 +352,7 @@ Run all current shards or one map-owned shard, then inspect status:
 ultraplan sprint <project> <sprint> qa
 ultraplan sprint <project> <sprint> qa --shard qa-v1-shard-...
 ultraplan sprint <project> <sprint> qa status
+ultraplan sprint <project> <sprint> qa replay-adjudication
 ```
 
 The first investigator pass can only read assigned paths and request bounded context or approved checks. Product code then freezes approved plans and runs them sequentially in fresh writable copies under native target-write denial. Neither stage can apply copy changes, promote its own issue, repair production code, or mutate Git. A theory is a falsifiable diagnostic record: `confirmed` supports its claim, `refuted` rejects it, `invalid` means the claim contract failed, `inconclusive` lacks safe evidence, `blocked` records a prerequisite or policy stop, `cross_shard` needs bounded interaction work, and `not_applicable` records that the claim does not apply. Negative outcomes and rejected evidence remain visible.
@@ -363,6 +364,8 @@ ultraplan sprint <project> <sprint> qa cancel --run run_...
 ```
 
 After cancellation, timeout, restart, or restored runtime availability, first inspect status. Use `qa recover` to reconcile runtime-free state and `qa resume` to claim incomplete current work with a new durable owner. Completed current shards are retained; changed map or input fingerprints make the attempt stale and require a new dry-run/start. `QA completed` means all admitted bounded work ended, not “QA passed,” and it cannot upgrade a failed or blocked Conformance Review.
+
+If a promotion-policy defect affected an otherwise current completed attempt, use `qa replay-adjudication`. It rebuilds the candidate set from retained arbiter groups and theories, reuses the exact retained plans and evidence records, and rewrites only derived adjudication, issues, assessment, and report artifacts. It does not call a model, investigator, test, or check. Replay is refused if governed inputs, implementation, review, check catalog, or target identity changed.
 
 ### Run one bounded manual repair
 
@@ -393,7 +396,7 @@ ultraplan sprint <project> <sprint> repair campaign --confirmer "$USER" --yes --
 
 With `qa.repair_assignment_mode: grouped`, UltraPlan partitions similar issues into queues of at most `qa.issues_per_repair_agent` items and reuses one repair model session for each queue. `qa.repair_execution_mode: sequential` keeps proposal work ordered. `parallel` generates queue proposals concurrently in private copied workspaces, then integrates and verifies them one at a time. Each issue is refreshed at integration; stale overlapping proposals are regenerated against the current target. This is not a Git merge, and the campaign never gives a worker one combined multi-issue packet.
 
-An intermediate issue in a multi-issue queue can finish as `verified_pending_campaign`. Its scoped gates, production apply, and cleanup passed, while containing smoke remains deferred. The final issue must pass the full ladder, including containing smoke, before the campaign completes. The pending outcome is not standalone success. A campaign requires the same qualifying manual proof as automatic repair and stops at the first failed item.
+Every issue in a multi-issue queue must pass its complete containing-QA ladder before the campaign continues. A campaign requires the same qualifying manual proof as automatic repair and stops at the first failed item.
 
 Sprint planning prompts are markdown defaults embedded in the CLI, not hand-built Go checklist strings. A workspace can override them by installing defaults and editing files such as `prompts/create-requirements.md`, `prompts/create-sprint-index.md`, `prompts/create-technical-handbook.md`, `prompts/create-sprint-reasoning.md`, or `prompts/plan-sprint.md`. A project may override only the area-reasoning prompt, final-reasoning prompt, and final-reasoning template. Project status reports which source is effective.
 
@@ -434,13 +437,29 @@ snapshot even when full event history is no longer available.
 Run `qa --dry-run` to inspect the current map without state writes. A normal
 start retains frozen plans and evidence from disposable copies, then publishes
 adjudication, promoted issue summaries, regression candidates, a canonical
-assessment, and `qa.md`. Evidence can be accepted, rejected, or blocked;
-rejected and incomplete evidence never disappears into a passing assessment.
+assessment, and `qa.md`. The report counts every reconciled issue candidate
+and records candidates that lack promotion evidence as unpromoted. Those
+candidates block a clean pass instead of disappearing from adjudication.
+
+Before final adjudication, QA sends findings with insufficient promotion
+evidence back to their original investigators. Static confirmation alone does
+not close an evidence request. Investigators author focused tests in retained
+private workspaces; QA executes them and returns the assertions and observed
+output to the arbiter. Contract or static assertions can be used when a
+behavioral reproduction is unsuitable.
+
+Evidence requests retain their exact test bindings, attempt counts, and stopping
+reasons. Resume reuses completed evidence and does not reset the attempt's
+budgets. Missing sessions, unsupported reproducers, and exhausted budgets remain
+explicit unresolved requests. Restore missing prerequisites before resuming;
+exhausted budgets require a new governed attempt. A skipped or missing selected
+test does not refute a finding.
+Evidence can be accepted, rejected, or blocked; rejected and incomplete
+evidence never disappears into a passing assessment.
 QA does not apply generated changes, repair production code, weaken governed
 expectations, mutate Git, or change the independent Conformance Review verdict.
 
-Use `qa --suite smoke` when the next QA action is the canonical containing
-smoke suite. It produces the same external harness run and `smoke.md` authority
-as the `smoke` command. A narrow or diagnostic smoke run cannot substitute for
-that evidence. Inspect status after cancellation or failure. Resume only a
-current normal QA attempt; smoke-suite retries are new starts.
+Smoke remains available through the standalone `smoke` command. It does not
+participate in evidence-producing QA, repair admission, or repair
+reverification. Inspect QA status after cancellation or failure and resume only
+the current QA attempt.

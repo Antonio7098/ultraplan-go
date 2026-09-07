@@ -20,7 +20,7 @@ func renderSprintQAView(b *strings.Builder, m Model, route Route) {
 	}
 	fmt.Fprintf(b, "Phase: %s\nFresh: %t\nConformance Review: status=%s verdict=%s fresh=%t\nCoverage: %d/%d changed paths\nShards: %d/%d\n", qa.Phase, qa.Fresh, qa.ConformanceReviewStatus, qa.ConformanceReviewVerdict, qa.ConformanceReviewFresh, qa.CoveredPaths, qa.ChangedPaths, qa.CompletedShards, qa.TotalShards)
 	if qa.Assessment != "" {
-		fmt.Fprintf(b, "Assessment: %s\nEvidence: %d total, %d rejected\nIssues: %d\nRegression candidates: %d\n", qa.Assessment, qa.EvidenceCount, qa.RejectedEvidenceCount, qa.IssueCount, qa.RegressionCandidateCount)
+		fmt.Fprintf(b, "Assessment: %s\nEvidence: %d total, %d rejected\nIssue candidates: %d total, %d unpromoted\nPromoted issues: %d\nRegression candidates: %d\n", qa.Assessment, qa.EvidenceCount, qa.RejectedEvidenceCount, qa.CandidateCount, qa.UnpromotedCandidateCount, qa.IssueCount, qa.RegressionCandidateCount)
 	}
 	if qa.CanonicalReport != nil {
 		fmt.Fprintf(b, "Canonical report: %s\n", qa.CanonicalReport.Path)

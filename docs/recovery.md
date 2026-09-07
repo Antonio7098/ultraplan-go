@@ -77,7 +77,6 @@ Final integration uses `sprint merge`. Inspect `.merge-state.json` and `sprint m
 - Expired running attempt: `sprint status` derives an attempt that has lacked a terminal update for more than 24 hours as timed out without mutating state; the next explicit review/smoke operation owns the durable transition.
 - Review failure: resolve findings and rerun review. Use `--force-review --override-reason <text> --yes` only for diagnostic smoke; it cannot promote review or the overall assessment.
 - Smoke interruption or timeout: confirm no harness process remains, inspect external run evidence, then rerun `verify --to smoke --yes` or the explicit `smoke --yes` action.
-- Fresh canonical review with stale smoke: rerun the required containing smoke suite; a narrow diagnostic selection does not replace containing-suite evidence.
 
 ## Smoke Recovery
 

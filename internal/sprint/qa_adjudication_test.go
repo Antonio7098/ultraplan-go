@@ -15,13 +15,21 @@ func TestQAAdjudicationPromotesOnlyCurrentContainedRepeatableEvidence(t *testing
 		t.Fatal(err)
 	}
 	evidenceID, _ := NewQAV2ID("evidence", "alpha", "37-evidence", plan.ID, "failure")
+	theoryID, _ := NewQATheoryID("alpha", "37-evidence", shardID, QATheoryIdentity{Claim: "request fails", Basis: "behavior", VerificationSurface: "a.go"})
 	record := QAEvidenceRecord{SchemaVersion: 2, ID: evidenceID, PlanID: plan.ID, AttemptID: attemptID, ShardID: shardID, WorkspaceID: "opaque", WorkspaceIdentity: strings.Repeat("d", 64), TargetIdentityBefore: strings.Repeat("e", 64), TargetIdentityAfter: strings.Repeat("e", 64), GovernedInputFingerprint: plan.GovernedInputFingerprint, ImplementationFingerprint: plan.ImplementationFingerprint, MapFingerprint: plan.MapFingerprint, Commands: []QACommandResult{{Executable: "go", ArgsDigest: strings.Repeat("f", 64), ExitCode: 1}}, Outcome: QAEvidenceFail, ReasonCode: "assertion_failed", Repeatable: true, Contained: true, Cleanup: QACleanupFacts{Attempted: true, DescendantsTerminated: true, WorkspaceRemoved: true, Complete: true}, CompletedAt: time.Unix(2, 0)}
-	result, err := AdjudicateQA(QAAdjudicationRequest{Project: "alpha", Sprint: "37-evidence", AttemptID: attemptID, MapFingerprint: plan.MapFingerprint, Plans: []QAEvidencePlan{plan}, Evidence: []QAEvidenceRecord{record}, Candidates: []QAIssueCandidate{{Claim: "request fails", Title: "Valid request fails", IssueClass: "behavior", Severity: "high", Location: "internal/a.go", EvidenceIDs: []string{record.ID}, RepairEligible: true, RegressionCandidate: true}}, Budgets: budgets, Now: time.Unix(3, 0)})
+	result, err := AdjudicateQA(QAAdjudicationRequest{Project: "alpha", Sprint: "37-evidence", AttemptID: attemptID, MapFingerprint: plan.MapFingerprint, Plans: []QAEvidencePlan{plan}, Evidence: []QAEvidenceRecord{record}, Candidates: []QAIssueCandidate{{TheoryIDs: []string{theoryID}, Claim: "request fails", Title: "Valid request fails", IssueClass: "behavior", Severity: "high", Location: "internal/a.go", EvidenceIDs: []string{record.ID}, EvidenceByTheory: map[string][]string{theoryID: {record.ID}}, RepairEligible: true, RegressionCandidate: true}}, Budgets: budgets, Now: time.Unix(3, 0)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(result.AcceptedIDs) != 1 || len(result.Issues) != 1 || !result.Issues[0].RegressionCandidate {
 		t.Fatalf("adjudication = %+v", result)
+	}
+	uncovered, err := AdjudicateQA(QAAdjudicationRequest{Project: "alpha", Sprint: "37-evidence", AttemptID: attemptID, MapFingerprint: plan.MapFingerprint, Plans: []QAEvidencePlan{plan}, Evidence: []QAEvidenceRecord{record}, Candidates: []QAIssueCandidate{{TheoryIDs: []string{theoryID}, Claim: "request fails", Title: "Valid request fails", IssueClass: "behavior", Severity: "high", Location: "internal/a.go", EvidenceIDs: []string{record.ID}}}, Budgets: budgets, Now: time.Unix(3, 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(uncovered.Issues) != 0 || len(uncovered.Unpromoted) != 1 || uncovered.Unpromoted[0].ReasonCode != "promotion_theory_coverage_missing" {
+		t.Fatalf("candidate without per-theory evidence was promoted: %+v", uncovered)
 	}
 	record.Cleanup.Complete = false
 	blocked, err := AdjudicateQA(QAAdjudicationRequest{Project: "alpha", Sprint: "37-evidence", AttemptID: attemptID, MapFingerprint: plan.MapFingerprint, Plans: []QAEvidencePlan{plan}, Evidence: []QAEvidenceRecord{record}, Candidates: []QAIssueCandidate{{Claim: "request fails", Title: "Valid request fails", IssueClass: "behavior", Location: "internal/a.go", EvidenceIDs: []string{record.ID}}}, Budgets: budgets, Now: time.Unix(3, 0)})
@@ -98,6 +106,31 @@ func TestQAAdjudicationDeduplicatesCandidatesWithOneRootCause(t *testing.T) {
 	}
 }
 
+func TestQAAdjudicationRetainsCandidateWithoutPromotionEvidence(t *testing.T) {
+	budgets := DefaultQABudgets()
+	attemptID, _ := NewQASemanticAttemptID("alpha", "39-coverage", QASemanticIdentity{ChangedPaths: []string{"a.go"}})
+	theoryID, _ := NewQATheoryID("alpha", "39-coverage", attemptID, QATheoryIdentity{Claim: "candidate claim", Basis: "source evidence", VerificationSurface: "a.go"})
+	result, err := AdjudicateQA(QAAdjudicationRequest{
+		Project: "alpha", Sprint: "39-coverage", AttemptID: attemptID, MapFingerprint: strings.Repeat("c", 64), Budgets: budgets, Now: time.Unix(3, 0),
+		Candidates: []QAIssueCandidate{{ID: "qa-v1-arbiter-issue-aaaaaaaaaaaaaaaaaaaaaaaa", TheoryIDs: []string{theoryID}, Claim: "candidate claim", Title: "Confirmed candidate", IssueClass: "behavior", Severity: "high", Location: "a.go"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Issues) != 0 || len(result.Unpromoted) != 1 {
+		t.Fatalf("candidate coverage = promoted %d, unpromoted %+v", len(result.Issues), result.Unpromoted)
+	}
+	got := result.Unpromoted[0]
+	if got.CandidateID != "qa-v1-arbiter-issue-aaaaaaaaaaaaaaaaaaaaaaaa" || got.ReasonCode != "promotion_evidence_missing" || len(got.TheoryIDs) != 1 || got.TheoryIDs[0] != theoryID {
+		t.Fatalf("unpromoted candidate = %+v", got)
+	}
+	review := VerificationStage{Fresh: true, ExecutionStatus: string(ReviewCompleted), Verdict: string(ReviewPass)}
+	assessment, next := DeriveQAAssessment(review, nil, result, nil)
+	if assessment != AssessmentBlocked || !strings.Contains(next, "1 unpromoted issue candidate") {
+		t.Fatalf("assessment=%q next=%q", assessment, next)
+	}
+}
+
 func TestPlanRepairAssignmentsPreservesIssueScopedRuns(t *testing.T) {
 	issues := []QAIssue{
 		{ID: "issue-a", RootCauseGroupID: "root-a", RepairEligible: true},
@@ -139,13 +172,13 @@ func TestDeriveQAAssessmentNextActionMatchesPromotedIssues(t *testing.T) {
 	evidence := []QAEvidenceRecord{{ID: "evidence"}}
 	adjudication := QAAdjudication{AcceptedIDs: []string{"evidence"}}
 
-	assessment, next := DeriveQAAssessment(review, evidence, adjudication, nil, nil)
+	assessment, next := DeriveQAAssessment(review, evidence, adjudication, nil)
 	if assessment != AssessmentPassWithFindings || next != "Review the current Conformance Review findings." {
 		t.Fatalf("review-only findings assessment=%q next=%q", assessment, next)
 	}
 
 	adjudication.Issues = []QAIssue{{ID: "issue"}}
-	assessment, next = DeriveQAAssessment(review, evidence, adjudication, nil, nil)
+	assessment, next = DeriveQAAssessment(review, evidence, adjudication, nil)
 	if assessment != AssessmentPassWithFindings || next != "Review the promoted issues before governed repair." {
 		t.Fatalf("promoted issue assessment=%q next=%q", assessment, next)
 	}

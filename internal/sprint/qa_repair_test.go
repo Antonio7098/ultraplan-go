@@ -68,8 +68,7 @@ func TestFreezeRepairChecksPreservesAndRecoversWorkingDirectory(t *testing.T) {
 		OutputLimit: 1024, RefutationCondition: "test passes",
 	}
 	evidence := []QAEvidenceRecord{{PlanID: planID, Outcome: QAEvidenceFail}}
-	flow := FlowState{Smoke: &SmokeStageState{SmokeFingerprint: strings.Repeat("4", 64)}}
-	checks, exact, err := freezeRepairChecks(runID, []QAEvidencePlan{base}, evidence, QAMap{}, flow, DefaultRepairBudgets())
+	checks, exact, err := freezeRepairChecks(runID, []QAEvidencePlan{base}, evidence, QAMap{}, DefaultRepairBudgets())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +76,7 @@ func TestFreezeRepairChecksPreservesAndRecoversWorkingDirectory(t *testing.T) {
 		t.Fatalf("legacy authored test workdir was not recovered: exact=%q check=%q", exact.Workdir, checks[0].Workdir)
 	}
 	base.WorkingDirectory = "internal/custom"
-	checks, exact, err = freezeRepairChecks(runID, []QAEvidencePlan{base}, evidence, QAMap{}, flow, DefaultRepairBudgets())
+	checks, exact, err = freezeRepairChecks(runID, []QAEvidencePlan{base}, evidence, QAMap{}, DefaultRepairBudgets())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,56 +412,26 @@ func TestRepairApplyJournalRetainsDigestBoundPrivatePreimages(t *testing.T) {
 	}
 }
 
-func TestRepairReverificationRunsRepairedTargetSmokeWithoutSecondReview(t *testing.T) {
+func TestRepairReverificationEndsWithContainingQA(t *testing.T) {
 	packet := repairPacketFixture(t)
 	for i := range packet.Checks {
 		packet.Checks[i].Executable = "true"
 		packet.Checks[i].Args = nil
 	}
-	packet.Checks[len(packet.Checks)-1].Executable = "@product"
 	target := t.TempDir()
-	flow := FlowState{
-		Review: &ReviewStageState{Fingerprint: packet.ReviewFingerprint},
-		Smoke:  &SmokeStageState{SmokeFingerprint: packet.SmokeFingerprint},
-	}
-	verification, exactRemoved, _, complete := NewService(t.TempDir()).runRepairReverification(context.Background(), packet, target, flow, 1, false, false, nil)
+	verification, exactRemoved, _, complete := NewService(t.TempDir()).runRepairReverification(context.Background(), packet, target, 1, nil)
 	if !exactRemoved {
 		t.Fatal("passing exact reproducer was not recorded")
 	}
-	if complete {
-		t.Fatal("smoke unexpectedly passed without a sprint smoke harness")
+	if !complete {
+		t.Fatal("containing QA ladder did not complete")
 	}
-	smoke := verification.Gates[len(verification.Gates)-1]
-	if smoke.Status != RepairGateFailed || !strings.Contains(smoke.Reason, "repaired-target") {
-		t.Fatalf("smoke gate=%+v", smoke)
+	qa := verification.Gates[len(verification.Gates)-1]
+	if qa.Gate != RepairGateContainingQA || qa.Status != RepairGatePassed {
+		t.Fatalf("final gate=%+v", qa)
 	}
 	if len(verification.Gates) != len(RepairGateOrder()) {
 		t.Fatalf("gate count=%d", len(verification.Gates))
-	}
-}
-
-func TestIntermediateCampaignRepairDefersOnlyGlobalSmoke(t *testing.T) {
-	packet := repairPacketFixture(t)
-	for i := range packet.Checks {
-		packet.Checks[i].Executable = "true"
-		packet.Checks[i].Args = nil
-	}
-	packet.Checks[len(packet.Checks)-1].Executable = "@product"
-	verification, exactRemoved, issueChecksPassed, completeLadder := NewService(t.TempDir()).runRepairReverification(context.Background(), packet, t.TempDir(), FlowState{}, 1, true, true, nil)
-	if !exactRemoved || !issueChecksPassed || completeLadder {
-		t.Fatalf("intermediate facts exact=%t issue_checks=%t ladder=%t", exactRemoved, issueChecksPassed, completeLadder)
-	}
-	for i, gate := range verification.Gates {
-		if i == len(verification.Gates)-1 {
-			if gate.Gate != RepairGateContainingSmoke || gate.Status != RepairGateDeferred {
-				t.Fatalf("final gate = %+v", gate)
-			}
-		} else if gate.Status != RepairGatePassed {
-			t.Fatalf("issue-scoped gate %d = %+v", i, gate)
-		}
-	}
-	if err := ValidateRepairReverification(verification); err != nil {
-		t.Fatalf("campaign deferral is not publishable: %v", err)
 	}
 }
 
@@ -693,7 +662,7 @@ func TestRepairReverificationRetainsBoundedRunnerDiagnostic(t *testing.T) {
 	for i := range packet.Checks {
 		packet.Checks[i].Executable = "go"
 	}
-	verification, _, _, _ := NewService(t.TempDir()).WithProcessRunner(repairFailingRunner{}).runRepairReverification(context.Background(), packet, t.TempDir(), FlowState{}, 1, false, false, nil)
+	verification, _, _, _ := NewService(t.TempDir()).WithProcessRunner(repairFailingRunner{}).runRepairReverification(context.Background(), packet, t.TempDir(), 1, nil)
 	if verification.Gates[0].Diagnostic == "" || !strings.Contains(verification.Gates[0].Diagnostic, "timeout") {
 		t.Fatalf("gate=%+v", verification.Gates[0])
 	}
@@ -952,6 +921,6 @@ func repairPacketFixture(t *testing.T) RepairIssuePacket {
 		ShardIDs: []string{shardID}, ExpectationRefs: []string{"AC-1"}, ExactReproducer: checks[0], Checks: checks,
 		AllowedPaths: []string{"internal/a.go"}, ForbiddenPaths: []string{"internal/a_test.go"}, AcceptanceCriteria: []string{"exact reproducer passes"},
 		Mode: RepairModeManual, Budgets: DefaultRepairBudgets(), Target: QATargetIdentity{Fingerprint: strings.Repeat("a", 64), GitWorktree: strings.Repeat("b", 64)},
-		GovernedInputFingerprint: strings.Repeat("1", 64), ImplementationFingerprint: strings.Repeat("2", 64), ReviewFingerprint: strings.Repeat("3", 64), SmokeFingerprint: strings.Repeat("4", 64), PolicyFingerprint: strings.Repeat("5", 64), IsolationFingerprint: strings.Repeat("6", 64), PreparedAt: now,
+		GovernedInputFingerprint: strings.Repeat("1", 64), ImplementationFingerprint: strings.Repeat("2", 64), ReviewFingerprint: strings.Repeat("3", 64), PolicyFingerprint: strings.Repeat("5", 64), IsolationFingerprint: strings.Repeat("6", 64), PreparedAt: now,
 	}
 }
