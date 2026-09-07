@@ -568,7 +568,7 @@ func runSprint(deps dependencies, args []string) error {
 		if runErr != nil {
 			operationStatus = "failed"
 		}
-		qaResult = (dashboardUseCases{root: root.Path, qaSettings: qa, readOnly: true}).withQAConformanceReview(QARequest{Project: args[0], Sprint: args[1]}, qaResult)
+		qaResult = (dashboardUseCases{root: root.Path, qaSettings: qa, stageRuntime: planningStageRuntime(effective.Config), reviewConcurrency: effective.Config.Execution.DefaultParallel, readOnly: true}).withQAConformanceReview(QARequest{Project: args[0], Sprint: args[1]}, qaResult)
 		if qaCommand.JSON {
 			payload := map[string]any{"schema_version": 1, "operation": "sprint.qa", "status": operationStatus, "result": qaResult}
 			if runErr != nil {

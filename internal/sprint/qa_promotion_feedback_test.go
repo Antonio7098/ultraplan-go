@@ -19,6 +19,7 @@ type qaFeedbackRuntime struct {
 	authorCalls    int
 	arbiterSawTest bool
 	unavailable    bool
+	legacyDir      string
 }
 
 func (r *qaFeedbackRuntime) StartRun(ctx context.Context, req pruntime.Request) (pruntime.Result, error) {
@@ -40,6 +41,16 @@ func (r *qaFeedbackRuntime) StartRun(ctx context.Context, req pruntime.Request) 
 			r.t.Fatal(err)
 		}
 		file := filepath.Join(req.WorkDir, packet.Spec.ApprovedTestPaths[0])
+		if r.legacyDir != "" {
+			file = filepath.Join(r.legacyDir, packet.Spec.ApprovedTestPaths[0])
+			allowed := false
+			for _, rule := range req.Policy.PathRules {
+				allowed = allowed || rule.Path == file && rule.Action == "allow"
+			}
+			if !allowed {
+				r.t.Fatal("restored session directory is absent from the restricted test policy")
+			}
+		}
 		content := fmt.Sprintf("package test\nimport \"testing\"\nfunc %s(t *testing.T) { if Probe(0) != 0 { t.Fatal(\"control failed\") }; if got := Probe(1); got != 2 { t.Fatalf(\"%s: got %%d want 2\", got) } }\n", packet.Spec.PredictedFailure.TestName, packet.Spec.PredictedFailure.OutputMatcher)
 		if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
 			r.t.Fatal(err)

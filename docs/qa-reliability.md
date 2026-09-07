@@ -15,6 +15,8 @@ capacity, then records a retryable capacity failure. It does not spend an
 authoring turn. The defaults leave 256 MiB of disk and 1 GiB of host memory free,
 reserve 1 GiB for reproduction build output and 2 GiB for dependency preparation,
 plus the source copy. These are conservative estimates, not filesystem quotas.
+Capacity diagnostics name the constrained resource and report available,
+reserved, requested and headroom bytes in MiB, including the remaining shortfall.
 
 The default memory reservation per worker is 1536 MiB.
 `ULTRAPLAN_QA_WORKER_MEMORY_MB` permits a positive integer override based on
@@ -65,7 +67,11 @@ The same operation is available in the web interface and TUI. It uses durable ru
 ownership and the QA writer fence. It requires a retained adjudicated attempt and
 unchanged governed inputs and implementation. It does not remap or rerun
 investigators or accepted checks. Valid retained bundles run directly; missing
-bundles may require their original investigator to author a test. Only affected
+bundles may require their original investigator to author a test. For sessions
+created before the storage migration, a temporary checked symlink exposes the
+managed copy at its original workspace path. It is removed when continuation
+ends; source data remains on disk. Occupied paths and redirected parents block
+restoration rather than being replaced. Only affected
 arbitration groups receive new observations.
 
 Recovery records one additional allowance per eligible request, its original
@@ -73,7 +79,14 @@ reason and the grant time. Repeating the command does not replenish that
 allowance. Older workspace failures without an underlying errno can receive one
 prerequisite recovery without being labelled as proven disk failures. Unstarted
 requests blocked by an exhausted shard budget qualify when that shard has retained
-infrastructure failure evidence. Ordinary fixture or product failures do not.
+infrastructure failure evidence. Legacy preparation counters do not exclude a
+request that never produced a bundle. Session failures during directory migration
+can retry within the existing allowance; they do not receive reset counters.
+Ordinary fixture or product failures do not.
+
+Recovery progress distinguishes reused accepted checks from newly executed ones
+and reports unresolved request reasons. Completing retained checks does not mean
+that the requested product reproductions succeeded.
 
 Reports and interfaces show unresolved request endpoints first. Predecessors and
 answered requests remain available as history. The Markdown report also lists

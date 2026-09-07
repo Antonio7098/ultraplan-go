@@ -3,6 +3,7 @@ package sprint
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -13,7 +14,7 @@ func (s Service) RetryQAInfrastructure(ctx context.Context, project, sprint stri
 	return s.RunQA(ctx, project, sprint, req)
 }
 
-func grantQAInfrastructureRecovery(requests []QAArbiterEvidenceRequest, tests []QATestPublication, now time.Time) map[string]bool {
+func grantQAInfrastructureRecovery(requests []QAArbiterEvidenceRequest, tests []QATestPublication, now time.Time, shards ...QAShard) map[string]bool {
 	active := map[string]bool{}
 	failedShard := map[string]bool{}
 	for _, request := range requests {
@@ -36,7 +37,12 @@ func grantQAInfrastructureRecovery(requests []QAArbiterEvidenceRequest, tests []
 			continue
 		}
 		eligible := qaInfrastructureRecoveryEligible(*request, tests)
-		if request.Attempts == 0 && request.ReasonCode == "evidence_round_budget_exhausted" && failedShard[request.OriginShardID] {
+		if qaLegacySessionRecoveryEligible(*request, shards) {
+			eligible = true
+		}
+		// Legacy preparation failures incremented Attempts before authoring.
+		// A counter alone does not prove that a test was ever produced.
+		if request.ReasonCode == "evidence_round_budget_exhausted" && failedShard[request.OriginShardID] && qaLatestRequestBundle(tests, *request) == nil {
 			eligible = true
 		}
 		if !eligible {
@@ -56,6 +62,23 @@ func grantQAInfrastructureRecovery(requests []QAArbiterEvidenceRequest, tests []
 	return active
 }
 
+// The directory migration can break an existing session before it calls tools.
+// Permit retry after restoring its alias, under the existing durable allowance.
+// Other missing sessions and arbitrary model failures remain ineligible.
+func qaLegacySessionRecoveryEligible(request QAArbiterEvidenceRequest, shards []QAShard) bool {
+	if request.ReasonCode != "original_session_unavailable" {
+		return false
+	}
+	for _, shard := range shards {
+		if shard.ID != request.OriginShardID || len(shard.Attempts) < 2 {
+			continue
+		}
+		original, last := shard.Attempts[0], shard.Attempts[len(shard.Attempts)-1]
+		return original.WorkspaceID != last.WorkspaceID && original.SessionID == last.SessionID && last.FailureKind == "original_session_unavailable" && last.ObservedToolCalls == 0 && strings.Contains(last.ID, "/evidence/"+request.ID+"/")
+	}
+	return false
+}
+
 func qaInfrastructureRecoveryEligible(request QAArbiterEvidenceRequest, tests []QATestPublication) bool {
 	if request.Status == "evidence_recorded" || request.Status == "superseded" {
 		return false
@@ -71,6 +94,8 @@ func qaInfrastructureRecoveryEligible(request QAArbiterEvidenceRequest, tests []
 	switch request.ReasonCode {
 	case "investigator_workspace_unavailable", "reproduction_workspace_unavailable":
 		return true
+	case "evidence_authoring_inconclusive":
+		return request.AccountingVersion == 0 && strings.Contains(request.NextAction, "cannot snapshot the private investigator workspace")
 	}
 	return false
 }

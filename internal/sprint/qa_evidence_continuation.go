@@ -26,8 +26,9 @@ func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QA
 	workspace := qaInvestigatorWorkspacePath(s.root, qaMap.SemanticAttemptID, shard.ID)
 	// Older sessions were created under os.TempDir. The immutable attempt keeps
 	// that identity; permit the deterministic managed-directory relocation only.
-	legacy := filepath.Join(os.TempDir(), "ultraplan-qa-investigators", hashOpaque(filepath.Clean(s.root))[:24], qaMap.SemanticAttemptID, shard.ID)
-	if original.WorkspaceID == hashOpaque(legacy) {
+	legacy := qaLegacyInvestigatorWorkspacePath(s.root, qaMap.SemanticAttemptID, shard.ID)
+	relocated := legacy != workspace && original.WorkspaceID == hashOpaque(legacy)
+	if relocated {
 		original.WorkspaceID = hashOpaque(workspace)
 	}
 	if err := validateRetainedRuntimeIdentity(original, initial.Provider, initial.Model, initial.Metadata["variant"], initial.RuntimeStorePath, hashOpaque(workspace), original.SessionID); err != nil {
@@ -52,6 +53,13 @@ func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QA
 		return pruntime.Result{}, nil, QAInvestigatorAttempt{}, NewQAError(QAErrorPermissionDenied, "continue investigator for evidence", "cannot snapshot the private investigator workspace", err)
 	}
 	defer snapshot.Cleanup()
+	if relocated {
+		cleanup, err := qaLegacyWorkspaceAlias(legacy, workspace)
+		if err != nil {
+			return pruntime.Result{}, nil, QAInvestigatorAttempt{}, NewQAError(QAErrorRuntimeUnavailable, "restore session directory", "original_session_unavailable", err)
+		}
+		defer cleanup()
+	}
 	packet := struct {
 		SchemaVersion int                      `json:"schema_version"`
 		Round         int                      `json:"round"`
@@ -94,6 +102,9 @@ func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QA
 			return pruntime.Result{}, nil, QAInvestigatorAttempt{}, NewQAError(QAErrorPermissionDenied, "continue investigator for evidence", "approved test path escapes the private workspace", nil)
 		}
 		req.Policy.PathRules = append(req.Policy.PathRules, pruntime.PermissionPathRule{Path: path, Action: "allow"})
+		if relocated {
+			req.Policy.PathRules = append(req.Policy.PathRules, pruntime.PermissionPathRule{Path: filepath.Join(legacy, filepath.FromSlash(rel)), Action: "allow"})
+		}
 	}
 	sort.Slice(req.Policy.PathRules, func(i, j int) bool { return req.Policy.PathRules[i].Path < req.Policy.PathRules[j].Path })
 	for _, checkpoint := range beforeStart {

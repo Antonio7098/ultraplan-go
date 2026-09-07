@@ -1,5 +1,29 @@
 package sprint
 
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
+
+func qaBlockedEvidenceNextAction(requests []QAArbiterEvidenceRequest) string {
+	active := ActiveQAEvidenceRequests(requests)
+	counts := map[string]int{}
+	for _, request := range active {
+		reason := request.ReasonCode
+		if reason == "" {
+			reason = "evidence_pending"
+		}
+		counts[reason]++
+	}
+	var reasons []string
+	for reason, count := range counts {
+		reasons = append(reasons, fmt.Sprintf("%s=%d", reason, count))
+	}
+	sort.Strings(reasons)
+	return fmt.Sprintf("%d unresolved requests (%s). Inspect qa report diagnostics; restore prerequisites before qa retry-infrastructure. Exhausted requests require a new governed attempt.", len(active), strings.Join(reasons, ", "))
+}
+
 // ActiveQAEvidenceRequests returns unresolved endpoints. Missing links and cycles
 // remain visible; malformed history must never hide an unresolved obligation.
 func ActiveQAEvidenceRequests(requests []QAArbiterEvidenceRequest) []QAArbiterEvidenceRequest {

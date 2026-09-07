@@ -13,7 +13,110 @@ import (
 	"time"
 
 	pprocess "github.com/Antonio7098/ultraplan-go/internal/platform/process"
+	pruntime "github.com/Antonio7098/ultraplan-go/internal/platform/runtime"
 )
+
+func TestQALegacySessionAuthorsIntoManagedWorkspace(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv("ULTRAPLAN_QA_RUNTIME_DIR", t.TempDir())
+	root, target := t.TempDir(), t.TempDir()
+	writeFileContent(t, target, "package test\n", "calc.go")
+	qaMap, shard, spec := authoredTestFixture(t, target)
+	if err := os.MkdirAll(filepath.Join(root, "projects", qaMap.Project, "sprints", qaMap.Sprint), 0755); err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := prepareQAInvestigatorWorkspace(context.Background(), root, target, qaMap, shard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := qaLegacyInvestigatorWorkspacePath(root, qaMap.SemanticAttemptID, shard.ID)
+	runtime := &qaFeedbackRuntime{t: t, legacyDir: legacy}
+	service := NewService(root).WithRuntime(runtime).WithQAMapFence(func(QAMap) error { return nil })
+	initial := pruntime.Request{Provider: "openai", Model: "qa", Metadata: map[string]string{"shard": shard.ID}}
+	original := QAInvestigatorAttempt{ID: "original", Provider: initial.Provider, Model: initial.Model, SessionID: "original-" + shard.ID, WorkspaceID: hashOpaque(legacy)}
+	request := QAArbiterEvidenceRequest{ID: "qa-v2-request-aaaaaaaaaaaaaaaaaaaaaaaa", OriginShardID: shard.ID}
+	_, files, _, err := service.continueQAInvestigatorForEvidence(context.Background(), qaMap, shard, initial, original, request, spec, nil, 1)
+	if err != nil || len(files) != 1 || runtime.authorCalls != 1 {
+		t.Fatalf("legacy continuation failed: files=%d calls=%d err=%s", len(files), runtime.authorCalls, qaUnderlyingDiagnostic(err))
+	}
+	if _, err := os.Lstat(legacy); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("compatibility link was retained after the runtime stopped")
+	}
+	if content, err := os.ReadFile(filepath.Join(workspace, spec.ApprovedTestPaths[0])); err != nil || string(content) != files[0].Content {
+		t.Fatal("legacy session did not write the managed copy")
+	}
+}
+
+func TestQALegacyWorkspaceAliasRejectsOccupiedAndRedirectedPaths(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	workspace := t.TempDir()
+	legacy := qaLegacyInvestigatorWorkspacePath(t.TempDir(), "attempt", "shard")
+	if err := os.MkdirAll(legacy, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := qaLegacyWorkspaceAlias(legacy, workspace); err == nil {
+		t.Fatal("occupied directory replaced")
+	}
+	if err := os.Remove(legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := qaLegacyWorkspaceAlias(legacy, workspace); err == nil {
+		t.Fatal("foreign link replaced")
+	}
+	if err := os.Remove(legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Dir(legacy)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Dir(legacy)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := qaLegacyWorkspaceAlias(legacy, workspace); err == nil {
+		t.Fatal("redirected parent accepted")
+	}
+}
+
+func TestQARecoveryIncludesLegacyPreparationAndRelocationFailures(t *testing.T) {
+	requests := []QAArbiterEvidenceRequest{
+		{ID: "snapshot", OriginShardID: "shard", Attempts: 1, ReasonCode: "evidence_authoring_inconclusive", NextAction: "cannot snapshot the private investigator workspace"},
+		{ID: "budget", OriginShardID: "shard", Attempts: 1, ReasonCode: "evidence_round_budget_exhausted"},
+		{ID: "session", OriginShardID: "session-shard", Attempts: 1, ReasonCode: "original_session_unavailable"},
+		{ID: "other", OriginShardID: "other-shard", ReasonCode: "original_session_unavailable"},
+	}
+	shard := QAShard{ID: "session-shard", Attempts: []QAInvestigatorAttempt{{SessionID: "retained", WorkspaceID: "legacy"}, {ID: "original/evidence/session/1", SessionID: "retained", WorkspaceID: "managed", FailureKind: "original_session_unavailable"}}}
+	selected := grantQAInfrastructureRecovery(requests, nil, time.Unix(10, 0), shard)
+	if len(selected) != 3 || selected["other"] {
+		t.Fatalf("wrong selection: %v", selected)
+	}
+	grantQAInfrastructureRecovery(requests, nil, time.Unix(20, 0), shard)
+	if requests[2].Attempts != 1 || requests[2].RecoveryAllowance != 1 || requests[2].RecoveryGrantedAt.Unix() != 10 {
+		t.Fatal("relocation recovery reset accounting")
+	}
+}
+
+func TestQAAdmissionFailureExplainsCapacityShortfall(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ULTRAPLAN_QA_RUNTIME_DIR", root)
+	free, err := qaStorageAvailable(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = reserveQAResources(ctx, free+(1<<30), 0)
+	var failure *qaExecutionError
+	if !errors.As(err, &failure) || !strings.Contains(failure.Failure.Diagnostic, "Insufficient QA disk:") || !strings.Contains(failure.Failure.Diagnostic, "requested") {
+		t.Fatalf("missing capacity diagnostic: %v", err)
+	}
+	message := qaCapacityDiagnostic("memory", 1900<<20, 0, 1536<<20, 1024<<20)
+	if !strings.Contains(message, "free at least 660 MiB") {
+		t.Fatal(message)
+	}
+}
 
 type qaRetryRunner struct {
 	calls      int

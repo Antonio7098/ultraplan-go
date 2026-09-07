@@ -533,7 +533,8 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
 		}
 		s.qaInfrastructureOnly = true
-		active := grantQAInfrastructureRecovery(arbiterEvidenceRequests, authoredTests, s.now().UTC())
+		active := grantQAInfrastructureRecovery(arbiterEvidenceRequests, authoredTests, s.now().UTC(), shards...)
+		emitQA(req.Progress, QAProgress{Phase: QAPhaseRunning, Event: "infrastructure_recovery_selected", Total: len(active), Message: fmt.Sprintf("Selected %d infrastructure-blocked evidence requests for recovery", len(active))})
 		checkpoint := func(current []QAShard, tests []QATestPublication, requests []QAArbiterEvidenceRequest) error {
 			bundle := QAEvidencePublication{Budgets: mapResult.Map.Budgets, InvestigatorTests: tests, EvidenceRequests: requests}
 			return store.Publish(QAPublication{Shards: current, State: state, Flow: flow, Evidence: &bundle}, req.WriterToken)
@@ -547,6 +548,21 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
 		}
 		authoredTests = mergeQATestPublications(authoredTests, recovered)
+		completed := 0
+		for _, request := range arbiterEvidenceRequests {
+			if !active[request.ID] {
+				continue
+			}
+			completed++
+			message := "Recovery evidence recorded"
+			if request.Status != "evidence_recorded" {
+				message = "Recovery remains blocked: " + request.ReasonCode
+				if request.Failure != nil {
+					message += ". " + request.Failure.Diagnostic
+				}
+			}
+			emitQA(req.Progress, QAProgress{Phase: QAPhaseRunning, Event: "infrastructure_recovery_completed", ShardID: request.OriginShardID, Completed: completed, Total: len(active), Message: message})
+		}
 		recoveryAffected = map[string]bool{}
 		for _, test := range recovered {
 			for _, id := range test.Spec.TheoryIDs {
@@ -951,7 +967,6 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 		if len(approvedPaths) == 0 {
 			continue
 		}
-		emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_started", ShardID: shard.ID, Completed: completedEvidence, Total: totalEvidence, Message: "Running isolated evidence check"})
 		descriptors := descriptorsByShard[shard.ID]
 		for _, descriptor := range descriptors {
 			confirmed := make([]QATheory, 0, len(shard.Theories))
@@ -1007,6 +1022,7 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 					return QAEvidencePublication{}, QAAssessmentRecord{}, planErr
 				}
 			} else {
+				emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_started", ShardID: shard.ID, Completed: completedEvidence, Total: totalEvidence, Message: "Running isolated evidence check"})
 				var runErr error
 				record, runErr = RunQAInvestigation(ctx, QAInvestigationRequest{Project: sp.Project, Sprint: sp.Slug, TargetRoot: target, WorkspaceParent: workspaceParent, ProtectedRoots: []string{s.root, target}, Plan: plan, Budgets: qaMap.Budgets, ExpectedTargetID: targetTreeIdentity.Digest, Now: s.now})
 				if runErr != nil {
@@ -1016,7 +1032,11 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 			}
 			plans, records = append(plans, plan), append(records, record)
 			completedEvidence++
-			emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: "evidence_completed", ShardID: shard.ID, Completed: completedEvidence, Total: totalEvidence, Message: "Isolated evidence check complete"})
+			event, message := "evidence_completed", "Isolated evidence check complete"
+			if reused {
+				event, message = "evidence_reused", "Reused accepted evidence check"
+			}
+			emitQA(progress, QAProgress{Phase: QAPhaseRunning, Event: event, ShardID: shard.ID, Completed: completedEvidence, Total: totalEvidence, Message: message})
 			if record.Outcome != QAEvidenceFail {
 				continue
 			}
@@ -1082,6 +1102,9 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 	}
 
 	assessmentValue, nextAction := DeriveQAAssessment(status.Review, records, adjudication, evidenceRequestBlockers)
+	if assessmentValue == AssessmentBlocked && len(evidenceRequestBlockers) > 0 {
+		nextAction = qaBlockedEvidenceNextAction(evidenceRequests)
+	}
 	assessmentID, err := NewQAV2ID("assessment", sp.Project, sp.Slug, qaMap.SemanticAttemptID, struct {
 		Assessment OverallAssessment
 		Evidence   []string

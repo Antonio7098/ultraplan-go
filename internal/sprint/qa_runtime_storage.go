@@ -115,7 +115,7 @@ func reserveQAResources(ctx context.Context, bytes, memory int64) (func(), error
 		return nil, err
 	}
 	for {
-		release, available, err := tryReserveQAResources(root, bytes, memory)
+		release, available, diagnostic, err := tryReserveQAResourcesDetailed(root, bytes, memory)
 		if err != nil {
 			return nil, err
 		}
@@ -124,28 +124,33 @@ func reserveQAResources(ctx context.Context, bytes, memory int64) (func(), error
 		}
 		select {
 		case <-ctx.Done():
-			return nil, &qaExecutionError{Failure: &QAFailureDiagnostic{Phase: "admission", Code: "resource_capacity_unavailable", Retryable: true, Diagnostic: "QA waited for disk and memory capacity; restore capacity before retrying."}, Err: ctx.Err()}
+			return nil, &qaExecutionError{Failure: &QAFailureDiagnostic{Phase: "admission", Code: "resource_capacity_unavailable", Retryable: true, Diagnostic: diagnostic}, Err: ctx.Err()}
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
 }
 
 func tryReserveQAResources(root string, bytes, memory int64) (func(), bool, error) {
+	release, available, _, err := tryReserveQAResourcesDetailed(root, bytes, memory)
+	return release, available, err
+}
+
+func tryReserveQAResourcesDetailed(root string, bytes, memory int64) (func(), bool, string, error) {
 	unlock, locked, err := qaStorageTryLock(filepath.Join(root, "admission.lock"))
 	if err == nil && !locked {
-		return nil, false, nil
+		return nil, false, "QA admission lock is busy; wait for the current owner before retrying.", nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", err
 	}
 	defer unlock()
 	free, err := qaStorageAvailable(root)
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", err
 	}
 	entries, err := filepath.Glob(filepath.Join(root, "reservation-*.json"))
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", err
 	}
 	var reserved, reservedMemory int64
 	for _, path := range entries {
@@ -154,11 +159,11 @@ func tryReserveQAResources(root string, bytes, memory int64) (func(), bool, erro
 			continue
 		}
 		if err != nil {
-			return nil, false, err
+			return nil, false, "", err
 		}
 		var lease qaResourceLease
 		if err := json.Unmarshal(data, &lease); err != nil {
-			return nil, false, err
+			return nil, false, "", err
 		}
 		if !qaProcessAlive(lease.PID) {
 			_ = os.Remove(path)
@@ -169,16 +174,16 @@ func tryReserveQAResources(root string, bytes, memory int64) (func(), bool, erro
 	}
 	const diskReserve = 256 << 20
 	if free-reserved < bytes+diskReserve {
-		return nil, false, nil
+		return nil, false, qaCapacityDiagnostic("disk", free, reserved, bytes, diskReserve), nil
 	}
 	if memory > 0 {
 		if available, ok := qaHostAvailableMemory(); ok && available-reservedMemory < memory+qaHostMemoryReserve {
-			return nil, false, nil
+			return nil, false, qaCapacityDiagnostic("memory", available, reservedMemory, memory, qaHostMemoryReserve), nil
 		}
 	}
 	file, err := os.CreateTemp(root, ".reservation-pending-*")
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", err
 	}
 	path := file.Name()
 	err = json.NewEncoder(file).Encode(qaResourceLease{PID: os.Getpid(), Bytes: bytes, Memory: memory})
@@ -188,14 +193,14 @@ func tryReserveQAResources(root string, bytes, memory int64) (func(), bool, erro
 	}
 	if err != nil {
 		_ = os.Remove(path)
-		return nil, false, err
+		return nil, false, "", err
 	}
 	published := filepath.Join(root, "reservation-"+filepath.Base(path)+".json")
 	if err := os.Rename(path, published); err != nil {
 		_ = os.Remove(path)
-		return nil, false, err
+		return nil, false, "", err
 	}
-	return func() { _ = os.Remove(published) }, true, nil
+	return func() { _ = os.Remove(published) }, true, "", nil
 }
 
 func qaStorageLockContext(ctx context.Context, path string) (func(), error) {
@@ -239,4 +244,9 @@ func cleanupQAOrphanScratch(root string) {
 		}
 		_ = removeQAReproductionRuntime(path)
 	}
+}
+
+func qaCapacityDiagnostic(resource string, available, reserved, requested, headroom int64) string {
+	const mib = 1 << 20
+	return fmt.Sprintf("Insufficient QA %s: available %d MiB, reserved %d MiB, requested %d MiB, headroom %d MiB; free at least %d MiB more before retrying.", resource, available/mib, reserved/mib, requested/mib, headroom/mib, max(0, requested+headroom+reserved-available+mib-1)/mib)
 }
