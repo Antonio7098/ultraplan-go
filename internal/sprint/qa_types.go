@@ -294,6 +294,15 @@ type QAArtifactRef struct {
 	Digest string `json:"digest"`
 }
 
+type QAArbitrationRewind struct {
+	ID                       string    `json:"id"`
+	ArchivePath              string    `json:"archive_path"`
+	RetainedShardIDs         []string  `json:"retained_shard_ids"`
+	SourcePolicyFingerprint  string    `json:"source_policy_fingerprint"`
+	AppliedPolicyFingerprint string    `json:"applied_policy_fingerprint"`
+	RewoundAt                time.Time `json:"rewound_at"`
+}
+
 type QAState struct {
 	SchemaVersion        int                     `json:"schema_version"`
 	Project              string                  `json:"project"`
@@ -307,6 +316,7 @@ type QAState struct {
 	Issues               *QAArtifactRef          `json:"issues,omitempty"`
 	Assessment           *QAArtifactRef          `json:"assessment,omitempty"`
 	CanonicalReport      *QAArtifactRef          `json:"canonical_report,omitempty"`
+	ArbitrationRewind    *QAArbitrationRewind    `json:"arbitration_rewind,omitempty"`
 	EvidenceCount        int                     `json:"evidence_count,omitempty"`
 	RejectedCount        int                     `json:"rejected_count,omitempty"`
 	CandidateCount       int                     `json:"candidate_count,omitempty"`
@@ -1439,6 +1449,17 @@ func ValidateQAState(state QAState) error {
 	}
 	if strings.TrimSpace(state.NextAction) == "" || state.UpdatedAt.IsZero() {
 		return fmt.Errorf("QA next action and update time are required")
+	}
+	if state.ArbitrationRewind != nil {
+		rewind := state.ArbitrationRewind
+		if !safeQAName(rewind.ID) || strings.TrimSpace(rewind.ArchivePath) == "" || len(rewind.RetainedShardIDs) == 0 || !validFingerprint(rewind.SourcePolicyFingerprint) || !validFingerprint(rewind.AppliedPolicyFingerprint) || rewind.RewoundAt.IsZero() {
+			return fmt.Errorf("invalid QA arbitration rewind")
+		}
+		for _, shardID := range rewind.RetainedShardIDs {
+			if !validQAIDKind(shardID, "shard") {
+				return fmt.Errorf("invalid QA arbitration rewind shard")
+			}
+		}
 	}
 	return nil
 }

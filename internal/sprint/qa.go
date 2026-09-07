@@ -704,6 +704,16 @@ func applyRetainedQAReproductionOutcomes(shards []QAShard, tests []QATestPublica
 
 func qaMapForRun(store QAStore, candidate QAMap, resume bool) (QAMap, bool, error) {
 	prior, err := store.LoadState()
+	if err == nil && resume && prior.Map != nil && prior.ArbitrationRewind != nil {
+		retained, loadErr := store.LoadMap(prior.CurrentAttemptID)
+		if loadErr != nil {
+			return QAMap{}, false, loadErr
+		}
+		if identityErr := validateQAReplayIdentity(retained, candidate); identityErr != nil {
+			return QAMap{}, false, identityErr
+		}
+		return retained, false, nil
+	}
 	if err != nil || prior.CurrentAttemptID != candidate.SemanticAttemptID || prior.Map == nil {
 		return candidate, true, nil
 	}
@@ -1240,7 +1250,10 @@ func (s Service) prepareQAAttempt(store QAStore, flow FlowState, qaMap QAMap, re
 	if req.Resume {
 		prior, err := store.LoadState()
 		if err == nil && prior.CurrentAttemptID == qaMap.SemanticAttemptID && prior.Map != nil {
-			shards := append([]QAShard(nil), qaMap.Shards...)
+			shards, retainedErr := retainedQARewindShards(store, qaMap, prior.ArbitrationRewind)
+			if retainedErr != nil {
+				return QAState{}, nil, retainedErr
+			}
 			retrying := false
 			for i := range shards {
 				loaded, loadErr := store.LoadShard(qaMap.SemanticAttemptID, shards[i].ID)

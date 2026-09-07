@@ -292,8 +292,8 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		c.Warning = "RUNTIME-FREE QA RECOVERY; NO CHILD WORK"
 	case OperationQAReplayAdjudication:
 		c.Mutates = true
-		c.Scope = []string{"retained QA map, arbiter groups, evidence plans, and evidence records", "derived adjudication, assessment, issue summary, and QA report"}
-		c.Warning = "RUNTIME-FREE ADJUDICATION REPLAY; NO INVESTIGATORS, MODELS, TESTS, OR CHECKS"
+		c.Scope = []string{"retain completed QA shards and theories", "archive synthesis, arbitration sessions, evidence requests, tests, evidence, adjudication, issues, assessment, and QA report"}
+		c.Warning = "REWINDS QA TO PRE-ARBITRATION; RUN QA RESUME TO START FRESH ARBITERS"
 	case OperationRepairPrepare:
 		c.Mutates = true
 		c.Scope = []string{"one current adjudicated issue", "immutable repair packet", "manual one-cycle budget"}
@@ -677,7 +677,7 @@ func (u dashboardUseCases) RunOperation(ctx context.Context, req OperationReques
 		if err != nil {
 			return failedOperation(result, err)
 		}
-		result.Message = fmt.Sprintf("attempt=%s candidates=%d promoted=%d unpromoted=%d accepted_evidence=%d", replay.AttemptID, replay.CandidateCount, replay.PromotedCount, replay.UnpromotedCount, replay.AcceptedEvidenceCount)
+		result.Message = fmt.Sprintf("attempt=%s rewind=%s retained_shards=%d archive=%s; run qa resume to start fresh arbitration", replay.AttemptID, replay.RewindID, replay.RetainedShardCount, replay.ArchivePath)
 	case OperationVerifyDryRun:
 		r, err := ss.Verify(ctx, req.Project, req.Sprint, sprint.VerifyRequest{To: sprint.PlanningStage(req.Stage), DryRun: true, Review: sprint.ReviewRequest{DryRun: true, Focus: req.ReviewFocus, Restart: req.RestartReview}, Smoke: sprint.SmokeRequest{Level: req.Level, Suite: req.Suite, Test: req.Test, ForceReview: req.ForceReview, OverrideConfirmed: req.ForceReview, OverrideRationale: req.OverrideRationale, DryRun: true}})
 		if err != nil {

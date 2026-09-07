@@ -507,7 +507,7 @@ func runSprint(deps dependencies, args []string) error {
 					runErr = statusErr
 				} else {
 					qaResult = qaSnapshotProjection(snapshot)
-					qaResult.ResultContext = fmt.Sprintf("adjudication replay: %d candidates, %d promoted, %d unpromoted", replay.CandidateCount, replay.PromotedCount, replay.UnpromotedCount)
+					qaResult.ResultContext = fmt.Sprintf("arbitration rewind: %d retained shards archived under %s; run qa resume", replay.RetainedShardCount, replay.ArchivePath)
 				}
 			}
 		case "cancel":
@@ -2470,7 +2470,7 @@ Usage:
   ultraplan sprint <project> <sprint> qa recover [--json]
   ultraplan sprint <project> <sprint> qa replay-adjudication [--json]
 
-Runs bounded QA after current execute and Conformance Review evidence. Evidence work uses disposable writable copies while the implementation target stays immutable. Start and resume are durably accepted before runtime work. Status and dry-run are read-only; recovery and adjudication replay are runtime-free. Replay applies the current deterministic promotion policy to retained candidates and evidence only when the governed inputs, implementation, review, check catalog, and target still match. Completed means bounded investigation ended, not that QA passed. QA never changes the independent Conformance Review verdict. Smoke remains available only through its standalone command.
+Runs bounded QA after current execute and Conformance Review evidence. Evidence work uses disposable writable copies while the implementation target stays immutable. Start and resume are durably accepted before runtime work. Status and dry-run are read-only; recovery and adjudication replay are runtime-free. Replay archives everything after completed investigation and resets the attempt so the next qa resume starts fresh arbitration. Completed means bounded investigation ended, not that QA passed. QA never changes the independent Conformance Review verdict. Smoke remains available only through its standalone command.
 `
 }
 

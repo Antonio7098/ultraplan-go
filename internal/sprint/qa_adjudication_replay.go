@@ -3,25 +3,24 @@ package sprint
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"sort"
+	"time"
 )
 
-// QAAdjudicationReplayResult describes a runtime-free replay of retained QA
-// facts. Replay never runs investigators, models, authored tests, or checks.
 type QAAdjudicationReplayResult struct {
-	AttemptID             string `json:"attempt_id"`
-	SourceAdjudicationID  string `json:"source_adjudication_id"`
-	AdjudicationID        string `json:"adjudication_id"`
-	CandidateCount        int    `json:"candidate_count"`
-	PromotedCount         int    `json:"promoted_count"`
-	UnpromotedCount       int    `json:"unpromoted_count"`
-	AcceptedEvidenceCount int    `json:"accepted_evidence_count"`
+	AttemptID          string `json:"attempt_id"`
+	RewindID           string `json:"rewind_id"`
+	ArchivePath        string `json:"archive_path"`
+	RetainedShardCount int    `json:"retained_shard_count"`
 }
 
-// ReplayQAAdjudication re-applies the current deterministic promotion gate to
-// the current attempt's retained facts. It permits a QA policy change, but all
-// governed inputs, implementation bytes, review, and check catalog must still
-// match the frozen attempt.
+// ReplayQAAdjudication rewinds the current attempt to immediately before
+// arbitration. The next qa resume reuses retained terminal shards and starts
+// fresh arbiters; this operation does not itself run a model.
 func (s Service) ReplayQAAdjudication(ctx context.Context, projectRef, sprintRef string) (QAAdjudicationReplayResult, error) {
 	lockedCtx, release, err := s.acquireMutationContext(ctx, projectRef, sprintRef)
 	if err != nil {
@@ -40,10 +39,10 @@ func (s Service) ReplayQAAdjudication(ctx context.Context, projectRef, sprintRef
 	if err != nil {
 		return QAAdjudicationReplayResult{}, err
 	}
-	if state.CurrentAttemptID == "" || state.Adjudication == nil || state.Assessment == nil || state.Synthesis == nil {
-		return QAAdjudicationReplayResult{}, NewQAError(QAErrorInvalidState, "replay adjudication", "the current QA attempt has no complete adjudication inputs", nil)
+	if state.CurrentAttemptID == "" || state.Map == nil || state.Synthesis == nil {
+		return QAAdjudicationReplayResult{}, NewQAError(QAErrorInvalidState, "rewind arbitration", "the current attempt has no completed investigation output", nil)
 	}
-	qaMap, err := store.LoadMap(state.CurrentAttemptID)
+	retained, err := store.LoadMap(state.CurrentAttemptID)
 	if err != nil {
 		return QAAdjudicationReplayResult{}, err
 	}
@@ -51,241 +50,116 @@ func (s Service) ReplayQAAdjudication(ctx context.Context, projectRef, sprintRef
 	if err != nil {
 		return QAAdjudicationReplayResult{}, err
 	}
-	if err := validateQAReplayIdentity(qaMap, current.Map); err != nil {
+	if err := validateQAReplayIdentity(retained, current.Map); err != nil {
 		return QAAdjudicationReplayResult{}, err
 	}
-	synthesis, err := store.LoadSynthesis(state.CurrentAttemptID, qaMap.Budgets)
+	synthesis, err := store.LoadSynthesis(state.CurrentAttemptID, retained.Budgets)
 	if err != nil {
 		return QAAdjudicationReplayResult{}, err
 	}
-	prior, err := store.LoadAdjudication(state.CurrentAttemptID, qaMap.Budgets)
+	shardIDs := make([]string, 0, len(retained.Shards)+len(synthesis.FollowUpShards))
+	for _, shard := range append(append([]QAShard(nil), retained.Shards...), synthesis.FollowUpShards...) {
+		if _, err := store.LoadShard(state.CurrentAttemptID, shard.ID); err != nil {
+			return QAAdjudicationReplayResult{}, err
+		}
+		shardIDs = append(shardIDs, shard.ID)
+	}
+	shardIDs = normalizeQAStrings(shardIDs)
+	now := s.now().UTC()
+	rewindID := fmt.Sprintf("qa-v1-rewind-%s", hashBytes([]byte(state.CurrentAttemptID + now.Format(time.RFC3339Nano)))[:24])
+	archiveRel := filepath.ToSlash(filepath.Join("projects", sp.Project, "sprints", sp.Slug, "verification", "attempts", state.CurrentAttemptID, "rewinds", rewindID))
+	archiveRoot, err := store.resolve(archiveRel)
 	if err != nil {
 		return QAAdjudicationReplayResult{}, err
 	}
-	priorAssessment, err := store.LoadAssessment(state.CurrentAttemptID)
-	if err != nil {
-		return QAAdjudicationReplayResult{}, err
-	}
-	groups, err := store.LoadLatestArbiterSessionGroups(state.CurrentAttemptID)
-	if err != nil {
-		return QAAdjudicationReplayResult{}, err
-	}
-	if len(groups) == 0 {
-		return QAAdjudicationReplayResult{}, NewQAError(QAErrorInvalidState, "replay adjudication", "the current attempt has no retained arbiter groups", nil)
-	}
-	var provisional []QAArbiterIssue
-	for _, group := range groups {
-		provisional = append(provisional, group.Issues...)
-	}
-	reconciled := deterministicQAArbiterIssueReconciliation(qaMap, provisional)
-	if len(reconciled) == 0 {
-		return QAAdjudicationReplayResult{}, NewQAError(QAErrorInvalidState, "replay adjudication", "retained arbiter groups contain no issue candidates", nil)
+	if err := os.MkdirAll(archiveRoot, 0o755); err != nil {
+		return QAAdjudicationReplayResult{}, NewQAError(QAErrorPersistenceFailure, "rewind arbitration", "cannot create rewind archive", err)
 	}
 
-	evidence, plans, err := loadQAReplayEvidence(store, qaMap, prior)
+	attemptRel := filepath.ToSlash(filepath.Join("projects", sp.Project, "sprints", sp.Slug, "verification", "attempts", state.CurrentAttemptID))
+	targets := []string{"synthesis.json", "arbiter-sessions", "arbiter-evidence-requests", "investigator-tests", "plans", "evidence", "patches", "adjudication.json", "issues.json", "assessment.json", "issue-evidence-coverage.json", "investigator-workspace-cleanup.json"}
+	type movedPath struct{ from, to string }
+	var moved []movedPath
+	rollback := func() {
+		for i := len(moved) - 1; i >= 0; i-- {
+			_ = os.Rename(moved[i].to, moved[i].from)
+		}
+		_ = os.Remove(archiveRoot)
+	}
+	for _, name := range targets {
+		from, resolveErr := store.resolve(filepath.ToSlash(filepath.Join(attemptRel, name)))
+		if resolveErr != nil {
+			rollback()
+			return QAAdjudicationReplayResult{}, resolveErr
+		}
+		if _, statErr := os.Stat(from); errors.Is(statErr, fs.ErrNotExist) {
+			continue
+		} else if statErr != nil {
+			rollback()
+			return QAAdjudicationReplayResult{}, statErr
+		}
+		to := filepath.Join(archiveRoot, name)
+		if renameErr := os.Rename(from, to); renameErr != nil {
+			rollback()
+			return QAAdjudicationReplayResult{}, NewQAError(QAErrorPersistenceFailure, "rewind arbitration", "cannot archive post-investigation artifacts", renameErr)
+		}
+		moved = append(moved, movedPath{from, to})
+	}
+	reportPath, err := store.resolve(QAReportRelPath(sp))
 	if err != nil {
+		rollback()
 		return QAAdjudicationReplayResult{}, err
 	}
-	shards, err := loadQAReplayShards(store, qaMap, synthesis)
-	if err != nil {
-		return QAAdjudicationReplayResult{}, err
-	}
-	candidates := buildQARetainedCandidates(reconciled, shards, plans, evidence)
-	settings, err := s.effectiveQASettings()
-	if err != nil {
-		return QAAdjudicationReplayResult{}, err
-	}
-	now := s.now().UTC()
-	adjudication, err := AdjudicateQA(QAAdjudicationRequest{
-		Project: qaMap.Project, Sprint: qaMap.Sprint, AttemptID: qaMap.SemanticAttemptID,
-		MapFingerprint: prior.MapFingerprint, Plans: plans, Evidence: evidence,
-		Candidates: candidates, Evaluators: prior.Evaluators, Budgets: qaMap.Budgets, Now: now,
-		RepairAssignmentMode: settings.RepairAssignmentMode, IssuesPerRepairAgent: settings.IssuesPerRepairAgent,
-	})
-	if err != nil {
-		return QAAdjudicationReplayResult{}, err
-	}
-	adjudication.Replay = &QAAdjudicationReplay{
-		SourceAdjudicationID: prior.ID, SourceAssessmentID: priorAssessment.ID,
-		SourcePolicyFingerprint: qaMap.PolicyFingerprint, AppliedPolicyFingerprint: current.Map.PolicyFingerprint,
-		Reason: "reapplied deterministic candidate coverage and promotion rules to retained evidence",
-	}
-	adjudication.ID, err = NewQAV2ID("adjudication", qaMap.Project, qaMap.Sprint, qaMap.SemanticAttemptID, struct {
-		Base, Source string
-	}{adjudication.ID, prior.ID})
-	if err != nil {
-		return QAAdjudicationReplayResult{}, err
-	}
-	assessmentValue, nextAction := DeriveQAAssessment(VerificationStage{Fresh: true, ExecutionStatus: string(ReviewCompleted), Verdict: string(priorAssessment.ReviewVerdict)}, evidence, adjudication, priorAssessment.Blockers)
-	assessmentID, err := NewQAV2ID("assessment", qaMap.Project, qaMap.Sprint, qaMap.SemanticAttemptID, struct {
-		Adjudication string
-		Assessment   OverallAssessment
-	}{adjudication.ID, assessmentValue})
-	if err != nil {
-		return QAAdjudicationReplayResult{}, err
-	}
-	assessment := QAAssessmentRecord{
-		SchemaVersion: QAEvidenceSchemaVersion, ID: assessmentID, AttemptID: qaMap.SemanticAttemptID,
-		ReviewVerdict: priorAssessment.ReviewVerdict, ReviewFingerprint: priorAssessment.ReviewFingerprint,
-		Assessment: assessmentValue, EvidenceTotal: len(evidence), RejectedTotal: len(adjudication.Rejected),
-		CandidateTotal: len(adjudication.Issues) + len(adjudication.Unpromoted), UnpromotedTotal: len(adjudication.Unpromoted), IssueTotal: len(adjudication.Issues),
-		Blockers: append([]QABlocker(nil), priorAssessment.Blockers...), NextAction: nextAction, CompletedAt: now,
-	}
-	report, err := RenderQAReport(qaMap.Project, qaMap.Sprint, qaMap.GovernedInputFingerprint, evidence, adjudication, assessment)
-	if err != nil {
-		return QAAdjudicationReplayResult{}, err
+	if _, statErr := os.Stat(reportPath); statErr == nil {
+		to := filepath.Join(archiveRoot, "qa.md")
+		if renameErr := os.Rename(reportPath, to); renameErr != nil {
+			rollback()
+			return QAAdjudicationReplayResult{}, renameErr
+		}
+		moved = append(moved, movedPath{reportPath, to})
 	}
 	flow, err := LoadFlowState(s.root, sp)
 	if err != nil {
+		rollback()
 		return QAAdjudicationReplayResult{}, err
 	}
-	token := QAWriterToken{RunID: "qa-adjudication-replay", OperationalAttemptID: adjudication.ID, FencingGeneration: 1}
-	store = store.WithWriterFence(func(got QAWriterToken) error {
-		if got != token {
-			return errors.New("adjudication replay writer token mismatch")
-		}
-		return nil
-	})
-	state.SchemaVersion = QAStateSchemaVersion
-	state.Phase = QAPhaseCompleted
-	state.Run.Lifecycle, state.Run.TerminalResult = QARunTerminal, QATerminalCompleted
-	if assessment.Assessment == AssessmentFail || assessment.Assessment == AssessmentBlocked || assessment.Assessment == AssessmentIncomplete {
-		state.Phase, state.Run.TerminalResult = QAPhaseBlocked, QATerminalBlocked
-	}
-	state.Freshness.Current = true
-	state.Freshness.Reasons = nil
+	state.Synthesis, state.Adjudication, state.Issues, state.Assessment, state.CanonicalReport = nil, nil, nil, nil, nil
+	state.EvidenceCount, state.RejectedCount, state.CandidateCount, state.UnpromotedCount = 0, 0, 0, 0
+	state.IssueCount, state.RegressionCandidates = 0, 0
+	state.CanonicalAssessment, state.CurrentFailure, state.Blocker = "", nil, nil
+	state.Phase = QAPhaseInterrupted
+	state.Run.Lifecycle, state.Run.TerminalResult = QARunTerminal, QATerminalInterrupted
+	state.Freshness.Current, state.Freshness.Reasons = true, nil
 	state.Freshness.PolicyFingerprint = current.Map.PolicyFingerprint
-	state.CanonicalAssessment, state.NextAction, state.UpdatedAt = assessment.Assessment, assessment.NextAction, now
-	bundle := QAEvidencePublication{Plans: plans, Records: evidence, Adjudication: &adjudication, Assessment: &assessment, Report: report, Budgets: qaMap.Budgets}
-	if err := store.Publish(QAPublication{State: state, Flow: flow, Evidence: &bundle}, token); err != nil {
+	state.ArbitrationRewind = &QAArbitrationRewind{ID: rewindID, ArchivePath: archiveRel, RetainedShardIDs: shardIDs, SourcePolicyFingerprint: retained.PolicyFingerprint, AppliedPolicyFingerprint: current.Map.PolicyFingerprint, RewoundAt: now}
+	state.NextAction = "Run qa resume to start fresh arbitration from the retained investigations."
+	state.UpdatedAt = now
+	if err := store.SaveRecoveredState(state, flow); err != nil {
+		rollback()
 		return QAAdjudicationReplayResult{}, err
 	}
-	return QAAdjudicationReplayResult{
-		AttemptID: qaMap.SemanticAttemptID, SourceAdjudicationID: prior.ID, AdjudicationID: adjudication.ID,
-		CandidateCount: len(adjudication.Issues) + len(adjudication.Unpromoted), PromotedCount: len(adjudication.Issues),
-		UnpromotedCount: len(adjudication.Unpromoted), AcceptedEvidenceCount: len(adjudication.AcceptedIDs),
-	}, nil
+	return QAAdjudicationReplayResult{AttemptID: state.CurrentAttemptID, RewindID: rewindID, ArchivePath: archiveRel, RetainedShardCount: len(shardIDs)}, nil
 }
 
 func validateQAReplayIdentity(retained, current QAMap) error {
-	if retained.Project != current.Project || retained.Sprint != current.Sprint ||
-		retained.GovernedInputFingerprint != current.GovernedInputFingerprint ||
-		retained.ImplementationFingerprint != current.ImplementationFingerprint ||
-		retained.ReviewFingerprint != current.ReviewFingerprint ||
-		retained.CheckCatalogFingerprint != current.CheckCatalogFingerprint ||
-		retained.Target.Fingerprint != current.Target.Fingerprint {
-		return NewQAError(QAErrorStaleInput, "replay adjudication", "retained QA facts no longer describe the current governed inputs, implementation, review, or check catalog", nil)
+	if retained.Project != current.Project || retained.Sprint != current.Sprint || retained.GovernedInputFingerprint != current.GovernedInputFingerprint || retained.ImplementationFingerprint != current.ImplementationFingerprint || retained.ReviewFingerprint != current.ReviewFingerprint || retained.CheckCatalogFingerprint != current.CheckCatalogFingerprint || retained.Target.Fingerprint != current.Target.Fingerprint {
+		return NewQAError(QAErrorStaleInput, "rewind arbitration", "retained investigations no longer describe the current governed inputs, implementation, review, or check catalog", nil)
 	}
 	return nil
 }
 
-func loadQAReplayEvidence(store QAStore, qaMap QAMap, prior QAAdjudication) ([]QAEvidenceRecord, []QAEvidencePlan, error) {
-	ids := append([]string(nil), prior.AcceptedIDs...)
-	for _, rejected := range prior.Rejected {
-		ids = append(ids, rejected.EvidenceID)
+func retainedQARewindShards(store QAStore, qaMap QAMap, rewind *QAArbitrationRewind) ([]QAShard, error) {
+	if rewind == nil || len(rewind.RetainedShardIDs) == 0 {
+		return append([]QAShard(nil), qaMap.Shards...), nil
 	}
-	ids = normalizeQAStrings(ids)
-	records := make([]QAEvidenceRecord, 0, len(ids))
-	planByID := make(map[string]QAEvidencePlan)
-	for _, id := range ids {
-		record, err := store.LoadEvidence(qaMap.SemanticAttemptID, id)
-		if err != nil {
-			return nil, nil, err
-		}
-		records = append(records, record)
-		if _, ok := planByID[record.PlanID]; ok {
-			continue
-		}
-		plan, err := store.LoadEvidencePlan(qaMap.SemanticAttemptID, record.PlanID, qaMap.Budgets)
-		if err != nil {
-			return nil, nil, err
-		}
-		planByID[plan.ID] = plan
-	}
-	plans := make([]QAEvidencePlan, 0, len(planByID))
-	for _, plan := range planByID {
-		plans = append(plans, plan)
-	}
-	sort.Slice(plans, func(i, j int) bool { return plans[i].ID < plans[j].ID })
-	return records, plans, nil
-}
-
-func loadQAReplayShards(store QAStore, qaMap QAMap, synthesis QASynthesis) ([]QAShard, error) {
-	all := append([]QAShard(nil), qaMap.Shards...)
-	all = append(all, synthesis.FollowUpShards...)
-	seen := make(map[string]bool)
-	loaded := make([]QAShard, 0, len(all))
-	for _, shard := range all {
-		if seen[shard.ID] {
-			continue
-		}
-		seen[shard.ID] = true
-		value, err := store.LoadShard(qaMap.SemanticAttemptID, shard.ID)
+	shards := make([]QAShard, 0, len(rewind.RetainedShardIDs))
+	for _, id := range rewind.RetainedShardIDs {
+		shard, err := store.LoadShard(qaMap.SemanticAttemptID, id)
 		if err != nil {
 			return nil, err
 		}
-		loaded = append(loaded, value)
+		shards = append(shards, shard)
 	}
-	return loaded, nil
-}
-
-func buildQARetainedCandidates(issues []QAArbiterIssue, shards []QAShard, plans []QAEvidencePlan, evidence []QAEvidenceRecord) []QAIssueCandidate {
-	candidates := make(map[string]QAIssueCandidate, len(issues))
-	issueByTheory := make(map[string]QAArbiterIssue)
-	theoryByID := make(map[string]QATheory)
-	for _, shard := range shards {
-		for _, theory := range shard.Theories {
-			theoryByID[theory.ID] = theory
-		}
-	}
-	for _, issue := range issues {
-		candidates[issue.ID] = QAIssueCandidate{ID: issue.ID, TheoryIDs: append([]string(nil), issue.TheoryIDs...), Claim: issue.Claim, Title: issue.Title, IssueClass: issue.IssueClass, Severity: issue.Severity, Location: issue.Location, EvidenceByTheory: map[string][]string{}}
-		for _, id := range issue.TheoryIDs {
-			issueByTheory[id] = issue
-		}
-	}
-	planByID := make(map[string]QAEvidencePlan, len(plans))
-	for _, plan := range plans {
-		planByID[plan.ID] = plan
-	}
-	for _, record := range evidence {
-		if record.Outcome != QAEvidenceFail {
-			continue
-		}
-		plan := planByID[record.PlanID]
-		if len(plan.TheoryIDs) == 0 {
-			location := "retained-check"
-			if len(plan.ApprovedPaths) > 0 {
-				location = plan.ApprovedPaths[0]
-			}
-			key := plan.ShardID + "\x00" + plan.CheckID
-			candidates[key] = QAIssueCandidate{Claim: "approved check " + plan.CheckID + " failed in the isolated copy", Title: "Approved QA check failed", IssueClass: "behavior", Severity: "medium", Location: location, EvidenceIDs: []string{record.ID}, RepairEligible: true, RegressionCandidate: true}
-			continue
-		}
-		for _, theoryID := range plan.TheoryIDs {
-			key := theoryID
-			candidate := candidates[key]
-			if issue, ok := issueByTheory[theoryID]; ok {
-				key, candidate = issue.ID, candidates[issue.ID]
-			} else if theory, ok := theoryByID[theoryID]; ok {
-				candidate = QAIssueCandidate{TheoryIDs: []string{theory.ID}, Claim: theory.Claim, Title: theory.Claim, IssueClass: "behavior", Severity: theory.SeverityIfConfirmed, Location: theory.VerificationSurface}
-			}
-			candidate.RepairEligible, candidate.RegressionCandidate = true, true
-			candidate = addQACandidateEvidence(candidate, plan.TheoryIDs, record.ID)
-			candidates[key] = candidate
-		}
-	}
-	keys := make([]string, 0, len(candidates))
-	for key := range candidates {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	result := make([]QAIssueCandidate, 0, len(keys))
-	for _, key := range keys {
-		candidate := candidates[key]
-		candidate.TheoryIDs = normalizeQAStrings(candidate.TheoryIDs)
-		candidate.EvidenceIDs = normalizeQAStrings(candidate.EvidenceIDs)
-		result = append(result, candidate)
-	}
-	return result
+	sort.Slice(shards, func(i, j int) bool { return shards[i].ID < shards[j].ID })
+	return shards, nil
 }

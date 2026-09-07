@@ -365,7 +365,7 @@ ultraplan sprint <project> <sprint> qa cancel --run run_...
 
 After cancellation, timeout, restart, or restored runtime availability, first inspect status. Use `qa recover` to reconcile runtime-free state and `qa resume` to claim incomplete current work with a new durable owner. Completed current shards are retained; changed map or input fingerprints make the attempt stale and require a new dry-run/start. `QA completed` means all admitted bounded work ended, not “QA passed,” and it cannot upgrade a failed or blocked Conformance Review.
 
-If a promotion-policy defect affected an otherwise current completed attempt, use `qa replay-adjudication`. It rebuilds the candidate set from retained arbiter groups and theories, reuses the exact retained plans and evidence records, and rewrites only derived adjudication, issues, assessment, and report artifacts. It does not call a model, investigator, test, or check. Replay is refused if governed inputs, implementation, review, check catalog, or target identity changed.
+If an arbitration or promotion defect affected an otherwise current completed attempt, use `qa replay-adjudication`. It keeps completed investigation shards and archives synthesis, arbiter sessions, evidence requests, authored tests, evidence, adjudication, issues, assessment, and the QA report. Then run `qa resume`; the normal flow skips completed investigators and starts arbitration again. Rewind is refused if governed inputs, implementation, review, check catalog, or target identity changed.
 
 ### Run one bounded manual repair
 
