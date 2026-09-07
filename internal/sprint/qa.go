@@ -712,6 +712,9 @@ func qaMapForRun(store QAStore, candidate QAMap, resume bool) (QAMap, bool, erro
 		if identityErr := validateQAReplayIdentity(retained, candidate); identityErr != nil {
 			return QAMap{}, false, identityErr
 		}
+		if candidate.Budgets.PromptBytes > retained.Budgets.PromptBytes {
+			retained.Budgets.PromptBytes = candidate.Budgets.PromptBytes
+		}
 		return retained, false, nil
 	}
 	if err != nil || prior.CurrentAttemptID != candidate.SemanticAttemptID || prior.Map == nil {
@@ -1271,6 +1274,12 @@ func (s Service) prepareQAAttempt(store QAStore, flow FlowState, qaMap QAMap, re
 				prior.CanonicalAssessment, prior.CurrentFailure, prior.OutcomeCounts = "", nil, nil
 			}
 			prior.Run = qaRunCorrelation(req.WriterToken, QARunClaimed)
+			if prior.ArbitrationRewind != nil {
+				if prior.ArbitrationRewind.SourcePromptBytes == 0 {
+					prior.ArbitrationRewind.SourcePromptBytes = 512 << 10
+				}
+				prior.ArbitrationRewind.AppliedPromptBytes = qaMap.Budgets.PromptBytes
+			}
 			prior.Phase = QAPhaseQueued
 			prior.Blocker = nil
 			prior.Cancellation = QACancellation{}

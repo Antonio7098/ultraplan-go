@@ -11,7 +11,7 @@ func TestRenderTabsAndProjectNavigationWithoutArtifactPaths(t *testing.T) {
 	model := NewModel(nil)
 	model.Data = fixtureDashboard()
 	out := RenderWithSize(model, 100, 20)
-	for _, want := range []string{"[Projects]", "Studies", "> alpha", "docs=present", "enter open"} {
+	for _, want := range []string{"Projects", "Studies", "▸ alpha", "docs=present", "enter open"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("render missing %q:\n%s", want, out)
 		}
@@ -24,7 +24,7 @@ func TestRenderTabsAndProjectNavigationWithoutArtifactPaths(t *testing.T) {
 
 	model = model.Update(KeyMsg("enter"))
 	out = RenderWithSize(model, 100, 20)
-	for _, want := range []string{"Projects > alpha", "> Sprints", "Docs", "Project Index", "Roadmap"} {
+	for _, want := range []string{"Projects > alpha", "▸ Sprints", "Docs", "Project Index", "Roadmap"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("project detail missing %q:\n%s", want, out)
 		}
@@ -37,7 +37,7 @@ func TestRenderSprintArtifactsByNameOnly(t *testing.T) {
 	model.Routes = []Route{{Kind: RouteProjects}, {Kind: RouteProject, Project: "alpha"}, {Kind: RouteProjectSprints, Project: "alpha"}, {Kind: RouteSprint, Project: "alpha", Sprint: "01"}}
 	model.Selected = 4
 	out := RenderWithSize(model, 100, 20)
-	for _, want := range []string{"Projects > alpha > Sprints > 01", "Requirements", "Sprint Index", "Technical Handbook", "> Plan"} {
+	for _, want := range []string{"Projects > alpha > Sprints > 01", "Requirements", "Sprint Index", "Technical Handbook", "▸ Plan"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("sprint detail missing %q:\n%s", want, out)
 		}
@@ -54,13 +54,13 @@ func TestRenderStudySummaryAboveNavigation(t *testing.T) {
 	m.Routes = []Route{{Kind: RouteStudy, Study: "demo"}}
 	m.Data.Studies = []app.StudySummary{{Name: "demo", Dimensions: []string{"01-a", "02-b"}, Sources: []string{"repo", "notes.md", "api.md"}, Total: 7, Completed: 4, ActiveTasks: 1, RunActive: true, RunStatus: "active", Tasks: []app.RunTaskSummary{{ID: "analysis-active", Status: "running", Dimension: "02-b", Source: "repo", Attempts: 2, Duration: "5s", DurationMS: 5000}, {ID: "analysis-01-repo", Status: "completed", Dimension: "01-a", Source: "repo", Attempts: 1, Tokens: 1234, TokensKnown: true, Duration: "42s", DurationMS: 42000, Events: 8, Provider: "opencode", Model: "demo-model", Cost: "0.01 USD"}}}}
 	view := Render(m, 80)
-	for _, want := range []string{"Study summary", "Dimensions: 2", "Sources: 3", "Planned runs: 7", "Done so far: 4", "Run status: active (4/7 done)", "> View Run [ACTIVE]"} {
+	for _, want := range []string{"Study summary", "Dimensions: 2", "Sources: 3", "Planned runs: 7", "Done so far: 4", "Run status: active (4/7 done)", "▸ View Run [ACTIVE]"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("study view missing %q:\n%s", want, view)
 		}
 	}
-	if strings.Index(view, "Study summary") > strings.Index(view, "> View Run [ACTIVE]") {
-		t.Fatalf("summary was not above navigation:\n%s", view)
+	if strings.Index(view, "Study summary") < strings.Index(view, "demo · study") {
+		t.Fatalf("summary was not inside the study detail pane:\n%s", view)
 	}
 	if !strings.Contains(view, "View Run [ACTIVE]") || strings.Contains(view, "Run Loop [RUNTIME]") {
 		t.Fatalf("active run actions incorrect:\n%s", view)
@@ -91,7 +91,7 @@ func TestInactiveStudyHasOneUnifiedRunLoopAction(t *testing.T) {
 	if strings.Count(view, "Run Loop [RUNTIME]") != 1 || strings.Contains(view, "Start Run Loop") || strings.Contains(view, "Resume Run Loop") || strings.Contains(view, "View Run") {
 		t.Fatalf("unified run-loop action incorrect:\n%s", view)
 	}
-	if !strings.Contains(view, "> Run Loop [RUNTIME]") || strings.Index(view, "> Run Loop [RUNTIME]") > strings.Index(view, "\n  Dimensions >") {
+	if !strings.Contains(view, "▸ Run Loop [RUNTIME]") || strings.Index(view, "▸ Run Loop [RUNTIME]") > strings.Index(view, "  Dimensions ›") {
 		t.Fatalf("run loop was not first:\n%s", view)
 	}
 }
@@ -173,7 +173,7 @@ func TestRenderFollowsSelectedItemWithinTerminalHeight(t *testing.T) {
 	if !strings.Contains(scrolled, "scroll ") {
 		t.Fatalf("scrolled render missing scroll position:\n%s", scrolled)
 	}
-	if !strings.Contains(scrolled, "> project-k") {
+	if !strings.Contains(scrolled, "▸ project-k") {
 		t.Fatalf("scrolled render did not expose selected row:\n%s", scrolled)
 	}
 }

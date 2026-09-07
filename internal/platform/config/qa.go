@@ -108,7 +108,7 @@ func DefaultQA() QA {
 		IterationsPerAttempt: 4, CommandsPerAttempt: 8, OutputRepairAttempts: 1,
 		ConcurrentInvestigators: 3, CommandTimeout: "5m", ShardTimeout: "20m",
 		RunTimeout: "60m", CleanupTimeout: "30s", CommandOutputBytes: 256 << 10,
-		ShardOutputBytes: 1 << 20, PromptBytes: 512 << 10, RecentProgress: 100,
+		ShardOutputBytes: 1 << 20, PromptBytes: 1 << 20, RecentProgress: 100,
 		RetainedAttempts: 8, StateBytes: 128 << 20,
 		TreeFiles: 200_000, TreeBytes: 2 << 30, FileBytes: 32 << 20,
 		GeneratedChecks: 88, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256, Issues: 200,

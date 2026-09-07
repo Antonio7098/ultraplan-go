@@ -146,7 +146,7 @@ func DefaultQABudgets() QABudgets {
 		ConcurrentInvestigators: 3, CommandTimeout: 5 * time.Minute,
 		ShardTimeout: 20 * time.Minute, RunTimeout: 60 * time.Minute,
 		CleanupTimeout: 30 * time.Second, CommandOutputBytes: 256 << 10,
-		ShardOutputBytes: 1 << 20, PromptBytes: 512 << 10, RecentProgress: 100,
+		ShardOutputBytes: 1 << 20, PromptBytes: 1 << 20, RecentProgress: 100,
 		RetainedAttempts: 8, StateBytes: 128 << 20,
 		TreeFiles: 200_000, TreeBytes: 2 << 30, FileBytes: 32 << 20,
 		GeneratedChecks: 88, GeneratedPatchBytes: 2 << 20, EvidenceRecords: 256,
@@ -300,6 +300,8 @@ type QAArbitrationRewind struct {
 	RetainedShardIDs         []string  `json:"retained_shard_ids"`
 	SourcePolicyFingerprint  string    `json:"source_policy_fingerprint"`
 	AppliedPolicyFingerprint string    `json:"applied_policy_fingerprint"`
+	SourcePromptBytes        int       `json:"source_prompt_bytes,omitempty"`
+	AppliedPromptBytes       int       `json:"applied_prompt_bytes,omitempty"`
 	RewoundAt                time.Time `json:"rewound_at"`
 }
 
@@ -1459,6 +1461,9 @@ func ValidateQAState(state QAState) error {
 			if !validQAIDKind(shardID, "shard") {
 				return fmt.Errorf("invalid QA arbitration rewind shard")
 			}
+		}
+		if rewind.SourcePromptBytes < 0 || rewind.AppliedPromptBytes < 0 || rewind.AppliedPromptBytes > MaximumQABudgets().PromptBytes {
+			return fmt.Errorf("invalid QA arbitration rewind prompt budget")
 		}
 	}
 	return nil

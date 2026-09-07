@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Antonio7098/ultraplan-go/internal/app"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func Render(m Model, width int) string {
@@ -13,48 +14,223 @@ func Render(m Model, width int) string {
 }
 
 func RenderWithSize(m Model, width, height int) string {
-	var header strings.Builder
-	fmt.Fprintf(&header, "%s\n", fullWidth(tuiStyles.title, "UltraPlan  ·  operational dashboard", width))
-	fmt.Fprintf(&header, "%s\n", renderTabs(m, width))
-	fmt.Fprintf(&header, "%s\n", fullWidth(tuiStyles.breadcrumb, m.breadcrumb(), width))
+	if width < 40 {
+		width = 40
+	}
+	if height <= 0 {
+		height = 40
+	}
+	// Header: herdr-style tab bar, then breadcrumb + status on the panel color.
+	headerLines := []string{renderTabBar(m, width)}
+	headerLines = append(headerLines, fullWidth(tuiStyles.breadcrumb, statusDot(headerStatus(m))+"  UltraPlan · "+m.breadcrumb(), width))
 	if m.Loading {
-		fmt.Fprintf(&header, "%s\n", fullWidth(tuiStyles.notice, "Loading workspace status...", width))
+		headerLines = append(headerLines, fullWidth(tuiStyles.notice, "Loading workspace status...", width))
 	}
 	if m.Error != "" {
-		fmt.Fprintf(&header, "%s\n", fullWidth(tuiStyles.err, "Error: "+m.Error, width))
+		headerLines = append(headerLines, fullWidth(tuiStyles.err, "Error: "+m.Error, width))
 	}
 	if m.Running && m.OperationHidden {
-		fmt.Fprintln(&header, fullWidth(tuiStyles.notice, "Run continues in background — c cancel | select View Run for status", width))
+		headerLines = append(headerLines, fullWidth(tuiStyles.notice, "Run continues in background — c cancel | select View Run for status", width))
 	}
-	var body strings.Builder
-	selectedStart, selectedEnd := -1, -1
+
+	// Detail pane content preserves every previous body builder verbatim.
+	var detail strings.Builder
 	if m.ParallelForm != nil {
-		renderParallelForm(&body, m)
+		renderParallelForm(&detail, m)
 	} else if m.RunViewStudy != "" {
-		renderRunView(&body, m)
+		renderRunView(&detail, m)
 	} else if m.Confirmation != nil {
-		renderConfirmation(&body, *m.Confirmation)
+		renderConfirmation(&detail, *m.Confirmation)
 	} else if m.Operation != nil && !m.OperationHidden {
 		if m.ActiveOperation.Kind == app.OperationStudyStart || m.ActiveOperation.Kind == app.OperationStudyResume {
-			renderForegroundRun(&body, *m.Operation, m.Events, m.OperationShowPrevious)
+			renderForegroundRun(&detail, *m.Operation, m.Events, m.OperationShowPrevious)
 		} else {
-			renderOperation(&body, *m.Operation, m.Events)
+			renderOperation(&detail, *m.Operation, m.Events)
 		}
 	} else if m.Validation != nil {
-		renderValidation(&body, *m.Validation)
+		renderValidation(&detail, *m.Validation)
 	} else if m.Preview != nil {
-		renderPreview(&body, m, width)
+		renderPreview(&detail, m, width)
 	} else {
-		renderRouteSummary(&body, m)
-		selectedStart, selectedEnd = renderNavItems(&body, m)
+		renderRouteSummary(&detail, m)
+		renderSelectedDetail(&detail, m)
 	}
-	mode := viewportSelection
-	offset := 0
+	detailLines := splitLines(detail.String())
+
+	// Sidebar carries navigation; the detail pane carries meaning.
+	sideLines, selectedStart, selectedEnd := renderSidebarLines(m)
+	detailOffset := 0
 	if m.Preview != nil {
-		mode = viewportOffset
-		offset = m.PreviewOffset
+		detailOffset = m.PreviewOffset
 	}
-	return renderFrame(header.String(), body.String(), HelpText(), selectedStart, selectedEnd, offset, mode, width, height)
+
+	// Footer: herdr-style mode bar with the pill reflecting state.
+	pill, alert := modePill(m)
+	footerLines := []string{renderModeBar(pill, alert, helpSegments(), width)}
+
+	bodyHeight := height - len(headerLines) - len(footerLines) - 1
+	if bodyHeight < 3 {
+		bodyHeight = 3
+	}
+	sideW := width * 30 / 100
+	if sideW < 24 {
+		sideW = 24
+	}
+	if sideW > 38 {
+		sideW = 38
+	}
+	if width-sideW < 30 {
+		sideW = width - 30
+	}
+	detailW := width - sideW - 1
+	if detailW < 20 {
+		detailW = 20
+	}
+
+	sideVp := newViewport(len(sideLines), bodyHeight).FollowSelection(selectedStart, selectedEnd)
+	detailVp := newViewport(len(detailLines), bodyHeight-2).AtOffset(detailOffset)
+
+	var out strings.Builder
+	for _, line := range headerLines {
+		fmt.Fprintln(&out, line)
+	}
+	sideStyled := make([]string, len(sideLines))
+	for i, line := range sideLines {
+		sideStyled[i] = sidebarCellStyle(line).Width(sideW).MaxWidth(sideW).Render(fitCell(line.text, sideW))
+	}
+	for i := 0; i < bodyHeight; i++ {
+		sideCell := tuiStyles.body.Width(sideW).MaxWidth(sideW).Render("")
+		if idx := sideVp.offset + i; idx < len(sideStyled) {
+			sideCell = sideStyled[idx]
+		}
+		// herdr's thin │ separator between sidebar and content.
+		sep := tuiStyles.separator.Render("│")
+		detailLine := ""
+		if i == 0 {
+			detailLine = paneBorderTop(detailTitle(m), detailW, m.Focus == FocusContent)
+		} else if i == bodyHeight-1 {
+			detailLine = paneBorderBottom(detailW, m.Focus == FocusContent)
+		} else if idx := detailVp.offset + i - 1; idx < len(detailLines) {
+			detailLine = paneBorderRow(detailLines[idx], detailW, m.Focus == FocusContent)
+		} else {
+			detailLine = paneBorderRow("", detailW, m.Focus == FocusContent)
+		}
+		fmt.Fprintf(&out, "%s%s%s\n", sideCell, sep, detailLine)
+	}
+	if sideVp.MaxOffset() > 0 || detailVp.MaxOffset() > 0 {
+		fmt.Fprintln(&out, fullWidth(tuiStyles.scroll, fmt.Sprintf("scroll %d/%d", sideVp.offset+1, sideVp.MaxOffset()+1), width))
+	} else {
+		fmt.Fprintln(&out, fullWidth(tuiStyles.body, "", width))
+	}
+	for _, line := range footerLines {
+		fmt.Fprintln(&out, line)
+	}
+	return out.String()
+}
+
+// headerStatus picks the dot color state for the breadcrumb row.
+func headerStatus(m Model) string {
+	if m.Error != "" {
+		return "failed"
+	}
+	if m.Running {
+		return "running"
+	}
+	if m.Loading {
+		return "waiting"
+	}
+	return "completed"
+}
+
+// modePill names the herdr-style mode pill for the bottom bar.
+func modePill(m Model) (string, bool) {
+	switch {
+	case m.Running:
+		return "RUNNING", true
+	case m.ParallelForm != nil || m.Confirmation != nil:
+		return "CONFIRM", true
+	case m.Preview != nil:
+		return "PREVIEW", false
+	case m.Validation != nil:
+		return "REVIEW", false
+	default:
+		return "OPERATE", false
+	}
+}
+
+func helpSegments() []modeSegment {
+	segments := []modeSegment{}
+	for _, part := range strings.Split(HelpText(), " | ") {
+		fields := strings.SplitN(part, " ", 2)
+		if len(fields) == 2 {
+			segments = append(segments, modeSegment{key: fields[0], label: fields[1]})
+		} else {
+			segments = append(segments, modeSegment{label: part})
+		}
+	}
+	return segments
+}
+
+// detailTitle puts the route label on the detail pane's top border,
+// the way herdr titles its focused pane chrome.
+func detailTitle(m Model) string {
+	if m.ParallelForm != nil {
+		return "run-loop parameters"
+	}
+	if m.RunViewStudy != "" {
+		return "run · " + m.RunViewStudy
+	}
+	if m.Confirmation != nil {
+		return "confirm operation"
+	}
+	if m.Operation != nil && !m.OperationHidden {
+		return "operation"
+	}
+	if m.Validation != nil {
+		return "validation"
+	}
+	if m.Preview != nil {
+		title := m.PreviewTitle
+		if title == "" {
+			title = "preview"
+		}
+		return title
+	}
+	route := m.currentRoute()
+	switch route.Kind {
+	case RouteProjects:
+		return "projects"
+	case RouteProject:
+		return route.Project + " · project"
+	case RouteProjectSprints:
+		return route.Project + " · sprints"
+	case RouteProjectDocs:
+		return route.Project + " · docs"
+	case RouteSprint:
+		return route.Project + " / " + route.Sprint
+	case RouteSprintQA:
+		return route.Project + " / " + route.Sprint + " · qa"
+	case RouteSprintQAShard:
+		return "qa shard · " + route.Shard
+	case RouteSprintQATheory:
+		return "qa theory · " + route.Theory
+	case RouteSprintRepair:
+		return "bounded repair"
+	case RouteStudies:
+		return "studies"
+	case RouteStudy:
+		return route.Study + " · study"
+	case RouteStudyDims:
+		return route.Study + " · dimensions"
+	case RouteStudySources:
+		return route.Study + " · sources"
+	case RouteRuns:
+		return "runs"
+	case RouteRun:
+		return "run · " + route.RunID
+	default:
+		return route.Project + " / " + route.Sprint
+	}
 }
 
 func renderParallelForm(b *strings.Builder, m Model) {
@@ -494,67 +670,184 @@ func renderValidation(b *strings.Builder, result app.ValidationOperationResult) 
 	}
 }
 
-func renderTabs(m Model, width int) string {
-	project := "Projects"
-	study := "Studies"
-	runs := "Runs"
-	if m.ActiveTab == TabProjects {
-		project = "[Projects]"
+// renderTabBar mirrors herdr's tab strip: one panel-bg row, each tab a padded
+// label with a one-cell gap. The focused tab is accent-on-dark; the rest are
+// dimmed on surface0. A keyboard-focused tab gets the amber focus treatment.
+func renderTabBar(m Model, width int) string {
+	tabs := []struct {
+		label  string
+		active bool
+	}{
+		{"Projects", m.ActiveTab == TabProjects},
+		{"Studies", m.ActiveTab == TabStudies},
+		{"Runs", m.ActiveTab == TabRuns},
 	}
-	if m.ActiveTab == TabStudies {
-		study = "[Studies]"
+	var row strings.Builder
+	for _, tab := range tabs {
+		style := tuiStyles.dimTab
+		switch {
+		case tab.active && m.Focus == FocusTabs:
+			style = tuiStyles.focusedTab
+		case tab.active:
+			style = tuiStyles.activeTab
+		}
+		row.WriteString(style.Render(tab.label))
+		row.WriteString(tuiStyles.tabBar.Render(" "))
 	}
-	if m.ActiveTab == TabRuns {
-		runs = "[Runs]"
-	}
-	projectStyle, studyStyle, runStyle := tuiStyles.tab, tuiStyles.tab, tuiStyles.tab
-	if m.ActiveTab == TabProjects {
-		projectStyle = tuiStyles.activeTab
-	}
-	if m.ActiveTab == TabStudies {
-		studyStyle = tuiStyles.activeTab
-	}
-	if m.ActiveTab == TabRuns {
-		runStyle = tuiStyles.activeTab
-	}
-	if m.Focus == FocusTabs && m.ActiveTab == TabProjects {
-		projectStyle = tuiStyles.focusedTab
-	}
-	if m.Focus == FocusTabs && m.ActiveTab == TabStudies {
-		studyStyle = tuiStyles.focusedTab
-	}
-	if m.Focus == FocusTabs && m.ActiveTab == TabRuns {
-		runStyle = tuiStyles.focusedTab
-	}
-	row := " " + projectStyle.Render(project) + "  " + studyStyle.Render(study) + "  " + runStyle.Render(runs)
-	return fullWidth(tuiStyles.body, row, width)
+	return fullWidth(tuiStyles.tabBar, row.String(), width)
 }
 
-func renderNavItems(b *strings.Builder, m Model) (int, int) {
+type sidebarLine struct {
+	text     string
+	header   bool
+	divider  bool
+	selected bool
+	summary  bool
+}
+
+// renderSidebarLines builds herdr-style sidebar rows: a lowercase section
+// header, one selectable row per nav item (▸ marker, › drill hint), and the
+// preserved dim summary line under items that have one.
+func renderSidebarLines(m Model) ([]sidebarLine, int, int) {
 	items := m.navItems()
+	lines := []sidebarLine{{text: fmt.Sprintf(" nav (%d)", len(items)), header: true}}
 	if len(items) == 0 {
-		fmt.Fprintln(b, "(none)")
-		return -1, -1
+		lines = append(lines, sidebarLine{text: "(none)"})
+		return lines, -1, -1
 	}
 	selectedStart, selectedEnd := -1, -1
 	for i, item := range items {
-		start := lineCount(b.String())
-		marker := " "
-		if m.Focus == FocusContent && i == m.Selected {
-			marker = ">"
-			selectedStart = start
+		selected := m.Focus == FocusContent && i == m.Selected
+		if selected {
+			selectedStart = len(lines)
 		}
-		fmt.Fprintf(b, "%s %s", marker, item.Label)
+		marker := "  "
+		if selected {
+			marker = "▸ "
+		}
+		row := marker + item.Label
 		if item.Route != nil {
-			fmt.Fprintf(b, " >")
+			row += " ›"
 		}
-		fmt.Fprintln(b)
-		renderItemSummary(b, m, item)
-		if m.Focus == FocusContent && i == m.Selected {
-			selectedEnd = lineCount(b.String()) - 1
+		lines = append(lines, sidebarLine{text: row, selected: selected})
+		var summary strings.Builder
+		renderItemSummary(&summary, m, item)
+		for _, line := range splitLines(summary.String()) {
+			lines = append(lines, sidebarLine{text: line, selected: selected, summary: true})
+		}
+		if selected {
+			selectedEnd = len(lines) - 1
 		}
 	}
-	return selectedStart, selectedEnd
+	return lines, selectedStart, selectedEnd
+}
+
+// renderSelectedDetail keeps the selected item's context visible in the detail
+// pane on plain navigation routes (which previously rendered no summary).
+func renderSelectedDetail(b *strings.Builder, m Model) {
+	item, ok := m.selectedItem()
+	if !ok {
+		return
+	}
+	var summary strings.Builder
+	renderItemSummary(&summary, m, item)
+	if text := strings.TrimRight(summary.String(), "\n"); text != "" {
+		fmt.Fprintln(b, text)
+		fmt.Fprintln(b)
+	}
+	switch {
+	case item.Route != nil:
+		fmt.Fprintln(b, "Enter drills in.")
+	case item.Path != "":
+		fmt.Fprintln(b, "Enter previews the artifact.")
+	case item.Validation != nil:
+		fmt.Fprintln(b, "Enter runs validation.")
+	case item.Operation != nil:
+		fmt.Fprintln(b, "Enter reviews the operation before anything runs.")
+	case item.ViewRun != "":
+		fmt.Fprintln(b, "Enter watches the active run.")
+	}
+}
+
+func borderFG(focused bool) lipgloss.Style {
+	if focused {
+		return lipgloss.NewStyle().Foreground(palette.blue)
+	}
+	return lipgloss.NewStyle().Foreground(palette.overlay0)
+}
+
+// paneBorderTop draws herdr-style pane chrome: a single-line top border with
+// the pane title seated in it (" title " interrupting the rule).
+func paneBorderTop(title string, width int, focused bool) string {
+	fg := borderFG(focused)
+	label := " " + title + " "
+	if lipgloss.Width(label) > width-4 && width > 6 {
+		label = " " + title[:width-6] + " "
+	}
+	fill := width - 3 - lipgloss.Width(label)
+	if fill < 0 {
+		fill = 0
+	}
+	return fg.Render("┌─") + tuiStyles.paneTitle.Render(label) +
+		fg.Render(strings.Repeat("─", fill)+"┐")
+}
+
+func paneBorderRow(line string, width int, focused bool) string {
+	fg := borderFG(focused)
+	inner := width - 2
+	if inner < 1 {
+		inner = 1
+	}
+	// Telemetry lines can exceed the pane: pad short lines, let long ones
+	// overflow unwrapped so their key=value content stays greppable and the
+	// terminal wraps them naturally instead of mid-token.
+	cell := line
+	if lipgloss.Width(line) <= inner {
+		cell = detailLineStyle(line).Width(inner).MaxWidth(inner).Render(line)
+	}
+	return fg.Render("│") + cell + fg.Render("│")
+}
+
+func paneBorderBottom(width int, focused bool) string {
+	fg := borderFG(focused)
+	fill := width - 2
+	if fill < 0 {
+		fill = 0
+	}
+	return fg.Render("└" + strings.Repeat("─", fill) + "┘")
+}
+
+// detailLineStyle keeps the old body semantics (accent section headers, dim
+// metadata) inside the bordered pane.
+func detailLineStyle(line string) lipgloss.Style {
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case isSectionLine(line):
+		return tuiStyles.section
+	case strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "  "):
+		return tuiStyles.metadata
+	case trimmed == "" || trimmed == "(none)":
+		return tuiStyles.metadata
+	default:
+		return tuiStyles.body
+	}
+}
+
+func sidebarCellStyle(line sidebarLine) lipgloss.Style {
+	switch {
+	case line.header:
+		return tuiStyles.sideHeader
+	case line.divider:
+		return tuiStyles.sideDivider
+	case line.selected && line.summary:
+		return lipgloss.NewStyle().Foreground(palette.subtext).Background(palette.selectionBg)
+	case line.selected:
+		return tuiStyles.sideSelected
+	case line.summary:
+		return tuiStyles.metadata
+	default:
+		return tuiStyles.body
+	}
 }
 
 func renderItemSummary(b *strings.Builder, m Model, item navItem) {
@@ -609,57 +902,17 @@ func renderPreview(b *strings.Builder, m Model, width int) {
 	}
 }
 
-type viewportMode int
-
-const (
-	viewportSelection viewportMode = iota
-	viewportOffset
-)
-
-func renderFrame(header, body, help string, selectedStart, selectedEnd, offset int, mode viewportMode, width, height int) string {
-	headerLines := splitLines(header)
-	bodyLines := splitLines(body)
-	footerLines := []string{renderHelp(help, width)}
-	if height <= 0 {
-		height = 40
+// fitCell truncates a sidebar cell to the column width so long labels clip
+// instead of wrapping mid-row and breaking the selection column.
+func fitCell(text string, width int) string {
+	if lipgloss.Width(text) <= width {
+		return text
 	}
-	bodyHeight := height - len(headerLines) - len(footerLines) - 1
-	if bodyHeight < 1 {
-		bodyHeight = 1
+	runes := []rune(text)
+	for len(runes) > 0 && lipgloss.Width(string(runes)) > width-1 {
+		runes = runes[:len(runes)-1]
 	}
-	vp := newViewport(len(bodyLines), bodyHeight)
-	switch mode {
-	case viewportOffset:
-		vp = vp.AtOffset(offset)
-	default:
-		vp = vp.FollowSelection(selectedStart, selectedEnd)
-	}
-	var out strings.Builder
-	for _, line := range headerLines {
-		fmt.Fprintln(&out, line)
-	}
-	for i, line := range bodyLines[vp.offset:vp.End()] {
-		absolute := vp.offset + i
-		switch {
-		case absolute >= selectedStart && absolute <= selectedEnd:
-			fmt.Fprintln(&out, fullWidth(tuiStyles.selected, line, width))
-		case isSectionLine(line):
-			fmt.Fprintln(&out, fullWidth(tuiStyles.section, line, width))
-		case strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "  "):
-			fmt.Fprintln(&out, fullWidth(tuiStyles.metadata, line, width))
-		default:
-			fmt.Fprintln(&out, fullWidth(tuiStyles.body, line, width))
-		}
-	}
-	if len(bodyLines) > bodyHeight {
-		fmt.Fprintln(&out, fullWidth(tuiStyles.scroll, fmt.Sprintf("scroll %d/%d", vp.offset+1, vp.MaxOffset()+1), width))
-	} else {
-		fmt.Fprintln(&out, fullWidth(tuiStyles.body, "", width))
-	}
-	for _, line := range footerLines {
-		fmt.Fprintln(&out, line)
-	}
-	return out.String()
+	return string(runes) + "…"
 }
 
 func splitLines(value string) []string {

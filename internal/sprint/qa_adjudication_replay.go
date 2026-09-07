@@ -131,7 +131,7 @@ func (s Service) ReplayQAAdjudication(ctx context.Context, projectRef, sprintRef
 	state.Run.Lifecycle, state.Run.TerminalResult = QARunTerminal, QATerminalInterrupted
 	state.Freshness.Current, state.Freshness.Reasons = true, nil
 	state.Freshness.PolicyFingerprint = current.Map.PolicyFingerprint
-	state.ArbitrationRewind = &QAArbitrationRewind{ID: rewindID, ArchivePath: archiveRel, RetainedShardIDs: shardIDs, SourcePolicyFingerprint: retained.PolicyFingerprint, AppliedPolicyFingerprint: current.Map.PolicyFingerprint, RewoundAt: now}
+	state.ArbitrationRewind = &QAArbitrationRewind{ID: rewindID, ArchivePath: archiveRel, RetainedShardIDs: shardIDs, SourcePolicyFingerprint: retained.PolicyFingerprint, AppliedPolicyFingerprint: current.Map.PolicyFingerprint, SourcePromptBytes: retained.Budgets.PromptBytes, AppliedPromptBytes: current.Map.Budgets.PromptBytes, RewoundAt: now}
 	state.NextAction = "Run qa resume to start fresh arbitration from the retained investigations."
 	state.UpdatedAt = now
 	if err := store.SaveRecoveredState(state, flow); err != nil {
