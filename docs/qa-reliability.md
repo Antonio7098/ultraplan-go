@@ -88,6 +88,19 @@ Recovery progress distinguishes reused accepted checks from newly executed ones
 and reports unresolved request reasons. Completing retained checks does not mean
 that the requested product reproductions succeeded.
 
+The issue-to-evidence coverage index follows the current adjudication, including
+removal of outdated entries. Previous index versions are retained by digest.
+Publication failures restore synthesis, coverage, adjudication, issues,
+assessment, report, state and flow pointers together. Immutable test bundles and
+execution checkpoints remain available for resumption.
+
+Use `qa recover` after an interrupted publication. It can recover a synthesis
+that was written before the state pointer only when its map and immutable
+arbiter rounds match, and its deterministic fields reproduce from retained
+shards. The prior pointer and candidate are archived. Recovery marks the attempt
+interrupted and leaves assessment publication to `qa retry-infrastructure`.
+Other invalid references retain the existing clear-and-rebuild behavior.
+
 Reports and interfaces show unresolved request endpoints first. Predecessors and
 answered requests remain available as history. The Markdown report also lists
 the accepted failing bundle and test assertion for each candidate theory; missing

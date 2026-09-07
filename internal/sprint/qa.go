@@ -277,6 +277,10 @@ func (s Service) RecoverQA(ctx context.Context, projectRef, sprintRef string) (Q
 			return QASnapshot{}, err
 		}
 	}
+	recoveredSynthesis, err := store.recoverInterruptedSynthesis(&state)
+	if err != nil {
+		return QASnapshot{}, err
+	}
 	invalidRefs := store.clearInvalidArtifactReferences(&state)
 	flow, err := LoadFlowState(s.root, sp)
 	if err != nil {
@@ -284,6 +288,12 @@ func (s Service) RecoverQA(ctx context.Context, projectRef, sprintRef string) (Q
 	}
 	now := s.now().UTC()
 	changed := false
+	if recoveredSynthesis {
+		changed = true
+		state.Phase, state.Run.Lifecycle, state.Run.TerminalResult = QAPhaseInterrupted, QARunTerminal, QATerminalInterrupted
+		state.Blocker = &QABlocker{Category: QAErrorPersistenceFailure, Scope: "publication", Summary: "Recovered interrupted synthesis from retained shard and arbiter checkpoints; assessment publication remains incomplete.", NextAction: "Run qa retry-infrastructure to publish the retained evidence and assessment."}
+		state.NextAction = state.Blocker.NextAction
+	}
 	if len(invalidRefs) > 0 {
 		changed = true
 		state.Phase = QAPhaseInterrupted
@@ -307,7 +317,13 @@ func (s Service) RecoverQA(ctx context.Context, projectRef, sprintRef string) (Q
 	if len(invalidRefs) == 0 {
 		changed = reconcileInterruptedQAState(&state) || changed
 	}
-	if current, mapErr := s.QAMap(projectRef, sprintRef); mapErr != nil || current.Map.SemanticAttemptID != state.CurrentAttemptID {
+	current, mapErr := s.QAMap(projectRef, sprintRef)
+	currentIdentity := mapErr == nil && current.Map.SemanticAttemptID == state.CurrentAttemptID
+	if mapErr == nil && !currentIdentity && state.ArbitrationRewind != nil {
+		retained, loadErr := store.LoadMap(state.CurrentAttemptID)
+		currentIdentity = loadErr == nil && validateQAReplayIdentity(retained, current.Map) == nil
+	}
+	if !currentIdentity {
 		changed = true
 		state.Phase = QAPhaseStale
 		state.Freshness.Current = false

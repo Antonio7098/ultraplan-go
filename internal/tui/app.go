@@ -424,7 +424,17 @@ func (m teaModel) dashboardAndRuns() (app.DashboardResult, []app.RunSnapshot, []
 func (m teaModel) previewCmd() tea.Cmd {
 	return func() tea.Msg {
 		item, ok := m.model.selectedItem()
-		if !ok || item.Path == "" {
+		if !ok {
+			return PreviewMsg{Result: app.ArtifactPreviewResult{Error: "no previewable artifact selected"}, Route: m.model.currentRoute(), Title: "Preview"}
+		}
+		if item.EmbeddedReasoning != "" {
+			content, found := loadReasoningDoc(item.EmbeddedReasoning)
+			if !found {
+				return PreviewMsg{Result: app.ArtifactPreviewResult{Error: "embedded reasoning doc missing", Missing: true}, Route: m.model.currentRoute(), Title: item.Label}
+			}
+			return PreviewMsg{Result: app.ArtifactPreviewResult{Path: "embedded://" + item.EmbeddedReasoning, Kind: "markdown", Content: content}, Route: m.model.currentRoute(), Title: item.Label}
+		}
+		if item.Path == "" {
 			return PreviewMsg{Result: app.ArtifactPreviewResult{Error: "no previewable artifact selected"}, Route: m.model.currentRoute(), Title: "Preview"}
 		}
 		result, err := m.model.UseCases.PreviewArtifact(m.ctx, item.Path)

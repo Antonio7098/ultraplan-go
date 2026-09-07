@@ -396,7 +396,9 @@ func (store QAStore) publishAuthoredTests(bundle *QAEvidencePublication, attempt
 			return err
 		}
 	}
-	if len(bundle.IssueCoverage) > 0 {
+	// Coverage is an attempt index derived from the current adjudication. A
+	// recovery can add or remove promoted issues, including clearing the index.
+	if bundle.Adjudication != nil || len(bundle.IssueCoverage) > 0 {
 		for _, coverage := range bundle.IssueCoverage {
 			if err := ValidateQAIssueEvidenceCoverage(coverage); err != nil {
 				return NewQAError(QAErrorMalformedEvidence, "publish issue evidence coverage", err.Error(), err)
@@ -411,7 +413,18 @@ func (store QAStore) publishAuthoredTests(bundle *QAEvidencePublication, attempt
 			AttemptID     string                    `json:"attempt_id"`
 			Issues        []QAIssueEvidenceCoverage `json:"issues"`
 		}{QAEvidenceSchemaVersion, attemptID, bundle.IssueCoverage}
-		if _, err := store.writeRecord("issue-evidence-coverage", path, &envelope, true); err != nil {
+		if err := store.checkWriter(token); err != nil {
+			return err
+		}
+		if previous, err := os.ReadFile(path); err == nil {
+			history := filepath.Join(filepath.Dir(path), "issue-evidence-coverage-history", hashBytes(previous)+".json")
+			if _, err := store.writeBytes("issue-evidence-coverage-history", history, previous, true); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if _, err := store.writeRecord("issue-evidence-coverage", path, &envelope, false); err != nil {
 			return err
 		}
 	}

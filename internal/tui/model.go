@@ -27,11 +27,12 @@ const (
 type RouteKind string
 
 const (
-	RouteProjects       RouteKind = "projects"
-	RouteProject        RouteKind = "project"
-	RouteProjectSprints RouteKind = "project-sprints"
-	RouteProjectDocs    RouteKind = "project-docs"
-	RouteSprint         RouteKind = "sprint"
+	RouteProjects          RouteKind = "projects"
+	RouteProject           RouteKind = "project"
+	RouteProjectSprints    RouteKind = "project-sprints"
+	RouteProjectDocs       RouteKind = "project-docs"
+	RouteProjectReasoning  RouteKind = "project-reasoning"
+	RouteSprint            RouteKind = "sprint"
 	RouteSprintQA       RouteKind = "sprint-qa"
 	RouteSprintQAShard  RouteKind = "sprint-qa-shard"
 	RouteSprintQATheory RouteKind = "sprint-qa-theory"
@@ -145,12 +146,13 @@ type OperationMsg struct {
 type OperationEventMsg struct{ Event app.OperationEvent }
 
 type navItem struct {
-	Label      string
-	Route      *Route
-	Path       string
-	Validation *app.ValidationRequest
-	Operation  *app.OperationRequest
-	ViewRun    string
+	Label           string
+	Route           *Route
+	Path            string
+	Validation      *app.ValidationRequest
+	Operation       *app.OperationRequest
+	ViewRun         string
+	EmbeddedReasoning string
 }
 
 func NewModel(useCases app.OperationalUseCases) Model {
@@ -192,7 +194,17 @@ func (m Model) Refresh(ctx context.Context) (Model, error) {
 
 func (m Model) PreviewSelected(ctx context.Context) (Model, error) {
 	item, ok := m.selectedItem()
-	if !ok || item.Path == "" {
+	if !ok {
+		return m.Update(PreviewMsg{Result: app.ArtifactPreviewResult{Error: "no previewable artifact selected"}, Route: m.currentRoute(), Title: "Preview"}), nil
+	}
+	if item.EmbeddedReasoning != "" {
+		content, found := loadReasoningDoc(item.EmbeddedReasoning)
+		if !found {
+			return m.Update(PreviewMsg{Result: app.ArtifactPreviewResult{Error: "embedded reasoning doc missing", Missing: true}, Route: m.currentRoute(), Title: item.Label}), nil
+		}
+		return m.Update(PreviewMsg{Result: app.ArtifactPreviewResult{Path: "embedded://" + item.EmbeddedReasoning, Kind: "markdown", Content: content}, Route: m.currentRoute(), Title: item.Label}), nil
+	}
+	if item.Path == "" {
 		return m.Update(PreviewMsg{Result: app.ArtifactPreviewResult{Error: "no previewable artifact selected"}, Route: m.currentRoute(), Title: "Preview"}), nil
 	}
 	result, err := m.UseCases.PreviewArtifact(ctx, item.Path)
@@ -483,6 +495,7 @@ func (m Model) navItems() []navItem {
 			{Label: "Project Index", Path: projectArtifactPath(m.Data.Projects, route.Project, "project-index")},
 			{Label: "Roadmap", Path: projectArtifactPath(m.Data.Projects, route.Project, "roadmap")},
 			{Label: "Validate Project", Validation: &app.ValidationRequest{Subject: app.ValidationProject, Project: route.Project}},
+			{Label: "Project Reasoning Docs", Route: &Route{Kind: RouteProjectReasoning, Project: route.Project}},
 		}
 	case RouteProjectSprints:
 		var items []navItem
@@ -503,6 +516,12 @@ func (m Model) navItems() []navItem {
 			}
 			return items
 		}
+	case RouteProjectReasoning:
+		items := make([]navItem, 0, len(reasoningDocs))
+		for _, d := range reasoningDocs {
+			items = append(items, navItem{Label: d.Label, EmbeddedReasoning: d.Key})
+		}
+		return items
 	case RouteSprint:
 		if s, ok := findSprint(m.Data.Sprints, route.Project, route.Sprint); ok {
 			stageLabel := func(stage string) string {
@@ -664,6 +683,8 @@ func (m Model) breadcrumb() string {
 		return "Projects > " + route.Project + " > Sprints"
 	case RouteProjectDocs:
 		return "Projects > " + route.Project + " > Docs"
+	case RouteProjectReasoning:
+		return "Projects > " + route.Project + " > Reasoning Docs"
 	case RouteSprint:
 		return "Projects > " + route.Project + " > Sprints > " + route.Sprint
 	case RouteSprintQA:

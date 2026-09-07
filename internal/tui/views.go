@@ -247,6 +247,8 @@ func detailTitle(m Model) string {
 		return route.Project + " · sprints"
 	case RouteProjectDocs:
 		return route.Project + " · docs"
+	case RouteProjectReasoning:
+		return route.Project + " · reasoning docs"
 	case RouteSprint:
 		return route.Project + " / " + route.Sprint
 	case RouteSprintQA:
@@ -833,6 +835,8 @@ func renderSelectedDetail(b *strings.Builder, m Model) {
 		fmt.Fprintln(b, "Enter drills in.")
 	case item.Path != "":
 		fmt.Fprintln(b, "Enter previews the artifact.")
+	case item.EmbeddedReasoning != "":
+		fmt.Fprintln(b, "Enter previews the embedded doc.")
 	case item.Validation != nil:
 		fmt.Fprintln(b, "Enter runs validation.")
 	case item.Operation != nil:
@@ -929,6 +933,10 @@ func renderItemSummary(b *strings.Builder, m Model, item navItem) {
 	case RouteProjects:
 		if p, ok := findProject(m.Data.Projects, item.Label); ok {
 			fmt.Fprintf(b, "    docs=%s roadmap=%s index=%s catalog=%s project_reasoning=%s/%s findings=%d\n", p.DocsDir, p.Roadmap, p.ProjectIndex, p.Catalog, p.ProjectReasoning.Mode, p.ProjectReasoning.Verdict, len(p.Findings))
+		}
+	case RouteProjectReasoning:
+		if doc, ok := reasoningDocByKey(item.EmbeddedReasoning); ok {
+			fmt.Fprintf(b, "    %s\n", doc.Summary)
 		}
 	case RouteProjectSprints:
 		if s, ok := findSprint(m.Data.Sprints, route.Project, item.Label); ok {

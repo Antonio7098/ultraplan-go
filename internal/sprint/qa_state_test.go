@@ -505,6 +505,75 @@ func TestQAEvidencePublicationLoadsAndRollsBackCanonicalFiles(t *testing.T) {
 	if after.NextAction != loaded.NextAction || !bytes.Equal(afterReport, priorReport) {
 		t.Fatal("failed publication did not preserve the prior canonical state and report")
 	}
+	// Resume changes several mutable indexes before the final state pointer.
+	// Every failure point must preserve all of the previous pointer targets.
+	synthesis, err := SynthesizeQA(*initial.Map, initial.Shards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication.Synthesis = &synthesis
+	publication.State = loaded
+	publication.Evidence.Report = []byte(report)
+	theoryID := "qa-v1-theory-" + strings.Repeat("a", 24)
+	testID := "qa-v2-test-" + strings.Repeat("a", 24)
+	coverage := QAIssueEvidenceCoverage{SchemaVersion: QAEvidenceSchemaVersion, IssueID: "qa-v2-issue-" + strings.Repeat("a", 24), TheoryIDs: []string{theoryID}, TestBundleIDs: []string{testID}, PrimaryReproducers: []string{testID}, Coverage: map[string][]string{theoryID: {testID}}}
+	publication.Evidence.IssueCoverage = []QAIssueEvidenceCoverage{coverage}
+	if err := store.Publish(publication, token); err != nil {
+		t.Fatal(err)
+	}
+	publication.State, err = store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{filepath.Join(sp.Path, "qa.md"), filepath.Join(sp.Path, "verification", "state.json")}
+	flowPath, _ := FlowStatePath(root, sp)
+	paths = append(paths, flowPath)
+	for _, rel := range []string{QASynthesisRelPath(sp, state.CurrentAttemptID), QAAdjudicationRelPath(sp, state.CurrentAttemptID), QAIssuesRelPath(sp, state.CurrentAttemptID), QAAssessmentRelPath(sp, state.CurrentAttemptID), QAIssueEvidenceCoverageRelPath(sp, state.CurrentAttemptID)} {
+		paths = append(paths, filepath.Join(root, filepath.FromSlash(rel)))
+	}
+	baseline, err := captureQACanonicalFiles(paths...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	synthesis.NextAction = "changed synthesis"
+	adjudication.CompletedAt = adjudication.CompletedAt.Add(time.Second)
+	assessment.NextAction = "changed assessment"
+	coverage.IssueID = "qa-v2-issue-" + strings.Repeat("b", 24)
+	publication.Evidence.IssueCoverage = []QAIssueEvidenceCoverage{coverage}
+	for _, step := range []string{"synthesis", "issue-evidence-coverage", "adjudication", "issues", "assessment", "report", "state", "flow"} {
+		t.Run("rollback_"+step, func(t *testing.T) {
+			fail := func(kind, _ string) error {
+				if kind == step {
+					return errors.New("injected " + step + " failure")
+				}
+				return nil
+			}
+			failing := store.WithHooks(QAStateHooks{BeforeStep: fail, BeforeRename: fail})
+			if err := failing.Publish(publication, token); err == nil {
+				t.Fatal("expected publication failure")
+			}
+			if _, err := store.LoadState(); err != nil {
+				t.Fatalf("rollback left a dangling pointer: %v", err)
+			}
+			for _, snapshot := range baseline {
+				data, err := os.ReadFile(snapshot.path)
+				if err != nil || !bytes.Equal(data, snapshot.data) {
+					t.Fatalf("rollback changed %s: %v", snapshot.path, err)
+				}
+			}
+		})
+	}
+	if err := store.Publish(publication, token); err != nil {
+		t.Fatalf("revised coverage failed: %v", err)
+	}
+	publication.State, _ = store.LoadState()
+	publication.Evidence.IssueCoverage = nil
+	if err := store.Publish(publication, token); err != nil {
+		t.Fatalf("clearing stale coverage failed: %v", err)
+	}
+	if coverage, err := store.LoadIssueEvidenceCoverage(state.CurrentAttemptID); err != nil || len(coverage) != 0 {
+		t.Fatalf("stale coverage survived: %v %v", coverage, err)
+	}
 }
 
 func qaPublicationFixture(t *testing.T) (string, Sprint, QAPublication) {

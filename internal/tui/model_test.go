@@ -211,6 +211,51 @@ func TestOperationConfirmationProgressBoundAndTerminal(t *testing.T) {
 	}
 }
 
+func TestProjectReasoningRouteExposesEmbeddedDocs(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Data = fixtureDashboard()
+	m.Routes = []Route{{Kind: RouteProject, Project: "alpha"}}
+	items := m.navItems()
+	var found *navItem
+	for i := range items {
+		if items[i].Label == "Project Reasoning Docs" {
+			found = &items[i]
+			break
+		}
+	}
+	if found == nil || found.Route == nil || found.Route.Kind != RouteProjectReasoning {
+		t.Fatalf("project page missing Project Reasoning Docs entry: %+v", items)
+	}
+	m.Routes = []Route{{Kind: RouteProjectReasoning, Project: "alpha"}}
+	sub := m.navItems()
+	if len(sub) != len(reasoningDocs) {
+		t.Fatalf("reasoning sub-route items=%d want %d", len(sub), len(reasoningDocs))
+	}
+	wantKeys := map[string]bool{
+		"sprint-reasoning":         false,
+		"create-sprint-reasoning":  false,
+		"create-area-reasoning":    false,
+	}
+	for _, item := range sub {
+		wantKeys[item.EmbeddedReasoning] = true
+		if item.Path != "" || item.Route != nil {
+			t.Fatalf("reasoning item should be embedded-only: %+v", item)
+		}
+	}
+	for k, seen := range wantKeys {
+		if !seen {
+			t.Fatalf("missing embedded reasoning key %q in sub-route items", k)
+		}
+	}
+	previewed, err := m.PreviewSelected(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previewed.Preview == nil || previewed.Preview.Kind != "markdown" || !strings.Contains(previewed.Preview.Content, "Sprint Reasoning") {
+		t.Fatalf("embedded preview missing or wrong: %+v", previewed.Preview)
+	}
+}
+
 func TestFocusAndTabControls(t *testing.T) {
 	model := NewModel(nil)
 	model = model.Update(KeyMsg("tab"))

@@ -568,6 +568,10 @@ func runSprint(deps dependencies, args []string) error {
 		if runErr != nil {
 			operationStatus = "failed"
 		}
+		if qaResult.Project == "" {
+			qaResult.Project, qaResult.Sprint, qaResult.Phase = args[0], args[1], "unavailable"
+			qaResult.NextAction = "Inspect the QA error. Use qa recover for an interrupted publication."
+		}
 		qaResult = (dashboardUseCases{root: root.Path, qaSettings: qa, stageRuntime: planningStageRuntime(effective.Config), reviewConcurrency: effective.Config.Execution.DefaultParallel, readOnly: true}).withQAConformanceReview(QARequest{Project: args[0], Sprint: args[1]}, qaResult)
 		if qaCommand.JSON {
 			payload := map[string]any{"schema_version": 1, "operation": "sprint.qa", "status": operationStatus, "result": qaResult}
@@ -1327,6 +1331,10 @@ func renderSprintQA(deps dependencies, result QAResult) {
 	}
 	fmt.Fprintf(deps.stdout, "  sprint: %s/%s\n  phase: %s\n  fresh: %t\n", result.Project, result.Sprint, result.Phase, result.Fresh)
 	fmt.Fprintf(deps.stdout, "  Conformance Review: status=%s verdict=%s fresh=%t\n", result.ConformanceReviewStatus, result.ConformanceReviewVerdict, result.ConformanceReviewFresh)
+	if result.Phase == "unavailable" {
+		fmt.Fprintf(deps.stdout, "  next: %s\n", result.NextAction)
+		return
+	}
 	fmt.Fprintf(deps.stdout, "  coverage: %d/%d changed paths\n  shards: %d/%d\n", result.CoveredPaths, result.ChangedPaths, result.CompletedShards, result.TotalShards)
 	fmt.Fprintf(deps.stdout, "  evidence requests: %d active, %d historical\n", result.ActiveEvidenceRequestCount, len(result.EvidenceRequestHistory))
 	if result.Suite != "" {

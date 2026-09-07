@@ -637,7 +637,30 @@ func (store QAStore) Publish(publication QAPublication, token QAWriterToken) (re
 	if err != nil {
 		return err
 	}
-	snapshots, err := captureQACanonicalFiles(statePath, reportPath, flowPath)
+	// The state points at mutable attempt indexes as well as the report. They
+	// must roll back together, including failures before the report is written.
+	canonicalPaths := []string{statePath, reportPath, flowPath}
+	if publication.Synthesis != nil {
+		path, err := store.synthesisPath(publication.Synthesis.AttemptID)
+		if err != nil {
+			return err
+		}
+		canonicalPaths = append(canonicalPaths, path)
+	}
+	if publication.Evidence != nil {
+		attemptID := publication.State.CurrentAttemptID
+		if publication.Map != nil {
+			attemptID = publication.Map.SemanticAttemptID
+		}
+		for _, rel := range []string{QAAdjudicationRelPath(store.sprint, attemptID), QAIssuesRelPath(store.sprint, attemptID), QAAssessmentRelPath(store.sprint, attemptID), QAIssueEvidenceCoverageRelPath(store.sprint, attemptID)} {
+			path, err := store.resolve(rel)
+			if err != nil {
+				return err
+			}
+			canonicalPaths = append(canonicalPaths, path)
+		}
+	}
+	snapshots, err := captureQACanonicalFiles(canonicalPaths...)
 	if err != nil {
 		return NewQAError(QAErrorPersistenceFailure, "publish", "cannot snapshot canonical QA files", err)
 	}
@@ -695,6 +718,7 @@ func (store QAStore) Publish(publication QAPublication, token QAWriterToken) (re
 		if err := store.checkWriter(token); err != nil {
 			return err
 		}
+		canonicalStarted = true
 		digest, err := store.writeRecord("synthesis", path, publication.Synthesis, false)
 		if err != nil {
 			return err
@@ -702,7 +726,7 @@ func (store QAStore) Publish(publication QAPublication, token QAWriterToken) (re
 		publication.State.Synthesis = &QAArtifactRef{Path: QASynthesisRelPath(store.sprint, publication.Synthesis.AttemptID), Digest: digest}
 	}
 	if publication.Evidence != nil {
-		canonicalStarted = len(publication.Evidence.Report) > 0
+		canonicalStarted = true
 		if err := store.publishEvidence(publication.Evidence, &publication.State, token); err != nil {
 			return err
 		}

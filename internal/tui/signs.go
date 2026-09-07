@@ -84,6 +84,8 @@ func signForNavItem(navItems []navItem, route Route, selectedIdx, current int) r
 		return signDrill
 	case item.Path != "":
 		return signPreview
+	case item.EmbeddedReasoning != "":
+		return signPreview
 	case item.Validation != nil:
 		return signValidate
 	case item.Operation != nil:
