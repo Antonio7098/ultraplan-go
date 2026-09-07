@@ -55,9 +55,33 @@ func RenderQAReport(project, sprintSlug, inputFingerprint string, evidence []QAE
 		fmt.Fprintf(&b, "\nVerdict: `%s`\nRun: `%s`\n", assessment.SmokeVerdict, safeReportText(assessment.SmokeRunID))
 	}
 	if len(assessment.Blockers) > 0 {
-		fmt.Fprintln(&b, "\n## Blockers")
+		fmt.Fprintln(&b, "\n## Active blockers")
+		fmt.Fprintf(&b, "\nActive requests: `%d`\nHistorical predecessors: `%d`\n", len(assessment.Blockers), len(assessment.HistoricalBlockers))
 		for _, blocker := range assessment.Blockers {
 			fmt.Fprintf(&b, "- `%s`: %s. %s\n", blocker.Category, safeReportText(blocker.Summary), safeReportText(blocker.NextAction))
+		}
+	}
+	if len(assessment.HistoricalBlockers) > 0 {
+		fmt.Fprint(&b, "\n<details><summary>Historical blocker records</summary>\n\n")
+		for _, blocker := range assessment.HistoricalBlockers {
+			fmt.Fprintf(&b, "- `%s`: %s\n", blocker.Scope, safeReportText(blocker.Summary))
+		}
+		fmt.Fprintln(&b, "\n</details>")
+	}
+	if len(assessment.RequestTheoryCoverage) > 0 {
+		fmt.Fprint(&b, "\n## Theory assertion coverage\n\n")
+		fmt.Fprintln(&b, "| Theory | Accepted failing bundle / assertion |\n| --- | --- |")
+		ids := make([]string, 0, len(assessment.RequestTheoryCoverage))
+		for id := range assessment.RequestTheoryCoverage {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			assertions := strings.Join(assessment.RequestTheoryCoverage[id], ", ")
+			if assertions == "" {
+				assertions = "Missing evidence"
+			}
+			fmt.Fprintf(&b, "| `%s` | %s |\n", id, safeReportText(assertions))
 		}
 	}
 	fmt.Fprintln(&b, "\n## Next action")

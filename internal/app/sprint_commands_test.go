@@ -778,6 +778,7 @@ func TestParseSprintQAArgsUsesOnlyPublicBoundedControls(t *testing.T) {
 		{args: []string{"status"}, action: "status"},
 		{args: []string{"recover"}, action: "recover"},
 		{args: []string{"replay-adjudication", "--json"}, action: "replay-adjudication"},
+		{args: []string{"retry-infrastructure", "--json"}, action: "retry-infrastructure"},
 		{args: []string{"cancel", "--run", "run_01JTEST0000000000000000000"}, action: "cancel", runID: "run_01JTEST0000000000000000000"},
 	} {
 		command, err := parseSprintQAArgs(test.args)

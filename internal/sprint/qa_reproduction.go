@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,6 +43,11 @@ func RunQAReproduction(ctx context.Context, req QAReproductionRequest) (QAReprod
 	if err := ValidateQATestBundle(req.Bundle, req.Spec, req.Budgets); err != nil {
 		return QAReproductionRun{}, NewQAError(QAErrorMalformedEvidence, "run reproduction", err.Error(), err)
 	}
+	ctx, cancel := context.WithTimeout(ctx, req.Budgets.ShardTimeout)
+	defer cancel()
+	if err := validateQARuntimeLocation(append(req.ProtectedRoots, req.TargetRoot)); err != nil {
+		return QAReproductionRun{}, err
+	}
 	if req.Runner == nil {
 		req.Runner = pprocess.DirectRunner{}
 	}
@@ -54,6 +60,19 @@ func RunQAReproduction(ctx context.Context, req QAReproductionRequest) (QAReprod
 	if err != nil || identityErr != nil || currentTargetID != req.ExpectedTargetID || !req.AllowDifferentImplementation && currentTargetID != req.Spec.ImplementationFingerprint {
 		return QAReproductionRun{}, NewQAError(QAErrorStaleInput, "run reproduction", "target identity does not match the frozen reproduction", err)
 	}
+	cache, toolchain, err := prepareQADependencyCache(ctx, req)
+	if err != nil {
+		var execution *qaExecutionError
+		if errors.As(err, &execution) {
+			return QAReproductionRun{}, err
+		}
+		return QAReproductionRun{}, &qaExecutionError{Failure: qaFailureDiagnostic("dependencies", err, ""), Err: err}
+	}
+	release, err := reserveQAResources(ctx, targetBefore.Bytes+(1<<30), qaWorkerMemoryReservation())
+	if err != nil {
+		return QAReproductionRun{}, err
+	}
+	defer release()
 	workspace, err := pprocess.CreateIsolation(ctx, pprocess.IsolationRequest{SourceRoot: req.TargetRoot, ParentDir: req.WorkspaceParent, Prefix: req.Bundle.ID, ProtectedRoots: append(req.ProtectedRoots, req.TargetRoot), Limits: limits})
 	if err != nil {
 		return QAReproductionRun{}, NewQAError(QAErrorPermissionDenied, "run reproduction", "cannot create a contained reproduction workspace", err)
@@ -67,6 +86,9 @@ func RunQAReproduction(ctx context.Context, req QAReproductionRequest) (QAReprod
 	if !workspace.Capabilities.PrivateWorkspace || !workspace.Capabilities.ContainedCopy || !workspace.Capabilities.DescendantCleanup || !workspace.Capabilities.WorkspaceRemoval || !workspace.Capabilities.NativeProtectedRootDeny {
 		result := workspace.Cleanup()
 		return QAReproductionRun{}, NewQAError(QAErrorAdmissionBlocked, "run reproduction", "host isolation cannot prove required containment", fmt.Errorf("cleanup complete: %t", result.Complete))
+	}
+	if workspace.Source.Digest != targetBefore.Digest {
+		return QAReproductionRun{}, NewQAError(QAErrorStaleInput, "run reproduction", "implementation changed while preparing the reproduction", nil)
 	}
 	for _, file := range req.Bundle.Files {
 		path, resolveErr := workspace.Resolve(file.Path)
@@ -120,10 +142,15 @@ func RunQAReproduction(ctx context.Context, req QAReproductionRequest) (QAReprod
 	environment["GOPATH"] = filepath.Join(runtimeRoot, "gopath")
 	environment["GOTMPDIR"] = filepath.Join(runtimeRoot, "tmp")
 	environment["TMPDIR"] = filepath.Join(runtimeRoot, "tmp")
+	if cache != "" {
+		environment["GOMODCACHE"] = cache
+		environment["GOPROXY"] = "off"
+		environment["GOTOOLCHAIN"] = "local"
+	}
 	started := req.Now().UTC()
 	result, runErr := workspace.Run(ctx, req.Runner, workdir, pprocess.Request{Executable: executable, Args: append([]string(nil), req.Spec.Command.Args...), Env: pprocess.SortedEnvironment(environment), Timeout: req.Spec.Command.Timeout, StdoutLimit: req.Spec.Command.OutputLimit, StderrLimit: req.Spec.Command.OutputLimit, CleanupGrace: req.Budgets.CleanupTimeout})
 	argsDigest := sha256.Sum256([]byte(strings.Join(req.Spec.Command.Args, "\x00")))
-	stdout, stderr := config.RedactValue("qa.reproduction.stdout", result.Stdout), config.RedactValue("qa.reproduction.stderr", result.Stderr)
+	stdout, stderr := config.RedactText(result.Stdout), config.RedactText(result.Stderr)
 	redactions := 0
 	if stdout != result.Stdout {
 		redactions++
@@ -137,9 +164,27 @@ func RunQAReproduction(ctx context.Context, req QAReproductionRequest) (QAReprod
 	if runErr != nil && !command.TimedOut && !command.Cancelled && command.ExitCode == 0 {
 		command.ExitCode = 1
 	}
+	command.DiagnosticsVersion = 1
+	command.TestEvents = qaTestEvents(stdout + "\n" + stderr)
+	if strings.Contains(stdout+"\n"+stderr, req.Spec.PredictedFailure.OutputMatcher) {
+		command.MatchedMarker = req.Spec.PredictedFailure.OutputMatcher
+	}
 	outcome, reason := classifyQARequestedReproduction(command, req.Spec)
+	observedOutcome, observedReason := outcome, reason
+	var failure, cleanupFailure *QAFailureDiagnostic
+	if outcome == QAEvidenceInconclusive {
+		phase := "compile"
+		if len(command.TestEvents) > 0 {
+			phase = "assertion"
+		}
+		failure = qaFailureDiagnostic(phase, runErr, stdout+"\n"+stderr)
+		if command.Cancelled {
+			failure = &QAFailureDiagnostic{Phase: "execution", Code: "execution_interrupted", Retryable: true, Diagnostic: "Execution was cancelled before conclusive evidence was recorded."}
+		}
+	}
 	if removeErr := removeQAReproductionRuntime(runtimeRoot); removeErr != nil {
 		outcome, reason = QAEvidenceInconclusive, "runtime_cleanup_incomplete"
+		cleanupFailure = qaFailureDiagnostic("cleanup", removeErr, "")
 	}
 	postChanges, changeErr := workspace.ChangedPaths(context.WithoutCancel(ctx), limits)
 	if changeErr != nil {
@@ -153,6 +198,7 @@ func RunQAReproduction(ctx context.Context, req QAReproductionRequest) (QAReprod
 	cleanupResult := workspace.Cleanup()
 	cleanup = QACleanupFacts{Attempted: true, DescendantsTerminated: command.CleanupComplete, WorkspaceRemoved: cleanupResult.Complete, Complete: command.CleanupComplete && cleanupResult.Complete, Diagnostic: cleanupResult.Error}
 	if !cleanup.Complete {
+		cleanupFailure = qaFailureDiagnostic("cleanup", nil, cleanup.Diagnostic)
 		outcome, reason = QAEvidenceInconclusive, "cleanup_uncertain"
 	}
 	targetAfter, targetErr := pprocess.IdentifyTree(context.WithoutCancel(ctx), req.TargetRoot, limits)
@@ -161,7 +207,7 @@ func RunQAReproduction(ctx context.Context, req QAReproductionRequest) (QAReprod
 		outcome, reason = QAEvidenceInconclusive, "target_drift"
 	}
 	completed := req.Now().UTC()
-	run := QAReproductionRun{SchemaVersion: QAEvidenceSchemaVersion, SpecID: req.Spec.ID, TestBundleID: req.Bundle.ID, TargetIdentity: currentTargetID, Result: command, Signature: req.Spec.PredictedFailure, Outcome: outcome, ReasonCode: reason, Cleanup: cleanup, CompletedAt: completed}
+	run := QAReproductionRun{ObservedOutcome: observedOutcome, ObservedReasonCode: observedReason, Failure: failure, CleanupFailure: cleanupFailure, Toolchain: toolchain, DependencyCache: filepath.Base(cache), SchemaVersion: QAEvidenceSchemaVersion, SpecID: req.Spec.ID, TestBundleID: req.Bundle.ID, TargetIdentity: currentTargetID, Result: command, Signature: req.Spec.PredictedFailure, Outcome: outcome, ReasonCode: reason, Cleanup: cleanup, CompletedAt: completed}
 	run.ID, err = NewQAV2ID("run", req.Project, req.Sprint, req.Bundle.ID, struct {
 		Target, Args, Stdout, Stderr, Reason string
 		Exit                                 int
@@ -216,7 +262,7 @@ func (s Service) RerunQATest(ctx context.Context, projectRef, sprintRef, testID 
 	if err != nil || len(findings) > 0 {
 		return QAReproductionRun{}, NewQAError(QAErrorStaleInput, "rerun authored test", "current implementation target is unavailable", err)
 	}
-	workspaceParent, err := os.MkdirTemp("", "ultraplan-qa-rerun-")
+	workspaceParent, err := qaRuntimeTemp("ultraplan-qa-rerun-")
 	if err != nil {
 		return QAReproductionRun{}, err
 	}

@@ -63,3 +63,12 @@ func qaHostAvailableMemory() (int64, bool) {
 	}
 	return 0, false
 }
+
+// Operators can size the worker reservation from measured peak memory. The
+// default remains conservative for model processes and cold Go compilation.
+func qaWorkerMemoryReservation() int64 {
+	if value, err := strconv.ParseInt(os.Getenv("ULTRAPLAN_QA_WORKER_MEMORY_MB"), 10, 64); err == nil && value > 0 && value <= 1<<20 {
+		return value << 20
+	}
+	return qaRuntimeMemoryBudget
+}

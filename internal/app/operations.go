@@ -106,6 +106,7 @@ const (
 	OperationQADryRun                 OperationKind = "qa-dry-run"
 	OperationQAStart                  OperationKind = "qa-start"
 	OperationQAResume                 OperationKind = "qa-resume"
+	OperationQARetryInfrastructure    OperationKind = "qa-retry-infrastructure"
 	OperationQARecover                OperationKind = "qa-recover"
 	OperationQAReplayAdjudication     OperationKind = "qa-replay-adjudication"
 	OperationRepairPrepare            OperationKind = "repair-prepare"
@@ -266,7 +267,7 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 		}
 		c.Scope = []string{fmt.Sprintf("deterministic map %s", mapped.MapFingerprint), fmt.Sprintf("%d changed paths in %d bounded shards", mapped.ChangedPaths, mapped.TotalShards)}
 		c.Warning = "RUNTIME-FREE; TARGET AND GOVERNED INPUTS READ-ONLY; NO QA STATE WRITE"
-	case OperationQAStart, OperationQAResume:
+	case OperationQAStart, OperationQAResume, OperationQARetryInfrastructure:
 		mapped, err := u.QAMap(ctx, QARequest{Project: req.Project, Sprint: req.Sprint})
 		if err != nil {
 			return c, err
@@ -286,6 +287,9 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 			c.Scope = append(c.Scope, "map-owned shard "+req.Task)
 		}
 		c.Warning = "RUNTIME + PRIVATE QA STATE WRITE; IMPLEMENTATION TARGET READ-ONLY"
+		if req.Kind == OperationQARetryInfrastructure {
+			c.Scope = []string{"eligible infrastructure-blocked requests on the frozen implementation", "one recorded recovery allowance per request", "reuse accepted executions and retry retained bundles"}
+		}
 	case OperationQARecover:
 		c.Mutates = true
 		c.Scope = []string{"QA pointer, digest, interrupted ownership, flow summary, and retention reconciliation"}
@@ -454,7 +458,7 @@ func (u dashboardUseCases) PrepareOperation(ctx context.Context, req OperationRe
 
 func validateQAOperationRequest(req OperationRequest) error {
 	switch req.Kind {
-	case OperationQAStatus, OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover, OperationQAReplayAdjudication:
+	case OperationQAStatus, OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARetryInfrastructure, OperationQARecover, OperationQAReplayAdjudication:
 	default:
 		return nil
 	}
@@ -772,7 +776,7 @@ func operationPrerequisites(req OperationRequest) []string {
 	if req.Kind == OperationExecuteStart || req.Kind == OperationExecuteResume {
 		prerequisites = append(prerequisites, "validated plan", "approved target implementation directory")
 	}
-	if req.Kind == OperationQAStart || req.Kind == OperationQAResume || req.Kind == OperationQADryRun || req.Kind == OperationQARecover || req.Kind == OperationQAReplayAdjudication {
+	if req.Kind == OperationQAStart || req.Kind == OperationQAResume || req.Kind == OperationQARetryInfrastructure || req.Kind == OperationQADryRun || req.Kind == OperationQARecover || req.Kind == OperationQAReplayAdjudication {
 		prerequisites = append(prerequisites, "complete execute evidence", "current Conformance Review", "approved read-only target")
 	}
 	if (req.Kind == OperationFlow || req.Kind == OperationFlowDryRun) && req.Stage == string(sprint.StageMerge) {
@@ -799,7 +803,7 @@ func operationRuntimeIdentity(req OperationRequest, stages map[sprint.PlanningSt
 		stage = sprint.StageReview
 	case OperationSmokeStart, OperationVerifyStart:
 		stage = sprint.StageSmoke
-	case OperationQAStart, OperationQAResume:
+	case OperationQAStart, OperationQAResume, OperationQARetryInfrastructure:
 		return "configured QA runtime"
 	case OperationFlow:
 		if stage == sprint.StageQA || stage == sprint.StageMerge {
@@ -841,7 +845,7 @@ func governedOperationInputs(req OperationRequest) []string {
 			filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "plan.md")),
 		}
 		switch req.Kind {
-		case OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARecover, OperationQAReplayAdjudication, OperationQAStatus, OperationRepairPrepare, OperationRepairStart, OperationRepairResume, OperationRepairRecover, OperationRepairCampaignStart:
+		case OperationQADryRun, OperationQAStart, OperationQAResume, OperationQARetryInfrastructure, OperationQARecover, OperationQAReplayAdjudication, OperationQAStatus, OperationRepairPrepare, OperationRepairStart, OperationRepairResume, OperationRepairRecover, OperationRepairCampaignStart:
 			inputs = append(inputs,
 				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, "execute.md")),
 				filepath.ToSlash(filepath.Join(base, "sprints", req.Sprint, ".run-state.json")),

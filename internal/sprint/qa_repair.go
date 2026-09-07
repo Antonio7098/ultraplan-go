@@ -550,7 +550,7 @@ func (s Service) RunRepair(ctx context.Context, projectRef, sprintRef string, re
 	parent := strings.TrimSpace(req.WorkerRoot)
 	ownedParent := parent == ""
 	if ownedParent {
-		parent, err = os.MkdirTemp("", "ultraplan-repair-parent-")
+		parent, err = qaRuntimeTemp("ultraplan-repair-parent-")
 		if err != nil {
 			return RepairResult{}, err
 		}

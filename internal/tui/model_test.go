@@ -259,15 +259,119 @@ func TestArrowNavigationMovesBetweenContentAndTabs(t *testing.T) {
 }
 
 func TestKeyBindingsExposeOperationalConfirmation(t *testing.T) {
-	for _, key := range []string{"x", "!", "e", "g", "3", "y"} {
+	for _, key := range []string{"x", "!", "3", "y", "z", "K", "?"} {
 		if action := KeyToAction(key); action != ActionNone {
 			t.Fatalf("key %q action = %s", key, action)
 		}
 	}
-	for _, key := range []string{"q", "esc", "tab", "left", "right", "r", "enter", "1", "2", "c"} {
+	// 'g' and 'e' stay ActionNone: they're consumed by the cmdline (`g query`,
+	// `enter`) and jump-label handler before the action switch. They're also
+	// characters operators reach for during fuzzy navigation.
+	for _, key := range []string{"q", "esc", "tab", "left", "right", "r", "enter", "1", "2", "c", ":"} {
 		if action := KeyToAction(key); action == ActionNone {
 			t.Fatalf("key %q was not bound", key)
 		}
+	}
+}
+
+func TestCmdlineInputOpensTypesAndRuns(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Data = fixtureDashboard()
+	updated := m.Update(KeyMsg(":"))
+	if updated.Input == nil {
+		t.Fatal("' did not open cmdline")
+	}
+	for _, key := range []string{"g", " ", "a", "l", "p", "h", "a"} {
+		updated = updated.Update(KeyMsg(key))
+	}
+	if updated.Input == nil || updated.Input.Value != "g alpha" {
+		t.Fatalf("buffered value = %+v", updated.Input)
+	}
+	updated = updated.Update(KeyMsg("enter"))
+	if updated.Input != nil {
+		t.Fatal("enter did not close cmdline")
+	}
+	if updated.Toast != "→ alpha" {
+		t.Fatalf("toast = %q", updated.Toast)
+	}
+}
+
+func TestJumpLabelRoutesVisibleSidebarItem(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	data := fixtureDashboard()
+	data.Sprints = []app.SprintSummary{
+		{Project: "alpha", Slug: "01"},
+		{Project: "alpha", Slug: "02"},
+		{Project: "alpha", Slug: "03"},
+		{Project: "alpha", Slug: "04"},
+		{Project: "alpha", Slug: "05"},
+		{Project: "alpha", Slug: "06"},
+		{Project: "alpha", Slug: "07"},
+		{Project: "alpha", Slug: "08"},
+		{Project: "alpha", Slug: "09"},
+		{Project: "alpha", Slug: "10"},
+		{Project: "alpha", Slug: "11"},
+	}
+	m.Data = data
+	m.Routes = []Route{{Kind: RouteProject, Project: "alpha"}, {Kind: RouteProjectSprints, Project: "alpha"}}
+	m.Focus = FocusContent
+	m.Selected = 0
+	updated := m.Update(KeyMsg("3"))
+	if updated.Selected != 2 {
+		t.Fatalf("jump label 3 should move to index 2, got %d", updated.Selected)
+	}
+	updated = updated.Update(KeyMsg("a"))
+	if updated.Selected != 9 {
+		t.Fatalf("jump label a (digit block exhausted) should reach index 9, got %d", updated.Selected)
+	}
+}
+
+func TestCmdlineGSelectsFirstMatchingItem(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Data = fixtureDashboard()
+	m.Loading = false
+	m.Input = &CmdlineInput{Active: true, Value: "g a"}
+	m.executeCmdline()
+	if m.Selected < 0 {
+		t.Fatal("g a did not select any nav item")
+	}
+	if item, ok := m.selectedItem(); !ok || item.Label != "alpha" {
+		t.Fatalf("selected = %+v", item)
+	}
+}
+
+func TestCmdlineSwitchTab(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Data = fixtureDashboard()
+	m.Loading = false
+	m.Input = &CmdlineInput{Active: true, Value: "s"}
+	m.executeCmdline()
+	if m.ActiveTab != TabStudies {
+		t.Fatalf("tab did not switch to studies: %s", m.ActiveTab)
+	}
+	m.Input = &CmdlineInput{Active: true, Value: "r"}
+	m.executeCmdline()
+	if m.ActiveTab != TabRuns {
+		t.Fatalf("tab did not switch to runs: %s", m.ActiveTab)
+	}
+	m.Input = &CmdlineInput{Active: true, Value: "p"}
+	m.executeCmdline()
+	if m.ActiveTab != TabProjects {
+		t.Fatalf("tab did not switch to projects: %s", m.ActiveTab)
+	}
+}
+
+func TestEscClosesCmdline(t *testing.T) {
+	m := NewModel(&fakeUseCases{})
+	m.Data = fixtureDashboard()
+	m.openCmdline()
+	m.Input.Value = "g alpha"
+	m = m.Update(KeyMsg("esc"))
+	if m.Input != nil {
+		t.Fatalf("esc did not close cmdline: %+v", m.Input)
+	}
+	if m.Toast != ":g alpha" {
+		t.Fatalf("toast = %q", m.Toast)
 	}
 }
 

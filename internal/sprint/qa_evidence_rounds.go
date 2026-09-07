@@ -15,29 +15,37 @@ import (
 var qaTestNameCleaner = regexp.MustCompile(`[^A-Za-z0-9_]`)
 
 func (s Service) strengthenQARequestedEvidence(ctx context.Context, qaMap QAMap, target string, shards []QAShard, requests []QAArbiterEvidenceRequest, active map[string]bool, retained []QATestPublication, checkpoint func([]QAShard, []QATestPublication, []QAArbiterEvidenceRequest) error) ([]QAShard, []QATestPublication, bool, error) {
-	byShard := make(map[string]int, len(shards))
+	byShard := map[string]int{}
 	for i := range shards {
 		byShard[shards[i].ID] = i
 	}
 	var publications []QATestPublication
 	progressed := false
 	rounds := qaEvidenceRoundsUsed(shards, requests)
-	persist := func() error {
-		return checkpoint(shards, append(append([]QATestPublication(nil), retained...), publications...), requests)
+	allTests := func() []QATestPublication { return mergeQATestPublications(retained, publications) }
+	persist := func() error { return checkpoint(shards, allTests(), requests) }
+	// Give never-authored claims a turn before revisions, regardless of hash order.
+	order := make([]int, 0, len(requests))
+	for i := range requests {
+		if active[requests[i].ID] {
+			order = append(order, i)
+		}
 	}
-	for requestIndex := range requests {
+	sort.SliceStable(order, func(i, j int) bool {
+		return qaRequestAuthoringUsed(requests[order[i]], requests) < qaRequestAuthoringUsed(requests[order[j]], requests)
+	})
+	for _, requestIndex := range order {
 		request := &requests[requestIndex]
-		if !active[request.ID] {
+		if request.SupersededBy != "" {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
 			return shards, publications, progressed, err
 		}
-		previousTest := qaLatestRequestTest(retained, *request)
+		previousTest := qaLatestRequestBundle(allTests(), *request)
 		if previousTest != nil && qaUsableReproduction(qaMap, *previousTest) {
 			request.Status, request.ReasonCode = "evidence_recorded", ""
-			request.TestBundleID = previousTest.Bundle.ID
-			request.LatestRunID = previousTest.Runs[len(previousTest.Runs)-1].ID
+			request.TestBundleID, request.LatestRunID = previousTest.Bundle.ID, previousTest.Runs[len(previousTest.Runs)-1].ID
 			continue
 		}
 		index, ok := byShard[request.OriginShardID]
@@ -46,105 +54,294 @@ func (s Service) strengthenQARequestedEvidence(ctx context.Context, qaMap QAMap,
 			continue
 		}
 		shard := &shards[index]
-		if len(shard.Attempts) == 0 {
-			stopQAEvidenceRequest(request, "original_session_unavailable")
-			continue
-		}
-		if rounds[shard.ID] >= qaMap.Budgets.EvidenceRoundsPerShard {
-			stopQAEvidenceRequest(request, "evidence_round_budget_exhausted")
-			continue
-		}
-		if qaTheoryTestBudgetExhausted(*shard, request.TheoryIDs, qaMap.Budgets.TestsPerTheory) {
-			stopQAEvidenceRequest(request, "tests_per_theory_budget_exhausted")
-			continue
-		}
-		evidenceBefore := qaShardEvidenceFingerprint(*shard)
-		retryPrerequisite := request.ReasonCode == "original_session_unavailable" || request.ReasonCode == "investigator_workspace_unavailable" || request.ReasonCode == "reproduction_workspace_unavailable"
-		if request.Attempts > 0 && request.EvidenceFingerprint == evidenceBefore && request.Status != "running" && !retryPrerequisite {
-			stopQAEvidenceRequest(request, "repeated_evidence_request_without_new_evidence")
-			continue
-		}
-		rounds[shard.ID]++
-		request.Attempts++
-		request.EvidenceRound, request.EvidenceFingerprint = rounds[shard.ID], evidenceBefore
-		request.Status, request.ReasonCode = "running", ""
-		// Reserve the attempt before any model call. Resume cannot reset budgets
-		// when a process dies during authoring or execution.
-		if err := persist(); err != nil {
-			return shards, publications, progressed, err
-		}
-		spec, err := buildQARequestedReproductionSpec(qaMap, *shard, *request, target, s.now().UTC())
-		if err != nil {
-			stopQAEvidenceRequest(request, "reproduction_spec_unavailable")
-			continue
-		}
-		if previousTest != nil {
-			spec = previousTest.Spec
-		}
-		workspace := qaInvestigatorWorkspacePath(s.root, qaMap.SemanticAttemptID, shard.ID)
-		if err := restoreQAInvestigatorEvidenceWorkspace(ctx, s.root, target, qaMap, *shard, retained); err != nil {
-			stopQAEvidenceRequest(request, "investigator_workspace_unavailable")
-			continue
-		}
-		initial, err := s.QAInvestigatorRequest(qaMap, *shard, workspace)
-		if err != nil {
-			stopQAEvidenceRequest(request, "original_session_unavailable")
-			continue
-		}
-		original := shard.Attempts[0]
-		initial.Provider, initial.Model = original.Provider, original.Model
-		initial.Metadata["variant"], initial.RuntimeStorePath = original.Variant, original.RuntimeStoreRef
-		var previousRun *QAReproductionRun
-		if previousTest != nil {
-			previousRun = &previousTest.Runs[len(previousTest.Runs)-1]
-		}
-		result, files, attempt, continueErr := s.continueQAInvestigatorForEvidence(ctx, qaMap, *shard, initial, original, *request, spec, previousRun, rounds[shard.ID])
-		if attempt.Number > 0 {
-			shard.Attempts = append(shard.Attempts, attempt)
-		}
-		if continueErr != nil {
-			reason := "evidence_authoring_inconclusive"
-			if strings.Contains(continueErr.Error(), "original_session_unavailable") {
-				reason = "original_session_unavailable"
-			} else if strings.Contains(attempt.StopReason, "verification_unavailable:") {
-				reason = "verification_unavailable"
+		// A retained bundle interrupted before execution, or blocked by infrastructure,
+		// is executed verbatim. Authoring and execution have independent reservations.
+		reuse := previousTest != nil && (len(previousTest.Runs) == 0 || qaTestInfrastructureBlocked(*previousTest))
+		var publication QATestPublication
+		if reuse {
+			publication = *previousTest
+			publication.Runs = append([]QAReproductionRun(nil), previousTest.Runs...)
+			if len(request.ExecutionAttempts) == 0 {
+				for _, run := range publication.Runs {
+					completed := run.CompletedAt
+					request.ExecutionAttempts = append(request.ExecutionAttempts, QAEvidenceExecutionAttempt{Number: len(request.ExecutionAttempts) + 1, Phase: "retained_execution", TestBundleID: publication.Bundle.ID, StartedAt: completed.Add(-run.Result.Duration), CompletedAt: &completed, RunID: run.ID, Failure: run.Failure})
+				}
 			}
-			stopQAEvidenceRequest(request, reason)
-			request.NextAction += " " + safeReportText(safeError(continueErr))
-			continue
-		}
-		_ = result
-		bundle, err := BuildQATestBundle(qaMap.Project, qaMap.Sprint, spec, files, "", qaMap.Budgets)
-		if err != nil {
-			stopQAEvidenceRequest(request, "test_bundle_invalid")
-			continue
-		}
-		workspaceParent, err := os.MkdirTemp("", "ultraplan-qa-authored-test-")
-		if err != nil {
-			stopQAEvidenceRequest(request, "reproduction_workspace_unavailable")
-			continue
-		}
-		run, runErr := RunQAReproduction(ctx, QAReproductionRequest{Project: qaMap.Project, Sprint: qaMap.Sprint, TargetRoot: target, WorkspaceParent: workspaceParent, ProtectedRoots: []string{s.root, target}, Spec: spec, Bundle: bundle, Budgets: qaMap.Budgets, ExpectedTargetID: spec.ImplementationFingerprint, Now: s.now})
-		_ = os.RemoveAll(workspaceParent)
-		if runErr != nil {
-			stopQAEvidenceRequest(request, "reproduction_run_unavailable")
-			continue
-		}
-		publication := QATestPublication{Spec: spec, Bundle: bundle, AuthoringAttempts: []QAInvestigatorAttempt{attempt}, Runs: []QAReproductionRun{run}}
-		publications = append(publications, publication)
-		request.TestBundleID, request.LatestRunID = bundle.ID, run.ID
-		if run.Outcome == QAEvidenceFail || run.Outcome == QAEvidencePass {
-			request.Status, request.ReasonCode = "evidence_recorded", ""
-			request.NextAction = "Return the recorded test and observations to arbitration."
 		} else {
-			stopQAEvidenceRequest(request, run.ReasonCode)
+			if len(shard.Attempts) == 0 {
+				stopQAEvidenceRequest(request, "original_session_unavailable")
+				continue
+			}
+			if request.AccountingVersion < 2 && rounds[shard.ID] >= qaMap.Budgets.EvidenceRoundsPerShard+request.RecoveryAllowance {
+				stopQAEvidenceRequest(request, "evidence_round_budget_exhausted")
+				continue
+			}
+			if request.AccountingVersion >= 2 && qaAuthoringPoolExhausted(qaMap, shards, requests) {
+				stopQAEvidenceRequest(request, "evidence_authoring_budget_exhausted")
+				continue
+			}
+			if request.AccountingVersion >= 2 && qaRequestAuthoringUsed(*request, requests) >= qaMap.Budgets.TestsPerTheory+request.RecoveryAllowance {
+				stopQAEvidenceRequest(request, "tests_per_theory_budget_exhausted")
+				continue
+			}
+			if request.PreparationAttempts >= request.Attempts+3+request.RecoveryAllowance {
+				stopQAEvidenceRequest(request, "infrastructure_retry_budget_exhausted")
+				continue
+			}
+			evidenceBefore := qaShardEvidenceFingerprint(*shard)
+			retryPrerequisite := request.ReasonCode == "original_session_unavailable" || request.ReasonCode == "investigator_workspace_unavailable" || request.RecoveryAllowance > 0 || request.Failure != nil && request.Failure.Retryable
+			if request.Attempts > 0 && request.EvidenceFingerprint == evidenceBefore && request.Status != "running" && !retryPrerequisite {
+				stopQAEvidenceRequest(request, "repeated_evidence_request_without_new_evidence")
+				continue
+			}
+			request.PreparationAttempts++
+			request.Status = "preparing"
+			if err := persist(); err != nil {
+				return shards, publications, progressed, err
+			}
+			spec, err := buildQARequestedReproductionSpec(qaMap, *shard, *request, target, s.now().UTC())
+			if err != nil {
+				recordQAEvidenceFailure(request, "specification", "reproduction_spec_unavailable", err)
+				continue
+			}
+			if previousTest != nil {
+				spec = previousTest.Spec
+			}
+			workspace := qaInvestigatorWorkspacePath(s.root, qaMap.SemanticAttemptID, shard.ID)
+			if err := restoreQAInvestigatorEvidenceWorkspace(ctx, s.root, target, qaMap, *shard, allTests()); err != nil {
+				recordQAEvidenceFailure(request, "workspace", "investigator_workspace_unavailable", err)
+				continue
+			}
+			initial, err := s.QAInvestigatorRequest(qaMap, *shard, workspace)
+			if err != nil {
+				recordQAEvidenceFailure(request, "authoring", "original_session_unavailable", err)
+				continue
+			}
+			original := shard.Attempts[0]
+			initial.Provider, initial.Model = original.Provider, original.Model
+			initial.Metadata["variant"], initial.RuntimeStorePath = original.Variant, original.RuntimeStoreRef
+			var previousRun *QAReproductionRun
+			if previousTest != nil && len(previousTest.Runs) > 0 {
+				previousRun = &previousTest.Runs[len(previousTest.Runs)-1]
+			}
+			round := request.Attempts + 1
+			if request.AccountingVersion < 2 {
+				round = rounds[shard.ID] + 1
+			}
+			var checkpointErr error
+			beforeStart := func() error {
+				rounds[shard.ID]++
+				request.Attempts++
+				request.EvidenceRound, request.EvidenceFingerprint = rounds[shard.ID], evidenceBefore
+				request.Status, request.ReasonCode, request.Failure = "running", "", nil
+				checkpointErr = persist()
+				return checkpointErr
+			}
+			_, files, attempt, continueErr := s.continueQAInvestigatorForEvidence(ctx, qaMap, *shard, initial, original, *request, spec, previousRun, round, beforeStart)
+			if checkpointErr != nil {
+				return shards, publications, progressed, checkpointErr
+			}
+			if attempt.Number > 0 {
+				shard.Attempts = append(shard.Attempts, attempt)
+			}
+			if continueErr != nil {
+				reason := "evidence_authoring_inconclusive"
+				if strings.Contains(continueErr.Error(), "original_session_unavailable") {
+					reason = "original_session_unavailable"
+				} else if strings.Contains(attempt.StopReason, "verification_unavailable:") {
+					reason = "verification_unavailable"
+				}
+				phase := "authoring"
+				if attempt.Number == 0 && strings.Contains(continueErr.Error(), "snapshot") {
+					phase = "workspace"
+				}
+				recordQAEvidenceFailure(request, phase, reason, continueErr)
+				continue
+			}
+			bundle, err := BuildQATestBundle(qaMap.Project, qaMap.Sprint, spec, files, "", qaMap.Budgets)
+			if err != nil {
+				recordQAEvidenceFailure(request, "fixture", "test_bundle_invalid", err)
+				continue
+			}
+			publication = QATestPublication{Spec: spec, Bundle: bundle, AuthoringAttempts: []QAInvestigatorAttempt{attempt}}
+			publications = mergeQATestPublications(publications, []QATestPublication{publication})
+			request.TestBundleID, request.Status = bundle.ID, "ready"
+			// The executable bundle survives a crash even if no run was ever produced.
+			if err := persist(); err != nil {
+				return shards, publications, progressed, err
+			}
 		}
-		progressed = applyQAReproductionToTheories(shard, *request, bundle, run) || progressed
-		if err := persist(); err != nil {
-			return shards, publications, progressed, err
+		for {
+			for i := range request.ExecutionAttempts {
+				abandoned := &request.ExecutionAttempts[i]
+				if abandoned.CompletedAt == nil {
+					stopped := s.now().UTC()
+					abandoned.CompletedAt = &stopped
+					abandoned.Failure = &QAFailureDiagnostic{Phase: "execution", Code: "execution_interrupted", Retryable: true, Diagnostic: "The prior owner stopped before recording an execution result."}
+				}
+			}
+			count := 0
+			for _, attempt := range request.ExecutionAttempts {
+				if attempt.TestBundleID == publication.Bundle.ID {
+					count++
+				}
+			}
+			if count >= 3+request.RecoveryAllowance {
+				stopQAEvidenceRequest(request, "infrastructure_retry_budget_exhausted")
+				break
+			}
+			if count > 0 {
+				select {
+				case <-ctx.Done():
+					return shards, publications, progressed, ctx.Err()
+				case <-time.After(time.Duration(1<<min(count, 3)) * 100 * time.Millisecond):
+				}
+				request.InfrastructureRetries++
+			}
+			request.ExecutionAttempts = append(request.ExecutionAttempts, QAEvidenceExecutionAttempt{Number: len(request.ExecutionAttempts) + 1, Phase: "execution", TestBundleID: publication.Bundle.ID, StartedAt: s.now().UTC()})
+			execution := &request.ExecutionAttempts[len(request.ExecutionAttempts)-1]
+			request.Status = "executing"
+			if err := persist(); err != nil {
+				return shards, publications, progressed, err
+			}
+			parent, err := qaRuntimeTemp("ultraplan-qa-authored-test-")
+			var run QAReproductionRun
+			if err == nil {
+				run, err = RunQAReproduction(ctx, QAReproductionRequest{Project: qaMap.Project, Sprint: qaMap.Sprint, TargetRoot: target, WorkspaceParent: parent, ProtectedRoots: []string{s.root, target}, Spec: publication.Spec, Bundle: publication.Bundle, Budgets: qaMap.Budgets, ExpectedTargetID: publication.Spec.ImplementationFingerprint, Runner: s.processRunner, Now: s.now})
+				_ = os.RemoveAll(parent)
+			}
+			completed := s.now().UTC()
+			execution.CompletedAt = &completed
+			if err != nil {
+				recordQAEvidenceFailure(request, "workspace", "reproduction_run_unavailable", err)
+				execution.Failure = request.Failure
+			} else {
+				execution.RunID, execution.Failure = run.ID, run.Failure
+				publication.Runs = append(publication.Runs, run)
+				publications = mergeQATestPublications(publications, []QATestPublication{publication})
+				request.TestBundleID, request.LatestRunID, request.Failure = publication.Bundle.ID, run.ID, run.Failure
+				if run.Outcome == QAEvidenceFail || run.Outcome == QAEvidencePass {
+					request.Status, request.ReasonCode = "evidence_recorded", ""
+					request.NextAction = "Return the recorded assertions, controls and observations to arbitration."
+				} else {
+					stopQAEvidenceRequest(request, run.ReasonCode)
+				}
+				// Infrastructure failures do not add redundant evidence or consume a theory's test budget.
+				if run.Failure == nil || !run.Failure.Retryable {
+					progressed = applyQAReproductionToTheories(shard, *request, publication.Bundle, run) || progressed
+				}
+			}
+			if err := persist(); err != nil {
+				return shards, publications, progressed, err
+			}
+			if request.Failure == nil || !request.Failure.Retryable {
+				break
+			}
+			if err := ctx.Err(); err != nil {
+				return shards, publications, progressed, err
+			}
 		}
 	}
 	return shards, publications, progressed, persist()
+}
+
+func recordQAEvidenceFailure(request *QAArbiterEvidenceRequest, phase, reason string, err error) {
+	request.Failure = qaFailureDiagnostic(phase, err, "")
+	var execution *qaExecutionError
+	if errors.As(err, &execution) {
+		request.Failure = execution.Failure
+	}
+	if request.Failure.Retryable {
+		reason = request.Failure.Code
+	}
+	stopQAEvidenceRequest(request, reason)
+	request.NextAction += " " + request.Failure.Diagnostic
+}
+
+func qaRequestAuthoringUsed(request QAArbiterEvidenceRequest, requests []QAArbiterEvidenceRequest) int {
+	maximum := 0
+	for _, id := range request.TheoryIDs {
+		count := 0
+		for _, other := range requests {
+			if containsQAString(other.TheoryIDs, id) {
+				count += other.Attempts
+			}
+		}
+		if count > maximum {
+			maximum = count
+		}
+	}
+	return maximum
+}
+
+func qaTestInfrastructureBlocked(test QATestPublication) bool {
+	if len(test.Runs) == 0 {
+		return true
+	}
+	run := test.Runs[len(test.Runs)-1]
+	if run.Outcome != QAEvidenceInconclusive || !run.Cleanup.Complete || run.TargetIdentity != test.Spec.ImplementationFingerprint {
+		return false
+	}
+	if run.Failure != nil {
+		return run.Failure.Retryable
+	}
+	// Legacy evidence can be retried only when its retained diagnostic supports it.
+	output := run.Result.Stdout + "\n" + run.Result.Stderr
+	phase := "compile"
+	if len(qaTestEvents(output)) > 0 {
+		phase = "assertion"
+	}
+	failure := qaFailureDiagnostic(phase, nil, output)
+	return failure.Retryable
+}
+
+func mergeQATestPublications(current, next []QATestPublication) []QATestPublication {
+	result := append([]QATestPublication(nil), current...)
+	for _, test := range next {
+		index := -1
+		for i := range result {
+			if result[i].Bundle.ID == test.Bundle.ID {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			result = append(result, test)
+			continue
+		}
+		merged := result[index]
+		for _, run := range test.Runs {
+			found := false
+			for _, old := range merged.Runs {
+				if old.ID == run.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				merged.Runs = append(append([]QAReproductionRun(nil), merged.Runs...), run)
+			}
+		}
+		result[index] = merged
+	}
+	return result
+}
+
+func qaLatestRequestBundle(tests []QATestPublication, request QAArbiterEvidenceRequest) *QATestPublication {
+	var latest *QATestPublication
+	for i := range tests {
+		test := &tests[i]
+		if !qaTestAnswersRequest(*test, request) {
+			continue
+		}
+		if test.Bundle.ID == request.TestBundleID {
+			return test
+		}
+		if latest == nil || test.Spec.FrozenAt.After(latest.Spec.FrozenAt) {
+			latest = test
+		}
+	}
+	return latest
 }
 
 func buildQARequestedReproductionSpec(qaMap QAMap, shard QAShard, request QAArbiterEvidenceRequest, target string, now time.Time) (QAReproductionSpec, error) {
@@ -355,4 +552,16 @@ func finalizeQAArbiterEvidenceRequests(requests []QAArbiterEvidenceRequest, test
 		}
 	}
 	return requests
+}
+
+func qaAuthoringPoolExhausted(qaMap QAMap, shards []QAShard, requests []QAArbiterEvidenceRequest) bool {
+	theories, used, allowance := 0, 0, 0
+	for _, shard := range shards {
+		theories += len(shard.Theories)
+	}
+	for _, request := range requests {
+		used += request.Attempts
+		allowance += request.RecoveryAllowance
+	}
+	return used >= max(theories, len(shards)*qaMap.Budgets.EvidenceRoundsPerShard)+allowance
 }

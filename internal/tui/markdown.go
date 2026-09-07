@@ -1,12 +1,77 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
+	"sync"
+
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/glamour/styles"
 )
 
-func renderMarkdownContent(content string, width int) string {
+// glamour is the expensive bit of preview scrolling: it parses the whole
+// document, lays it out, and emits ANSI every call. Scrolling inside a
+// preview was tearing up the framerate. Cache the rendered+split output
+// keyed by (width, content); keys are content strings, which is fine for
+// the artifact previews this TUI opens. A bounded LRU (mdCacheSize) keeps
+// memory pinned regardless of session length.
+const mdCacheSize = 16
+
+var (
+	mdCacheMu  sync.Mutex
+	mdCache    = make(map[string][]string, mdCacheSize)
+	mdCacheOrd = make([]string, 0, mdCacheSize)
+)
+
+func cachedMarkdownLines(content string, width int) []string {
+	if width < 20 {
+		width = 20
+	}
+	key := fmt.Sprintf("%d\x00%s", width, content)
+	mdCacheMu.Lock()
+	defer mdCacheMu.Unlock()
+	if lines, ok := mdCache[key]; ok {
+		touchOrdered(key)
+		return lines
+	}
+	lines := glamourLines(content, width)
+	for len(mdCache) >= mdCacheSize {
+		old := mdCacheOrd[0]
+		mdCacheOrd = mdCacheOrd[1:]
+		delete(mdCache, old)
+	}
+	mdCache[key] = lines
+	mdCacheOrd = append(mdCacheOrd, key)
+	return lines
+}
+
+func touchOrdered(key string) {
+	for i, k := range mdCacheOrd {
+		if k == key {
+			mdCacheOrd = append(mdCacheOrd[:i], mdCacheOrd[i+1:]...)
+			break
+		}
+	}
+	mdCacheOrd = append(mdCacheOrd, key)
+}
+
+func glamourLines(content string, width int) []string {
+	rendered, err := renderMarkdownContent(content, width)
+	if err != nil || rendered == "" {
+		rendered = content
+	}
+	trimmed := strings.TrimRight(rendered, "\n")
+	if trimmed == "" {
+		return nil
+	}
+	return strings.Split(trimmed, "\n")
+}
+
+// renderMarkdownContent is the underlying glamour pass; it's expensive
+// (10-500ms for long docs) which is why callers should go through
+// cachedMarkdownLines whenever scrolling matters.
+func renderMarkdownContent(content string, width int) (string, error) {
 	if width < 20 {
 		width = 20
 	}
@@ -18,16 +83,9 @@ func renderMarkdownContent(content string, width int) string {
 		glamour.WithWordWrap(width),
 	)
 	if err != nil {
-		return content
+		return "", err
 	}
-	rendered, err := renderer.Render(content)
-	if err != nil {
-		return content
-	}
-	if rendered == "" {
-		return content
-	}
-	return rendered
+	return renderer.Render(content)
 }
 
 func applyMarkdownTheme(style *ansi.StyleConfig) {

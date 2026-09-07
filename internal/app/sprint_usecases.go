@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Antonio7098/ultraplan-go/internal/platform/config"
 	"github.com/Antonio7098/ultraplan-go/internal/project"
 	"github.com/Antonio7098/ultraplan-go/internal/sprint"
 )
@@ -252,6 +253,9 @@ type QAResult struct {
 	RegressionCandidateCount     int                               `json:"regression_candidate_count,omitempty"`
 	CanonicalReport              *QAArtifactRefSummary             `json:"canonical_report,omitempty"`
 	CurrentFailure               *QABlockerSummary                 `json:"current_failure,omitempty"`
+	ActiveEvidenceRequests       []QAArbiterEvidenceRequestSummary `json:"active_evidence_requests,omitempty"`
+	EvidenceRequestHistory       []QAArbiterEvidenceRequestSummary `json:"evidence_request_history,omitempty"`
+	ActiveEvidenceRequestCount   int                               `json:"active_evidence_request_count"`
 	EvidenceRequests             []QAArbiterEvidenceRequestSummary `json:"evidence_requests,omitempty"`
 	InvestigatorTests            []QAInvestigatorTestSummary       `json:"investigator_tests,omitempty"`
 }
@@ -328,33 +332,37 @@ type QALimitsSummary struct {
 }
 
 type QAArbiterEvidenceRequestSummary struct {
-	ID                  string   `json:"id"`
-	ArbiterGroupID      string   `json:"arbiter_group_id,omitempty"`
-	ArbiterSessionID    string   `json:"arbiter_session_id,omitempty"`
-	ArbiterProvider     string   `json:"arbiter_provider,omitempty"`
-	ArbiterModel        string   `json:"arbiter_model,omitempty"`
-	ArbiterVariant      string   `json:"arbiter_variant,omitempty"`
-	ArbiterRuntimeStore string   `json:"arbiter_runtime_store_ref,omitempty"`
-	ArbiterWorkspaceID  string   `json:"arbiter_workspace_id,omitempty"`
-	ArbiterRound        int      `json:"arbiter_round,omitempty"`
-	TheoryIDs           []string `json:"theory_ids"`
-	OriginShardID       string   `json:"origin_shard_id"`
-	Gap                 string   `json:"gap"`
-	RequestedEvidence   string   `json:"requested_evidence"`
-	RequiredObservation string   `json:"required_observation"`
-	ControlRequirement  string   `json:"control_requirement"`
-	Priority            string   `json:"priority"`
-	Status              string   `json:"status"`
-	SessionID           string   `json:"session_id,omitempty"`
-	Provider            string   `json:"provider,omitempty"`
-	Model               string   `json:"model,omitempty"`
-	Variant             string   `json:"variant,omitempty"`
-	RuntimeStoreRef     string   `json:"runtime_store_ref,omitempty"`
-	WorkspaceID         string   `json:"workspace_id,omitempty"`
-	EvidenceRound       int      `json:"evidence_round,omitempty"`
-	TestBundleID        string   `json:"test_bundle_id,omitempty"`
-	LatestRunID         string   `json:"latest_run_id,omitempty"`
-	NextAction          string   `json:"next_action,omitempty"`
+	SupersededBy        string                      `json:"superseded_by,omitempty"`
+	Failure             *sprint.QAFailureDiagnostic `json:"failure,omitempty"`
+	ExecutionAttempts   int                         `json:"execution_attempts,omitempty"`
+	AuthoringAttempts   int                         `json:"authoring_attempts,omitempty"`
+	ID                  string                      `json:"id"`
+	ArbiterGroupID      string                      `json:"arbiter_group_id,omitempty"`
+	ArbiterSessionID    string                      `json:"arbiter_session_id,omitempty"`
+	ArbiterProvider     string                      `json:"arbiter_provider,omitempty"`
+	ArbiterModel        string                      `json:"arbiter_model,omitempty"`
+	ArbiterVariant      string                      `json:"arbiter_variant,omitempty"`
+	ArbiterRuntimeStore string                      `json:"arbiter_runtime_store_ref,omitempty"`
+	ArbiterWorkspaceID  string                      `json:"arbiter_workspace_id,omitempty"`
+	ArbiterRound        int                         `json:"arbiter_round,omitempty"`
+	TheoryIDs           []string                    `json:"theory_ids"`
+	OriginShardID       string                      `json:"origin_shard_id"`
+	Gap                 string                      `json:"gap"`
+	RequestedEvidence   string                      `json:"requested_evidence"`
+	RequiredObservation string                      `json:"required_observation"`
+	ControlRequirement  string                      `json:"control_requirement"`
+	Priority            string                      `json:"priority"`
+	Status              string                      `json:"status"`
+	SessionID           string                      `json:"session_id,omitempty"`
+	Provider            string                      `json:"provider,omitempty"`
+	Model               string                      `json:"model,omitempty"`
+	Variant             string                      `json:"variant,omitempty"`
+	RuntimeStoreRef     string                      `json:"runtime_store_ref,omitempty"`
+	WorkspaceID         string                      `json:"workspace_id,omitempty"`
+	EvidenceRound       int                         `json:"evidence_round,omitempty"`
+	TestBundleID        string                      `json:"test_bundle_id,omitempty"`
+	LatestRunID         string                      `json:"latest_run_id,omitempty"`
+	NextAction          string                      `json:"next_action,omitempty"`
 }
 
 type QAInvestigatorTestSummary struct {
@@ -1345,7 +1353,7 @@ func (u dashboardUseCases) CancelQA(ctx context.Context, req QARequest) (QACance
 	if err != nil {
 		return QACancelResult{}, err
 	}
-	if current.Target.Project != req.Project || current.Target.Sprint != req.Sprint || (current.Target.Operation != string(OperationQAStart) && current.Target.Operation != string(OperationQAResume)) {
+	if current.Target.Project != req.Project || current.Target.Sprint != req.Sprint || (current.Target.Operation != string(OperationQAStart) && current.Target.Operation != string(OperationQAResume) && current.Target.Operation != string(OperationQARetryInfrastructure)) {
 		return QACancelResult{}, fmt.Errorf("QA run does not belong to the selected sprint")
 	}
 	run, requested, err := u.runs.CancelRun(ctx, runID, "QA cancellation requested")
@@ -1415,8 +1423,18 @@ func qaSnapshotProjection(snapshot sprint.QASnapshot) QAResult {
 	for _, group := range snapshot.ArbiterSessions {
 		arbiterByGroup[group.ID] = group
 	}
+	activeRequests := map[string]bool{}
+	for _, request := range sprint.ActiveQAEvidenceRequests(snapshot.EvidenceRequests) {
+		activeRequests[request.ID] = true
+	}
+	result.ActiveEvidenceRequestCount = len(activeRequests)
 	for _, request := range snapshot.EvidenceRequests {
-		summary := QAArbiterEvidenceRequestSummary{ID: request.ID, ArbiterGroupID: request.ArbiterGroupID, TheoryIDs: append([]string(nil), request.TheoryIDs...), OriginShardID: request.OriginShardID, Gap: displaySafe(request.Gap), RequestedEvidence: displaySafe(request.RequestedEvidence), RequiredObservation: displaySafe(request.RequiredObservation), ControlRequirement: displaySafe(request.ControlRequirement), Priority: displaySafe(request.Priority), Status: displaySafe(request.Status), EvidenceRound: request.EvidenceRound, TestBundleID: request.TestBundleID, LatestRunID: request.LatestRunID, NextAction: displaySafe(request.NextAction)}
+		summary := QAArbiterEvidenceRequestSummary{SupersededBy: request.SupersededBy, Failure: request.Failure, ExecutionAttempts: len(request.ExecutionAttempts), AuthoringAttempts: request.Attempts, ID: request.ID, ArbiterGroupID: request.ArbiterGroupID, TheoryIDs: append([]string(nil), request.TheoryIDs...), OriginShardID: request.OriginShardID, Gap: displaySafe(request.Gap), RequestedEvidence: displaySafe(request.RequestedEvidence), RequiredObservation: displaySafe(request.RequiredObservation), ControlRequirement: displaySafe(request.ControlRequirement), Priority: displaySafe(request.Priority), Status: displaySafe(request.Status), EvidenceRound: request.EvidenceRound, TestBundleID: request.TestBundleID, LatestRunID: request.LatestRunID, NextAction: displaySafe(request.NextAction)}
+		if request.Failure != nil {
+			failure := *request.Failure
+			failure.Diagnostic = config.RedactText(failure.Diagnostic)
+			summary.Failure = &failure
+		}
 		if arbiter, ok := arbiterByGroup[request.ArbiterGroupID]; ok {
 			summary.ArbiterSessionID, summary.ArbiterProvider, summary.ArbiterModel, summary.ArbiterVariant, summary.ArbiterRuntimeStore, summary.ArbiterWorkspaceID, summary.ArbiterRound = arbiter.SessionID, arbiter.Provider, arbiter.Model, arbiter.Variant, arbiter.RuntimeStoreRef, arbiter.WorkspaceID, arbiter.Round
 		}
@@ -1428,6 +1446,12 @@ func qaSnapshotProjection(snapshot sprint.QASnapshot) QAResult {
 			}
 		}
 		result.EvidenceRequests = append(result.EvidenceRequests, summary)
+		if activeRequests[request.ID] {
+			result.ActiveEvidenceRequests = append(result.ActiveEvidenceRequests, summary)
+		}
+		if !activeRequests[request.ID] {
+			result.EvidenceRequestHistory = append(result.EvidenceRequestHistory, summary)
+		}
 	}
 	for _, bundle := range snapshot.InvestigatorTests {
 		result.InvestigatorTests = append(result.InvestigatorTests, QAInvestigatorTestSummary{ID: bundle.ID, SpecID: bundle.SpecID, Paths: qaDisplayStrings(testBundleSummaryPaths(bundle)), ContentDigest: bundle.ContentDigest, DerivedFrom: bundle.DerivedFrom})

@@ -218,7 +218,7 @@ func TestQAPromotionFeedbackReturnsStaticFindingToOriginalInvestigator(t *testin
 		t.Fatal("resume reset the consumed shard budget")
 	}
 	for _, retained := range requests {
-		if retained.ID == stronger.ID && retained.ReasonCode != "evidence_round_budget_exhausted" {
+		if retained.ID == stronger.ID && retained.ReasonCode != "tests_per_theory_budget_exhausted" && retained.ReasonCode != "evidence_authoring_budget_exhausted" {
 			t.Fatalf("missing budget blocker: %+v", retained)
 		}
 	}
@@ -344,12 +344,12 @@ func TestQAEvidenceAttemptReservationSurvivesInterruption(t *testing.T) {
 	if err := json.Unmarshal(saved, &resumed); err != nil {
 		t.Fatal(err)
 	}
-	if resumed[0].Attempts != 1 || resumed[0].Status != "running" {
-		t.Fatal("attempt was not reserved before execution")
+	if resumed[0].Attempts != 0 || resumed[0].PreparationAttempts != 1 || resumed[0].Status != "preparing" {
+		t.Fatal("preparation was not reserved independently of authoring")
 	}
 	_, _, progressed, err := service.strengthenQARequestedEvidence(context.Background(), qaMap, target, []QAShard{shard}, resumed, map[string]bool{request.ID: true}, nil, func([]QAShard, []QATestPublication, []QAArbiterEvidenceRequest) error { return nil })
-	if err != nil || progressed || resumed[0].ReasonCode != "evidence_round_budget_exhausted" {
-		t.Fatal("interruption reset budget")
+	if err != nil || progressed || resumed[0].Attempts != 0 || resumed[0].PreparationAttempts != 2 {
+		t.Fatal("interruption reset preparation accounting or charged authoring")
 	}
 }
 

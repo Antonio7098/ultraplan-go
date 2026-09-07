@@ -523,10 +523,13 @@ func runSprint(deps dependencies, args []string) error {
 			if cancelErr == nil {
 				qaResult.NextAction = fmt.Sprintf("cancellation requested=%t run=%s; %s", cancelled.Requested, cancelled.Run.RunID, qaResult.NextAction)
 			}
-		case "run", "resume":
+		case "run", "resume", "retry-infrastructure":
 			kind := OperationQAStart
-			if qaCommand.Action == "resume" {
+			if qaCommand.Action == "resume" || qaCommand.Action == "retry-infrastructure" {
 				kind = OperationQAResume
+			}
+			if qaCommand.Action == "retry-infrastructure" {
+				kind = OperationQARetryInfrastructure
 			}
 			durable, durableErr := beginDurableCLICommand(deps, OperationRequest{Kind: kind, Project: args[0], Sprint: args[1], Task: qaCommand.Shard, Suite: qaCommand.Suite})
 			if durableErr != nil {
@@ -544,7 +547,7 @@ func runSprint(deps dependencies, args []string) error {
 				break
 			}
 			runtimeService = runtimeService.WithQAWriterFence(fence)
-			qaRun, qaErr := runtimeService.RunQA(durable.Context(), args[0], args[1], sprint.QARunRequest{Resume: qaCommand.Action == "resume", FocusShard: qaCommand.Shard, EvidenceProducing: true, WriterToken: token, Progress: func(progress sprint.QAProgress) {
+			qaRun, qaErr := runtimeService.RunQA(durable.Context(), args[0], args[1], sprint.QARunRequest{Resume: qaCommand.Action == "resume" || qaCommand.Action == "retry-infrastructure", InfrastructureOnly: qaCommand.Action == "retry-infrastructure", FocusShard: qaCommand.Shard, EvidenceProducing: true, WriterToken: token, Progress: func(progress sprint.QAProgress) {
 				fmt.Fprintf(deps.stderr, "[qa] %s %d/%d", progress.Phase, progress.Completed, progress.Total)
 				if progress.ShardID != "" {
 					fmt.Fprintf(deps.stderr, " %s", progress.ShardID)
@@ -578,7 +581,7 @@ func runSprint(deps dependencies, args []string) error {
 		if runErr != nil {
 			return mapQACommandError(runErr)
 		}
-		if qaCommand.Action == "run" || qaCommand.Action == "resume" {
+		if qaCommand.Action == "run" || qaCommand.Action == "resume" || qaCommand.Action == "retry-infrastructure" {
 			if qaResult.Assessment == string(sprint.AssessmentFail) || qaResult.Assessment == string(sprint.AssessmentBlocked) || qaResult.Assessment == string(sprint.AssessmentIncomplete) || qaResult.Phase == string(sprint.QAPhaseBlocked) {
 				return classified(ExitValidation, "sprint.qa: assessment %s", qaResult.Assessment)
 			}
@@ -727,7 +730,7 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 	}
 	if command.Action == "run" && len(args) > 0 {
 		switch args[0] {
-		case "status", "resume", "cancel", "recover", "replay-adjudication":
+		case "status", "resume", "cancel", "recover", "replay-adjudication", "retry-infrastructure":
 			command.Action = args[0]
 			args = args[1:]
 		}
@@ -777,8 +780,11 @@ func parseSprintQAArgs(args []string) (sprintQACommand, error) {
 			return command, fmt.Errorf("unknown QA argument %q", args[i])
 		}
 	}
+	if command.Action == "retry-infrastructure" && (command.Shard != "" || command.RunID != "" || command.Suite != "" || command.Yes || command.TestID != "" || command.Target != "") {
+		return command, errors.New("qa retry-infrastructure accepts only --json")
+	}
 	switch command.Action {
-	case "run", "resume":
+	case "run", "resume", "retry-infrastructure":
 		if command.RunID != "" {
 			return command, errors.New("--run is valid only with qa cancel")
 		}
@@ -1322,6 +1328,7 @@ func renderSprintQA(deps dependencies, result QAResult) {
 	fmt.Fprintf(deps.stdout, "  sprint: %s/%s\n  phase: %s\n  fresh: %t\n", result.Project, result.Sprint, result.Phase, result.Fresh)
 	fmt.Fprintf(deps.stdout, "  Conformance Review: status=%s verdict=%s fresh=%t\n", result.ConformanceReviewStatus, result.ConformanceReviewVerdict, result.ConformanceReviewFresh)
 	fmt.Fprintf(deps.stdout, "  coverage: %d/%d changed paths\n  shards: %d/%d\n", result.CoveredPaths, result.ChangedPaths, result.CompletedShards, result.TotalShards)
+	fmt.Fprintf(deps.stdout, "  evidence requests: %d active, %d historical\n", result.ActiveEvidenceRequestCount, len(result.EvidenceRequestHistory))
 	if result.Suite != "" {
 		fmt.Fprintf(deps.stdout, "  suite: %s\n", result.Suite)
 	}
@@ -2381,6 +2388,7 @@ Usage:
   ultraplan sprint <project> <sprint> conformance-review [same flags as review]
   ultraplan sprint <project> <sprint> qa [--dry-run] [--shard <map-owned-id>] [--json]
   ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
+  ultraplan sprint <project> <sprint> qa retry-infrastructure [--json]
   ultraplan sprint <project> <sprint> qa status [--json]
   ultraplan sprint <project> <sprint> qa evidence tests [--json]
   ultraplan sprint <project> <sprint> qa evidence inspect --test <test-id> [--json]
@@ -2462,6 +2470,7 @@ Usage:
   ultraplan sprint <project> <sprint> qa --dry-run [--json]
   ultraplan sprint <project> <sprint> qa [--shard <map-owned-id>] [--json]
   ultraplan sprint <project> <sprint> qa resume [--shard <map-owned-id>] [--json]
+  ultraplan sprint <project> <sprint> qa retry-infrastructure [--json]
   ultraplan sprint <project> <sprint> qa status [--json]
   ultraplan sprint <project> <sprint> qa evidence tests [--json]
   ultraplan sprint <project> <sprint> qa evidence inspect --test <test-id> [--json]

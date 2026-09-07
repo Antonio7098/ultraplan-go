@@ -32,7 +32,7 @@ type qaTheoryGroupPlan struct {
 const qaArbiterOutputContract = `Return exactly one JSON object with schema_version 1, overrides, issues, and evidence_requests. The first output byte must be "{" and the last output byte must be "}". Do not emit Markdown fences, backticks, prose, or leading or trailing commentary. Every override contains theory_ids, action, outcome, replacement_claim, reason, reason_refs, and numeric confidence from 0 to 1. The only valid action strings are "confirm", "refute", "replace", "merge", "split", "invalidate", and "keep_inconclusive". The only valid outcome strings are "confirmed", "refuted", "invalid", "inconclusive", and "cross_shard". Use action "confirm" for an unchanged confirmed theory and "keep_inconclusive" for an unchanged inconclusive theory. A supplied theory may occur in at most one override. When merging theories, emit one merge override that contains all merged theory_ids; do not also emit separate overrides for those theories. Every issue contains theory_ids, claim, title, issue_class, severity, location, reason, and evidence_refs. Omit id or return it as an empty string; the product assigns it. Every effectively confirmed theory must occur in exactly one issue. Refuted, invalid, inconclusive, and cross_shard theories must occur in none. Every evidence request contains theory_ids, origin_shard_id, gap, requested_evidence, required_observation, control_requirement, and priority. Priority must be a JSON string with exactly one of these values: "high", "medium", or "low". Omit id and arbiter_group_id or return them empty; the product assigns both. A request may contain theories from exactly one origin shard and only when their current evidence is insufficient. Split requests by origin shard. Use only IDs in the frozen pack's allowed_refs array for theory_ids, reason_refs, and evidence_refs. An ID mentioned inside theory prose or nested evidence is not allowed unless allowed_refs also contains it.`
 
 func qaArbiterEvidenceRequestInstructions(qaMap QAMap) string {
-	return "Evidence-request limits: at most " + fmt.Sprintf("%d", qaMap.Budgets.EvidenceRoundsPerShard) + ` requests per origin shard. Static confirmation and promotion readiness are separate: a confirmed theory without sufficient executable evidence must also have an evidence request. Inspect returned test assertions, controls, and observations against the claim; a matching marker alone does not prove the claim. Every request must ask the original investigator to create or strengthen an executable Go _test.go reproducer in its approved private workspace. A contract or static assertion may be used when behavioral reproduction is unsuitable. Do not request another source excerpt, listing, search, review, or prose explanation. Combine related evidence gaps into one focused test request when necessary to remain within the limit. Put only supplied theory IDs in reason_refs and evidence_refs. Do not put block IDs in those arrays; discuss block evidence in reason text instead.`
+	return "Evidence-request limits: at most " + fmt.Sprintf("%d", qaEvidenceRequestLimit(qaMap)) + ` requests per origin shard. Static confirmation and promotion readiness are separate: a confirmed theory without sufficient executable evidence must also have an evidence request. Inspect returned test assertions, controls, and observations against the claim; a matching marker alone does not prove the claim. Every request must ask the original investigator to create or strengthen an executable Go _test.go reproducer in its approved private workspace. A contract or static assertion may be used when behavioral reproduction is unsuitable. Do not request another source excerpt, listing, search, review, or prose explanation. Prioritize uncovered claims before revisions. Each request must name the exact theories its assertions cover; shared root cause alone does not establish sibling coverage. Put only supplied theory IDs in reason_refs and evidence_refs. Do not put block IDs in those arrays; discuss block evidence in reason text instead.`
 }
 
 func (s Service) arbitrateQA(ctx context.Context, qaMap QAMap, shards []QAShard, target string) (QAArbitration, error) {
@@ -525,6 +525,9 @@ func validateQAArbiterEvidenceRequests(qaMap QAMap, group qaTheoryGroupPlan, req
 		// Execution state is product-owned, never accepted from model output.
 		request.Status, request.ReasonCode, request.NextAction = "", "", ""
 		request.EvidenceRound, request.Attempts = 0, 0
+		request.ExecutionAttempts, request.Failure = nil, nil
+		request.InfrastructureRetries, request.PreparationAttempts, request.RecoveryAllowance = 0, 0, 0
+		request.RecoveryGrantedAt, request.RecoveryReason = nil, ""
 		request.EvidenceFingerprint, request.TestBundleID, request.LatestRunID = "", "", ""
 		request.SupersededBy = ""
 		request.TheoryIDs = normalizeQAStrings(request.TheoryIDs)
@@ -565,9 +568,10 @@ func validateQAArbiterEvidenceRequests(qaMap QAMap, group qaTheoryGroupPlan, req
 		}
 		seen[identity] = true
 		perShard[request.OriginShardID]++
-		if perShard[request.OriginShardID] > qaMap.Budgets.EvidenceRoundsPerShard {
-			return nil, fmt.Errorf("arbiter evidence requests exceed the shard round budget")
+		if perShard[request.OriginShardID] > qaEvidenceRequestLimit(qaMap) {
+			return nil, fmt.Errorf("arbiter evidence requests exceed the theory budget")
 		}
+		request.AccountingVersion = qaMap.EvidenceAccountingVersion
 		request.ID, err = NewQAV2ID("request", qaMap.Project, qaMap.Sprint, group.ID, identity)
 		if err != nil {
 			return nil, err
@@ -773,4 +777,11 @@ func applyQAArbitration(shards []QAShard, arbitration QAArbitration) []QAShard {
 		}
 	}
 	return result
+}
+
+func qaEvidenceRequestLimit(qaMap QAMap) int {
+	if qaMap.EvidenceAccountingVersion >= 2 {
+		return qaMap.Budgets.TheoriesPerShard
+	}
+	return qaMap.Budgets.EvidenceRoundsPerShard
 }

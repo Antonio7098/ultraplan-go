@@ -113,7 +113,7 @@ func (s Service) RunRepairCampaign(ctx context.Context, projectRef, sprintRef st
 	if err := store.publishRepairCampaign(state, req.WriterToken); err != nil {
 		return RepairCampaignState{}, err
 	}
-	workerParent, err := os.MkdirTemp("", "ultraplan-repair-campaign-")
+	workerParent, err := qaRuntimeTemp("ultraplan-repair-campaign-")
 	if err != nil {
 		return finishRepairCampaignFailure(store, state, req.WriterToken, err)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -223,6 +224,16 @@ func ClassifyQAReproductionResult(result QACommandResult, predicted QAFailureSig
 		return QAEvidenceInconclusive, "output_truncated"
 	}
 	combined := result.Stdout + "\n" + result.Stderr
+	if result.DiagnosticsVersion > 0 {
+		phase := "compile"
+		if len(result.TestEvents) > 0 {
+			phase = "assertion"
+		}
+		diagnostic := qaFailureDiagnostic(phase, nil, combined)
+		if phase == "compile" && (diagnostic.Code == "disk_space_exhausted" || diagnostic.Retryable) {
+			return QAEvidenceInconclusive, diagnostic.Code
+		}
+	}
 	lower := strings.ToLower(combined)
 	if strings.Contains(lower, "build failed") || strings.Contains(lower, "undefined:") || strings.Contains(lower, "syntax error") || strings.Contains(lower, "panic:") {
 		return QAEvidenceInconclusive, "unrelated_compile_or_panic_failure"
@@ -286,7 +297,26 @@ func ValidateQAReproductionRun(run QAReproductionRun, spec QAReproductionSpec, b
 	if !validEvidenceOutcome(run.Outcome) || strings.TrimSpace(run.ReasonCode) == "" {
 		return fmt.Errorf("QA reproduction run outcome is invalid")
 	}
+	if run.Result.DiagnosticsVersion != 0 {
+		if run.Result.DiagnosticsVersion != 1 {
+			return fmt.Errorf("unknown reproduction diagnostics version")
+		}
+		output := run.Result.Stdout + "\n" + run.Result.Stderr
+		if !slices.Equal(run.Result.TestEvents, qaTestEvents(output)) {
+			return fmt.Errorf("test events do not match retained output")
+		}
+		marker := ""
+		if strings.Contains(output, spec.PredictedFailure.OutputMatcher) {
+			marker = spec.PredictedFailure.OutputMatcher
+		}
+		if run.Result.MatchedMarker != marker {
+			return fmt.Errorf("assertion marker does not match retained output")
+		}
+	}
 	wantOutcome, wantReason := classifyQARequestedReproduction(run.Result, spec)
+	if run.ObservedOutcome != "" && (run.ObservedOutcome != wantOutcome || run.ObservedReasonCode != wantReason) {
+		return fmt.Errorf("observed outcome does not match retained execution")
+	}
 	if qaReproductionIntegrityOverride(run.ReasonCode) {
 		wantOutcome, wantReason = QAEvidenceInconclusive, run.ReasonCode
 	}

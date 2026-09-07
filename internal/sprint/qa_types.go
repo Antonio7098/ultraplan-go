@@ -828,6 +828,7 @@ type QAShard struct {
 }
 
 type QAMap struct {
+	EvidenceAccountingVersion int                 `json:"evidence_accounting_version,omitempty"`
 	SchemaVersion             int                 `json:"schema_version"`
 	ID                        string              `json:"id"`
 	Project                   string              `json:"project"`
@@ -1082,24 +1083,32 @@ type QAArbiterIssue struct {
 // QAArbiterEvidenceRequest is routed only to the shard that authored all of
 // its theories. The product, not the arbiter, assigns ID.
 type QAArbiterEvidenceRequest struct {
-	ID                  string   `json:"id"`
-	ArbiterGroupID      string   `json:"arbiter_group_id,omitempty"`
-	TheoryIDs           []string `json:"theory_ids"`
-	OriginShardID       string   `json:"origin_shard_id"`
-	Gap                 string   `json:"gap"`
-	RequestedEvidence   string   `json:"requested_evidence"`
-	RequiredObservation string   `json:"required_observation"`
-	ControlRequirement  string   `json:"control_requirement"`
-	Priority            string   `json:"priority"`
-	Status              string   `json:"status,omitempty"`
-	EvidenceRound       int      `json:"evidence_round,omitempty"`
-	Attempts            int      `json:"attempts,omitempty"`
-	EvidenceFingerprint string   `json:"evidence_fingerprint,omitempty"`
-	ReasonCode          string   `json:"reason_code,omitempty"`
-	SupersededBy        string   `json:"superseded_by,omitempty"`
-	TestBundleID        string   `json:"test_bundle_id,omitempty"`
-	LatestRunID         string   `json:"latest_run_id,omitempty"`
-	NextAction          string   `json:"next_action,omitempty"`
+	AccountingVersion     int                          `json:"accounting_version,omitempty"`
+	ExecutionAttempts     []QAEvidenceExecutionAttempt `json:"execution_attempts,omitempty"`
+	InfrastructureRetries int                          `json:"infrastructure_retries,omitempty"`
+	PreparationAttempts   int                          `json:"preparation_attempts,omitempty"`
+	Failure               *QAFailureDiagnostic         `json:"failure,omitempty"`
+	RecoveryAllowance     int                          `json:"recovery_allowance,omitempty"`
+	RecoveryGrantedAt     *time.Time                   `json:"recovery_granted_at,omitempty"`
+	RecoveryReason        string                       `json:"recovery_reason,omitempty"`
+	ID                    string                       `json:"id"`
+	ArbiterGroupID        string                       `json:"arbiter_group_id,omitempty"`
+	TheoryIDs             []string                     `json:"theory_ids"`
+	OriginShardID         string                       `json:"origin_shard_id"`
+	Gap                   string                       `json:"gap"`
+	RequestedEvidence     string                       `json:"requested_evidence"`
+	RequiredObservation   string                       `json:"required_observation"`
+	ControlRequirement    string                       `json:"control_requirement"`
+	Priority              string                       `json:"priority"`
+	Status                string                       `json:"status,omitempty"`
+	EvidenceRound         int                          `json:"evidence_round,omitempty"`
+	Attempts              int                          `json:"attempts,omitempty"`
+	EvidenceFingerprint   string                       `json:"evidence_fingerprint,omitempty"`
+	ReasonCode            string                       `json:"reason_code,omitempty"`
+	SupersededBy          string                       `json:"superseded_by,omitempty"`
+	TestBundleID          string                       `json:"test_bundle_id,omitempty"`
+	LatestRunID           string                       `json:"latest_run_id,omitempty"`
+	NextAction            string                       `json:"next_action,omitempty"`
 }
 
 type QAArbiterGroup struct {
@@ -1369,6 +1378,9 @@ func ValidateQATheory(theory QATheory) error {
 }
 
 func ValidateQAMap(m QAMap) error {
+	if m.EvidenceAccountingVersion != 0 && m.EvidenceAccountingVersion != 2 {
+		return fmt.Errorf("unsupported QA evidence accounting version")
+	}
 	if m.SchemaVersion != QASchemaVersion || !validQAID(m.ID) || !validQAID(m.SemanticAttemptID) || !safeQAName(m.Project) || !safeQAName(m.Sprint) {
 		return fmt.Errorf("invalid QA map schema or identity")
 	}

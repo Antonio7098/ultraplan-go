@@ -133,7 +133,7 @@ func TestRenderMarkdownPreviewUsesMarkdownRenderer(t *testing.T) {
 }
 
 func TestRenderMarkdownPreviewRemovesHeadingMarkers(t *testing.T) {
-	rendered := renderMarkdownContent("## Required Outputs\n", 100)
+	rendered, _ := renderMarkdownContent("## Required Outputs\n", 100)
 	if strings.Contains(rendered, "## Required Outputs") {
 		t.Fatalf("heading marker was preserved:\n%s", rendered)
 	}

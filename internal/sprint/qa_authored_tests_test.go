@@ -31,6 +31,7 @@ func (uncleanAuthoredTestRunner) Run(_ context.Context, _ pprocess.Request) (ppr
 }
 
 func authoredTestFixture(t *testing.T, target string) (QAMap, QAShard, QAReproductionSpec) {
+	t.Setenv("ULTRAPLAN_QA_WORKER_MEMORY_MB", "64")
 	t.Helper()
 	const project, sprintSlug = "alpha", "01-authored-tests"
 	fingerprint, err := targetIdentity(target)

@@ -35,8 +35,8 @@ func renderSprintQAView(b *strings.Builder, m Model, route Route) {
 		fmt.Fprintf(b, "Blocker: %s [%s]\n", qa.Blocker.Summary, qa.Blocker.Category)
 	}
 	if len(qa.EvidenceRequests) > 0 {
-		fmt.Fprintf(b, "Arbiter evidence requests: %d\n", len(qa.EvidenceRequests))
-		for _, request := range qa.EvidenceRequests {
+		fmt.Fprintf(b, "Arbiter evidence requests: %d active, %d historical\n", qa.ActiveEvidenceRequestCount, len(qa.EvidenceRequestHistory))
+		for _, request := range qa.ActiveEvidenceRequests {
 			fmt.Fprintf(b, "  %s: %s shard=%s session=%s round=%d test=%s run=%s\n", request.Status, request.RequestedEvidence, request.OriginShardID, request.SessionID, request.EvidenceRound, request.TestBundleID, request.LatestRunID)
 		}
 	}

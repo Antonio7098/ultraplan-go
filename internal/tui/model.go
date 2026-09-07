@@ -83,6 +83,26 @@ type Model struct {
 	ActiveRunID           string
 	Runs                  []app.RunSnapshot
 	DurableEvents         []app.RunEvent
+
+	// Cmdline (neovim's ":"): when non-nil, the bottom mode bar is
+	// replaced by an input field. Non-nil + Label "" means the input is
+	// open but empty; non-nil + Label "g foo" is mid-typing.
+	Input *CmdlineInput
+
+	// Pending jump label (neovim quickfix): a single rune pressed while
+	// the sidebar is visible. The model jumps to the visible item whose
+	// sideLabel matches.
+	PendingJump rune
+
+	// Toast is a transient statusline strip that fades on next action.
+	// Mirrors neovim's "command-line messages" that show briefly under
+	// the mode bar after :q, :b, etc.
+	Toast string
+}
+
+type CmdlineInput struct {
+	Active bool
+	Value  string
 }
 
 type Message interface{}
@@ -141,6 +161,23 @@ func NewModel(useCases app.OperationalUseCases) Model {
 		Routes:    []Route{{Kind: RouteProjects}},
 		Loading:   true,
 	}
+}
+
+// openCmdline arms the cmdline input. Empty value ⇒ fresh prompt.
+func (m *Model) openCmdline() {
+	m.Input = &CmdlineInput{Active: true}
+	m.Focus = FocusContent
+}
+
+// closeCmdline hides the cmdline and pushes the typed value into the toast so
+// it briefly echoes the user's intent before the next interaction (neovim
+// shows typed-but-unexecuted commands on the cmdline until the next action).
+func (m *Model) closeCmdline(executed bool) {
+	if !executed && m.Input != nil && m.Input.Value != "" {
+		m.Toast = ":" + m.Input.Value
+	}
+	m.Input = nil
+	m.PendingJump = 0
 }
 
 func (m Model) Load(ctx context.Context) (Model, error) {
@@ -242,9 +279,33 @@ func (m Model) Update(msg Message) Model {
 			m.Error = v.Err.Error()
 		}
 	case KeyMsg:
+		// Cmdline input takes priority over global bindings. This mirrors
+		// neovim: once ":" is pressed, every key feeds the cmdline buffer
+		// until Enter or Esc.
+		if m.Input != nil && m.Input.Active {
+			m.applyCmdlineKey(string(v))
+			return m
+		}
+		// Jump labels: when the user types a single digit/letter and there
+		// is no selection-relevant action bound to it, jump to the visible
+		// sidebar item whose label matches. Mirrors neovim's quickfix jump.
+		if r := jumpRuneFor(string(v)); r != 0 && m.PendingJump == 0 && (m.Focus == FocusContent || m.Focus == FocusTabs) && !m.modalActive() {
+			if m.tryJumpLabel(r) {
+				m.Toast = "→ " + string(r)
+				return m
+			}
+		}
+		if m.PendingJump != 0 {
+			// Previously typed a label; any other key cancels the pending
+			// label so accidental presses don't fire commands.
+			m.PendingJump = 0
+		}
 		switch KeyToAction(string(v)) {
 		case ActionQuit:
 			m.Quit = true
+		case ActionCmdline:
+			m.openCmdline()
+			m.PendingJump = 0
 		case ActionFocusNext:
 			if m.ActiveTab == TabProjects {
 				m.setTab(TabStudies)
@@ -512,6 +573,7 @@ func (m Model) navItems() []navItem {
 				{Label: "QA Dry Run", Operation: &app.OperationRequest{Kind: app.OperationQADryRun, Project: route.Project, Sprint: route.Sprint}},
 				{Label: "Start QA [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationQAStart, Project: route.Project, Sprint: route.Sprint}},
 				{Label: "Resume QA [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationQAResume, Project: route.Project, Sprint: route.Sprint}},
+				{Label: "Retry infrastructure-blocked evidence [RUNTIME]", Operation: &app.OperationRequest{Kind: app.OperationQARetryInfrastructure, Project: route.Project, Sprint: route.Sprint}},
 				{Label: "Recover QA", Operation: &app.OperationRequest{Kind: app.OperationQARecover, Project: route.Project, Sprint: route.Sprint}},
 				{Label: "Rewind QA to arbitration", Operation: &app.OperationRequest{Kind: app.OperationQAReplayAdjudication, Project: route.Project, Sprint: route.Sprint}},
 			}

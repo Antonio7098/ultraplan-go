@@ -634,6 +634,7 @@ func TestQARecoveryMissingStateIsRuntimeFreeNoOp(t *testing.T) {
 }
 
 func qaRunFixture(t *testing.T) (string, Sprint, string, QAMap, FlowState, QAState, QAWriterToken) {
+	t.Setenv("ULTRAPLAN_QA_WORKER_MEMORY_MB", "64")
 	t.Helper()
 	root := t.TempDir()
 	sp := Sprint{Project: "alpha", Slug: "01-test", Path: filepath.Join(root, "projects", "alpha", "sprints", "01-test")}

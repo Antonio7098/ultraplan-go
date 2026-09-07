@@ -20,9 +20,11 @@ func RenderWithSize(m Model, width, height int) string {
 	if height <= 0 {
 		height = 40
 	}
-	// Header: herdr-style tab bar, then breadcrumb + status on the panel color.
+	// Header: tab bar (with counts), breadcrumb + status, error/loading
+	// notices. Health strip pinned to the right side of the breadcrumb row.
+	health := renderHealthStrip(m)
 	headerLines := []string{renderTabBar(m, width)}
-	headerLines = append(headerLines, fullWidth(tuiStyles.breadcrumb, statusDot(headerStatus(m))+"  UltraPlan · "+m.breadcrumb(), width))
+	headerLines = append(headerLines, fullWidth(tuiStyles.breadcrumb, statusDot(headerStatus(m))+"  UltraPlan · "+m.breadcrumb()+breadcrumbHealthSuffix(health), width))
 	if m.Loading {
 		headerLines = append(headerLines, fullWidth(tuiStyles.notice, "Loading workspace status...", width))
 	}
@@ -64,20 +66,29 @@ func RenderWithSize(m Model, width, height int) string {
 		detailOffset = m.PreviewOffset
 	}
 
-	// Footer: herdr-style mode bar with the pill reflecting state.
-	pill, alert := modePill(m)
-	footerLines := []string{renderModeBar(pill, alert, helpSegments(), width)}
+	// Footer: either the cmdline input (neovim's ":") or herdr's mode bar.
+	var footerLines []string
+	switch {
+	case m.Input != nil && m.Input.Active:
+		footerLines = []string{renderCmdline(m.Input.Value, width)}
+	default:
+		pill, alert := modePill(m)
+		footerLines = []string{renderModeBar(pill, alert, helpSegments(m), width)}
+		if m.Toast != "" {
+			footerLines = append(footerLines, fullWidth(tuiStyles.notice, m.Toast, width))
+		}
+	}
 
 	bodyHeight := height - len(headerLines) - len(footerLines) - 1
 	if bodyHeight < 3 {
 		bodyHeight = 3
 	}
 	sideW := width * 30 / 100
-	if sideW < 24 {
-		sideW = 24
+	if sideW < 30 {
+		sideW = 30
 	}
-	if sideW > 38 {
-		sideW = 38
+	if sideW > 44 {
+		sideW = 44
 	}
 	if width-sideW < 30 {
 		sideW = width - 30
@@ -88,34 +99,54 @@ func RenderWithSize(m Model, width, height int) string {
 	}
 
 	sideVp := newViewport(len(sideLines), bodyHeight).FollowSelection(selectedStart, selectedEnd)
+	// Map navItem index → jump-label rune so the inner loop can stamp them
+	// into the visible rows. Indices past 35 get no label.
+	navItems := m.navItems()
 	detailVp := newViewport(len(detailLines), bodyHeight-2).AtOffset(detailOffset)
 
 	var out strings.Builder
 	for _, line := range headerLines {
 		fmt.Fprintln(&out, line)
 	}
-	sideStyled := make([]string, len(sideLines))
-	for i, line := range sideLines {
-		sideStyled[i] = sidebarCellStyle(line).Width(sideW).MaxWidth(sideW).Render(fitCell(line.text, sideW))
+	// Only style the visible sidebar window, not every row. Sprint and QA
+	// nav can have 60+ items; pre-styling all of them dominated the per-frame
+	// budget even when the viewport only shows ~20 rows.
+	emptySide := tuiStyles.body.Width(sideW).MaxWidth(sideW).Render("")
+	emptyDetail := paneBorderRow("", detailW, m.Focus == FocusContent)
+	borderStyle := borderFG(m.Focus == FocusContent)
+	sep := tuiStyles.separator.Render("│")
+	// Sidebar columns: 1 sign cell + 2 jump-label cells + 1 gap + the rest.
+	sideReserved := 4
+	sideTextW := sideW - sideReserved
+	if sideTextW < 12 {
+		sideTextW = sideW
+		sideReserved = 0
 	}
+	sidebarRoute := m.currentRoute()
 	for i := 0; i < bodyHeight; i++ {
-		sideCell := tuiStyles.body.Width(sideW).MaxWidth(sideW).Render("")
-		if idx := sideVp.offset + i; idx < len(sideStyled) {
-			sideCell = sideStyled[idx]
+		sideCell := emptySide
+		if idx := sideVp.offset + i; idx >= 0 && idx < len(sideLines) {
+			line := sideLines[idx]
+			cell := buildSidebarCell(line, navItems, sidebarRoute, sideTextW, sideReserved, idx)
+			_ = cell
+			sideCell = sidebarCellStyle(line).Width(sideW).MaxWidth(sideW).Render(composeSidebarCell(line, cell))
 		}
-		// herdr's thin │ separator between sidebar and content.
-		sep := tuiStyles.separator.Render("│")
-		detailLine := ""
-		if i == 0 {
+		var detailLine string
+		switch {
+		case i == 0:
 			detailLine = paneBorderTop(detailTitle(m), detailW, m.Focus == FocusContent)
-		} else if i == bodyHeight-1 {
+		case i == bodyHeight-1:
 			detailLine = paneBorderBottom(detailW, m.Focus == FocusContent)
-		} else if idx := detailVp.offset + i - 1; idx < len(detailLines) {
-			detailLine = paneBorderRow(detailLines[idx], detailW, m.Focus == FocusContent)
-		} else {
-			detailLine = paneBorderRow("", detailW, m.Focus == FocusContent)
+		default:
+			rowIdx := detailVp.offset + i - 1
+			if rowIdx >= 0 && rowIdx < len(detailLines) {
+				detailLine = paneBorderRow(detailLines[rowIdx], detailW, m.Focus == FocusContent)
+			} else {
+				detailLine = emptyDetail
+			}
 		}
 		fmt.Fprintf(&out, "%s%s%s\n", sideCell, sep, detailLine)
+		_ = borderStyle
 	}
 	if sideVp.MaxOffset() > 0 || detailVp.MaxOffset() > 0 {
 		fmt.Fprintln(&out, fullWidth(tuiStyles.scroll, fmt.Sprintf("scroll %d/%d", sideVp.offset+1, sideVp.MaxOffset()+1), width))
@@ -158,9 +189,19 @@ func modePill(m Model) (string, bool) {
 	}
 }
 
-func helpSegments() []modeSegment {
+func helpSegments(m Model) []modeSegment {
+	if m.Input != nil && m.Input.Active {
+		return []modeSegment{
+			{key: "esc", label: "cancel"},
+			{key: "↵", label: "run"},
+			{key: ":g X", label: "jump to label"},
+			{key: ":p", label: "projects · "},
+			{key: ":s", label: "studies · "},
+			{key: ":r", label: "runs"},
+		}
+	}
 	segments := []modeSegment{}
-	for _, part := range strings.Split(HelpText(), " | ") {
+	for _, part := range strings.Split(HelpText(), " · ") {
 		fields := strings.SplitN(part, " ", 2)
 		if len(fields) == 2 {
 			segments = append(segments, modeSegment{key: fields[0], label: fields[1]})
@@ -670,31 +711,63 @@ func renderValidation(b *strings.Builder, result app.ValidationOperationResult) 
 	}
 }
 
-// renderTabBar mirrors herdr's tab strip: one panel-bg row, each tab a padded
-// label with a one-cell gap. The focused tab is accent-on-dark; the rest are
-// dimmed on surface0. A keyboard-focused tab gets the amber focus treatment.
+// renderTabBar mirrors herdr's tab strip and neovim's tabline: each tab
+// carries a count badge. Counts come from the dashboard; the Runs tab
+// also gets a yellow dot when work is in flight. Padding lives only on
+// the label style; the badge gets one-cell framing manually so the two
+// halves sit flush without doubling up.
 func renderTabBar(m Model, width int) string {
-	tabs := []struct {
-		label  string
-		active bool
-	}{
-		{"Projects", m.ActiveTab == TabProjects},
-		{"Studies", m.ActiveTab == TabStudies},
-		{"Runs", m.ActiveTab == TabRuns},
+	type tab struct {
+		label   string
+		badge   string
+		alerted bool
+		active  bool
+	}
+	activeRuns := countActiveRuns(m.Runs)
+	tabs := []tab{
+		{label: "Projects", badge: fmt.Sprintf("%d", len(m.Data.Projects)), active: m.ActiveTab == TabProjects},
+		{label: "Studies", badge: fmt.Sprintf("%d", len(m.Data.Studies)), active: m.ActiveTab == TabStudies},
+		{label: "Runs", badge: fmt.Sprintf("%d", len(m.Runs)), active: m.ActiveTab == TabRuns, alerted: activeRuns > 0},
 	}
 	var row strings.Builder
-	for _, tab := range tabs {
-		style := tuiStyles.dimTab
+	for _, t := range tabs {
+		labelStyle := tuiStyles.dimTab
+		var badgeFG, badgeBG lipgloss.Color
+		bold := false
 		switch {
-		case tab.active && m.Focus == FocusTabs:
-			style = tuiStyles.focusedTab
-		case tab.active:
-			style = tuiStyles.activeTab
+		case t.active && m.Focus == FocusTabs:
+			labelStyle = tuiStyles.focusedTab
+			badgeFG, badgeBG, bold = palette.amber, palette.activeRow, true
+		case t.active:
+			labelStyle = tuiStyles.activeTab
+			badgeFG, badgeBG, bold = palette.contrast, palette.blue, true
+		default:
+			badgeFG, badgeBG, bold = palette.overlay1, palette.panel, false
 		}
-		row.WriteString(style.Render(tab.label))
+		badgeStyle := lipgloss.NewStyle().Foreground(badgeFG).Background(badgeBG).Bold(bold)
+		badgeText := t.badge
+		if t.alerted {
+			dot := tuiStyles.dot.Foreground(palette.yellow).Render("●")
+			row.WriteString(labelStyle.Render(t.label))
+			row.WriteString(dot + badgeStyle.Render(" "+badgeText+" "))
+			row.WriteString(tuiStyles.tabBar.Render(" "))
+			continue
+		}
+		row.WriteString(labelStyle.Render(t.label))
+		row.WriteString(badgeStyle.Render(" " + badgeText + " "))
 		row.WriteString(tuiStyles.tabBar.Render(" "))
 	}
 	return fullWidth(tuiStyles.tabBar, row.String(), width)
+}
+
+func countActiveRuns(runs []app.RunSnapshot) int {
+	n := 0
+	for _, r := range runs {
+		if r.Lifecycle.IsActive() {
+			n++
+		}
+	}
+	return n
 }
 
 type sidebarLine struct {
@@ -868,6 +941,158 @@ func renderItemSummary(b *strings.Builder, m Model, item navItem) {
 	}
 }
 
+// navItemsFor is a small helper exposed by the sidebar renderer so the sign
+// column can be computed without re-running the model.
+func navItemsFor(m Model) []navItem { return m.navItems() }
+
+// renderCmdline draws the single-line input that replaces the mode bar
+// when ":" is pressed. Mirrors neovim's cmdline window: prompt on the
+// left in accent, typed text in default foreground, a blinking cursor
+// (rendered as a solid bar) at the end, hint suffix on the right.
+func renderCmdline(value string, width int) string {
+	if width < 20 {
+		width = 20
+	}
+	prompt := tuiStyles.modePill.Render(" : ")
+	typed := value
+	cursor := tuiStyles.key.Render("▌")
+	if typed == "" {
+		cursor = ""
+	}
+	body := typed + cursor
+	// Pad with spaces so the row covers the full width and stays a single
+	// visible cell at the bottom of the screen.
+	padding := width - lipgloss.Width(prompt) - lipgloss.Width(body) - 1
+	if padding < 1 {
+		padding = 1
+	}
+	return fullWidth(tuiStyles.modeBase, prompt+tuiStyles.modeBase.Render(body)+strings.Repeat(" ", padding), width)
+}
+
+// renderHealthStrip builds the right-side summary that sits next to the
+// breadcrumb: counts of running / stale / failed studies / runs. Empty
+// strings collapse to keep the row quiet when there's nothing to say.
+func renderHealthStrip(m Model) string {
+	running := 0
+	failed := 0
+	stale := 0
+	for _, r := range m.Runs {
+		if r.Lifecycle.IsActive() {
+			running++
+		}
+		if r.ProductStatus == "failed" || r.ProductStatus == "blocked" {
+			failed++
+		}
+		if r.Liveness == "stale" {
+			stale++
+		}
+	}
+	for _, s := range m.Data.Studies {
+		if s.RunActive {
+			running++
+		}
+		if s.Failed > 0 {
+			failed++
+		}
+	}
+	var parts []string
+	if running > 0 {
+		parts = append(parts, fmt.Sprintf("● %d active", running))
+	}
+	if stale > 0 {
+		parts = append(parts, fmt.Sprintf("◌ %d stale", stale))
+	}
+	if failed > 0 {
+		parts = append(parts, fmt.Sprintf("✗ %d failed", failed))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// breadcrumbHealthSuffix right-aligns the health strip onto the breadcrumb
+// line, falling back to "" when the strip is empty.
+func breadcrumbHealthSuffix(health string) string {
+	if health == "" {
+		return ""
+	}
+	return "  ·  " + health
+}
+
+// buildSidebarCell composes the visible sign + label + text columns for
+// one sidebar row. Sign column = state glyph (1 cell). Jump column =
+// "1 ", "a ", or "  " (2 cells). The remainder holds the sidebar text.
+func buildSidebarCell(line sidebarLine, items []navItem, route Route, textWidth, reserved int, lineIndex int) string {
+	if reserved == 0 {
+		return fitCell(line.text, textWidth)
+	}
+	// Header rows and summary rows aren't selectable: leave both columns
+	// blank so they read as plain text in the sidebar.
+	sign := " "
+	jump := "  "
+	if !line.header && !line.summary {
+		idx := visibleNavIndex(items, lineIndex)
+		if idx >= 0 {
+			s := signForNavItem(items, route, -1, idx)
+			signCell := s.glyph()
+			if signCell != " " {
+				sign = s.style(line.selected).Render(signCell)
+			}
+			label := jumpLabelFor(idx)
+			if label != 0 {
+				jumpStyle := tuiStyles.sideNum
+				if line.selected {
+					jumpStyle = jumpStyle.Background(palette.selectionBg).Foreground(palette.text).Bold(true)
+				}
+				jump = jumpStyle.Render(fmt.Sprintf("%c ", label))
+			}
+		}
+	}
+	row := fitCell(line.text, textWidth)
+	return sign + jump + row
+}
+
+// visibleNavIndex recovers the navItem index for a visible sidebarLine
+// position, skipping the leading section header and any summary rows.
+// Returns -1 if the visible row doesn't correspond to a nav item.
+func visibleNavIndex(items []navItem, lineIndex int) int {
+	if lineIndex <= 0 {
+		return -1
+	}
+	pos := lineIndex - 1
+	for i, item := range items {
+		if pos == 0 {
+			return i
+		}
+		// Each nav item occupies 1 row plus a dim summary line when the
+		// route kind makes renderItemSummary emit content.
+		var summary strings.Builder
+		renderItemSummary(&summary, Model{Routes: []Route{{Kind: itemsRouteKind(item)}}}, item)
+		summaryRows := len(splitLines(summary.String()))
+		pos--
+		if summaryRows > 0 {
+			pos -= summaryRows
+		}
+		if pos < 0 {
+			return -1
+		}
+	}
+	return -1
+}
+
+// itemsRouteKind guesses the parent route kind for a given nav item based
+// on its fields, used only for summary sizing inside visibleNavIndex.
+func itemsRouteKind(item navItem) RouteKind {
+	if item.Route != nil {
+		return item.Route.Kind
+	}
+	return RouteProjects
+}
+
+// composeSidebarCell assembles the fully styled cell from the precomputed
+// cell string. Keeping the cell prebuilt lets the per-row loop stay tiny.
+func composeSidebarCell(_ sidebarLine, cell string) string { return cell }
+
+// buildSidebarCell falls back to `line.text` when columns collapse.
+
 func renderPreview(b *strings.Builder, m Model, width int) {
 	preview := m.Preview
 	if preview == nil {
@@ -894,23 +1119,43 @@ func renderPreview(b *strings.Builder, m Model, width int) {
 	}
 	if preview.Content != "" {
 		fmt.Fprintln(b)
-		content := preview.Content
 		if preview.Kind == "markdown" {
-			content = renderMarkdownContent(preview.Content, width)
+			// Markdown previews render once via the global glamour cache
+			// (see markdown.go); here we just write the cached lines.
+			wrap := width - 2
+			if wrap < 20 {
+				wrap = 20
+			}
+			for _, line := range cachedMarkdownLines(preview.Content, wrap) {
+				fmt.Fprintln(b, line)
+			}
+			return
 		}
-		fmt.Fprintln(b, content)
+		fmt.Fprintln(b, preview.Content)
 	}
 }
 
 // fitCell truncates a sidebar cell to the column width so long labels clip
-// instead of wrapping mid-row and breaking the selection column.
+// instead of wrapping mid-row and breaking the selection column. The naive
+// "drop a rune, measure, repeat" loop is O(n²); for a 60-row sidebar that's
+// the difference between snappy and laggy. Bound by rune count first (most
+// display cells are width-1), then refine once for double-width chars.
 func fitCell(text string, width int) string {
+	if width <= 1 {
+		return "…"
+	}
 	if lipgloss.Width(text) <= width {
 		return text
 	}
 	runes := []rune(text)
-	for len(runes) > 0 && lipgloss.Width(string(runes)) > width-1 {
+	if len(runes) >= width {
+		runes = runes[:width-1]
+	}
+	for len(runes) > 0 && lipgloss.Width(string(runes)) >= width {
 		runes = runes[:len(runes)-1]
+	}
+	if len(runes) == 0 {
+		return "…"
 	}
 	return string(runes) + "…"
 }

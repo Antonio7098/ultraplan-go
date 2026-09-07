@@ -19,6 +19,7 @@ const (
 	ActionRight        KeyAction = "right"
 	ActionConfirm      KeyAction = "confirm"
 	ActionCancel       KeyAction = "cancel"
+	ActionCmdline      KeyAction = "cmdline"
 )
 
 func KeyToAction(key string) KeyAction {
@@ -49,11 +50,15 @@ func KeyToAction(key string) KeyAction {
 		return ActionCancel
 	case "enter", "o":
 		return ActionOpen
+	case ":":
+		return ActionCmdline
 	default:
 		return ActionNone
 	}
 }
 
+// Cmdline open/close/toggle semantics mirror neovim's `:`. The mode bar
+// disappears and a single-line input takes its place until Enter or Esc.
 func HelpText() string {
-	return "q quit | tab switch Projects/Studies | w runs | arrows navigate | enter open/confirm | c request cancellation | esc back | r refresh"
+	return "tab switch · w runs · ↑/↓ navigate · enter open · c cancel · esc back · r refresh · :cmd · / label jump"
 }

@@ -241,6 +241,9 @@ func (store QAStore) LoadArbiterEvidenceRequest(attemptID, requestID string) (QA
 	if envelope.AttemptID != attemptID || envelope.Request.ID != requestID {
 		return QAArbiterEvidenceRequest{}, NewQAError(QAErrorInvalidState, "load arbiter evidence request", "request identity does not match its path", nil)
 	}
+	if err := validateQAEvidenceAccounting(envelope.Request); err != nil {
+		return QAArbiterEvidenceRequest{}, err
+	}
 	return envelope.Request, nil
 }
 
@@ -376,6 +379,9 @@ func (store QAStore) publishAuthoredTests(bundle *QAEvidencePublication, attempt
 		if !validQAV2ID(request.ID, "request") || !validQAIDKind(request.OriginShardID, "shard") || len(request.TheoryIDs) == 0 || seenRequests[request.ID] {
 			return NewQAError(QAErrorMalformedEvidence, "publish arbiter evidence request", "invalid or duplicate evidence request", nil)
 		}
+		if err := validateQAEvidenceAccounting(request); err != nil {
+			return err
+		}
 		seenRequests[request.ID] = true
 		path, err := store.resolve(QAArbiterEvidenceRequestRelPath(store.sprint, attemptID, request.ID))
 		if err != nil {
@@ -502,6 +508,27 @@ func (store QAStore) writeAuthoredTest(publication QATestPublication, attemptID 
 func validateRetainedRuntimeIdentity(original QAInvestigatorAttempt, requestProvider, requestModel, requestVariant, runtimeStoreRef, workspaceID, sessionID string) error {
 	if original.SessionID == "" || original.SessionID != sessionID || original.Provider != requestProvider || original.Model != requestModel || original.Variant != requestVariant || original.RuntimeStoreRef != runtimeStoreRef || original.WorkspaceID != workspaceID {
 		return fmt.Errorf("original investigator session identity is unavailable or changed")
+	}
+	return nil
+}
+
+func validateQAEvidenceAccounting(request QAArbiterEvidenceRequest) error {
+	if request.AccountingVersion != 0 && request.AccountingVersion != 2 {
+		return fmt.Errorf("unsupported evidence accounting version")
+	}
+	if request.Attempts < 0 || request.EvidenceRound < 0 || request.PreparationAttempts < 0 || request.InfrastructureRetries < 0 || request.RecoveryAllowance < 0 || request.RecoveryAllowance > 1 {
+		return fmt.Errorf("invalid evidence accounting counters")
+	}
+	if request.RecoveryAllowance != 0 && (request.RecoveryGrantedAt == nil || request.RecoveryGrantedAt.IsZero() || request.RecoveryReason == "" || request.AccountingVersion != 2) {
+		return fmt.Errorf("recovery allowance lacks its audit record")
+	}
+	if len(request.ExecutionAttempts) > 4*(MaximumQABudgets().TestsPerTheory+1) {
+		return fmt.Errorf("execution history exceeds bounded authoring and recovery limits")
+	}
+	for i, attempt := range request.ExecutionAttempts {
+		if attempt.Number != i+1 || attempt.StartedAt.IsZero() || !validQAV2ID(attempt.TestBundleID, "test") || attempt.CompletedAt != nil && attempt.CompletedAt.Before(attempt.StartedAt) {
+			return fmt.Errorf("invalid execution reservation")
+		}
 	}
 	return nil
 }

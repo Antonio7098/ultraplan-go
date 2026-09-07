@@ -20,27 +20,29 @@ import (
 )
 
 type Service struct {
-	root                string
-	store               FSStore
-	now                 func() time.Time
-	runtime             Runtime
-	repairRuntime       Runtime
-	runtimeConfig       pruntime.Request
-	runtimeProgress     func(RuntimeProgress)
-	stageRuntime        map[PlanningStage]StageRuntime
-	verificationRuntime map[VerificationPhase]StageRuntime
-	qaSettings          QASettings
-	qaSettingsErr       error
-	qaWriterFence       func(QAWriterToken) error
-	qaMapFence          func(QAMap) error
-	reviewConcurrency   int
-	processRunner       pprocess.Runner
-	smokeSettings       SmokeSettings
-	mutations           *sync.Map
-	metricsMu           *sync.Mutex
-	statusWrites        bool
-	codeContextTarget   func(string) (ExecuteTargetRef, []ValidationFinding)
-	publisher           gitpublish.Publisher
+	qaRetainedChecks     []qaRetainedCheck
+	qaInfrastructureOnly bool
+	root                 string
+	store                FSStore
+	now                  func() time.Time
+	runtime              Runtime
+	repairRuntime        Runtime
+	runtimeConfig        pruntime.Request
+	runtimeProgress      func(RuntimeProgress)
+	stageRuntime         map[PlanningStage]StageRuntime
+	verificationRuntime  map[VerificationPhase]StageRuntime
+	qaSettings           QASettings
+	qaSettingsErr        error
+	qaWriterFence        func(QAWriterToken) error
+	qaMapFence           func(QAMap) error
+	reviewConcurrency    int
+	processRunner        pprocess.Runner
+	smokeSettings        SmokeSettings
+	mutations            *sync.Map
+	metricsMu            *sync.Mutex
+	statusWrites         bool
+	codeContextTarget    func(string) (ExecuteTargetRef, []ValidationFinding)
+	publisher            gitpublish.Publisher
 }
 
 func (s Service) WithReviewConcurrency(n int) Service { s.reviewConcurrency = n; return s }

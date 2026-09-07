@@ -14,7 +14,7 @@ import (
 
 func qaInvestigatorWorkspaceParent(root, attemptID string) string {
 	scope := hashOpaque(filepath.Clean(root))[:24]
-	return filepath.Join(os.TempDir(), "ultraplan-qa-investigators", scope, attemptID)
+	return filepath.Join(qaRuntimeRoot(), "ultraplan-qa-investigators", scope, attemptID)
 }
 
 func qaInvestigatorWorkspacePath(root, attemptID, shardID string) string {
@@ -24,6 +24,9 @@ func qaInvestigatorWorkspacePath(root, attemptID, shardID string) string {
 // Restore a cleaned workspace at the same path for a retained session. Only
 // the frozen target and validated immutable test bundles may be materialized.
 func restoreQAInvestigatorEvidenceWorkspace(ctx context.Context, root, target string, qaMap QAMap, shard QAShard, tests []QATestPublication) error {
+	if err := validateQARuntimeLocation([]string{root, target}); err != nil {
+		return err
+	}
 	path := qaInvestigatorWorkspacePath(root, qaMap.SemanticAttemptID, shard.ID)
 	if info, err := os.Lstat(path); err == nil {
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
@@ -81,6 +84,9 @@ func restoreQAInvestigatorEvidenceWorkspace(ctx context.Context, root, target st
 }
 
 func prepareQAInvestigatorWorkspace(ctx context.Context, root, target string, qaMap QAMap, shard QAShard) (string, error) {
+	if err := validateQARuntimeLocation([]string{root, target}); err != nil {
+		return "", err
+	}
 	path := qaInvestigatorWorkspacePath(root, qaMap.SemanticAttemptID, shard.ID)
 	limits := pprocess.IsolationLimits{MaxFiles: qaMap.Budgets.TreeFiles, MaxBytes: qaMap.Budgets.TreeBytes, MaxFileSize: qaMap.Budgets.FileBytes, Timeout: qaMap.Budgets.ShardTimeout}
 	if info, err := os.Lstat(path); err == nil {
@@ -96,6 +102,11 @@ func prepareQAInvestigatorWorkspace(ctx context.Context, root, target string, qa
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return "", err
 	}
+	release, err := reserveQAResources(ctx, qaMap.Budgets.TreeBytes, 0)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	workspace, err := pprocess.CreateIsolation(ctx, pprocess.IsolationRequest{SourceRoot: target, ParentDir: qaInvestigatorWorkspaceParent(root, qaMap.SemanticAttemptID), Destination: path, Prefix: shard.ID, ProtectedRoots: []string{root, target}, Limits: limits})
 	if err != nil {
 		category := QAErrorPermissionDenied

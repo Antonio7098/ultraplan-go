@@ -64,7 +64,7 @@ func ensureQAPromotionRequests(qaMap QAMap, arbitration *QAArbitration, shards [
 			if !ok {
 				return fmt.Errorf("promotion candidate references unknown theory %q", id)
 			}
-			request := QAArbiterEvidenceRequest{
+			request := QAArbiterEvidenceRequest{AccountingVersion: qaMap.EvidenceAccountingVersion,
 				ArbiterGroupID: group.ID, OriginShardID: theory.ShardID, TheoryIDs: []string{id},
 				Gap:                 "The theory needs sufficient executable evidence for a final decision: " + theory.Claim,
 				RequestedEvidence:   "Create an executable test of the claim at " + theory.VerificationSurface + ". Exercise the actual claimed entry point. Use a contract or static assertion if behavioral reproduction is unsuitable. Preserve the frozen requirements; report why verification is unavailable if no valid check can be constructed.",
@@ -147,7 +147,14 @@ func qaEvidenceRoundsUsed(shards []QAShard, requests []QAArbiterEvidenceRequest)
 
 func stopQAEvidenceRequest(request *QAArbiterEvidenceRequest, reason string) {
 	request.Status, request.ReasonCode = "inconclusive", reason
-	request.NextAction = "Evidence remains unresolved: " + reason + ". Inspect the retained request and restore its prerequisites before resuming; exhausted budgets require a new governed attempt."
+	request.NextAction = "Evidence remains unresolved: " + reason + ". Inspect the retained diagnostic and required observation."
+	if reason == "infrastructure_retry_budget_exhausted" && request.RecoveryAllowance > 0 {
+		request.NextAction += " The recorded recovery allowance is spent. Correct the prerequisite and start a new governed attempt."
+	} else if qaRetryableReason(reason) || reason == "investigator_workspace_unavailable" || reason == "reproduction_workspace_unavailable" || reason == "infrastructure_retry_budget_exhausted" {
+		request.NextAction += " Restore the prerequisite, then run qa retry-infrastructure for a bounded recovery."
+	} else if strings.Contains(reason, "budget_exhausted") {
+		request.NextAction += " Infrastructure-blocked work may qualify for qa retry-infrastructure; other exhausted work requires a new governed attempt."
+	}
 }
 
 // A later arbitration round may replace an earlier question with a stronger

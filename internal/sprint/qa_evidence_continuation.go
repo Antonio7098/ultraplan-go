@@ -16,14 +16,20 @@ import (
 // continueQAInvestigatorForEvidence grants one bounded write turn to the
 // original investigator session in its original private workspace. It returns
 // only product-snapshotted test files; agent output is never treated as proof.
-func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QAMap, shard QAShard, initial pruntime.Request, original QAInvestigatorAttempt, evidenceRequest QAArbiterEvidenceRequest, spec QAReproductionSpec, previous *QAReproductionRun, round int) (pruntime.Result, []QATestFile, QAInvestigatorAttempt, error) {
-	if round < 1 || round > qaMap.Budgets.EvidenceRoundsPerShard {
+func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QAMap, shard QAShard, initial pruntime.Request, original QAInvestigatorAttempt, evidenceRequest QAArbiterEvidenceRequest, spec QAReproductionSpec, previous *QAReproductionRun, round int, beforeStart ...func() error) (pruntime.Result, []QATestFile, QAInvestigatorAttempt, error) {
+	if round < 1 || round > qaMap.Budgets.EvidenceRoundsPerShard+evidenceRequest.RecoveryAllowance && evidenceRequest.AccountingVersion < 2 {
 		return pruntime.Result{}, nil, QAInvestigatorAttempt{}, NewQAError(QAErrorBudgetExhausted, "continue investigator for evidence", "evidence round budget is exhausted", nil)
 	}
 	if evidenceRequest.OriginShardID != shard.ID || spec.ShardID != shard.ID || spec.AttemptID != qaMap.SemanticAttemptID {
 		return pruntime.Result{}, nil, QAInvestigatorAttempt{}, NewQAError(QAErrorInvalidState, "continue investigator for evidence", "evidence request is routed to the wrong shard", nil)
 	}
 	workspace := qaInvestigatorWorkspacePath(s.root, qaMap.SemanticAttemptID, shard.ID)
+	// Older sessions were created under os.TempDir. The immutable attempt keeps
+	// that identity; permit the deterministic managed-directory relocation only.
+	legacy := filepath.Join(os.TempDir(), "ultraplan-qa-investigators", hashOpaque(filepath.Clean(s.root))[:24], qaMap.SemanticAttemptID, shard.ID)
+	if original.WorkspaceID == hashOpaque(legacy) {
+		original.WorkspaceID = hashOpaque(workspace)
+	}
 	if err := validateRetainedRuntimeIdentity(original, initial.Provider, initial.Model, initial.Metadata["variant"], initial.RuntimeStorePath, hashOpaque(workspace), original.SessionID); err != nil {
 		return pruntime.Result{}, nil, QAInvestigatorAttempt{}, NewQAError(QAErrorRuntimeUnavailable, "continue investigator for evidence", "original_session_unavailable", err)
 	}
@@ -31,7 +37,12 @@ func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QA
 		return pruntime.Result{}, nil, QAInvestigatorAttempt{}, NewQAError(QAErrorRuntimeUnavailable, "continue investigator for evidence", "original_session_unavailable", err)
 	}
 	limits := pprocess.IsolationLimits{MaxFiles: qaMap.Budgets.TreeFiles, MaxBytes: qaMap.Budgets.TreeBytes, MaxFileSize: qaMap.Budgets.FileBytes, Timeout: qaMap.Budgets.AuthoringWallTime}
-	snapshotParent, err := os.MkdirTemp("", "ultraplan-qa-authoring-snapshot-")
+	release, err := reserveQAResources(ctx, qaMap.Budgets.TreeBytes, qaWorkerMemoryReservation())
+	if err != nil {
+		return pruntime.Result{}, nil, QAInvestigatorAttempt{}, err
+	}
+	defer release()
+	snapshotParent, err := qaRuntimeTemp("ultraplan-qa-authoring-snapshot-")
 	if err != nil {
 		return pruntime.Result{}, nil, QAInvestigatorAttempt{}, err
 	}
@@ -57,7 +68,7 @@ func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QA
 			WallTime     string `json:"wall_time"`
 		} `json:"remaining"`
 	}{SchemaVersion: QAEvidenceSchemaVersion, Round: round, Request: evidenceRequest, Theories: append([]QATheory(nil), shard.Theories...), Spec: spec, Previous: previous}
-	packet.Remaining.Rounds = qaMap.Budgets.EvidenceRoundsPerShard - round + 1
+	packet.Remaining.Rounds = max(0, qaMap.Budgets.TestsPerTheory+evidenceRequest.RecoveryAllowance-evidenceRequest.Attempts)
 	packet.Remaining.Files = qaMap.Budgets.AuthoredTestFiles
 	packet.Remaining.Bytes = qaMap.Budgets.AuthoredTestBytes
 	packet.Remaining.Commands = qaMap.Budgets.TestCommandsPerRound
@@ -85,10 +96,15 @@ func (s Service) continueQAInvestigatorForEvidence(ctx context.Context, qaMap QA
 		req.Policy.PathRules = append(req.Policy.PathRules, pruntime.PermissionPathRule{Path: path, Action: "allow"})
 	}
 	sort.Slice(req.Policy.PathRules, func(i, j int) bool { return req.Policy.PathRules[i].Path < req.Policy.PathRules[j].Path })
+	for _, checkpoint := range beforeStart {
+		if err := checkpoint(); err != nil {
+			return pruntime.Result{}, nil, QAInvestigatorAttempt{}, err
+		}
+	}
 	started := s.now().UTC()
 	result, runErr := s.startQARuntime(ctx, qaMap, req)
 	completed := s.now().UTC()
-	attempt := QAInvestigatorAttempt{ID: fmt.Sprintf("%s/evidence/%d", original.ID, round), Number: round + 1, SessionID: result.SessionID, Provider: req.Provider, Model: req.Model, Variant: req.Metadata["variant"], RuntimeStoreRef: result.RuntimeStorePath, WorkspaceID: hashOpaque(workspace), StartedAt: started, CompletedAt: &completed, ImplementationBefore: spec.ImplementationFingerprint, ImplementationAfter: spec.ImplementationFingerprint, Usage: qaUsageSummary(result.Usage), RuntimeEvents: result.EventStats.Total, RetainedEvents: len(result.Events), ObservedToolCalls: qaObservedToolCalls(result.Events), ContextMetrics: qaAttemptContextMetrics(req, result.Events, completed.Sub(started))}
+	attempt := QAInvestigatorAttempt{ID: fmt.Sprintf("%s/evidence/%s/%d", original.ID, evidenceRequest.ID, round), Number: len(shard.Attempts) + 1, SessionID: result.SessionID, Provider: req.Provider, Model: req.Model, Variant: req.Metadata["variant"], RuntimeStoreRef: result.RuntimeStorePath, WorkspaceID: hashOpaque(workspace), StartedAt: started, CompletedAt: &completed, ImplementationBefore: spec.ImplementationFingerprint, ImplementationAfter: spec.ImplementationFingerprint, Usage: qaUsageSummary(result.Usage), RuntimeEvents: result.EventStats.Total, RetainedEvents: len(result.Events), ObservedToolCalls: qaObservedToolCalls(result.Events), ContextMetrics: qaAttemptContextMetrics(req, result.Events, completed.Sub(started))}
 	if attempt.RuntimeStoreRef == "" {
 		attempt.RuntimeStoreRef = req.RuntimeStorePath
 	}

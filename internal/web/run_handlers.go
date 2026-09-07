@@ -383,7 +383,7 @@ func (h *handler) handleRunPage(w http.ResponseWriter, r *http.Request, value st
 }
 
 func isQARunTarget(target app.RunTarget) bool {
-	return target.Operation == string(app.OperationQAStart) || target.Operation == string(app.OperationQAResume)
+	return target.Operation == string(app.OperationQAStart) || target.Operation == string(app.OperationQAResume) || target.Operation == string(app.OperationQARetryInfrastructure)
 }
 
 func (h *handler) newRunQAInsightsView(r *http.Request, snapshot app.RunSnapshot) *runQAInsightsView {

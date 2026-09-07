@@ -145,6 +145,7 @@ func TestArbiterPromptStatesExecutableEvidenceRequestBudget(t *testing.T) {
 	root, _, target, qaMap, _, _, _ := qaRunFixture(t)
 	qaMap.Foundation = &QAFoundation{ID: "foundation", Fingerprint: strings.Repeat("f", 64)}
 	qaMap.Budgets.EvidenceRoundsPerShard = 2
+	qaMap.Budgets.TheoriesPerShard = 5
 	shard := qaMap.Shards[0]
 	theoryID, err := NewQATheoryID(qaMap.Project, qaMap.Sprint, shard.ID, QATheoryIdentity{Claim: "valid input is rejected", Basis: "changed branch", VerificationSurface: "internal/app/usecases.go"})
 	if err != nil {
@@ -161,7 +162,7 @@ func TestArbiterPromptStatesExecutableEvidenceRequestBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt := runtime.requests[0].Prompt
-	for _, want := range []string{"at most 2 requests per origin shard", "executable Go _test.go reproducer", "Do not request another source excerpt", "only supplied theory IDs in reason_refs"} {
+	for _, want := range []string{"at most 5 requests per origin shard", "Prioritize uncovered claims before revisions", "executable Go _test.go reproducer", "Do not request another source excerpt", "only supplied theory IDs in reason_refs"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("arbiter prompt omitted %q", want)
 		}

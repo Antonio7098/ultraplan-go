@@ -21,12 +21,13 @@ import (
 )
 
 type QARunRequest struct {
-	Resume            bool
-	FocusShard        string
-	ModelOverride     string
-	EvidenceProducing bool
-	WriterToken       QAWriterToken
-	Progress          func(QAProgress)
+	InfrastructureOnly bool
+	Resume             bool
+	FocusShard         string
+	ModelOverride      string
+	EvidenceProducing  bool
+	WriterToken        QAWriterToken
+	Progress           func(QAProgress)
 }
 
 type QAProgress struct {
@@ -378,6 +379,9 @@ type qaShardResult struct {
 // this method starts persistence and runtimes only after a valid writer token
 // and the sprint mutation lease have both been acquired.
 func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QARunRequest) (finalResult QARunResult, finalErr error) {
+	if req.InfrastructureOnly && (!req.Resume || !req.EvidenceProducing || req.FocusShard != "" || req.ModelOverride != "") {
+		return QARunResult{}, NewQAError(QAErrorInvalidState, "retry infrastructure", "recovery requires evidence-producing resume without shard or model overrides", nil)
+	}
 	if s.runtime == nil {
 		return QARunResult{}, NewQAError(QAErrorRuntimeUnavailable, "run", "a QA runtime is required", nil)
 	}
@@ -422,6 +426,15 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	if err != nil {
 		return QARunResult{}, err
 	}
+	if req.InfrastructureOnly {
+		prior, loadErr := store.LoadState()
+		if loadErr != nil {
+			return QARunResult{}, loadErr
+		}
+		if prior.Synthesis == nil || prior.Adjudication == nil {
+			return QARunResult{}, NewQAError(QAErrorInvalidState, "retry infrastructure", "a retained adjudicated attempt is required", nil)
+		}
+	}
 	var needsSemanticMapping bool
 	mapResult.Map, needsSemanticMapping, err = qaMapForRun(store, mapResult.Map, req.Resume)
 	if err != nil {
@@ -430,6 +443,12 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 	manifest, findings, err := s.PrepareReview(projectRef, sprintRef, ReviewRequest{})
 	if err != nil || len(findings) > 0 {
 		return QARunResult{}, NewQAError(QAErrorStaleInput, "run", "cannot resolve the current governed target", err)
+	}
+	if err := validateQARuntimeLocation([]string{s.root, manifest.Target}); err != nil {
+		return QARunResult{}, err
+	}
+	if needsSemanticMapping && req.InfrastructureOnly {
+		return QARunResult{}, NewQAError(QAErrorStaleInput, "retry infrastructure", "the frozen map is unavailable; recovery cannot remap", nil)
 	}
 	if needsSemanticMapping {
 		mapResult.Map, err = s.refineQAMapSemantically(lockedCtx, mapResult.Map, manifest.Target)
@@ -473,7 +492,10 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 		return QARunResult{}, err
 	}
 	emitQA(req.Progress, QAProgress{Phase: QAPhaseRunning, Event: "investigation_started", Completed: state.CompletedShards, Total: state.TotalShards, Message: "QA investigation started"})
-	shards, state, runErr := s.runQAShardBatch(runCtx, store, flow, mapResult.Map, manifest.Target, shards, state, req)
+	var runErr error
+	if !req.InfrastructureOnly {
+		shards, state, runErr = s.runQAShardBatch(runCtx, store, flow, mapResult.Map, manifest.Target, shards, state, req)
+	}
 	if runErr != nil {
 		state = terminalQAState(state, runErr, s.now().UTC())
 		if publishErr := store.Publish(QAPublication{State: state, Flow: flow}, req.WriterToken); publishErr != nil {
@@ -504,6 +526,34 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 		}
 		shards = applyRetainedQAReproductionOutcomes(shards, authoredTests)
 	}
+	var recoveryAffected map[string]bool
+	if req.InfrastructureOnly {
+		s.qaRetainedChecks, err = loadQARetainedChecks(store, mapResult.Map)
+		if err != nil {
+			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
+		}
+		s.qaInfrastructureOnly = true
+		active := grantQAInfrastructureRecovery(arbiterEvidenceRequests, authoredTests, s.now().UTC())
+		checkpoint := func(current []QAShard, tests []QATestPublication, requests []QAArbiterEvidenceRequest) error {
+			bundle := QAEvidencePublication{Budgets: mapResult.Map.Budgets, InvestigatorTests: tests, EvidenceRequests: requests}
+			return store.Publish(QAPublication{Shards: current, State: state, Flow: flow, Evidence: &bundle}, req.WriterToken)
+		}
+		if err := checkpoint(shards, authoredTests, arbiterEvidenceRequests); err != nil {
+			return QARunResult{}, err
+		}
+		var recovered []QATestPublication
+		shards, recovered, _, err = s.strengthenQARequestedEvidence(runCtx, mapResult.Map, manifest.Target, shards, arbiterEvidenceRequests, active, authoredTests, checkpoint)
+		if err != nil {
+			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
+		}
+		authoredTests = mergeQATestPublications(authoredTests, recovered)
+		recoveryAffected = map[string]bool{}
+		for _, test := range recovered {
+			for _, id := range test.Spec.TheoryIDs {
+				recoveryAffected[id] = true
+			}
+		}
+	}
 	var previousArbitration *QAArbitration
 	var affectedTheories map[string]bool
 	retainedArbiterGroups, err := store.LoadLatestArbiterSessionGroups(mapResult.Map.SemanticAttemptID)
@@ -527,12 +577,28 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 			}
 		}
 	}
+	if req.InfrastructureOnly {
+		affectedTheories = recoveryAffected
+	}
 	for {
-		arbitration, arbitrationErr := s.arbitrateQAAffected(runCtx, mapResult.Map, shards, manifest.Target, previousArbitration, affectedTheories)
+		var arbitration QAArbitration
+		var arbitrationErr error
+		if req.InfrastructureOnly && len(recoveryAffected) == 0 {
+			previous, loadErr := store.LoadSynthesis(mapResult.Map.SemanticAttemptID, mapResult.Map.Budgets)
+			if loadErr != nil {
+				arbitrationErr = loadErr
+			} else if previous.Arbitration == nil {
+				arbitrationErr = NewQAError(QAErrorInvalidState, "retry infrastructure", "retained arbitration is unavailable", nil)
+			} else {
+				arbitration = *previous.Arbitration
+			}
+		} else {
+			arbitration, arbitrationErr = s.arbitrateQAAffected(runCtx, mapResult.Map, shards, manifest.Target, previousArbitration, affectedTheories)
+		}
 		if arbitrationErr != nil {
 			return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, arbitrationErr)
 		}
-		if req.EvidenceProducing {
+		if req.EvidenceProducing && !req.InfrastructureOnly {
 			if err := ensureQAPromotionRequests(mapResult.Map, &arbitration, shards, authoredTests); err != nil {
 				return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, err)
 			}
@@ -543,7 +609,7 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 		if len(arbitration.EvidenceRequests) > 0 {
 			linkQAReplacementRequests(arbiterEvidenceRequests, arbitration.EvidenceRequests)
 			arbiterEvidenceRequests = appendUniqueQAArbiterEvidenceRequests(arbiterEvidenceRequests, arbitration.EvidenceRequests)
-			if req.EvidenceProducing {
+			if req.EvidenceProducing && !req.InfrastructureOnly {
 				var roundTests []QATestPublication
 				var progressed bool
 				activeRequests := map[string]bool{}
@@ -555,7 +621,7 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 					return store.Publish(QAPublication{Shards: currentShards, State: state, Flow: flow, Evidence: &bundle}, req.WriterToken)
 				}
 				shards, roundTests, progressed, arbitrationErr = s.strengthenQARequestedEvidence(runCtx, mapResult.Map, manifest.Target, shards, arbiterEvidenceRequests, activeRequests, authoredTests, checkpoint)
-				authoredTests = append(authoredTests, roundTests...)
+				authoredTests = mergeQATestPublications(authoredTests, roundTests)
 				if arbitrationErr != nil {
 					return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, arbitrationErr)
 				}
@@ -579,7 +645,9 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 			if settingsErr != nil {
 				return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, settingsErr)
 			}
-			arbitration.Issues, arbitration.Reconciliation, arbitrationErr = s.reconcileQAArbiterIssues(runCtx, mapResult.Map, provisional, manifest.Target, settings)
+			if !req.InfrastructureOnly || len(recoveryAffected) > 0 {
+				arbitration.Issues, arbitration.Reconciliation, arbitrationErr = s.reconcileQAArbiterIssues(runCtx, mapResult.Map, provisional, manifest.Target, settings)
+			}
 			if arbitrationErr != nil {
 				return s.publishTerminalQAFailure(store, flow, mapResult.Map, shards, state, req.WriterToken, arbitrationErr)
 			}
@@ -594,7 +662,7 @@ func (s Service) RunQA(ctx context.Context, projectRef, sprintRef string, req QA
 			return s.publishTerminalQAFailureWithSynthesis(store, flow, mapResult.Map, shards, synthesis, state, req.WriterToken, err)
 		}
 		follow := pendingQASynthesisFollowUps(synthesis, shards, mapResult.Map.Budgets.FollowUpShards)
-		if len(follow) == 0 {
+		if len(follow) == 0 || req.InfrastructureOnly {
 			break
 		}
 		state.TotalShards += len(follow)
@@ -775,7 +843,7 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, err
 	}
-	workspaceParent, err := os.MkdirTemp("", "ultraplan-qa-evidence-")
+	workspaceParent, err := qaRuntimeTemp("ultraplan-qa-evidence-")
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, NewQAError(QAErrorPermissionDenied, "admission", "cannot create the private QA workspace parent", err)
 	}
@@ -927,6 +995,12 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 				Target     string
 			}{descriptor, approvedPaths, targetTreeIdentity.Digest})
 			record, reused := executedChecks[checkKey]
+			if !reused && s.qaInfrastructureOnly {
+				record, reused = retainedQACheckForPlan(s.qaRetainedChecks, plan)
+				if !reused {
+					return QAEvidencePublication{}, QAAssessmentRecord{}, qaRecoveryMissingCheck(plan)
+				}
+			}
 			if reused {
 				record, planErr = cloneQAEvidenceForPlan(sp, record, plan)
 				if planErr != nil {
@@ -992,17 +1066,21 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 		return QAEvidencePublication{}, QAAssessmentRecord{}, err
 	}
 	issueCoverage := buildQAIssueEvidenceCoverage(adjudication, reconciledIssues, authoredTests, authoredEvidenceByBundle)
-	var evidenceRequestBlockers []QABlocker
-	for _, request := range evidenceRequests {
-		if request.Status == "evidence_recorded" || request.Status == "superseded" {
-			continue
+	evidenceRequestBlockers, historicalBlockers := qaRequestBlockers(evidenceRequests)
+	theoryCoverage := map[string][]string{}
+	for _, candidate := range candidates {
+		for _, id := range candidate.TheoryIDs {
+			theoryCoverage[id] = nil
 		}
-		next := strings.TrimSpace(request.NextAction)
-		if next == "" {
-			next = "Return the request to the original investigator and record a valid authored-test run."
-		}
-		evidenceRequestBlockers = append(evidenceRequestBlockers, QABlocker{Category: QAErrorMalformedEvidence, Scope: request.ID, Summary: "arbiter evidence request is unresolved", NextAction: next})
 	}
+	for _, test := range authoredTests {
+		if qaUsableReproduction(qaMap, test) && test.Runs[len(test.Runs)-1].Outcome == QAEvidenceFail {
+			for _, id := range test.Spec.TheoryIDs {
+				theoryCoverage[id] = append(theoryCoverage[id], test.Bundle.ID+" / "+test.Spec.PredictedFailure.TestName)
+			}
+		}
+	}
+
 	assessmentValue, nextAction := DeriveQAAssessment(status.Review, records, adjudication, evidenceRequestBlockers)
 	assessmentID, err := NewQAV2ID("assessment", sp.Project, sp.Slug, qaMap.SemanticAttemptID, struct {
 		Assessment OverallAssessment
@@ -1013,7 +1091,7 @@ func (s Service) buildQAEvidencePublicationAdmitted(ctx context.Context, sp Spri
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, err
 	}
-	assessment := QAAssessmentRecord{SchemaVersion: QAEvidenceSchemaVersion, ID: assessmentID, AttemptID: qaMap.SemanticAttemptID, ReviewVerdict: ReviewVerdict(status.Review.Verdict), ReviewFingerprint: status.Review.InputFingerprint, Assessment: assessmentValue, EvidenceTotal: len(records), RejectedTotal: len(adjudication.Rejected), CandidateTotal: len(adjudication.Issues) + len(adjudication.Unpromoted), UnpromotedTotal: len(adjudication.Unpromoted), IssueTotal: len(adjudication.Issues), Blockers: evidenceRequestBlockers, NextAction: nextAction, CompletedAt: s.now().UTC()}
+	assessment := QAAssessmentRecord{HistoricalBlockers: historicalBlockers, RequestTheoryCoverage: theoryCoverage, SchemaVersion: QAEvidenceSchemaVersion, ID: assessmentID, AttemptID: qaMap.SemanticAttemptID, ReviewVerdict: ReviewVerdict(status.Review.Verdict), ReviewFingerprint: status.Review.InputFingerprint, Assessment: assessmentValue, EvidenceTotal: len(records), RejectedTotal: len(adjudication.Rejected), CandidateTotal: len(adjudication.Issues) + len(adjudication.Unpromoted), UnpromotedTotal: len(adjudication.Unpromoted), IssueTotal: len(adjudication.Issues), Blockers: evidenceRequestBlockers, NextAction: nextAction, CompletedAt: s.now().UTC()}
 	report, err := RenderQAReport(sp.Project, sp.Slug, qaMap.GovernedInputFingerprint, records, adjudication, assessment)
 	if err != nil {
 		return QAEvidencePublication{}, QAAssessmentRecord{}, err
@@ -1106,6 +1184,9 @@ func buildQAIssueEvidenceCoverage(adjudication QAAdjudication, arbiterIssues []Q
 }
 
 func cloneQAEvidenceForPlan(sp Sprint, source QAEvidenceRecord, plan QAEvidencePlan) (QAEvidenceRecord, error) {
+	if source.PlanID == plan.ID {
+		return source, nil
+	}
 	record := source
 	record.ID = ""
 	record.PlanID, record.AttemptID, record.ShardID = plan.ID, plan.AttemptID, plan.ShardID
@@ -1257,10 +1338,28 @@ func (s Service) prepareQAAttempt(store QAStore, flow FlowState, qaMap QAMap, re
 			if retainedErr != nil {
 				return QAState{}, nil, retainedErr
 			}
+			if req.InfrastructureOnly && prior.Synthesis != nil {
+				synthesis, loadErr := store.LoadSynthesis(qaMap.SemanticAttemptID, qaMap.Budgets)
+				if loadErr != nil {
+					return QAState{}, nil, loadErr
+				}
+				known := map[string]bool{}
+				for _, shard := range shards {
+					known[shard.ID] = true
+				}
+				for _, shard := range synthesis.FollowUpShards {
+					if !known[shard.ID] {
+						shards = append(shards, shard)
+					}
+				}
+			}
 			retrying := false
 			for i := range shards {
 				loaded, loadErr := store.LoadShard(qaMap.SemanticAttemptID, shards[i].ID)
-				if loadErr == nil && (loaded.Phase == QAPhaseCompleted || loaded.Phase == QAPhaseBlocked && !retryableQAShardBlocker(loaded.Blocker)) {
+				if req.InfrastructureOnly && loadErr != nil {
+					return QAState{}, nil, loadErr
+				}
+				if loadErr == nil && (req.InfrastructureOnly || loaded.Phase == QAPhaseCompleted || loaded.Phase == QAPhaseBlocked && !retryableQAShardBlocker(loaded.Blocker)) {
 					shards[i] = loaded
 				} else {
 					retrying = true
@@ -1370,7 +1469,12 @@ func (s Service) runQAShardBatch(ctx context.Context, store QAStore, flow FlowSt
 		go func() {
 			defer group.Done()
 			for index := range jobs {
-				shard, err := s.runOneQAShardInWorkspaceSafely(batchCtx, qaMap, shards[index], target, workspaces[index], req.WriterToken)
+				release, admissionErr := reserveQAResources(batchCtx, 0, qaWorkerMemoryReservation())
+				shard, err := shards[index], admissionErr
+				if admissionErr == nil {
+					shard, err = s.runOneQAShardInWorkspaceSafely(batchCtx, qaMap, shards[index], target, workspaces[index], req.WriterToken)
+					release()
+				}
 				select {
 				case results <- qaShardResult{shard: shard, err: err}:
 				case <-abortResults:

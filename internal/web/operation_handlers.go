@@ -718,6 +718,8 @@ func mapOperationRequest(spec operationSpecRequest) (app.OperationRequest, error
 	case "qa-resume":
 		req.Kind = app.OperationQAResume
 		req.Task = options.Shard
+	case "qa-retry-infrastructure":
+		req.Kind = app.OperationQARetryInfrastructure
 	case "qa-recover":
 		req.Kind = app.OperationQARecover
 	case "qa-replay-adjudication":

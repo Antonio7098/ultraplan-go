@@ -77,17 +77,23 @@ type QATestBundle struct {
 }
 
 type QAReproductionRun struct {
-	SchemaVersion  int                `json:"schema_version"`
-	ID             string             `json:"id"`
-	SpecID         string             `json:"spec_id"`
-	TestBundleID   string             `json:"test_bundle_id"`
-	TargetIdentity string             `json:"target_identity"`
-	Result         QACommandResult    `json:"result"`
-	Signature      QAFailureSignature `json:"failure_signature"`
-	Outcome        QAEvidenceOutcome  `json:"outcome"`
-	ReasonCode     string             `json:"reason_code"`
-	Cleanup        QACleanupFacts     `json:"cleanup"`
-	CompletedAt    time.Time          `json:"completed_at"`
+	ObservedOutcome    QAEvidenceOutcome    `json:"observed_outcome,omitempty"`
+	ObservedReasonCode string               `json:"observed_reason_code,omitempty"`
+	Failure            *QAFailureDiagnostic `json:"failure,omitempty"`
+	CleanupFailure     *QAFailureDiagnostic `json:"cleanup_failure,omitempty"`
+	Toolchain          string               `json:"toolchain,omitempty"`
+	DependencyCache    string               `json:"dependency_cache,omitempty"`
+	SchemaVersion      int                  `json:"schema_version"`
+	ID                 string               `json:"id"`
+	SpecID             string               `json:"spec_id"`
+	TestBundleID       string               `json:"test_bundle_id"`
+	TargetIdentity     string               `json:"target_identity"`
+	Result             QACommandResult      `json:"result"`
+	Signature          QAFailureSignature   `json:"failure_signature"`
+	Outcome            QAEvidenceOutcome    `json:"outcome"`
+	ReasonCode         string               `json:"reason_code"`
+	Cleanup            QACleanupFacts       `json:"cleanup"`
+	CompletedAt        time.Time            `json:"completed_at"`
 }
 
 type QAIssueEvidenceCoverage struct {
@@ -137,22 +143,25 @@ type QAEvidencePlan struct {
 }
 
 type QACommandResult struct {
-	Executable       string        `json:"executable"`
-	ArgsDigest       string        `json:"args_digest"`
-	ExitCode         int           `json:"exit_code"`
-	Duration         time.Duration `json:"duration"`
-	StdoutDigest     string        `json:"stdout_digest,omitempty"`
-	StderrDigest     string        `json:"stderr_digest,omitempty"`
-	Stdout           string        `json:"stdout,omitempty"`
-	Stderr           string        `json:"stderr,omitempty"`
-	OutputBytes      int           `json:"output_bytes"`
-	Truncated        bool          `json:"truncated"`
-	Redacted         bool          `json:"redacted"`
-	RedactionCount   int           `json:"redaction_count,omitempty"`
-	TimedOut         bool          `json:"timed_out"`
-	Cancelled        bool          `json:"cancelled"`
-	CleanupAttempted bool          `json:"cleanup_attempted"`
-	CleanupComplete  bool          `json:"cleanup_complete"`
+	DiagnosticsVersion int           `json:"diagnostics_version,omitempty"`
+	TestEvents         []QATestEvent `json:"test_events,omitempty"`
+	MatchedMarker      string        `json:"matched_marker,omitempty"`
+	Executable         string        `json:"executable"`
+	ArgsDigest         string        `json:"args_digest"`
+	ExitCode           int           `json:"exit_code"`
+	Duration           time.Duration `json:"duration"`
+	StdoutDigest       string        `json:"stdout_digest,omitempty"`
+	StderrDigest       string        `json:"stderr_digest,omitempty"`
+	Stdout             string        `json:"stdout,omitempty"`
+	Stderr             string        `json:"stderr,omitempty"`
+	OutputBytes        int           `json:"output_bytes"`
+	Truncated          bool          `json:"truncated"`
+	Redacted           bool          `json:"redacted"`
+	RedactionCount     int           `json:"redaction_count,omitempty"`
+	TimedOut           bool          `json:"timed_out"`
+	Cancelled          bool          `json:"cancelled"`
+	CleanupAttempted   bool          `json:"cleanup_attempted"`
+	CleanupComplete    bool          `json:"cleanup_complete"`
 }
 
 type QAModelObservation struct {
@@ -272,22 +281,24 @@ type QARepairAssignment struct {
 }
 
 type QAAssessmentRecord struct {
-	SchemaVersion     int               `json:"schema_version"`
-	ID                string            `json:"id"`
-	AttemptID         string            `json:"attempt_id"`
-	ReviewVerdict     ReviewVerdict     `json:"review_verdict"`
-	ReviewFingerprint string            `json:"review_fingerprint"`
-	SmokeVerdict      SmokeVerdict      `json:"smoke_verdict,omitempty"`
-	SmokeRunID        string            `json:"smoke_run_id,omitempty"`
-	Assessment        OverallAssessment `json:"assessment"`
-	EvidenceTotal     int               `json:"evidence_total"`
-	RejectedTotal     int               `json:"rejected_total"`
-	CandidateTotal    int               `json:"candidate_total,omitempty"`
-	UnpromotedTotal   int               `json:"unpromoted_total,omitempty"`
-	IssueTotal        int               `json:"issue_total"`
-	Blockers          []QABlocker       `json:"blockers,omitempty"`
-	NextAction        string            `json:"next_action"`
-	CompletedAt       time.Time         `json:"completed_at"`
+	HistoricalBlockers    []QABlocker         `json:"historical_blockers,omitempty"`
+	RequestTheoryCoverage map[string][]string `json:"request_theory_coverage,omitempty"`
+	SchemaVersion         int                 `json:"schema_version"`
+	ID                    string              `json:"id"`
+	AttemptID             string              `json:"attempt_id"`
+	ReviewVerdict         ReviewVerdict       `json:"review_verdict"`
+	ReviewFingerprint     string              `json:"review_fingerprint"`
+	SmokeVerdict          SmokeVerdict        `json:"smoke_verdict,omitempty"`
+	SmokeRunID            string              `json:"smoke_run_id,omitempty"`
+	Assessment            OverallAssessment   `json:"assessment"`
+	EvidenceTotal         int                 `json:"evidence_total"`
+	RejectedTotal         int                 `json:"rejected_total"`
+	CandidateTotal        int                 `json:"candidate_total,omitempty"`
+	UnpromotedTotal       int                 `json:"unpromoted_total,omitempty"`
+	IssueTotal            int                 `json:"issue_total"`
+	Blockers              []QABlocker         `json:"blockers,omitempty"`
+	NextAction            string              `json:"next_action"`
+	CompletedAt           time.Time           `json:"completed_at"`
 }
 
 type QAAdmission struct {

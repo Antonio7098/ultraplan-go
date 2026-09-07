@@ -130,7 +130,7 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 			if e != nil {
 				return failedOperation(result, e)
 			}
-		case OperationQAStart, OperationQAResume:
+		case OperationQAStart, OperationQAResume, OperationQARetryInfrastructure:
 			token, fence, e := qaOwnershipFromContext(ctx)
 			if e != nil {
 				return failedOperation(result, e)
@@ -140,7 +140,7 @@ func sharedOperationRunner(deps dependencies, root workspace.Root, effective con
 				return failedOperation(result, e)
 			}
 			service = service.WithQAWriterFence(fence)
-			r, e := service.RunQA(ctx, req.Project, req.Sprint, sprint.QARunRequest{Resume: req.Kind == OperationQAResume, FocusShard: req.Task, ModelOverride: req.Model, EvidenceProducing: true, WriterToken: token, Progress: func(progress sprint.QAProgress) {
+			r, e := service.RunQA(ctx, req.Project, req.Sprint, sprint.QARunRequest{Resume: req.Kind == OperationQAResume || req.Kind == OperationQARetryInfrastructure, InfrastructureOnly: req.Kind == OperationQARetryInfrastructure, FocusShard: req.Task, ModelOverride: req.Model, EvidenceProducing: true, WriterToken: token, Progress: func(progress sprint.QAProgress) {
 				emit(OperationEvent{State: OperationRunning, Stage: string(progress.Phase), Task: progress.ShardID, Message: progress.Message, Action: progress.Event, Reason: string(progress.ShardPhase), Detail: string(progress.ShardKind), Completed: progress.Completed, Total: progress.Total})
 			}})
 			result.Message = fmt.Sprintf("phase=%s shards=%d/%d next=%s", r.State.Phase, r.State.CompletedShards, r.State.TotalShards, r.State.NextAction)
